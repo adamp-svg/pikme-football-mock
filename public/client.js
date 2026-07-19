@@ -3,7 +3,7 @@
 
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
-  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, clamp,
+  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, MATCH_DURATION, clamp,
 } from '/shared/constants.js';
 
 const INPUT_RATE = 30;         // inputs sent per second (matches server tick)
@@ -221,6 +221,8 @@ function resetPlayNow() {
 // --------------------------------------------------------------------------
 // Networking
 // --------------------------------------------------------------------------
+let pingIv = null;        // ping interval for the current socket (cleared on close)
+let reconnectT = null;    // pending auto-reconnect timer
 function connect(name, avatar) {
   // wss when the page is served over https (Render), ws for local dev.
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -228,9 +230,22 @@ function connect(name, avatar) {
   ws.onopen = () => {
     setNet('connected');
     ws.send(JSON.stringify({ type: 'join', name, avatar }));
-    setInterval(sendPing, 1500);
+    if (pingIv) clearInterval(pingIv);
+    pingIv = setInterval(sendPing, 1500);
   };
-  ws.onclose = () => setNet('disconnected');
+  // If the socket drops (network / server restart / WebView backgrounding), the
+  // game would otherwise freeze forever — so fall back to the lobby and retry.
+  ws.onclose = () => {
+    setNet('reconnecting…');
+    if (pingIv) { clearInterval(pingIv); pingIv = null; }
+    me = { playerId: null, team: null, char: chosenChar };
+    latest = null; snaps = []; predicted = null; rendered = null;
+    if (!startEl.classList.contains('hidden')) return; // still on the title screen
+    gameEl.classList.add('hidden');
+    lobbyEl.classList.remove('hidden');
+    resetPlayNow();
+    if (!reconnectT) reconnectT = setTimeout(() => { reconnectT = null; connect(name, avatar); }, 1500);
+  };
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'welcome') {
@@ -1103,9 +1118,12 @@ function drawHUD() {
   const myScore = latest.score[myT], opScore = latest.score[opT];
   document.getElementById('scoreA').textContent = myScore;
   document.getElementById('scoreB').textContent = opScore;
-  const t = latest.elapsed || 0;
-  const m = Math.floor(t / 60), s = t % 60;
-  document.getElementById('timer').textContent = `${m}:${String(s).padStart(2, '0')}`;
+  // Match clock counts DOWN to 0:00, then the match ends.
+  const remain = Math.max(0, Math.ceil(MATCH_DURATION - (latest.elapsed || 0)));
+  const m = Math.floor(remain / 60), s = remain % 60;
+  const timerEl = document.getElementById('timer');
+  timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
+  timerEl.classList.toggle('urgent', remain <= 10 && latest.phase !== 'ended');
   document.getElementById('net').textContent = `${ping}ms · ${snapRate}/s`;
 
   const banner = document.getElementById('banner');

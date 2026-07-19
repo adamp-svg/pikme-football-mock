@@ -199,8 +199,17 @@ function goal(state, team) {
 // One authoritative step. `inputs` is a map: playerId -> input.
 // input = { seq, moveX, moveY, aimX, aimY, kick }
 export function step(state, inputs, dt) {
-  // Endless match — just tally elapsed time; it never ends.
   state.elapsed += dt;
+
+  // Match clock: at MATCH_DURATION the match ends. Play freezes; the room
+  // returns to the lobby after a short hold (handled by the server).
+  if (state.phase === 'playing' && state.elapsed >= MATCH_DURATION) {
+    state.phase = 'ended';
+  }
+  if (state.phase === 'ended') {
+    state.tick++;
+    return; // frozen final state, kept broadcasting for the end screen
+  }
 
   // Kickoff freeze: bodies are still, but we still record last input seq so
   // client reconciliation stays consistent.

@@ -285,3 +285,5 @@ html, body {
 .team-join.current { background: var(--gold); color: #2a1c06; border-color: #a56a16; }
 .vs { align-self: center; color: #8aa08c; font: 900 16px "Arial Black", sans-serif; }
 .member-row.is-me { outline: 2px solid var(--gold); }
+
+.timer.urgent { color: #ff5a4d; }

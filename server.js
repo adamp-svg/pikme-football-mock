@@ -70,6 +70,7 @@ const members = new Map();          // ws -> member (a connected client)
 const inputs = new Map();           // sim playerId -> latest input (humans in-match + bots)
 let roomPhase = 'lobby';            // 'lobby' | 'countdown' | 'match'
 let countdownT = 0;                 // seconds left in the pre-match countdown
+let endHoldT = 0;                   // seconds elapsed on the end-of-match screen
 let botCounter = 0;
 let memberCounter = 0;
 let msgErrCount = 0, tickErrCount = 0, bcErrCount = 0;
@@ -258,6 +259,7 @@ function startMatch() {
 
   fillBots();
   attachBall(state, Math.random() < 0.5 ? 'A' : 'B');
+  endHoldT = 0;
   roomPhase = 'match';
   broadcastLobby();
 }
@@ -266,6 +268,7 @@ function startMatch() {
 function backToLobby() {
   roomPhase = 'lobby';
   countdownT = 0;
+  endHoldT = 0;
   for (const m of members.values()) { m.inMatch = false; m.ready = false; m.afk = false; }
   state = createState();
   inputs.clear();
@@ -328,7 +331,12 @@ function tick() {
     // Clear one-shot action flags so a held input doesn't re-fire every tick.
     for (const inp of inputs.values()) { inp.shoot = false; inp.special = false; inp.charge = 0; }
 
-    if (humansInMatch() === 0) backToLobby();
+    if (state.phase === 'ended') {
+      endHoldT += DT; // show the final score, then everyone back to the lobby
+      if (endHoldT >= ENDED_HOLD) backToLobby();
+    } else if (humansInMatch() === 0) {
+      backToLobby();
+    }
   } catch (e) {
     if (tickErrCount++ < 5) console.error('TICK ERROR:', (e && e.stack) || e);
   }

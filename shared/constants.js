@@ -42,10 +42,10 @@ export function chargeMul(frac) {
 export const BULLET_MIN_DIST = 50;
 export const BULLET_FULL_DIST = 300;
 
-export const MATCH_DURATION = 120; // seconds (unused — endless match)
+export const MATCH_DURATION = 120; // seconds — match ends and returns to lobby
 export const KICKOFF_FREEZE = 0.7; // brief reset pause at match start
 export const GOAL_RESET = 3;       // post-goal countdown (3..2..1) before play resumes
-export const ENDED_HOLD = 8; // unused (endless match)
+export const ENDED_HOLD = 6; // seconds the final score shows before returning to lobby
 
 // One player type. `speed`/`radius` are live-tunable via settings multipliers.
 //   Holding the ball: it sticks to you; SHOOT releases/passes it.
