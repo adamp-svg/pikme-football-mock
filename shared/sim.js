@@ -34,6 +34,7 @@ export function createState() {
     projectiles: [], // bullets
     bombs: [], // planted bombs (fusing)
     blasts: [], // short-lived explosion visuals
+    impacts: [], // short-lived bullet collision events for synchronized VFX
     settings: defaultSettings(), // live-tunable from the pause menu
     _nid: 1, // entity id counter
   };
@@ -98,6 +99,7 @@ function resetPositions(state, ballTeam) {
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null };
   state.projectiles = [];
   state.bombs = [];
+  state.impacts = [];
   if (ballTeam) attachBall(state, ballTeam);
   state.resetTimer = KICKOFF_FREEZE;
 }
@@ -317,6 +319,7 @@ export function step(state, inputs, dt) {
   updateProjectiles(state, dt);
   updateBombs(state, dt);
   updateBlasts(state, dt);
+  updateImpacts(state, dt);
 
   // Goals only count for a free (unheld) ball.
   const scored = state.ball.owner ? undefined : handleBallBounds(state);
@@ -359,8 +362,12 @@ function updateProjectiles(state, dt) {
   for (const pr of state.projectiles) {
     pr.x += pr.vx * dt;
     pr.y += pr.vy * dt;
-    // Fly on until it leaves the field (hits a wall) — no lifetime expiry.
-    if (pr.x < 0 || pr.x > FIELD.W || pr.y < 0 || pr.y > FIELD.H) continue;
+    // Fly on until it leaves the field. Emit an authoritative wall impact so
+    // every client sees the same collision instead of guessing from despawn.
+    if (pr.x < 0 || pr.x > FIELD.W || pr.y < 0 || pr.y > FIELD.H) {
+      addImpact(state, pr, 'wall', clamp(pr.x, 0, FIELD.W), clamp(pr.y, 0, FIELD.H));
+      continue;
+    }
 
     // A LOOSE ball is nudged by any bullet. A HELD ball is transparent here —
     // only a full-power hit on the CARRIER (below) can knock it loose.
@@ -371,6 +378,7 @@ function updateProjectiles(state, dt) {
         b.lastTouch = pr.team; b.pickupCd = RELEASE_PICKUP_CD;
         b.vx = (pr.vx / l) * PROJECTILE.ballPush * pr.cmul;
         b.vy = (pr.vy / l) * PROJECTILE.ballPush * pr.cmul;
+        addImpact(state, pr, 'ball', b.x, b.y);
         continue; // consume the bullet
       }
     }
@@ -382,6 +390,7 @@ function updateProjectiles(state, dt) {
       if (t.id === pr.owner || t.team === pr.team) continue;
       const rad = radiusOf(t, state);
       if (Math.hypot(t.x - pr.x, t.y - pr.y) < PROJECTILE.radius + rad) {
+        addImpact(state, pr, 'player', pr.x, pr.y, t.id);
         hitEnemy(state, t, pr);
         consumed = true;
         break;
@@ -391,6 +400,17 @@ function updateProjectiles(state, dt) {
   }
   // Safety cap so bullets can never pile up unbounded.
   state.projectiles = keep.length > 50 ? keep.slice(keep.length - 50) : keep;
+}
+
+function addImpact(state, pr, type, x, y, target = null) {
+  const speed = Math.hypot(pr.vx, pr.vy) || 1;
+  const life = type === 'player' ? 0.34 : 0.28;
+  state.impacts.push({
+    id: state._nid++, type, target, x, y,
+    dx: pr.vx / speed, dy: pr.vy / speed,
+    team: pr.team, life, maxLife: life,
+  });
+  if (state.impacts.length > 30) state.impacts.splice(0, state.impacts.length - 30);
 }
 
 // A bullet hits enemy `t`. Effect depends on the shot's charge:
@@ -467,4 +487,9 @@ function explode(state, bomb) {
 function updateBlasts(state, dt) {
   for (const bl of state.blasts) bl.life -= dt;
   state.blasts = state.blasts.filter((bl) => bl.life > 0);
+}
+
+function updateImpacts(state, dt) {
+  for (const impact of state.impacts) impact.life -= dt;
+  state.impacts = state.impacts.filter((impact) => impact.life > 0);
 }

@@ -323,6 +323,7 @@ function snapshot() {
   const players = Object.values(state.players).map((p) => ({
     id: p.id, name: p.name, char: p.char, team: p.team,
     x: r1(p.x), y: r1(p.y),
+    vx: r1(p.vx + p.kvx), vy: r1(p.vy + p.kvy),
     aimX: Math.round(p.aimX * 100) / 100, aimY: Math.round(p.aimY * 100) / 100,
     firing: p.firing, lastSeq: p.lastSeq,
     ammo: p.ammo, reloading: p.reloadLock > 0,
@@ -344,6 +345,11 @@ function snapshot() {
     projectiles: state.projectiles.map((p) => ({ id: p.id, x: r1(p.x), y: r1(p.y), team: p.team })),
     bombs: state.bombs.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), team: b.team, fuse: Math.round(b.fuse * 100) / 100 })),
     blasts: state.blasts.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), radius: b.radius, life: b.life, maxLife: b.maxLife })),
+    impacts: state.impacts.map((i) => ({
+      id: i.id, type: i.type, target: i.target, team: i.team,
+      x: r1(i.x), y: r1(i.y), dx: i.dx, dy: i.dy,
+      life: i.life, maxLife: i.maxLife,
+    })),
   };
 }
 

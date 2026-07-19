@@ -63,6 +63,9 @@ let soundEventsReady = false;
 let previousBallOwner = null;
 let previousResetTimer = 0;
 let knownBlasts = new Set();
+let knownImpacts = new Set();
+let screenShakeUntil = 0;
+let screenShakeStrength = 0;
 let lastStepAt = 0;
 let lastStepPos = null;
 let stepVariant = 0;
@@ -115,6 +118,7 @@ function playSound(name, volume = 1, rate = 1) {
 
 function processSnapshotSounds(snap) {
   const blastIds = new Set((snap.blasts || []).map((b) => b.id));
+  const impactIds = new Set((snap.impacts || []).map((i) => i.id));
   if (soundEventsReady) {
     if (previousResetTimer <= 0 && snap.resetTimer > 0 && snap.lastGoal) {
       const ourGoal = snap.lastGoal === me.team;
@@ -124,12 +128,24 @@ function processSnapshotSounds(snap) {
       playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
     }
     for (const blast of snap.blasts || []) {
-      if (!knownBlasts.has(blast.id)) playSound('explosion', 0.8, 0.92 + Math.random() * 0.12);
+      if (!knownBlasts.has(blast.id)) {
+        playSound('explosion', 0.8, 0.92 + Math.random() * 0.12);
+        const distance = rendered ? Math.hypot(blast.x - rendered.x, blast.y - rendered.y) : 0;
+        screenShakeStrength = Math.max(screenShakeStrength, clamp(12 - distance / 65, 2, 12));
+        screenShakeUntil = performance.now() + 260;
+      }
+    }
+    for (const impact of snap.impacts || []) {
+      if (knownImpacts.has(impact.id)) continue;
+      const volume = impact.type === 'player' ? 0.5 : (impact.type === 'ball' ? 0.34 : 0.18);
+      const rate = impact.type === 'wall' ? 1.3 : (impact.type === 'ball' ? 1.12 : 0.96);
+      playSound('hit', volume, rate + Math.random() * 0.06);
     }
   }
   previousBallOwner = snap.ball.owner;
   previousResetTimer = snap.resetTimer;
   knownBlasts = blastIds;
+  knownImpacts = impactIds;
   soundEventsReady = true;
 }
 
@@ -160,9 +176,20 @@ const gameEl = document.getElementById('game');
 // Lobby element refs.
 const lobbyOnlineEl = document.getElementById('lobby-online');
 const lobbyWaitingEl = document.getElementById('lobby-waiting');
-const memberListEl = document.getElementById('member-list');
+const teamListEl = { A: document.getElementById('team-a-list'), B: document.getElementById('team-b-list') };
+const joinBtn = { A: document.getElementById('join-a'), B: document.getElementById('join-b') };
 const countdownEl = document.getElementById('lobby-countdown');
 const playNowBtn = document.getElementById('play-now');
+let myMemberId = null;        // this client's lobby member id (from welcome)
+let myLobbyTeam = 'A';        // my chosen lobby team (mirrors server)
+
+// Local perspective: every player always sees THEIR team as blue attacking
+// left->right, so team B's view is mirrored horizontally + colours are remapped.
+function flipView() { return me.team === 'B'; }
+function teamColor(t) { return t === me.team ? TEAM.A.color : TEAM.B.color; }
+
+joinBtn.A.addEventListener('click', () => { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'setTeam', team: 'A' })); });
+joinBtn.B.addEventListener('click', () => { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'setTeam', team: 'B' })); });
 
 // Identity handed over by the Saltiz app through the WebView URL (?name=&avatar=).
 const _params = new URLSearchParams(location.search);
@@ -237,7 +264,8 @@ function enterMatch(msg) {
   if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
   // Reset all interpolation / prediction / sound state for the fresh match.
   latest = null; snaps = []; predicted = null; rendered = null; predVel = { x: 0, y: 0 };
-  previousBallOwner = null; previousResetTimer = 0; knownBlasts = new Set(); soundEventsReady = false;
+  previousBallOwner = null; previousResetTimer = 0;
+  knownBlasts = new Set(); knownImpacts = new Set(); soundEventsReady = false;
   specialBtn.textContent = specialIcon(me.char);
   startEl.classList.add('hidden');
   lobbyEl.classList.add('hidden');
@@ -663,6 +691,7 @@ function interpolated() {
     return {
       ...pa,
       x: lerp(pa.x, pb.x), y: lerp(pa.y, pb.y),
+      vx: lerp(pa.vx || 0, pb.vx || 0), vy: lerp(pa.vy || 0, pb.vy || 0),
       aimX: lerp(pa.aimX, pb.aimX), aimY: lerp(pa.aimY, pb.aimY),
     };
   });
@@ -672,7 +701,10 @@ function interpolated() {
     const pb = bProj.get(pa.id);
     return pb ? { ...pa, x: lerp(pa.x, pb.x), y: lerp(pa.y, pb.y) } : pa;
   });
-  return { players, ball, projectiles, bombs: a.bombs || [], blasts: a.blasts || [] };
+  return {
+    players, ball, projectiles,
+    bombs: a.bombs || [], blasts: a.blasts || [], impacts: a.impacts || [],
+  };
 }
 
 function roundRect(c, x, y, w, h, r) {
@@ -772,17 +804,39 @@ function drawPlayer(p) {
   const team = TEAM[p.team].color;
   const ang = Math.atan2(p.aimY, p.aimX) + Math.PI / 2;
   const unit = Math.max(2, r / 7);
+  const speed = Math.hypot(p.vx || 0, p.vy || 0);
+  const moving = clamp(speed / Math.max(1, ch.speed * settings.speedMul), 0, 1);
+  let idSeed = 0;
+  for (let i = 0; i < p.id.length; i++) idSeed = (idSeed + p.id.charCodeAt(i)) % 97;
+  const walkPhase = performance.now() * (0.013 + moving * 0.009) + idSeed;
+  const stride = Math.sin(walkPhase) * r * 0.22 * moving;
+  const armSwing = -stride * 0.8;
+  const bob = Math.abs(Math.cos(walkPhase)) * r * 0.08 * moving;
+  const sway = Math.sin(walkPhase) * r * 0.035 * moving;
+
+  // The shadow stays grounded while the block athlete bobs and swings limbs.
   ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
-  // Square ground shadow, boots, body, arms and head form a tiny block athlete.
-  ctx.fillStyle = 'rgba(17,27,15,.35)'; ctx.fillRect(-r * .78, -r * .55 + unit * 3, r * 1.56, r * 1.35);
+  ctx.fillStyle = 'rgba(17,27,15,.35)';
+  ctx.fillRect(-r * (.72 + moving * .08), r * .12, r * (1.44 + moving * .16), r * .78);
+  ctx.translate(sway, -bob);
+  // Alternating boots make direction and running speed readable at a glance.
   ctx.fillStyle = '#252824';
-  ctx.fillRect(-r * .7, r * .37, r * .52, r * .42); ctx.fillRect(r * .18, r * .37, r * .52, r * .42);
+  ctx.fillRect(-r * .7, r * .36 + stride, r * .52, r * .43);
+  ctx.fillRect(r * .18, r * .36 - stride, r * .52, r * .43);
+  ctx.fillStyle = '#111512';
+  ctx.fillRect(-r * .7, r * .67 + stride, r * .52, r * .16);
+  ctx.fillRect(r * .18, r * .67 - stride, r * .52, r * .16);
+  // Jersey and opposite arm swing preserve the chunky voxel silhouette.
   ctx.fillStyle = team;
   ctx.fillRect(-r * .82, -r * .25, r * 1.64, r * .85);
   ctx.fillStyle = 'rgba(255,255,255,.82)';
   ctx.fillRect(-r * .82, r * .07, r * 1.64, unit * 1.35);
   ctx.fillStyle = team;
-  ctx.fillRect(-r * 1.03, -r * .18, r * .23, r * .62); ctx.fillRect(r * .8, -r * .18, r * .23, r * .62);
+  ctx.fillRect(-r * 1.03, -r * .18 + armSwing, r * .23, r * .62);
+  ctx.fillRect(r * .8, -r * .18 - armSwing, r * .23, r * .62);
+  ctx.fillStyle = '#d6a46e';
+  ctx.fillRect(-r * 1.03, r * .29 + armSwing, r * .23, r * .18);
+  ctx.fillRect(r * .8, r * .29 - armSwing, r * .23, r * .18);
   // Square head faces the aim direction (up in local space).
   ctx.fillStyle = '#916439'; ctx.fillRect(-r * .58, -r * .96 + unit, r * 1.16, r * .86);
   ctx.fillStyle = '#d6a46e'; ctx.fillRect(-r * .58, -r * .96, r * 1.16, r * .73);
@@ -936,14 +990,84 @@ function drawBlast(bl) {
   const p = 1 - bl.life / bl.maxLife; // 0..1
   const x = wx(bl.x), y = wy(bl.y), rad = ws_(bl.radius * p);
   ctx.save();
-  ctx.globalAlpha = Math.max(0, bl.life / bl.maxLife);
-  const count = 12;
+  const fade = Math.max(0, 1 - p);
+  // A stepped shockwave sells the radius without losing the voxel look.
+  const ringCount = 28;
+  ctx.globalAlpha = fade * .85;
+  for (let i = 0; i < ringCount; i++) {
+    const a = (i / ringCount) * Math.PI * 2;
+    const sz = Math.max(ws_(4), ws_(11) * (1 - p * .45));
+    ctx.fillStyle = i % 3 === 0 ? '#fff1a0' : '#ff8b25';
+    ctx.fillRect(x + Math.cos(a) * rad - sz / 2, y + Math.sin(a) * rad - sz / 2, sz, sz);
+  }
+  // Hot fragments travel at different speeds; the id keeps their paths stable.
+  const seed = (bl.id * 0.61803398875) % 1;
+  for (let i = 0; i < 34; i++) {
+    const jitter = ((Math.sin((i + 1) * 91.733 + seed * 77) + 1) * .5);
+    const a = i * 2.399963 + seed * Math.PI * 2;
+    const travel = rad * (.18 + jitter * .92);
+    const sz = Math.max(ws_(3), ws_(5 + (i % 5) * 2) * (1 - p * .35));
+    ctx.globalAlpha = fade * (.55 + jitter * .45);
+    ctx.fillStyle = i % 5 === 0 ? '#fff7c2' : (i % 3 === 0 ? '#ef3f2f' : '#ff9b27');
+    ctx.fillRect(x + Math.cos(a) * travel - sz / 2, y + Math.sin(a) * travel - sz / 2, sz, sz);
+  }
+  // Late, blocky smoke rolls behind the sparks.
+  if (p > .16) {
+    for (let i = 0; i < 13; i++) {
+      const a = i * 2.12 + seed * 5;
+      const dist = rad * (.12 + (i % 4) * .16);
+      const sz = ws_(12 + (i % 3) * 8) * (0.55 + p * .5);
+      ctx.globalAlpha = fade * .38;
+      ctx.fillStyle = i % 2 ? '#2b2924' : '#494238';
+      ctx.fillRect(x + Math.cos(a) * dist - sz / 2, y + Math.sin(a) * dist - sz / 2, sz, sz);
+    }
+  }
+  // White-hot square core flashes only at detonation.
+  if (p < .32) {
+    const core = ws_(24) * (1 + p * 2.2);
+    ctx.globalAlpha = 1 - p / .32;
+    ctx.fillStyle = '#fffbe0'; ctx.fillRect(x - core / 2, y - core / 2, core, core);
+    ctx.fillStyle = '#ffd03b'; ctx.fillRect(x - core * .3, y - core * .3, core * .6, core * .6);
+  }
+  ctx.restore();
+}
+
+function drawImpact(impact) {
+  const p = clamp(1 - impact.life / impact.maxLife, 0, 1);
+  const fade = 1 - p;
+  const x = wx(impact.x), y = wy(impact.y);
+  const dx = impact.dx || 1, dy = impact.dy || 0;
+  const back = Math.atan2(-dy, -dx);
+  const palette = impact.type === 'player'
+    ? ['#fff5b0', '#ffba32', '#ef493f']
+    : impact.type === 'ball'
+      ? ['#ffffff', '#e9e0b8', '#64d34f']
+      : ['#fff0bd', '#a99d7f', '#5a5549'];
+  ctx.save();
+  ctx.globalAlpha = fade;
+
+  // Pixel burst sprays back from the collision normal.
+  const count = impact.type === 'player' ? 16 : 11;
   for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2;
-    const dist = rad * (.45 + (i % 3) * .2);
-    const sz = Math.max(ws_(5), rad * (i % 2 ? .18 : .12));
-    ctx.fillStyle = i % 3 === 0 ? '#fff0a3' : (i % 3 === 1 ? '#ff9e2b' : '#ef4c32');
-    ctx.fillRect(x + Math.cos(a) * dist - sz / 2, y + Math.sin(a) * dist - sz / 2, sz, sz);
+    const spread = ((i / Math.max(1, count - 1)) - .5) * 1.7;
+    const a = back + spread + Math.sin(i * 12.31 + impact.id) * .12;
+    const dist = ws_(8 + (i % 5) * 8) * (0.3 + p);
+    const size = ws_(impact.type === 'player' ? 7 : 5) * (1 - p * .45);
+    ctx.fillStyle = palette[i % palette.length];
+    ctx.fillRect(x + Math.cos(a) * dist - size / 2, y + Math.sin(a) * dist - size / 2, size, size);
+  }
+
+  // Distinct centre marks: cross-hit for players, square ring for ball/wall.
+  const mark = ws_(10 + p * 22);
+  ctx.strokeStyle = palette[0];
+  ctx.lineWidth = Math.max(ws_(3), mark * .18);
+  if (impact.type === 'player') {
+    ctx.beginPath();
+    ctx.moveTo(x - mark, y - mark); ctx.lineTo(x + mark, y + mark);
+    ctx.moveTo(x + mark, y - mark); ctx.lineTo(x - mark, y + mark);
+    ctx.stroke();
+  } else {
+    ctx.strokeRect(x - mark, y - mark, mark * 2, mark * 2);
   }
   ctx.restore();
 }
@@ -999,6 +1123,13 @@ function renderFrame() {
     }
   }
   updateCamera();
+  if (performance.now() < screenShakeUntil) {
+    const left = (screenShakeUntil - performance.now()) / 260;
+    camX += (Math.random() * 2 - 1) * screenShakeStrength * dpr * left;
+    camY += (Math.random() * 2 - 1) * screenShakeStrength * dpr * left;
+  } else {
+    screenShakeStrength = 0;
+  }
 
   ctx.fillStyle = '#172018';
   ctx.fillRect(0, 0, canvas.width, canvas.height); // backdrop behind the field
@@ -1024,10 +1155,13 @@ function renderFrame() {
     const aim = currentAim();
     if (aim.aiming && rendered) drawAimIndicator(rendered.x, rendered.y, aim.ax, aim.ay, currentCharge());
     for (const p of view.players) {
-      if (p.id === me.playerId && rendered) drawPlayer({ ...p, x: rendered.x, y: rendered.y });
+      if (p.id === me.playerId && rendered) {
+        drawPlayer({ ...p, x: rendered.x, y: rendered.y, vx: predVel.x, vy: predVel.y });
+      }
       else drawPlayer(p);
     }
     for (const pr of view.projectiles) drawProjectile(pr);
+    for (const impact of view.impacts) drawImpact(impact);
     drawOffscreenBallArrow(view.ball);
   }
   drawHUD();
