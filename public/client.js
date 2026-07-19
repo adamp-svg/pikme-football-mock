@@ -51,7 +51,8 @@ const SOUND_FILES = {
   step1: '/audio/step-grass-1.mp3', step2: '/audio/step-grass-2.mp3',
   kick: '/audio/kick.mp3', hit: '/audio/hit.mp3', pickup: '/audio/pickup.mp3',
   shot: '/audio/shot.mp3', ui: '/audio/ui-click.mp3',
-  explosion: '/audio/explosion.mp3', goal: '/audio/goal.mp3',
+  explosion: '/audio/explosion.mp3',
+  goalHappy: '/audio/goal-happy.mp3', goalConceded: '/audio/goal.mp3',
 };
 let audioCtx = null;
 let masterGain = null;
@@ -115,7 +116,10 @@ function playSound(name, volume = 1, rate = 1) {
 function processSnapshotSounds(snap) {
   const blastIds = new Set((snap.blasts || []).map((b) => b.id));
   if (soundEventsReady) {
-    if (previousResetTimer <= 0 && snap.resetTimer > 0 && snap.lastGoal) playSound('goal', 1);
+    if (previousResetTimer <= 0 && snap.resetTimer > 0 && snap.lastGoal) {
+      const ourGoal = snap.lastGoal === me.team;
+      playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
+    }
     if (previousBallOwner === null && snap.ball.owner !== null) {
       playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
     }

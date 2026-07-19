@@ -1,8 +1,7 @@
 # Audio licenses
 
-The audio files in this directory are converted excerpts from Kenney asset packs.
-Kenney releases these assets under CC0 1.0 (public domain). Commercial use and
-modification are allowed; attribution is not required.
+The audio files in this directory come from CC0/public-domain sound libraries.
+Commercial use and modification are allowed; attribution is not required.
 
 Source pages (retrieved 2026-07-19):
 
@@ -12,6 +11,7 @@ Source pages (retrieved 2026-07-19):
 - https://kenney.nl/assets/sci-fi-sounds
 - https://kenney.nl/assets/music-jingles
 - https://kenney.nl/support
+- https://opengameart.org/content/win-sound-effect
 
 File mapping:
 
@@ -24,5 +24,8 @@ File mapping:
 - `ui-click.mp3` ← `click3.ogg`
 - `explosion.mp3` ← `explosionCrunch_002.ogg`
 - `goal.mp3` ← `jingles_NES04.ogg`
+- `goal-happy.mp3` ← `Win sound.mp3` by Listener, OpenGameArt
+  (https://opengameart.org/content/win-sound-effect), CC0/public domain;
+  trimmed and faded to remove trailing silence
 
-The source OGG files were converted to MP3 for broad Safari/WKWebView support.
+Source files were converted to MP3 for broad Safari/WKWebView support.
