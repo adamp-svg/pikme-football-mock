@@ -104,6 +104,7 @@ export function defaultSettings() {
 export const QUICK_CHARGE = 0.25;
 export const FULL_CHARGE = 0.85;
 export const DETACH_SIDE = 170; // random sideways ball speed when knocked off a carrier
+export const CARRIER_KNOCKBACK_MUL = 2.4; // full-power hit shoves a ball-carrier this much harder
 export const SLOW_TIME = 1.5;   // seconds a quick-shot slow lasts
 export const SLOW_MUL = 0.9;    // speed multiplier while slowed
 

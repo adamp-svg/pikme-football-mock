@@ -6,7 +6,7 @@ import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
-  QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, SLOW_TIME, SLOW_MUL,
+  QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 
@@ -391,8 +391,9 @@ function hitEnemy(state, t, pr) {
   // can affect them. Medium/quick bullets are absorbed with no effect.
   if (state.ball.owner === t.id) {
     if (pr.charge < FULL_CHARGE) return;
-    t.kvx += nx * state.settings.bulletKnockback * pr.charge;
-    t.kvy += ny * state.settings.bulletKnockback * pr.charge;
+    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL;
+    t.kvx += nx * kb;
+    t.kvy += ny * kb;
     // knock the ball loose off this carrier, with a sideways kick
     const b = state.ball;
     b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;

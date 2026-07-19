@@ -165,7 +165,8 @@ function updateBots() {
       moveX = b.x - p.x; moveY = b.y - p.y;
       aimX = b.x - p.x; aimY = b.y - p.y;
       const d = Math.hypot(b.x - p.x, b.y - p.y);
-      if (d < 430) { shoot = true; charge = d > 200 ? 0.7 : 0.35; }
+      // A carrier is immune below full charge, so bots must fully charge to strip it.
+      if (d < 430) { shoot = true; charge = 1; }
       if (d < 150 && Math.random() < 0.012) special = true; // occasional bomb
     } else {
       // Loose ball — go collect it.
