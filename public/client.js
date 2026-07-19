@@ -306,10 +306,10 @@ addEventListener('touchend', (e) => {
       touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.add('hidden');
     }
     else if (t.identifier === touchR.id) {
-      // Right stick is AIM: release = shoot with the built-up charge in the
-      // aimed direction. A tiny flick cancels (drops the charge, no shot).
+      // Right stick is AIM. Dragged past the deadzone -> aimed charged shot.
+      // A quick tap (no drag) -> instant QUICK SHOT in the current facing dir.
       if (Math.hypot(touchR.dx, touchR.dy) > 12) releaseShot({ x: touchR.dx, y: touchR.dy });
-      else chargeStart = null;
+      else releaseShot(); // quick shot (low charge, current aim)
       touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; stickR.classList.add('hidden');
     }
   }
