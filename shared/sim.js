@@ -3,7 +3,7 @@
 // prediction of the player's own movement. Same rules everywhere = no desync.
 
 import {
-  FIELD, GOAL, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
+  FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
   RELEASE_PICKUP_CD, BULLET_MIN_DIST, BULLET_FULL_DIST, MATCH_DURATION, KICKOFF_FREEZE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   defaultSettings, chargeMul, clamp,
@@ -98,19 +98,47 @@ function resetPositions(state, ballTeam) {
 
 function separatePlayers(state) {
   const arr = Object.values(state.players);
-  for (let i = 0; i < arr.length; i++) {
-    for (let j = i + 1; j < arr.length; j++) {
-      const a = arr[i], b = arr[j];
-      const ra = radiusOf(a, state), rb = radiusOf(b, state);
-      let dx = b.x - a.x, dy = b.y - a.y;
-      let d = Math.hypot(dx, dy) || 0.0001;
-      const min = ra + rb;
-      if (d < min) {
-        const push = (min - d) / 2;
-        const nx = dx / d, ny = dy / d;
-        a.x -= nx * push; a.y -= ny * push;
-        b.x += nx * push; b.y += ny * push;
+  // Iterate a few times so clustered players fully resolve (no clipping/overlap).
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false;
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i], b = arr[j];
+        const ra = radiusOf(a, state), rb = radiusOf(b, state);
+        let dx = b.x - a.x, dy = b.y - a.y;
+        let d = Math.hypot(dx, dy) || 0.0001;
+        const min = ra + rb;
+        if (d < min) {
+          const push = (min - d) / 2;
+          const nx = dx / d, ny = dy / d;
+          a.x -= nx * push; a.y -= ny * push;
+          b.x += nx * push; b.y += ny * push;
+          moved = true;
+        }
       }
+    }
+    if (!moved) break;
+  }
+  // Keep everyone inside the pitch after separation.
+  for (const p of arr) {
+    const r = radiusOf(p, state);
+    p.x = clamp(p.x, r, FIELD.W - r);
+    p.y = clamp(p.y, r, FIELD.H - r);
+  }
+}
+
+// Bounce the (free) ball off a circular goal post at (px,py).
+function bouncePost(b, px, py, R) {
+  const dx = b.x - px, dy = b.y - py;
+  const d = Math.hypot(dx, dy) || 0.0001;
+  const min = R + POST_R;
+  if (d < min) {
+    const nx = dx / d, ny = dy / d;
+    b.x = px + nx * min; b.y = py + ny * min; // push out of the post
+    const vn = b.vx * nx + b.vy * ny;
+    if (vn < 0) { // moving into the post -> reflect
+      b.vx -= (1 + WALL_RESTITUTION) * vn * nx;
+      b.vy -= (1 + WALL_RESTITUTION) * vn * ny;
     }
   }
 }
@@ -122,17 +150,24 @@ function handleBallBounds(state) {
   if (b.y < R) { b.y = R; b.vy = Math.abs(b.vy) * WALL_RESTITUTION; }
   if (b.y > FIELD.H - R) { b.y = FIELD.H - R; b.vy = -Math.abs(b.vy) * WALL_RESTITUTION; }
 
+  // Goal POSTS (top+bottom of each net mouth) — the ball bounces off them, so a
+  // shot that hits the woodwork rebounds instead of scoring.
+  bouncePost(b, GOAL.depth, GOAL_TOP, R);
+  bouncePost(b, GOAL.depth, GOAL_BOTTOM, R);
+  bouncePost(b, FIELD.W - GOAL.depth, GOAL_TOP, R);
+  bouncePost(b, FIELD.W - GOAL.depth, GOAL_BOTTOM, R);
+
   const inMouth = b.y > GOAL_TOP && b.y < GOAL_BOTTOM;
 
-  // Ball crossing an (inset) goal line INTO the net. Only the ATTACKING team can
-  // score there — an own goal (defending team last touched it) does NOT count and
-  // just bounces off the goal line.
+  // A goal counts ONLY when the ball cleanly crosses the goal line BETWEEN the
+  // posts AND is moving into the net (right angle + real pace) — not a graze.
+  // Own goals (defending team last touched it) never count.
   if (inMouth && b.x < GOAL.depth) {                 // left net — B attacks here
-    if (b.lastTouch === 'B') return goal(state, 'B');
-    b.x = GOAL.depth; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; return; // no own goal
+    if (b.lastTouch === 'B' && b.vx < 0) return goal(state, 'B');
+    b.x = GOAL.depth; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; return;
   }
   if (inMouth && b.x > FIELD.W - GOAL.depth) {        // right net — A attacks here
-    if (b.lastTouch === 'A') return goal(state, 'A');
+    if (b.lastTouch === 'A' && b.vx > 0) return goal(state, 'A');
     b.x = FIELD.W - GOAL.depth; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; return;
   }
 

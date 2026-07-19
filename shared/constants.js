@@ -6,6 +6,7 @@ export const FIELD = { W: 1400, H: 600 }; // wide pitch (longer to the sides)
 // Goal net: sits `depth` IN from each end wall (moved to the front). `width` is
 // the mouth height. The ball scores when it crosses the goal line into the net.
 export const GOAL = { width: 210, depth: 70 };
+export const POST_R = 9; // goal-post collision radius — the ball bounces off the posts
 
 // 30Hz network rate (rendering stays smooth via rAF + interpolation; 60Hz
 // overloaded the mobile WebView). Physics are per-SECOND, converted with DT,

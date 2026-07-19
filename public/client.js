@@ -2,7 +2,7 @@
 // for your own player and interpolation for everyone else + the ball.
 
 import {
-  FIELD, GOAL, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
+  FIELD, GOAL, POST_R, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, clamp,
 } from '/shared/constants.js';
 
@@ -519,12 +519,14 @@ function drawPitch() {
       const gy = GOAL_TOP + (GOAL.width / 6) * j;
       ctx.beginPath(); ctx.moveTo(wx(x0), wy(gy)); ctx.lineTo(wx(x0 + GOAL.depth), wy(gy)); ctx.stroke();
     }
-    // goal-line frame (posts)
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(3, ws_(5));
+    // goal-line + solid POSTS (ball bounces off these)
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = Math.max(2, ws_(3));
     ctx.beginPath(); ctx.moveTo(wx(lineX), wy(GOAL_TOP)); ctx.lineTo(wx(lineX), wy(GOAL_BOTTOM)); ctx.stroke();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(wx(lineX), wy(GOAL_TOP), ws_(4), 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(wx(lineX), wy(GOAL_BOTTOM), ws_(4), 0, Math.PI * 2); ctx.fill();
+    for (const py of [GOAL_TOP, GOAL_BOTTOM]) {
+      ctx.beginPath(); ctx.arc(wx(lineX), wy(py), ws_(POST_R), 0, Math.PI * 2);
+      ctx.fillStyle = '#fff'; ctx.fill();
+      ctx.lineWidth = Math.max(1, ws_(2)); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.stroke();
+    }
   }
 }
 
