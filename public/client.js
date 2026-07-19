@@ -226,11 +226,9 @@ function openSettings() {
   shootQueued = false; specialQueued = false; aimHold = null;
   settingsPanel.classList.remove('hidden');
   syncSliderUI();
-  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pause', paused: true }));
 }
 function closeSettings() {
   settingsPanel.classList.add('hidden');
-  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pause', paused: false }));
 }
 pauseBtn.addEventListener('click', openSettings);
 document.getElementById('resume').addEventListener('click', closeSettings);
@@ -326,6 +324,11 @@ addEventListener('touchcancel', (e) => {
 
 // Build the current input from whichever control scheme is active.
 function sampleInput() {
+  // Settings pause only this player. A realtime multiplayer room must never be
+  // globally frozen by one client (especially if that client disconnects).
+  if (!settingsPanel.classList.contains('hidden')) {
+    return { moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false, charge: 0 };
+  }
   let moveX = 0, moveY = 0, aimX = 0, aimY = 0;
 
   if (usingTouch) {

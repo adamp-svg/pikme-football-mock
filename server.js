@@ -63,7 +63,6 @@ let state = createState();
 const clients = new Map(); // ws -> playerId
 const inputs = new Map(); // playerId -> latest input
 let botCounter = 0;
-let paused = false; // toggled from the in-game pause menu
 let msgErrCount = 0; // throttle logging of message-handler errors
 
 function applySettings(s) {
@@ -191,7 +190,6 @@ function updateBots() {
 // ---------------------------------------------------------------------------
 let tickErrCount = 0;
 function tick() {
-  if (paused) return; // frozen; broadcast keeps sending the last snapshot
   try {
     updateBots();
     const inputMap = {};
@@ -296,11 +294,6 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'settings' && msg.settings) {
       applySettings(msg.settings);
-      return;
-    }
-
-    if (msg.type === 'pause') {
-      paused = !!msg.paused;
       return;
     }
 
