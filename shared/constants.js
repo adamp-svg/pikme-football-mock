@@ -86,14 +86,14 @@ export const KNOCKBACK_MIN = 4;
 // character's base speed/radius; the rest are absolute.
 export function defaultSettings() {
   return {
-    speedMul: 1.25,
+    speedMul: 1,
     sizeMul: 1.25,
-    carrySpeedMul: 0.9,   // speed multiplier while carrying the ball
+    carrySpeedMul: 0.9,    // speed multiplier while carrying the ball
     ballSizeMul: 2,
-    shotPower: 1200,      // released-ball speed
+    shotPower: 1000,       // released-ball speed
     bulletSpeed: 900,
-    bulletKnockback: 800, // full-power bullet knockback
-    bombPower: 2000,
+    bulletKnockback: 1500, // full-power bullet knockback (quick shot = 0 push + slow)
+    bombPower: 1500,
   };
 }
 

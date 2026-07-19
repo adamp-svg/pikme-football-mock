@@ -386,6 +386,22 @@ function updateProjectiles(state, dt) {
 function hitEnemy(state, t, pr) {
   const l = Math.hypot(pr.vx, pr.vy) || 1;
   const nx = pr.vx / l, ny = pr.vy / l;
+
+  // A ball-carrier is protected: only a FULL-power shot (or a bomb, elsewhere)
+  // can affect them. Medium/quick bullets are absorbed with no effect.
+  if (state.ball.owner === t.id) {
+    if (pr.charge < FULL_CHARGE) return;
+    t.kvx += nx * state.settings.bulletKnockback * pr.charge;
+    t.kvy += ny * state.settings.bulletKnockback * pr.charge;
+    // knock the ball loose off this carrier, with a sideways kick
+    const b = state.ball;
+    b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
+    const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
+    b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
+    b.vy = ny * PROJECTILE.ballPush + (nx) * side;
+    return;
+  }
+
   if (pr.charge < QUICK_CHARGE) {
     t.slowTimer = SLOW_TIME; // quick shot: slow, don't push
     return;
@@ -393,14 +409,6 @@ function hitEnemy(state, t, pr) {
   // medium & full: push the enemy along the bullet's travel direction
   t.kvx += nx * state.settings.bulletKnockback * pr.charge;
   t.kvy += ny * state.settings.bulletKnockback * pr.charge;
-  // full power: knock the ball loose off this carrier, with a sideways kick
-  if (pr.charge >= FULL_CHARGE && state.ball.owner === t.id) {
-    const b = state.ball;
-    b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
-    const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
-    b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
-    b.vy = ny * PROJECTILE.ballPush + (nx) * side;
-  }
 }
 
 function updateBombs(state, dt) {

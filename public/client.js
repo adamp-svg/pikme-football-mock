@@ -34,14 +34,14 @@ let holdingBall = false;     // am I currently carrying the ball?
 // Live-tunable settings (pause menu). Client keeps its own copy for prediction
 // + rendering and pushes changes to the authoritative server.
 const settings = {
-  speedMul: 1.25,
+  speedMul: 1,
   sizeMul: 1.25,
   carrySpeedMul: 0.9,
   ballSizeMul: 2,
-  shotPower: 1200,
+  shotPower: 1000,
   bulletSpeed: 900,
-  bulletKnockback: 800,
-  bombPower: 2000,
+  bulletKnockback: 1500,
+  bombPower: 1500,
 };
 
 // --- On-device crash reporting: show any runtime error on screen ---
@@ -235,11 +235,11 @@ function closeSettings() {
 pauseBtn.addEventListener('click', openSettings);
 document.getElementById('resume').addEventListener('click', closeSettings);
 document.getElementById('reset-settings').addEventListener('click', () => {
-  settings.speedMul = 1.25; settings.sizeMul = 1.25;
-  settings.carrySpeedMul = 0.9; settings.ballSizeMul = 2; settings.shotPower = 1200;
+  settings.speedMul = 1; settings.sizeMul = 1.25;
+  settings.carrySpeedMul = 0.9; settings.ballSizeMul = 2; settings.shotPower = 1000;
   settings.bulletSpeed = 900;
-  settings.bulletKnockback = 800;
-  settings.bombPower = 2000;
+  settings.bulletKnockback = 1500;
+  settings.bombPower = 1500;
   syncSliderUI(); sendSettings();
 });
 for (const k of SETTING_KEYS) {
