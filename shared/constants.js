@@ -87,16 +87,26 @@ export const KNOCKBACK_MIN = 4;
 // character's base speed/radius; the rest are absolute.
 export function defaultSettings() {
   return {
-    speedMul: 1,
-    sizeMul: 1,
-    ballSizeMul: 2,       // default double-size ball
-    carrySpeedMul: 0.7,   // speed multiplier while carrying the ball (slower)
-    shotPower: 820,       // released-ball speed (tuned so a full charge scores from ~¼ field)
-    bulletSpeed: PROJECTILE.speed,
-    bulletKnockback: PROJECTILE.knockback,
-    bombPower: BOMB.power,
+    speedMul: 1.25,
+    sizeMul: 1.25,
+    carrySpeedMul: 0.9,   // speed multiplier while carrying the ball
+    ballSizeMul: 2,
+    shotPower: 1200,      // released-ball speed
+    bulletSpeed: 900,
+    bulletKnockback: 800, // full-power bullet knockback
+    bombPower: 2000,
   };
 }
+
+// Charge tiers for a bullet hitting an enemy:
+//   < QUICK_CHARGE  -> quick shot: no knockback, brief slow (SLOW_MUL) instead
+//   >= FULL_CHARGE  -> full power: full knockback + can knock the ball loose
+//   in between      -> medium: knockback (scaled), cannot detach the ball
+export const QUICK_CHARGE = 0.25;
+export const FULL_CHARGE = 0.85;
+export const DETACH_SIDE = 170; // random sideways ball speed when knocked off a carrier
+export const SLOW_TIME = 1.5;   // seconds a quick-shot slow lasts
+export const SLOW_MUL = 0.9;    // speed multiplier while slowed
 
 export const TEAM = {
   A: { key: 'A', name: 'Blue', color: '#3b82f6', attacksRight: true },

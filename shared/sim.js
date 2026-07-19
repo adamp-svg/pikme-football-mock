@@ -4,8 +4,9 @@
 
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
-  RELEASE_PICKUP_CD, BULLET_MIN_DIST, BULLET_FULL_DIST, MATCH_DURATION, KICKOFF_FREEZE,
+  RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
+  QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, SLOW_TIME, SLOW_MUL,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 
@@ -69,6 +70,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot }) {
     aimX: team === 'A' ? 1 : -1, aimY: 0,
     shootCd: 0, // bullet cooldown
     specialCd: 0, // bomb cooldown
+    slowTimer: 0, // seconds of quick-shot slow remaining
     firing: false, // fired/released this tick (flash)
     lastSeq: 0, // last input seq applied (for client reconciliation)
     _shoot: false, _special: false,
@@ -217,6 +219,7 @@ export function step(state, inputs, dt) {
     // Ease velocity toward the target (smoothing) instead of snapping.
     let spd = ch.speed * state.settings.speedMul;
     if (state.ball.owner === p.id) spd *= state.settings.carrySpeedMul; // slower while carrying
+    if (p.slowTimer > 0) { spd *= SLOW_MUL; p.slowTimer -= dt; } // hit by a quick shot
     const tvx = mx * spd, tvy = my * spd;
     p.vx += (tvx - p.vx) * MOVE_ACCEL;
     p.vy += (tvy - p.vy) * MOVE_ACCEL;
@@ -338,35 +341,30 @@ function updateProjectiles(state, dt) {
   for (const pr of state.projectiles) {
     pr.x += pr.vx * dt;
     pr.y += pr.vy * dt;
-    pr.dist += Math.hypot(pr.vx, pr.vy) * dt;
     // Fly on until it leaves the field (hits a wall) — no lifetime expiry.
     if (pr.x < 0 || pr.x > FIELD.W || pr.y < 0 || pr.y > FIELD.H) continue;
 
-    // Hit the ball -> knock it loose (dislodges a held ball) and push it
-    // (a charged bullet shoves the ball further).
-    const bdx = b.x - pr.x, bdy = b.y - pr.y;
-    if (Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
-      const l = Math.hypot(pr.vx, pr.vy) || 1;
-      b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
-      b.vx = (pr.vx / l) * PROJECTILE.ballPush * pr.cmul;
-      b.vy = (pr.vy / l) * PROJECTILE.ballPush * pr.cmul;
-      continue; // consume the bullet
+    // A LOOSE ball is nudged by any bullet. A HELD ball is transparent here —
+    // only a full-power hit on the CARRIER (below) can knock it loose.
+    if (!b.owner) {
+      const bdx = b.x - pr.x, bdy = b.y - pr.y;
+      if (Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
+        const l = Math.hypot(pr.vx, pr.vy) || 1;
+        b.lastTouch = pr.team; b.pickupCd = RELEASE_PICKUP_CD;
+        b.vx = (pr.vx / l) * PROJECTILE.ballPush * pr.cmul;
+        b.vy = (pr.vy / l) * PROJECTILE.ballPush * pr.cmul;
+        continue; // consume the bullet
+      }
     }
 
-    // Hit an enemy -> knockback. Ramps with travel distance (point-blank does
-    // nothing) UNLESS the bullet is fully charged, which pushes even up close.
+    // Hit an enemy player.
     let consumed = false;
     for (const id in state.players) {
       const t = state.players[id];
       if (t.id === pr.owner || t.team === pr.team) continue;
       const rad = radiusOf(t, state);
-      const dx = t.x - pr.x, dy = t.y - pr.y;
-      if (Math.hypot(dx, dy) < PROJECTILE.radius + rad) {
-        const proximity = clamp((pr.dist - BULLET_MIN_DIST) / (BULLET_FULL_DIST - BULLET_MIN_DIST), 0, 1);
-        const factor = Math.max(proximity, pr.charge); // charge bypasses proximity
-        const l = Math.hypot(pr.vx, pr.vy) || 1;
-        t.kvx += (pr.vx / l) * state.settings.bulletKnockback * pr.cmul * factor;
-        t.kvy += (pr.vy / l) * state.settings.bulletKnockback * pr.cmul * factor;
+      if (Math.hypot(t.x - pr.x, t.y - pr.y) < PROJECTILE.radius + rad) {
+        hitEnemy(state, t, pr);
         consumed = true;
         break;
       }
@@ -375,6 +373,31 @@ function updateProjectiles(state, dt) {
   }
   // Safety cap so bullets can never pile up unbounded.
   state.projectiles = keep.length > 50 ? keep.slice(keep.length - 50) : keep;
+}
+
+// A bullet hits enemy `t`. Effect depends on the shot's charge:
+//   quick (< QUICK_CHARGE): NO knockback — just a brief slow (SLOW_MUL).
+//   medium: knockback in the bullet's direction, scaled by charge. No detach.
+//   full (>= FULL_CHARGE): full knockback AND, if `t` is carrying the ball,
+//     knocks it loose with a random sideways deflection.
+function hitEnemy(state, t, pr) {
+  const l = Math.hypot(pr.vx, pr.vy) || 1;
+  const nx = pr.vx / l, ny = pr.vy / l;
+  if (pr.charge < QUICK_CHARGE) {
+    t.slowTimer = SLOW_TIME; // quick shot: slow, don't push
+    return;
+  }
+  // medium & full: push the enemy along the bullet's travel direction
+  t.kvx += nx * state.settings.bulletKnockback * pr.charge;
+  t.kvy += ny * state.settings.bulletKnockback * pr.charge;
+  // full power: knock the ball loose off this carrier, with a sideways kick
+  if (pr.charge >= FULL_CHARGE && state.ball.owner === t.id) {
+    const b = state.ball;
+    b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
+    const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
+    b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
+    b.vy = ny * PROJECTILE.ballPush + (nx) * side;
+  }
 }
 
 function updateBombs(state, dt) {
