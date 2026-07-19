@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Saltiz Football — mock</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- Start / character-select screen -->
+  <div id="start" class="screen">
+    <div class="panel">
+      <h1>⚽ Saltiz Football</h1>
+      <p class="sub">2v2 · carry the ball · shoot / pass / bomb · fill with bots</p>
+
+      <button id="play" class="play">Play</button>
+      <p class="hint">Touch: <b>left stick</b> move · <b>right stick</b> aim (release = shoot) · <b>💣 button</b> bomb.<br/>Desktop: <b>WASD</b> move · <b>mouse</b> aim · <b>click/space</b> shoot · <b>E / right-click</b> bomb.</p>
+    </div>
+  </div>
+
+  <!-- Game -->
+  <div id="game" class="screen hidden">
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+      <div class="score">
+        <span class="team-a" id="scoreA">0</span>
+        <span class="dash">–</span>
+        <span class="team-b" id="scoreB">0</span>
+      </div>
+      <div class="timer" id="timer">2:00</div>
+      <div class="net" id="net">connecting…</div>
+    </div>
+
+    <div id="banner" class="banner hidden"></div>
+
+    <!-- On-screen joysticks (touch). Hidden until first touch. -->
+    <div id="stickL" class="stick hidden"><div class="knob"></div></div>
+    <div id="stickR" class="stick hidden"><div class="knob"></div></div>
+
+    <!-- Special-skill button (right side). Icon set per character. -->
+    <button id="special" class="special-btn">💣</button>
+
+    <!-- Crash banner (shows any runtime error so we can diagnose on-device) -->
+    <div id="fatal" class="fatal hidden"></div>
+
+    <!-- Pause / settings -->
+    <button id="pause-btn" class="pause-btn">⏸</button>
+
+    <div id="settings" class="settings-panel hidden">
+      <div class="settings-card">
+        <h2>Settings</h2>
+        <div class="setting">
+          <div class="setting-row"><span>Player speed</span><span id="v-speedMul"></span></div>
+          <input type="range" id="s-speedMul" min="0.3" max="1.8" step="0.05" />
+        </div>
+        <div class="setting">
+          <div class="setting-row"><span>Player size</span><span id="v-sizeMul"></span></div>
+          <input type="range" id="s-sizeMul" min="0.5" max="2" step="0.05" />
+        </div>
+        <div class="setting">
+          <div class="setting-row"><span>Carry speed (with ball)</span><span id="v-carrySpeedMul"></span></div>
+          <input type="range" id="s-carrySpeedMul" min="0.2" max="1" step="0.05" />
+        </div>
+        <div class="setting">
+          <div class="setting-row"><span>Ball size</span><span id="v-ballSizeMul"></span></div>
+          <input type="range" id="s-ballSizeMul" min="0.5" max="2.5" step="0.05" />
+        </div>
+        <div class="setting">
+          <div class="setting-row"><span>Shot power</span><span id="v-shotPower"></span></div>
+          <input type="range" id="s-shotPower" min="300" max="1400" step="20" />
+        </div>
+        <div class="setting">
+          <div class="setting-row"><span>Bullet speed</span><span id="v-bulletSpeed"></span></div>
+          <input type="range" id="s-bulletSpeed" min="120" max="900" step="10" />
+        </div>
+        <div class="setting">
+          <div class="setting-row"><span>Bullet push (knockback)</span><span id="v-bulletKnockback"></span></div>
+          <input type="range" id="s-bulletKnockback" min="0" max="800" step="10" />
+        </div>
+        <div class="setting">
+          <div class="setting-row"><span>Bomb push (knockback)</span><span id="v-bombPower"></span></div>
+          <input type="range" id="s-bombPower" min="0" max="2000" step="20" />
+        </div>
+        <div class="settings-actions">
+          <button id="reset-settings" class="ghost-btn">Reset</button>
+          <button id="resume" class="resume">Resume</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/client.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# Render Blueprint — one-click deploy of the football game server.
+# Render provides PORT + TLS automatically; the app connects over wss://.
+services:
+  - type: web
+    name: pikme-football
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /

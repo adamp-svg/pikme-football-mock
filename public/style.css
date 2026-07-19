@@ -1,0 +1,150 @@
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --a: #3b82f6;
+  --b: #ef4444;
+  --bg: #0b1220;
+}
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: #e8eefc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+.hidden { display: none !important; }
+
+/* ---- Start screen ---- */
+.panel {
+  width: min(92vw, 420px);
+  background: #121a2c;
+  border: 1px solid #223050;
+  border-radius: 20px;
+  padding: 28px 24px 22px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  text-align: center;
+}
+.panel h1 { font-size: 30px; letter-spacing: -0.5px; }
+.sub { color: #8fa3c8; margin: 6px 0 20px; font-size: 14px; }
+.field-label { display: block; text-align: left; font-size: 12px; color: #8fa3c8; margin: 14px 2px 6px; text-transform: uppercase; letter-spacing: .5px; }
+#name {
+  width: 100%; padding: 13px 14px; border-radius: 12px;
+  background: #0c1322; border: 1px solid #26324f; color: #fff; font-size: 16px;
+}
+#name:focus { outline: none; border-color: var(--a); }
+.chars { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.char {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 16px 8px; border-radius: 14px; cursor: pointer;
+  background: #0c1322; border: 2px solid #26324f; color: #fff; transition: .12s;
+}
+.char:hover { border-color: #3a4a72; }
+.char.selected { border-color: var(--a); background: #10203f; }
+.char-emoji { font-size: 30px; }
+.char-name { font-weight: 700; font-size: 15px; }
+.char-stats { font-size: 11px; color: #8fa3c8; }
+.play {
+  width: 100%; margin-top: 20px; padding: 15px; border: 0; border-radius: 12px;
+  background: linear-gradient(180deg, #4f8cff, #2f6bff); color: #fff;
+  font-size: 17px; font-weight: 700; cursor: pointer;
+}
+.play:active { transform: translateY(1px); }
+.hint { margin-top: 16px; font-size: 12px; color: #6b7ea3; line-height: 1.5; }
+
+/* ---- Game ---- */
+#canvas { display: block; width: 100vw; height: 100vh; }
+#hud {
+  position: fixed; top: 0; left: 0; right: 0; padding: 10px 16px;
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  pointer-events: none; font-variant-numeric: tabular-nums;
+}
+.score { font-size: 30px; font-weight: 800; display: flex; gap: 10px; align-items: center;
+  background: rgba(6,12,24,.55); padding: 4px 18px; border-radius: 14px; backdrop-filter: blur(6px); }
+.team-a { color: var(--a); } .team-b { color: var(--b); } .dash { color: #55637f; }
+.timer { position: fixed; top: 16px; right: 18px; font-size: 20px; font-weight: 700; color: #cdd8ef;
+  background: rgba(6,12,24,.55); padding: 4px 12px; border-radius: 10px; }
+.net { position: fixed; bottom: 8px; left: 12px; font-size: 11px; color: #6b7ea3;
+  background: rgba(6,12,24,.5); padding: 3px 8px; border-radius: 8px; }
+
+.banner {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: clamp(34px, 9vw, 72px); font-weight: 900; letter-spacing: -1px;
+  text-shadow: 0 6px 24px rgba(0,0,0,.6); pointer-events: none;
+}
+
+/* ---- Joysticks ---- */
+.stick {
+  position: fixed; width: 120px; height: 120px; border-radius: 50%;
+  background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.14);
+}
+.stick .knob {
+  position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+  border-radius: 50%; background: rgba(255,255,255,.35); border: 2px solid rgba(255,255,255,.5);
+}
+
+/* Special-skill button — top-right, BELOW the timer and OUT of the bottom-right
+   aim-stick zone (so aiming/shooting isn't misread as a bomb tap). */
+.special-btn {
+  position: fixed; right: 16px; top: 64px;
+  width: 76px; height: 76px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffd27a, #f59e0b);
+  border: 3px solid rgba(255,255,255,.7); color: #1a1200;
+  font-size: 38px; line-height: 1; cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  touch-action: none; z-index: 5;
+}
+.special-btn:active { transform: scale(.92); }
+.special-btn.cooling { filter: grayscale(.7) brightness(.6); }
+
+/* Crash banner — shows any runtime error on-device */
+.fatal {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(150,0,0,.96); color: #fff;
+  font: 12px/1.45 ui-monospace, Menlo, monospace;
+  padding: 10px 12px; white-space: pre-wrap; word-break: break-word;
+  max-height: 60vh; overflow: auto;
+}
+
+/* Pause button — top-left, just right of the native ✕ */
+.pause-btn {
+  position: fixed; left: 62px; top: 12px;
+  width: 40px; height: 40px; border-radius: 10px;
+  background: rgba(6,12,24,.6); border: 1px solid #2a3450;
+  color: #dfe8fb; font-size: 16px; cursor: pointer; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+}
+.pause-btn:active { transform: scale(.94); }
+
+/* Settings overlay */
+.settings-panel {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgba(4,8,18,.72); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+}
+.settings-card {
+  width: min(92vw, 440px); max-height: 88vh; overflow-y: auto;
+  background: #121a2c; border: 1px solid #223050; border-radius: 18px;
+  padding: 18px 20px; box-shadow: 0 24px 60px rgba(0,0,0,.6);
+}
+.settings-card h2 { font-size: 18px; margin-bottom: 12px; text-align: center; }
+.setting { margin: 12px 0; }
+.setting-row { display: flex; justify-content: space-between; font-size: 13px; color: #cdd8ef; margin-bottom: 6px; }
+.setting-row span:last-child { color: #7CF0A9; font-variant-numeric: tabular-nums; font-weight: 700; }
+.setting input[type=range] {
+  width: 100%; height: 28px; -webkit-appearance: none; appearance: none; background: transparent;
+}
+.setting input[type=range]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px; background: #26324f;
+}
+.setting input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; margin-top: -9px;
+  width: 24px; height: 24px; border-radius: 50%; background: #4f8cff; border: 2px solid #fff;
+}
+.settings-actions { display: flex; gap: 10px; margin-top: 18px; }
+.settings-actions button { flex: 1; padding: 13px; border-radius: 11px; font-size: 15px; font-weight: 700; cursor: pointer; border: 0; }
+.resume { background: linear-gradient(180deg,#4f8cff,#2f6bff); color: #fff; }
+.ghost-btn { background: #0c1322; color: #9fb0d0; border: 1px solid #26324f !important; }
+
