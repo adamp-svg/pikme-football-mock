@@ -4,7 +4,8 @@
 
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
-  RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET,
+  RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
+  PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE, BOMB_CENTER_R,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
@@ -13,6 +14,18 @@ import {
 
 const GOAL_TOP = (FIELD.H - GOAL.width) / 2;
 const GOAL_BOTTOM = (FIELD.H + GOAL.width) / 2;
+const PENALTY_TOP = (FIELD.H - PENALTY.width) / 2;
+const PENALTY_BOTTOM = (FIELD.H + PENALTY.width) / 2;
+
+// Is player `t` inside the penalty area they are ATTACKING (the enemy's box)?
+function inEnemyPenalty(t) {
+  if (t.y < PENALTY_TOP || t.y > PENALTY_BOTTOM) return false;
+  return t.team === 'A' ? t.x > FIELD.W - PENALTY.depth : t.x < PENALTY.depth;
+}
+// Knockback multiplier for a hit on `t` — attackers in the enemy box resist it.
+function knockMul(t) {
+  return inEnemyPenalty(t) ? PENALTY_KNOCKBACK_MUL : 1;
+}
 
 // Spawn spots — each team near its OWN goal (A defends left, B defends right).
 function spawnPos(team, slot) {
@@ -35,6 +48,8 @@ export function createState() {
     bombs: [], // planted bombs (fusing)
     blasts: [], // short-lived explosion visuals
     impacts: [], // short-lived bullet collision events for synchronized VFX
+    pendingReset: false, // goal scored — snap to kickoff once the "show" hold ends
+    pendingBallTeam: null, // team that gets the ball at the delayed kickoff
     settings: defaultSettings(), // live-tunable from the pause menu
     _nid: 1, // entity id counter
   };
@@ -88,8 +103,9 @@ export function removePlayer(state, id) {
   delete state.players[id];
 }
 
-// Reset to kickoff. `ballTeam` (if given) starts with the ball attached.
-function resetPositions(state, ballTeam, freeze = KICKOFF_FREEZE) {
+// Snap everyone to their kickoff spots + reset the ball. `ballTeam` (if given)
+// starts with the ball attached. Does NOT touch the reset countdown.
+function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
@@ -101,7 +117,6 @@ function resetPositions(state, ballTeam, freeze = KICKOFF_FREEZE) {
   state.bombs = [];
   state.impacts = [];
   if (ballTeam) attachBall(state, ballTeam);
-  state.resetTimer = freeze;
 }
 
 function separatePlayers(state) {
@@ -190,9 +205,11 @@ function handleBallBounds(state) {
 function goal(state, team) {
   state.score[team]++;
   state.lastGoal = team;
-  // The team that CONCEDED restarts with the ball, after a 3s countdown.
-  const conceding = team === 'A' ? 'B' : 'A';
-  resetPositions(state, conceding, GOAL_RESET);
+  // Freeze in the scoring positions (ball stays in the net) for GOAL_FREEZE_HOLD
+  // seconds so players see it, THEN snap to kickoff (see the reset branch in step).
+  state.resetTimer = GOAL_RESET;
+  state.pendingReset = true;
+  state.pendingBallTeam = team === 'A' ? 'B' : 'A'; // conceding team restarts with the ball
   return team;
 }
 
@@ -215,11 +232,16 @@ export function step(state, inputs, dt) {
   // client reconciliation stays consistent.
   if (state.resetTimer > 0) {
     state.resetTimer -= dt;
+    // After a goal: hold in the scoring positions, then snap to kickoff spots.
+    if (state.pendingReset && state.resetTimer <= GOAL_RESET - GOAL_FREEZE_HOLD) {
+      repositionKickoff(state, state.pendingBallTeam);
+      state.pendingReset = false;
+    }
     for (const id in state.players) {
       const inp = inputs[id];
       if (inp) state.players[id].lastSeq = inp.seq;
     }
-    if (state.resetTimer <= 0) { state.resetTimer = 0; state.lastGoal = null; }
+    if (state.resetTimer <= 0) { state.resetTimer = 0; state.lastGoal = null; state.pendingReset = false; }
     state.tick++;
     return;
   }
@@ -312,16 +334,24 @@ export function step(state, inputs, dt) {
     b.y += b.vy * dt;
     b.vx *= BALL_FRICTION;
     b.vy *= BALL_FRICTION;
-    if (Math.hypot(b.vx, b.vy) < BALL_MIN_SPEED) { b.vx = 0; b.vy = 0; }
+    const bspeed = Math.hypot(b.vx, b.vy);
+    if (bspeed < BALL_MIN_SPEED) { b.vx = 0; b.vy = 0; }
     if (b.pickupCd > 0) b.pickupCd -= dt;
-    else {
-      // First player to touch a loose ball grabs it.
-      for (const id in state.players) {
-        const p = state.players[id];
-        if (Math.hypot(b.x - p.x, b.y - p.y) < radiusOf(p, state) + ballRadius(state)) {
-          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; break;
-        }
+    const ballR = ballRadius(state);
+    for (const id in state.players) {
+      const p = state.players[id];
+      if (Math.hypot(b.x - p.x, b.y - p.y) >= radiusOf(p, state) + ballR) continue;
+      const enemyOfBall = b.lastTouch && p.team !== b.lastTouch;
+      if (bspeed > BALL_BUMP_SPEED && enemyOfBall) {
+        // A fast ball shoves the opponent it runs into and powers on past them.
+        const nx = b.vx / bspeed, ny = b.vy / bspeed;
+        const kb = bspeed * BALL_BUMP_SCALE * knockMul(p);
+        p.kvx += nx * kb; p.kvy += ny * kb;
+        // keep lastTouch as the shooter's so a power shot can still score
+        // after plowing through a defender.
+        continue; // don't stop the ball; keep checking other players
       }
+      if (b.pickupCd <= 0) { b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; break; }
     }
   }
 
@@ -378,8 +408,7 @@ function updateProjectiles(state, dt) {
       continue;
     }
 
-    // A LOOSE ball is nudged by any bullet. A HELD ball is transparent here —
-    // only a full-power hit on the CARRIER (below) can knock it loose.
+    // A LOOSE ball is nudged by any bullet.
     if (!b.owner) {
       const bdx = b.x - pr.x, bdy = b.y - pr.y;
       if (Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
@@ -390,6 +419,24 @@ function updateProjectiles(state, dt) {
         addImpact(state, pr, 'ball', b.x, b.y);
         continue; // consume the bullet
       }
+    } else {
+      // A HELD ball: only a FULL-power bullet hitting the ball head-on affects it
+      // — it knocks the ball loose (flying forward) AND shoves the carrier back.
+      const bdx = b.x - pr.x, bdy = b.y - pr.y;
+      if (pr.charge >= FULL_CHARGE && Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
+        const l = Math.hypot(pr.vx, pr.vy) || 1, nx = pr.vx / l, ny = pr.vy / l;
+        const carrier = state.players[b.owner];
+        b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
+        b.vx = nx * PROJECTILE.ballPush * pr.cmul;
+        b.vy = ny * PROJECTILE.ballPush * pr.cmul;
+        if (carrier) {
+          const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * knockMul(carrier);
+          carrier.kvx += nx * kb; carrier.kvy += ny * kb;
+        }
+        addImpact(state, pr, 'ball', b.x, b.y);
+        continue; // consume the bullet
+      }
+      // Non-full bullets pass through the held ball (transparent) to the carrier.
     }
 
     // Hit an enemy player.
@@ -435,7 +482,7 @@ function hitEnemy(state, t, pr) {
   // can affect them. Medium/quick bullets are absorbed with no effect.
   if (state.ball.owner === t.id) {
     if (pr.charge < FULL_CHARGE) return;
-    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL;
+    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * knockMul(t);
     t.kvx += nx * kb;
     t.kvy += ny * kb;
     // knock the ball loose off this carrier, with a sideways kick
@@ -452,8 +499,9 @@ function hitEnemy(state, t, pr) {
     return;
   }
   // medium & full: push the enemy along the bullet's travel direction
-  t.kvx += nx * state.settings.bulletKnockback * pr.charge;
-  t.kvy += ny * state.settings.bulletKnockback * pr.charge;
+  const kb = state.settings.bulletKnockback * pr.charge * knockMul(t);
+  t.kvx += nx * kb;
+  t.kvy += ny * kb;
 }
 
 function updateBombs(state, dt) {
@@ -467,28 +515,42 @@ function updateBombs(state, dt) {
 }
 
 function explode(state, bomb) {
-  // Push ALL players away from center; strength falls off to 0 at the edge.
+  const bomber = state.players[bomb.owner];
+  // Was the bomber standing on their own bomb ("on the center")?
+  const bomberOnCenter = bomber && Math.hypot(bomber.x - bomb.x, bomber.y - bomb.y) < BOMB_CENTER_R;
+
+  // Push players away from center; a bomb never flings its OWN planter (so they
+  // can plant-and-grab). Strength falls off to 0 at the edge.
   for (const id in state.players) {
+    if (id === bomb.owner) continue;
     const t = state.players[id];
     const dx = t.x - bomb.x, dy = t.y - bomb.y;
     const d = Math.hypot(dx, dy) || 0.0001;
     if (d < BOMB.radius) {
-      const falloff = 1 - d / BOMB.radius; // 1 at center, 0 at edge
-      const power = state.settings.bombPower * falloff;
+      const power = state.settings.bombPower * (1 - d / BOMB.radius) * knockMul(t);
       t.kvx += (dx / d) * power;
       t.kvy += (dy / d) * power;
     }
   }
-  // Push the ball too — and knock it loose if someone was carrying it.
+
+  // Ball in the blast: knock it loose. If the planter is on the bomb and blew it
+  // off an ENEMY carrier, the planter takes possession; otherwise it flies out.
   const b = state.ball;
+  const priorCarrier = b.owner ? state.players[b.owner] : null;
   const bx = b.x - bomb.x, by = b.y - bomb.y;
   const bd = Math.hypot(bx, by) || 0.0001;
   if (bd < BOMB.radius) {
+    const stripped = !!b.owner;
+    const carrierWasEnemy = priorCarrier && bomber && priorCarrier.team !== bomber.team;
     if (b.owner) { b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; }
-    b.lastTouch = bomb.team;
-    const power = state.settings.bombPower * (1 - bd / BOMB.radius) * BOMB.ballPush;
-    b.vx += (bx / bd) * power;
-    b.vy += (by / bd) * power;
+    if (bomberOnCenter && stripped && carrierWasEnemy) {
+      b.owner = bomber.id; b.lastTouch = bomber.team; b.vx = 0; b.vy = 0; b.pickupCd = 0;
+    } else {
+      b.lastTouch = bomb.team;
+      const power = state.settings.bombPower * (1 - bd / BOMB.radius) * BOMB.ballPush;
+      b.vx += (bx / bd) * power;
+      b.vy += (by / bd) * power;
+    }
   }
   state.blasts.push({ id: state._nid++, x: bomb.x, y: bomb.y, radius: BOMB.radius, life: BOMB.blastLife, maxLife: BOMB.blastLife });
 }

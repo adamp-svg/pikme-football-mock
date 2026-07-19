@@ -2,9 +2,12 @@
 // for your own player and interpolation for everyone else + the ball.
 
 import {
-  FIELD, GOAL, POST_R, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
-  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, MATCH_DURATION, clamp,
+  FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
+  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION, clamp,
 } from '/shared/constants.js';
+
+const PENALTY_TOP = (FIELD.H - PENALTY.width) / 2;
+const PENALTY_BOTTOM = (FIELD.H + PENALTY.width) / 2;
 
 const INPUT_RATE = 30;         // inputs sent per second (matches server tick)
 const INPUT_DT = 1 / INPUT_RATE;
@@ -38,7 +41,7 @@ const settings = {
   sizeMul: 1.25,
   carrySpeedMul: 0.9,
   ballSizeMul: 2,
-  shotPower: 1000,
+  shotPower: 1850,
   bulletSpeed: 720,
   bulletKnockback: 1500,
   bombPower: 1500,
@@ -116,6 +119,14 @@ function playSound(name, volume = 1, rate = 1) {
   source.start();
 }
 
+// Haptics. The web Vibration API covers Android/desktop; iOS WKWebView ignores
+// it, so we ALSO notify the native RN shell (expo-haptics) via postMessage.
+const VIBE = { hit: 12, playerHit: 28, bomb: [55, 45, 100], goal: [55, 45, 55, 45, 150], concede: 25 };
+function haptic(kind) {
+  try { if (navigator.vibrate) navigator.vibrate(VIBE[kind] || 15); } catch { /* unsupported */ }
+  try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ t: 'haptic', kind })); } catch { /* not in app */ }
+}
+
 function processSnapshotSounds(snap) {
   const blastIds = new Set((snap.blasts || []).map((b) => b.id));
   const impactIds = new Set((snap.impacts || []).map((i) => i.id));
@@ -123,6 +134,7 @@ function processSnapshotSounds(snap) {
     if (previousResetTimer <= 0 && snap.resetTimer > 0 && snap.lastGoal) {
       const ourGoal = snap.lastGoal === me.team;
       playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
+      haptic(ourGoal ? 'goal' : 'concede'); // melodic buzz when we score
     }
     if (previousBallOwner === null && snap.ball.owner !== null) {
       playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
@@ -133,6 +145,7 @@ function processSnapshotSounds(snap) {
         const distance = rendered ? Math.hypot(blast.x - rendered.x, blast.y - rendered.y) : 0;
         screenShakeStrength = Math.max(screenShakeStrength, clamp(12 - distance / 65, 2, 12));
         screenShakeUntil = performance.now() + 260;
+        haptic('bomb'); // bigger vibration for the blast
       }
     }
     for (const impact of snap.impacts || []) {
@@ -140,6 +153,7 @@ function processSnapshotSounds(snap) {
       const volume = impact.type === 'player' ? 0.5 : (impact.type === 'ball' ? 0.34 : 0.18);
       const rate = impact.type === 'wall' ? 1.3 : (impact.type === 'ball' ? 1.12 : 0.96);
       playSound('hit', volume, rate + Math.random() * 0.06);
+      haptic(impact.type === 'player' ? 'playerHit' : 'hit'); // buzz on each hit
     }
   }
   previousBallOwner = snap.ball.owner;
@@ -509,7 +523,7 @@ pauseBtn.addEventListener('click', openSettings);
 document.getElementById('resume').addEventListener('click', closeSettings);
 document.getElementById('reset-settings').addEventListener('click', () => {
   settings.speedMul = 0.8; settings.sizeMul = 1.25;
-  settings.carrySpeedMul = 0.9; settings.ballSizeMul = 2; settings.shotPower = 1000;
+  settings.carrySpeedMul = 0.9; settings.ballSizeMul = 2; settings.shotPower = 1850;
   settings.bulletSpeed = 720;
   settings.bulletKnockback = 1500;
   settings.bombPower = 1500;
@@ -784,6 +798,21 @@ function drawFanWall(x0, x1, color) {
   }
 }
 
+// Penalty box: three lines (front + the two sides), goal-line side is the edge,
+// plus a penalty spot. lineX = goal line, innerX = front edge (into the pitch).
+function drawPenaltyBox(lineX, innerX) {
+  ctx.strokeStyle = '#e9e0b8'; ctx.lineWidth = Math.max(2, ws_(4));
+  ctx.beginPath();
+  ctx.moveTo(wx(lineX), wy(PENALTY_TOP));
+  ctx.lineTo(wx(innerX), wy(PENALTY_TOP));
+  ctx.lineTo(wx(innerX), wy(PENALTY_BOTTOM));
+  ctx.lineTo(wx(lineX), wy(PENALTY_BOTTOM));
+  ctx.stroke();
+  const spotX = lineX + (innerX - lineX) * 0.62;
+  ctx.fillStyle = '#e9e0b8';
+  ctx.fillRect(wx(spotX) - ws_(4), wy(FIELD.H / 2) - ws_(4), ws_(8), ws_(8));
+}
+
 function drawField() {
   // Original block-grass pattern: large tiles with tiny pixel flecks.
   ctx.fillStyle = '#4b9c36';
@@ -810,6 +839,8 @@ function drawField() {
     ctx.fillRect(wx(cx + Math.cos(a) * rr - 4), wy(cy + Math.sin(a) * rr - 4), ws_(8), ws_(8));
   }
   ctx.fillRect(wx(cx - 5), wy(cy - 5), ws_(10), ws_(10));
+  drawPenaltyBox(0, PENALTY.depth);                 // left box
+  drawPenaltyBox(FIELD.W, FIELD.W - PENALTY.depth); // right box
   drawGoal(0, -NET);              // left: line at x=0, net behind (to -NET)
   drawGoal(FIELD.W, FIELD.W + NET); // right: line at x=W, net behind (to W+NET)
 }
@@ -1133,9 +1164,9 @@ function drawHUD() {
     banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
     banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
-    // Brief "GOAL!" flash, then a 3-2-1 countdown to kickoff.
-    const n = Math.ceil(latest.resetTimer);
-    banner.textContent = latest.resetTimer > GOAL_RESET - 0.85 ? 'GOAL!' : String(n);
+    // "GOAL!" during the freeze that shows the scoring positions, then 3-2-1.
+    const showing = latest.resetTimer > GOAL_RESET - GOAL_FREEZE_HOLD;
+    banner.textContent = showing ? 'GOAL!' : String(Math.ceil(latest.resetTimer));
     banner.style.color = teamColor(latest.lastGoal); // blue if I scored, red if conceded
     banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0) {

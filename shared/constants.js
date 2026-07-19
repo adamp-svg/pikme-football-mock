@@ -9,6 +9,11 @@ export const FIELD = { W: 2000, H: 1100 };
 // the mouth height. The ball scores when it crosses the goal line into the net.
 export const GOAL = { width: 300, depth: 70 };
 export const POST_R = 9; // goal-post collision radius — the ball bounces off the posts
+// Penalty area in front of each goal: `width` is its vertical extent, `depth` how
+// far it reaches into the pitch from the goal line.
+export const PENALTY = { width: 620, depth: 360 };
+// A player attacking inside the enemy penalty area takes far less knockback.
+export const PENALTY_KNOCKBACK_MUL = 0.3;
 
 // 30Hz network rate (rendering stays smooth via rAF + interpolation; 60Hz
 // overloaded the mobile WebView). Physics are per-SECOND, converted with DT,
@@ -44,7 +49,8 @@ export const BULLET_FULL_DIST = 300;
 
 export const MATCH_DURATION = 120; // seconds — match ends and returns to lobby
 export const KICKOFF_FREEZE = 0.7; // brief reset pause at match start
-export const GOAL_RESET = 3;       // post-goal countdown (3..2..1) before play resumes
+export const GOAL_RESET = 5;       // post-goal countdown before play resumes
+export const GOAL_FREEZE_HOLD = 2; // of GOAL_RESET, hold in the scoring positions this long before snapping to kickoff
 export const ENDED_HOLD = 6; // seconds the final score shows before returning to lobby
 
 // One player type. `speed`/`radius` are live-tunable via settings multipliers.
@@ -100,7 +106,7 @@ export function defaultSettings() {
     sizeMul: 1.25,
     carrySpeedMul: 0.9,    // speed multiplier while carrying the ball
     ballSizeMul: 2,
-    shotPower: 1000,       // released-ball speed
+    shotPower: 1850,       // full-power ball shot reaches ~80% of half-court (scales with charge)
     bulletSpeed: 720,      // full-charge bullet ~5.7x move speed (Colt is 5.5x)
     bulletKnockback: 1500, // full-power bullet knockback (quick shot = 0 push + slow)
     bombPower: 1500,
@@ -117,6 +123,12 @@ export const DETACH_SIDE = 170; // random sideways ball speed when knocked off a
 export const CARRIER_KNOCKBACK_MUL = 1.7; // full-power hit shoves a ball-carrier this much harder
 export const SLOW_TIME = 1.5;   // seconds a quick-shot slow lasts
 export const SLOW_MUL = 0.9;    // speed multiplier while slowed
+
+// A fast free ball shoves the opponent it runs into (power shots plow through).
+export const BALL_BUMP_SPEED = 300; // ball speed above which it bumps an opponent
+export const BALL_BUMP_SCALE = 0.5; // knockback = ball speed * this (a bit of a push)
+// A player counts as "on the bomb" (claims a knocked-loose ball) within this radius.
+export const BOMB_CENTER_R = 95;
 
 export const TEAM = {
   A: { key: 'A', name: 'Blue', color: '#3b82f6', attacksRight: true },
