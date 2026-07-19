@@ -260,3 +260,28 @@ html, body {
   color: #fff4ca; font: 900 clamp(90px, 22vw, 200px)/1 "Arial Black", Impact, sans-serif;
   text-shadow: 0 8px 0 #a56a16, 0 14px 0 #252a21;
 }
+
+/* ---- Lobby team picker (overrides the single-column layout above) ---- */
+.lobby-wrap { flex-direction: column; align-items: center; gap: 14px; max-width: 860px; }
+.lobby-head { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.lobby-head .lobby-counts { margin: 0; }
+.teams { display: flex; align-items: stretch; gap: 14px; width: 100%; }
+.team-panel {
+  flex: 1; padding: 10px; min-height: 150px; display: flex; flex-direction: column;
+  background: rgba(12,18,13,.92); border: 3px solid #39463b;
+  box-shadow: inset 0 -6px #0b100c, 0 8px 0 rgba(0,0,0,.35);
+}
+.team-panel.team1 { border-top: 5px solid var(--a); }
+.team-panel.team2 { border-top: 5px solid var(--b); }
+.team-title { font: 900 13px "Arial Black", sans-serif; letter-spacing: 2px; text-align: center; padding: 4px 0 8px; }
+.team-panel.team1 .team-title { color: #7db0ff; }
+.team-panel.team2 .team-title { color: #ff8f86; }
+.team-members { flex: 1; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: 34vh; }
+.team-join {
+  margin-top: 8px; padding: 8px; cursor: pointer;
+  border: 2px solid #39463b; background: #141d15; color: #c8d4bf;
+  font: 900 12px "Arial Black", sans-serif; letter-spacing: 1px;
+}
+.team-join.current { background: var(--gold); color: #2a1c06; border-color: #a56a16; }
+.vs { align-self: center; color: #8aa08c; font: 900 16px "Arial Black", sans-serif; }
+.member-row.is-me { outline: 2px solid var(--gold); }

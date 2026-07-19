@@ -61,8 +61,9 @@ const server = http.createServer((req, res) => {
 // ---------------------------------------------------------------------------
 // Room state
 // ---------------------------------------------------------------------------
-const COUNTDOWN_TIME = 10;   // seconds from first "Play Now" to kickoff
+const COUNTDOWN_TIME = 5;    // seconds from first "Play Now" to kickoff
 const AFK_SECONDS = 10;      // no meaningful input for this long -> becomes a bot
+const TEAM_CAP = 2;          // players per team in a 2v2 match
 
 let state = createState();          // sim state — recreated for each match
 const members = new Map();          // ws -> member (a connected client)
@@ -185,9 +186,16 @@ function send(ws, obj) {
   if (ws.readyState === ws.OPEN) { try { ws.send(JSON.stringify(obj)); } catch { /* dead socket */ } }
 }
 
+// Auto-assign a joining member to the emptier lobby team.
+function balancedTeam() {
+  let A = 0, B = 0;
+  for (const m of members.values()) (m.team === 'B' ? B++ : A++);
+  return A <= B ? 'A' : 'B';
+}
+
 function lobbyPayload() {
   const list = [...members.values()].map((m) => ({
-    id: m.id, name: m.name, avatar: m.avatar || null, ready: m.ready, inMatch: m.inMatch,
+    id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, ready: m.ready, inMatch: m.inMatch,
   }));
   return {
     type: 'lobby',
@@ -223,25 +231,30 @@ function shuffle(arr) {
   return arr;
 }
 
-// Turn the ready members into a fresh match; empty slots become bots.
+// Turn the ready members into a fresh match, honouring each player's chosen team
+// (up to 2 per team); empty slots become bots.
 function startMatch() {
-  const ready = shuffle([...members.values()].filter((m) => m.ready && !m.inMatch)).slice(0, MAX_PLAYERS);
+  const ready = [...members.values()].filter((m) => m.ready && !m.inMatch);
   if (ready.length === 0) { backToLobby(); return; } // everyone bailed during countdown
 
   state = createState();
   inputs.clear();
 
-  const perTeam = { A: 0, B: 0 };
-  ready.forEach((m, i) => {
-    const team = i % 2 === 0 ? 'A' : 'B'; // alternate for balanced teams (order is shuffled)
-    const slot = perTeam[team]++;
-    addPlayer(state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false });
-    inputs.set(m.id, emptyInput());
-    m.inMatch = true; m.ready = false; m.afk = false; m.lastInputAt = nowMs();
-    send(m.ws, { type: 'matchStart', playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: state.settings });
-  });
-  // Any extra ready members who didn't fit go back to waiting.
-  for (const m of members.values()) if (m.ready) m.ready = false;
+  // Take up to TEAM_CAP ready players per chosen team; extras stay waiting.
+  const picked = [];
+  for (const team of ['A', 'B']) {
+    const forTeam = shuffle(ready.filter((m) => (m.team || 'A') === team)).slice(0, TEAM_CAP);
+    forTeam.forEach((m, slot) => {
+      addPlayer(state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false });
+      inputs.set(m.id, emptyInput());
+      m.inMatch = true; m.afk = false; m.lastInputAt = nowMs();
+      send(m.ws, { type: 'matchStart', playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: state.settings });
+      picked.push(m);
+    });
+  }
+  if (picked.length === 0) { backToLobby(); return; }
+  // Clear ready flags (including extras who didn't fit — they go back to waiting).
+  for (const m of members.values()) m.ready = false;
 
   fillBots();
   attachBall(state, Math.random() < 0.5 ? 'A' : 'B');
@@ -260,15 +273,18 @@ function backToLobby() {
   broadcastLobby();
 }
 
-// A member who readies up mid-match drops straight into an open bot slot.
+// A member who readies up mid-match drops straight into an open bot slot,
+// preferring a slot on the team they chose in the lobby.
 function placeIntoMatch(member) {
-  const bot = Object.values(state.players).find((p) => p.isBot);
+  const bots = Object.values(state.players).filter((p) => p.isBot);
+  const bot = bots.find((p) => p.team === (member.team || 'A')) || bots[0];
   if (!bot) return false; // match full of humans
   const { team, slot } = bot;
   removePlayer(state, bot.id);
   inputs.delete(bot.id);
   addPlayer(state, member.id, { name: member.name, char: DEFAULT_CHAR, team, slot, isBot: false });
   inputs.set(member.id, emptyInput());
+  member.team = team; // may differ from preference if that team was full
   member.inMatch = true; member.ready = false; member.afk = false; member.lastInputAt = nowMs();
   send(member.ws, { type: 'matchStart', playerId: member.id, team, field: FIELD, chars: CHARACTERS, settings: state.settings });
   return true;
@@ -389,7 +405,8 @@ wss.on('connection', (ws) => {
       const name = (msg.name || 'Player').toString().slice(0, 16);
       let avatar = (msg.avatar || '').toString().slice(0, 400) || null;
       if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
-      member = { id, ws, name, avatar, ready: false, inMatch: false, afk: false, lastInputAt: nowMs() };
+      const team = balancedTeam(); // auto-balance; player can switch in the lobby
+      member = { id, ws, name, avatar, team, ready: false, inMatch: false, afk: false, lastInputAt: nowMs() };
       members.set(ws, member);
       send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS });
       broadcastLobby();
@@ -397,6 +414,13 @@ wss.on('connection', (ws) => {
     }
 
     if (!member) return;
+
+    // Switch team in the lobby to line up with a friend (not allowed mid-match).
+    if (msg.type === 'setTeam') {
+      if (member.inMatch || roomPhase === 'match') return;
+      if (msg.team === 'A' || msg.team === 'B') { member.team = msg.team; broadcastLobby(); }
+      return;
+    }
 
     // Press "Play Now".
     if (msg.type === 'ready') {

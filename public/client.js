@@ -3,7 +3,7 @@
 
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
-  SHOOT_CHARGE_TIME, MAG_SIZE, clamp,
+  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, clamp,
 } from '/shared/constants.js';
 
 const INPUT_RATE = 30;         // inputs sent per second (matches server tick)
@@ -234,7 +234,7 @@ function connect(name, avatar) {
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'welcome') {
-      // field/chars confirmed; our playerId + team arrive with matchStart
+      myMemberId = msg.id; // our lobby identity; playerId + team arrive with matchStart
     } else if (msg.type === 'lobby') {
       updateLobbyUI(msg);
     } else if (msg.type === 'matchStart') {
@@ -285,8 +285,19 @@ function exitToLobby() {
 
 function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
 
-// Keyed reconcile of the member list (avoids reloading avatar <img>s every tick).
+// Keyed reconcile of the two team lists (avoids reloading avatar <img>s every tick).
 const memberRows = new Map(); // id -> row element
+function buildMemberRow(m, listEl) {
+  const row = document.createElement('div');
+  row.className = 'member-row';
+  const av = document.createElement('div'); av.className = 'member-av';
+  const nm = document.createElement('div'); nm.className = 'member-name';
+  const st = document.createElement('div'); st.className = 'member-status';
+  row.append(av, nm, st);
+  memberRows.set(m.id, row);
+  listEl.appendChild(row);
+  return row;
+}
 function updateLobbyUI(msg) {
   lobbyOnlineEl.textContent = msg.online;
   lobbyWaitingEl.textContent = msg.waiting;
@@ -301,17 +312,10 @@ function updateLobbyUI(msg) {
   const seen = new Set();
   for (const m of msg.members) {
     seen.add(m.id);
+    const listEl = teamListEl[m.team === 'B' ? 'B' : 'A'];
     let row = memberRows.get(m.id);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'member-row';
-      const av = document.createElement('div'); av.className = 'member-av';
-      const nm = document.createElement('div'); nm.className = 'member-name';
-      const st = document.createElement('div'); st.className = 'member-status';
-      row.append(av, nm, st);
-      memberRows.set(m.id, row);
-      memberListEl.appendChild(row);
-    }
+    if (!row) row = buildMemberRow(m, listEl);
+    else if (row.parentElement !== listEl) listEl.appendChild(row); // moved teams
     const [av, nm, st] = row.children;
     if (row._avatar !== (m.avatar || '')) {
       row._avatar = m.avatar || '';
@@ -323,13 +327,19 @@ function updateLobbyUI(msg) {
         av.appendChild(img);
       } else { av.textContent = memberInitials(m.name); }
     }
-    if (nm.textContent !== m.name) nm.textContent = m.name;
+    const label = m.id === myMemberId ? `${m.name} (you)` : m.name;
+    if (nm.textContent !== label) nm.textContent = label;
     st.textContent = m.inMatch ? '● playing' : (m.ready ? '● ready' : '');
     row.classList.toggle('is-ready', !!(m.ready || m.inMatch));
+    row.classList.toggle('is-me', m.id === myMemberId);
+    if (m.id === myMemberId) myLobbyTeam = m.team === 'B' ? 'B' : 'A';
   }
   for (const [id, row] of memberRows) {
     if (!seen.has(id)) { row.remove(); memberRows.delete(id); }
   }
+  // Highlight the team I'm on; disable its JOIN button.
+  joinBtn.A.classList.toggle('current', myLobbyTeam === 'A');
+  joinBtn.B.classList.toggle('current', myLobbyTeam === 'B');
 }
 
 function sendPing() {
@@ -581,16 +591,21 @@ function sampleInput() {
   }
   let moveX = 0, moveY = 0, aimX = 0, aimY = 0;
 
+  // Sticks/keyboard are captured in the player's own (screen) frame; a mirrored
+  // team-B view means "screen right" is true-world left, so negate their X.
+  const flip = flipView();
   if (usingTouch) {
     // Left stick = move, right stick = aim (release to shoot).
     moveX = touchL.dx / STICK_MAX; moveY = touchL.dy / STICK_MAX;
     aimX = touchR.dx / STICK_MAX; aimY = touchR.dy / STICK_MAX;
+    if (flip) { moveX = -moveX; aimX = -aimX; }
   } else {
     if (keys['w'] || keys['arrowup']) moveY -= 1;
     if (keys['s'] || keys['arrowdown']) moveY += 1;
     if (keys['a'] || keys['arrowleft']) moveX -= 1;
     if (keys['d'] || keys['arrowright']) moveX += 1;
-    // aim = from own player toward mouse (world space)
+    if (flip) moveX = -moveX;
+    // aim = from own player toward mouse (screenToWorld is flip-aware -> true world)
     if (rendered) {
       const w = screenToWorld(mouse.x, mouse.y);
       aimX = w.x - rendered.x; aimY = w.y - rendered.y;
@@ -598,7 +613,7 @@ function sampleInput() {
     }
   }
   // A right-stick release captured its aim direction — use it for this shot.
-  if (aimHold) { aimX = aimHold.x; aimY = aimHold.y; aimHold = null; }
+  if (aimHold) { aimX = flip ? -aimHold.x : aimHold.x; aimY = aimHold.y; aimHold = null; }
   const shoot = shootQueued; shootQueued = false;
   const special = specialQueued; specialQueued = false;
   const charge = shoot ? pendingCharge : 0;
@@ -657,7 +672,11 @@ function updateCamera() {
 function wx(x) { return x * scale - camX; }
 function wy(y) { return y * scale - camY; }
 function ws_(v) { return v * scale; }
-function screenToWorld(px, py) { return { x: (px * dpr + camX) / scale, y: (py * dpr + camY) / scale }; }
+function screenToWorld(px, py) {
+  // Invert the camera; for a mirrored team-B view, also undo the horizontal flip.
+  const cx = flipView() ? (canvas.width - px * dpr) : (px * dpr);
+  return { x: (cx + camX) / scale, y: (py * dpr + camY) / scale };
+}
 
 // Render the static field to the offscreen cache. Temporarily point the camera so
 // wx/wy produce bg-local coords (bg pixel 0,0 = world (-NET, 0)).
@@ -720,8 +739,8 @@ function roundRect(c, x, y, w, h, r) {
 
 // Fans behind each goal (in the net-behind area), in that team's colour.
 function drawStands() {
-  drawFanWall(-NET, 0, TEAM.A.color);                 // behind A's (left) goal
-  drawFanWall(FIELD.W, FIELD.W + NET, TEAM.B.color);   // behind B's (right) goal
+  drawFanWall(-NET, 0, teamColor('A'));                 // behind A's (left) goal
+  drawFanWall(FIELD.W, FIELD.W + NET, teamColor('B'));   // behind B's (right) goal
 }
 function drawFanWall(x0, x1, color) {
   ctx.fillStyle = '#222923';
@@ -801,7 +820,7 @@ function drawPlayer(p) {
   const ch = CHARACTERS[p.char] || CHARACTERS.player;
   const isMe = p.id === me.playerId;
   const x = wx(p.x), y = wy(p.y), r = ws_(ch.radius * settings.sizeMul);
-  const team = TEAM[p.team].color;
+  const team = teamColor(p.team);
   const ang = Math.atan2(p.aimY, p.aimX) + Math.PI / 2;
   const unit = Math.max(2, r / 7);
   const speed = Math.hypot(p.vx || 0, p.vy || 0);
@@ -931,9 +950,14 @@ function drawBall(b) {
 
 // Current aim of the local player (for the aim-to-shoot indicator).
 function currentAim() {
+  // Returns a TRUE-world aim direction (the aim indicator is drawn inside the
+  // mirrored world for team B, so it must not be pre-flipped here).
   if (usingTouch) {
     const m = Math.hypot(touchR.dx, touchR.dy);
-    if (touchR.id !== null && m > 12) return { aiming: true, ax: touchR.dx / m, ay: touchR.dy / m };
+    if (touchR.id !== null && m > 12) {
+      const sx = flipView() ? -touchR.dx : touchR.dx;
+      return { aiming: true, ax: sx / m, ay: touchR.dy / m };
+    }
     return { aiming: false };
   }
   if (!rendered) return { aiming: false };
@@ -961,7 +985,7 @@ function drawAimIndicator(wxp, wyp, ax, ay, charge = 0) {
 
 function drawProjectile(pr) {
   const x = wx(pr.x), y = wy(pr.y), r = ws_(PROJECTILE.radius);
-  const col = TEAM[pr.team].color;
+  const col = teamColor(pr.team);
   ctx.fillStyle = 'rgba(255,237,142,.42)'; ctx.fillRect(x - r * 1.7, y - r * .45, r * 3.4, r * .9);
   ctx.fillStyle = col; ctx.fillRect(x - r * 1.15, y - r * 1.15, r * 2.3, r * 2.3);
   ctx.fillStyle = '#fff0aa'; ctx.fillRect(x - r * .55, y - r * .55, r * 1.1, r * 1.1);
@@ -1074,8 +1098,11 @@ function drawImpact(impact) {
 
 function drawHUD() {
   if (!latest) return;
-  document.getElementById('scoreA').textContent = latest.score.A;
-  document.getElementById('scoreB').textContent = latest.score.B;
+  // Score shown from my perspective: my team (blue) on the left, opponent (red) right.
+  const myT = me.team || 'A', opT = myT === 'A' ? 'B' : 'A';
+  const myScore = latest.score[myT], opScore = latest.score[opT];
+  document.getElementById('scoreA').textContent = myScore;
+  document.getElementById('scoreB').textContent = opScore;
   const t = latest.elapsed || 0;
   const m = Math.floor(t / 60), s = t % 60;
   document.getElementById('timer').textContent = `${m}:${String(s).padStart(2, '0')}`;
@@ -1083,12 +1110,15 @@ function drawHUD() {
 
   const banner = document.getElementById('banner');
   if (latest.phase === 'ended') {
-    const { A, B } = latest.score;
-    const txt = A === B ? 'DRAW' : (A > B ? 'BLUE WINS' : 'RED WINS');
-    banner.textContent = txt; banner.style.color = A > B ? TEAM.A.color : (B > A ? TEAM.B.color : '#fff');
+    const txt = myScore === opScore ? 'DRAW' : (myScore > opScore ? 'BLUE WINS' : 'RED WINS');
+    banner.textContent = txt;
+    banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
     banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
-    banner.textContent = 'GOAL!'; banner.style.color = TEAM[latest.lastGoal].color;
+    // Brief "GOAL!" flash, then a 3-2-1 countdown to kickoff.
+    const n = Math.ceil(latest.resetTimer);
+    banner.textContent = latest.resetTimer > GOAL_RESET - 0.85 ? 'GOAL!' : String(n);
+    banner.style.color = teamColor(latest.lastGoal); // blue if I scored, red if conceded
     banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0) {
     banner.textContent = Math.ceil(latest.resetTimer).toString(); banner.style.color = '#fff';
@@ -1133,6 +1163,9 @@ function renderFrame() {
 
   ctx.fillStyle = '#172018';
   ctx.fillRect(0, 0, canvas.width, canvas.height); // backdrop behind the field
+  // Team B sees a horizontally-mirrored pitch so they too attack left->right.
+  ctx.save();
+  if (flipView()) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
   ctx.drawImage(bgCanvas, -(camX + NET * scale), -camY); // cached field at camera offset
 
   const view = interpolated();
@@ -1164,6 +1197,7 @@ function renderFrame() {
     for (const impact of view.impacts) drawImpact(impact);
     drawOffscreenBallArrow(view.ball);
   }
+  ctx.restore(); // end the mirrored world; HUD/overlays draw in normal screen space
   drawHUD();
   specialBtn.classList.toggle('cooling', performance.now() < specialCdUntil);
 

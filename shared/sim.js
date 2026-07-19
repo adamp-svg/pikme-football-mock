@@ -4,7 +4,7 @@
 
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
-  RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE,
+  RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
@@ -89,7 +89,7 @@ export function removePlayer(state, id) {
 }
 
 // Reset to kickoff. `ballTeam` (if given) starts with the ball attached.
-function resetPositions(state, ballTeam) {
+function resetPositions(state, ballTeam, freeze = KICKOFF_FREEZE) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
@@ -101,7 +101,7 @@ function resetPositions(state, ballTeam) {
   state.bombs = [];
   state.impacts = [];
   if (ballTeam) attachBall(state, ballTeam);
-  state.resetTimer = KICKOFF_FREEZE;
+  state.resetTimer = freeze;
 }
 
 function separatePlayers(state) {
@@ -190,9 +190,9 @@ function handleBallBounds(state) {
 function goal(state, team) {
   state.score[team]++;
   state.lastGoal = team;
-  // The team that CONCEDED restarts with the ball.
+  // The team that CONCEDED restarts with the ball, after a 3s countdown.
   const conceding = team === 'A' ? 'B' : 'A';
-  resetPositions(state, conceding);
+  resetPositions(state, conceding, GOAL_RESET);
   return team;
 }
 
