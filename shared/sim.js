@@ -152,28 +152,31 @@ function handleBallBounds(state) {
   if (b.y < R) { b.y = R; b.vy = Math.abs(b.vy) * WALL_RESTITUTION; }
   if (b.y > FIELD.H - R) { b.y = FIELD.H - R; b.vy = -Math.abs(b.vy) * WALL_RESTITUTION; }
 
-  // Goal POSTS (top+bottom of each net mouth) — the ball bounces off them, so a
-  // shot that hits the woodwork rebounds instead of scoring.
-  bouncePost(b, GOAL.depth, GOAL_TOP, R);
-  bouncePost(b, GOAL.depth, GOAL_BOTTOM, R);
-  bouncePost(b, FIELD.W - GOAL.depth, GOAL_TOP, R);
-  bouncePost(b, FIELD.W - GOAL.depth, GOAL_BOTTOM, R);
+  // Goal line is AT the field edge (x=0 / x=FIELD.W); the net sits BEHIND it.
+  // POSTS at the mouth ends — the ball bounces off the woodwork.
+  bouncePost(b, 0, GOAL_TOP, R);
+  bouncePost(b, 0, GOAL_BOTTOM, R);
+  bouncePost(b, FIELD.W, GOAL_TOP, R);
+  bouncePost(b, FIELD.W, GOAL_BOTTOM, R);
 
   const inMouth = b.y > GOAL_TOP && b.y < GOAL_BOTTOM;
 
-  // A goal counts ONLY when the ball cleanly crosses the goal line BETWEEN the
-  // posts AND is moving into the net (right angle + real pace) — not a graze.
-  // Own goals (defending team last touched it) never count.
-  if (inMouth && b.x < GOAL.depth) {                 // left net — B attacks here
-    if (b.lastTouch === 'B' && b.vx < 0) return goal(state, 'B');
-    b.x = GOAL.depth; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; return;
-  }
-  if (inMouth && b.x > FIELD.W - GOAL.depth) {        // right net — A attacks here
-    if (b.lastTouch === 'A' && b.vx > 0) return goal(state, 'A');
-    b.x = FIELD.W - GOAL.depth; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; return;
+  if (inMouth) {
+    // In the mouth the ball can cross the line into the net (behind the pitch).
+    // A goal counts ONLY from the FRONT: crossing the line while moving inward,
+    // between the posts, last touched by the ATTACKING team (no own goals).
+    if (b.x < 0) {                                   // left net — B attacks
+      if (b.lastTouch === 'B' && b.vx < 0) return goal(state, 'B');
+      b.x = R; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; return; // no goal
+    }
+    if (b.x > FIELD.W) {                             // right net — A attacks
+      if (b.lastTouch === 'A' && b.vx > 0) return goal(state, 'A');
+      b.x = FIELD.W - R; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; return;
+    }
+    return; // inside the mouth, not yet at the line — let it fly
   }
 
-  // End walls (and the net's back wall when in the mouth but not yet scored).
+  // Solid end walls outside the goal mouth.
   if (b.x < R) { b.x = R; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; }
   if (b.x > FIELD.W - R) { b.x = FIELD.W - R; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; }
 }

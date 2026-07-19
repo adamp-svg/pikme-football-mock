@@ -368,43 +368,55 @@ setInterval(() => {
 // Rendering
 // --------------------------------------------------------------------------
 const mainCtx = canvas.getContext('2d');
-// Offscreen canvas caches the STATIC background (pitch + stands): drawn once
-// per resize, then blitted each frame instead of re-rendering all the vectors.
+// Offscreen canvas caches the STATIC field (grass, lines, goals, stands) for the
+// whole world incl. the behind-goal net areas; blitted at the camera offset.
 const bgCanvas = document.createElement('canvas');
 const bgCtx = bgCanvas.getContext('2d');
-let ctx = mainCtx; // active draw target (temporarily repointed to bgCtx while caching)
-let scale = 1, offX = 0, offY = 0, dpr = 1, standBandH = 0;
+let ctx = mainCtx;          // active draw target
+let scale = 1, dpr = 1;     // scale = canvas px per world unit (dpr folded in)
+let camX = 0, camY = 0;     // camera offset in canvas px (subtracted in wx/wy)
+const NET = GOAL.depth;     // net depth behind each goal line
 
 function resize() {
   dpr = Math.min(devicePixelRatio || 1, 2);
   canvas.width = innerWidth * dpr;
   canvas.height = innerHeight * dpr;
-  bgCanvas.width = canvas.width;
-  bgCanvas.height = canvas.height;
-  // Reserve top + bottom bands for the stands; fit the pitch between them.
-  standBandH = Math.round(innerHeight * 0.12);
-  const pitchAreaH = innerHeight - 2 * standBandH;
-  const s = Math.min(innerWidth / FIELD.W, pitchAreaH / FIELD.H);
-  scale = s;
-  offX = (innerWidth - FIELD.W * s) / 2;
-  offY = standBandH + (pitchAreaH - FIELD.H * s) / 2;
+  // Field spans ~1.5x the screen width -> the camera scrolls to follow the player.
+  scale = 1.5 * canvas.width / FIELD.W;
+  bgCanvas.width = Math.ceil((FIELD.W + 2 * NET) * scale);
+  bgCanvas.height = Math.ceil(FIELD.H * scale);
   renderBackground();
 }
 
-// Render the static background to the offscreen cache (temporarily repoints ctx).
+// Centre the camera on the local player, clamped to the field (+ behind-goal net).
+function updateCamera() {
+  const cx = rendered ? rendered.x : FIELD.W / 2;
+  const cy = rendered ? rendered.y : FIELD.H / 2;
+  const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - canvas.width;
+  camX = clamp(cx * scale - canvas.width / 2, minX, Math.max(minX, maxX));
+  const fieldHpx = FIELD.H * scale;
+  if (fieldHpx <= canvas.height) camY = (fieldHpx - canvas.height) / 2; // centre vertically
+  else camY = clamp(cy * scale - canvas.height / 2, 0, fieldHpx - canvas.height);
+}
+
+// World -> canvas px (through the camera). scale already includes dpr.
+function wx(x) { return x * scale - camX; }
+function wy(y) { return y * scale - camY; }
+function ws_(v) { return v * scale; }
+function screenToWorld(px, py) { return { x: (px * dpr + camX) / scale, y: (py * dpr + camY) / scale }; }
+
+// Render the static field to the offscreen cache. Temporarily point the camera so
+// wx/wy produce bg-local coords (bg pixel 0,0 = world (-NET, 0)).
 function renderBackground() {
-  bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
-  ctx = bgCtx;
-  try { drawStands(); drawPitch(); } finally { ctx = mainCtx; }
+  const sx = camX, sy = camY, sctx = ctx;
+  camX = -NET * scale; camY = 0; ctx = bgCtx;
+  try {
+    bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+    drawStands();
+    drawField();
+  } finally { ctx = sctx; camX = sx; camY = sy; }
 }
 addEventListener('resize', resize);
-
-function wx(x) { return (offX + x * scale) * dpr; }
-function wy(y) { return (offY + y * scale) * dpr; }
-function ws_(v) { return v * scale * dpr; }
-function screenToWorld(px, py) {
-  return { x: (px - offX) / scale, y: (py - offY) / scale };
-}
 
 // Interpolate remote entities to `renderTime`.
 function interpolated() {
@@ -448,85 +460,58 @@ function roundRect(c, x, y, w, h, r) {
   c.closePath();
 }
 
-// Stands: top band = opposing team's fans, bottom band = your team's fans,
-// each a row of supporter cards in that team's colour.
+// Fans behind each goal (in the net-behind area), in that team's colour.
 function drawStands() {
-  const myTeam = me.team || 'A';
-  const oppTeam = myTeam === 'A' ? 'B' : 'A';
-  const H = standBandH * dpr;
-  drawStandBand(0, H, TEAM[oppTeam].color, true);
-  drawStandBand(canvas.height - H, H, TEAM[myTeam].color, false);
+  drawFanWall(-NET, 0, TEAM.A.color);                 // behind A's (left) goal
+  drawFanWall(FIELD.W, FIELD.W + NET, TEAM.B.color);   // behind B's (right) goal
 }
-function drawStandBand(y, h, color, isTop) {
+function drawFanWall(x0, x1, color) {
   ctx.fillStyle = '#0a0f1c';
-  ctx.fillRect(0, y, canvas.width, h);
-  // team strip along the pitch-facing edge
-  ctx.save();
-  ctx.globalAlpha = 0.55; ctx.fillStyle = color;
-  const strip = Math.max(2, 3 * dpr);
-  ctx.fillRect(0, isTop ? y + h - strip : y, canvas.width, strip);
-  ctx.restore();
-  // supporter cards
-  const pad = 7 * dpr;
-  const cardH = h - pad * 2;
-  const cardW = cardH * 0.66;
-  const gap = 7 * dpr;
-  const n = Math.max(0, Math.floor((canvas.width - pad) / (cardW + gap)));
-  const extra = (canvas.width - pad - n * (cardW + gap)) / 2;
-  for (let i = 0; i < n; i++) {
-    const x = pad + extra + i * (cardW + gap);
-    const cy = y + pad;
-    roundRect(ctx, x, cy, cardW, cardH, 5 * dpr); ctx.fillStyle = color; ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.85)';
-    roundRect(ctx, x + cardW * 0.14, cy + cardH * 0.12, cardW * 0.72, cardH * 0.5, 3 * dpr); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,.22)';
-    roundRect(ctx, x + cardW * 0.14, cy + cardH * 0.68, cardW * 0.72, cardH * 0.16, 2 * dpr); ctx.fill();
+  ctx.fillRect(wx(x0), wy(0), ws_(x1 - x0), ws_(FIELD.H));
+  const cw = ws_(15), ch = ws_(20), gap = ws_(7);
+  const wpx = ws_(x1 - x0), hpx = ws_(FIELD.H);
+  const cols = Math.max(1, Math.floor(wpx / (cw + gap)));
+  const rows = Math.max(1, Math.floor(hpx / (ch + gap)));
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const px = wx(x0) + gap + c * (cw + gap);
+    const py = wy(0) + gap + r * (ch + gap);
+    ctx.fillStyle = color; roundRect(ctx, px, py, cw, ch, ws_(3)); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    roundRect(ctx, px + cw * 0.15, py + ch * 0.12, cw * 0.7, ch * 0.5, ws_(2)); ctx.fill();
   }
 }
 
-function drawPitch() {
+function drawField() {
   // grass + mow stripes
   ctx.fillStyle = '#2f9e44';
   ctx.fillRect(wx(0), wy(0), ws_(FIELD.W), ws_(FIELD.H));
-  const stripes = 8, sw = FIELD.W / stripes;
+  const stripes = 12, sw = FIELD.W / stripes;
   for (let i = 0; i < stripes; i++) {
     ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)';
     ctx.fillRect(wx(i * sw), wy(0), ws_(sw), ws_(FIELD.H));
   }
-  ctx.strokeStyle = 'rgba(255,255,255,.7)';
-  ctx.lineWidth = Math.max(1, ws_(3));
-  // border
-  ctx.strokeRect(wx(6), wy(6), ws_(FIELD.W - 12), ws_(FIELD.H - 12));
-  // halfway line + center circle
-  ctx.beginPath();
-  ctx.moveTo(wx(FIELD.W / 2), wy(6)); ctx.lineTo(wx(FIELD.W / 2), wy(FIELD.H - 6));
-  ctx.stroke();
-  ctx.beginPath(); ctx.arc(wx(FIELD.W / 2), wy(FIELD.H / 2), ws_(70), 0, Math.PI * 2); ctx.stroke();
-  // goals — inset net box with mesh, and a bright frame at the goal line
-  for (const side of ['L', 'R']) {
-    const x0 = side === 'L' ? 0 : FIELD.W - GOAL.depth;    // net box near edge
-    const lineX = side === 'L' ? GOAL.depth : FIELD.W - GOAL.depth; // goal line (front)
-    // net fill
-    ctx.fillStyle = 'rgba(255,255,255,.10)';
-    ctx.fillRect(wx(x0), wy(GOAL_TOP), ws_(GOAL.depth), ws_(GOAL.width));
-    // net mesh
-    ctx.strokeStyle = 'rgba(255,255,255,.30)'; ctx.lineWidth = Math.max(1, ws_(1));
-    for (let i = 1; i < 5; i++) {
-      const gx = x0 + (GOAL.depth / 5) * i;
-      ctx.beginPath(); ctx.moveTo(wx(gx), wy(GOAL_TOP)); ctx.lineTo(wx(gx), wy(GOAL_BOTTOM)); ctx.stroke();
-    }
-    for (let j = 1; j < 6; j++) {
-      const gy = GOAL_TOP + (GOAL.width / 6) * j;
-      ctx.beginPath(); ctx.moveTo(wx(x0), wy(gy)); ctx.lineTo(wx(x0 + GOAL.depth), wy(gy)); ctx.stroke();
-    }
-    // goal-line + solid POSTS (ball bounces off these)
-    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = Math.max(2, ws_(3));
-    ctx.beginPath(); ctx.moveTo(wx(lineX), wy(GOAL_TOP)); ctx.lineTo(wx(lineX), wy(GOAL_BOTTOM)); ctx.stroke();
-    for (const py of [GOAL_TOP, GOAL_BOTTOM]) {
-      ctx.beginPath(); ctx.arc(wx(lineX), wy(py), ws_(POST_R), 0, Math.PI * 2);
-      ctx.fillStyle = '#fff'; ctx.fill();
-      ctx.lineWidth = Math.max(1, ws_(2)); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.stroke();
-    }
+  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = Math.max(1, ws_(3));
+  ctx.strokeRect(wx(4), wy(4), ws_(FIELD.W - 8), ws_(FIELD.H - 8));
+  ctx.beginPath(); ctx.moveTo(wx(FIELD.W / 2), wy(4)); ctx.lineTo(wx(FIELD.W / 2), wy(FIELD.H - 4)); ctx.stroke();
+  ctx.beginPath(); ctx.arc(wx(FIELD.W / 2), wy(FIELD.H / 2), ws_(80), 0, Math.PI * 2); ctx.stroke();
+  drawGoal(0, -NET);              // left: line at x=0, net behind (to -NET)
+  drawGoal(FIELD.W, FIELD.W + NET); // right: line at x=W, net behind (to W+NET)
+}
+function drawGoal(lineX, backX) {
+  const x0 = Math.min(lineX, backX), w = Math.abs(backX - lineX);
+  // net box behind the goal line
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  ctx.fillRect(wx(x0), wy(GOAL_TOP), ws_(w), ws_(GOAL.width));
+  ctx.strokeStyle = 'rgba(255,255,255,.30)'; ctx.lineWidth = Math.max(1, ws_(1));
+  for (let i = 1; i < 5; i++) { const gx = x0 + (w / 5) * i; ctx.beginPath(); ctx.moveTo(wx(gx), wy(GOAL_TOP)); ctx.lineTo(wx(gx), wy(GOAL_BOTTOM)); ctx.stroke(); }
+  for (let j = 1; j < 6; j++) { const gy = GOAL_TOP + (GOAL.width / 6) * j; ctx.beginPath(); ctx.moveTo(wx(x0), wy(gy)); ctx.lineTo(wx(x0 + w), wy(gy)); ctx.stroke(); }
+  // goal line + solid POSTS (the ball bounces off these)
+  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = Math.max(2, ws_(3));
+  ctx.beginPath(); ctx.moveTo(wx(lineX), wy(GOAL_TOP)); ctx.lineTo(wx(lineX), wy(GOAL_BOTTOM)); ctx.stroke();
+  for (const py of [GOAL_TOP, GOAL_BOTTOM]) {
+    ctx.beginPath(); ctx.arc(wx(lineX), wy(py), ws_(POST_R), 0, Math.PI * 2);
+    ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.lineWidth = Math.max(1, ws_(2)); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.stroke();
   }
 }
 
@@ -675,20 +660,22 @@ function frame() {
   catch (e) { showFatal('frame: ' + e.message + '\n' + ((e.stack || '').split('\n')[1] || '').trim()); }
 }
 function renderFrame() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(bgCanvas, 0, 0); // cached pitch + stands (no per-frame vector redraw)
+  // Ease the drawn local player toward the prediction, then point the camera at it.
+  if (predicted) {
+    if (!rendered) rendered = { ...predicted };
+    rendered.x += (predicted.x - rendered.x) * 0.35;
+    rendered.y += (predicted.y - rendered.y) * 0.35;
+  }
+  updateCamera();
+
+  ctx.fillStyle = '#0a0f1c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height); // backdrop behind the field
+  ctx.drawImage(bgCanvas, -(camX + NET * scale), -camY); // cached field at camera offset
 
   const view = interpolated();
   if (view) {
     for (const bl of view.blasts) drawBlast(bl);
     for (const bomb of view.bombs) drawBomb(bomb);
-
-    // ease rendered own-player toward the prediction to smooth reconciliation
-    if (predicted) {
-      if (!rendered) rendered = { ...predicted };
-      rendered.x += (predicted.x - rendered.x) * 0.35;
-      rendered.y += (predicted.y - rendered.y) * 0.35;
-    }
 
     // Ball — if I'm carrying it, glue it to my predicted position (no lag).
     let ballDraw = view.ball;

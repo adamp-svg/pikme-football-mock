@@ -1,7 +1,7 @@
 // Shared game constants — imported by BOTH the server (authoritative sim)
 // and the browser client (prediction + rendering). Single source of truth.
 
-export const FIELD = { W: 1400, H: 600 }; // wide pitch (longer to the sides)
+export const FIELD = { W: 2000, H: 600 }; // long pitch — camera follows the player
 
 // Goal net: sits `depth` IN from each end wall (moved to the front). `width` is
 // the mouth height. The ball scores when it crosses the goal line into the net.
@@ -55,9 +55,8 @@ export const CHARACTERS = {
 };
 export const DEFAULT_CHAR = 'player';
 
-// Movement smoothing: velocity eases toward the target, frame-rate independent
-// (matches the old 0.2/tick @30Hz feel). Used by BOTH sim and client prediction.
-export const MOVE_ACCEL = 1 - Math.pow(0.00124, DT);
+// Movement is STRICT — velocity snaps to the target each tick (no gliding).
+export const MOVE_ACCEL = 1;
 
 // Bullet fired by the right-stick shoot (both characters).
 export const PROJECTILE = {
