@@ -32,6 +32,7 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
+  '.mp3': 'audio/mpeg',
 };
 
 const server = http.createServer((req, res) => {

@@ -148,6 +148,17 @@ html, body {
 }
 .pause-btn:active { transform: scale(.94); }
 
+.sound-btn {
+  position: fixed; left: 110px; top: 12px;
+  width: 40px; height: 40px; border-radius: 2px;
+  background: #182019e8; border: 2px solid #667061; box-shadow: 0 4px 0 rgba(0,0,0,.4);
+  color: #dfe8fb; font-size: 17px; cursor: pointer; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: manipulation;
+}
+.sound-btn:active { transform: scale(.94); }
+.sound-btn.muted { filter: grayscale(1); opacity: .65; }
+
 /* Settings overlay */
 .settings-panel {
   position: fixed; inset: 0; z-index: 20;

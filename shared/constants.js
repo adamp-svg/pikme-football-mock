@@ -1,11 +1,13 @@
 // Shared game constants — imported by BOTH the server (authoritative sim)
 // and the browser client (prediction + rendering). Single source of truth.
 
-export const FIELD = { W: 2000, H: 600 }; // long pitch — camera follows the player
+// Arena proportions match a Brawl Stars map (~39x21 tiles): 2000x1100 px is
+// ~38x21 player-diameters, aspect 1.82:1. Camera follows the player in both axes.
+export const FIELD = { W: 2000, H: 1100 };
 
 // Goal net: sits `depth` IN from each end wall (moved to the front). `width` is
 // the mouth height. The ball scores when it crosses the goal line into the net.
-export const GOAL = { width: 210, depth: 70 };
+export const GOAL = { width: 300, depth: 70 };
 export const POST_R = 9; // goal-post collision radius — the ball bounces off the posts
 
 // 30Hz network rate (rendering stays smooth via rAF + interpolation; 60Hz
@@ -50,7 +52,7 @@ export const ENDED_HOLD = 8; // unused (endless match)
 export const CHARACTERS = {
   player: {
     key: 'player', name: 'Player', speed: 158, radius: 21, emoji: '',
-    shootCooldown: 0.28, special: 'bomb', specialCooldown: 2.4,
+    shootCooldown: 0.45, special: 'bomb', specialCooldown: 2.4,
   },
 };
 export const DEFAULT_CHAR = 'player';
@@ -86,12 +88,12 @@ export const KNOCKBACK_MIN = 4;
 // character's base speed/radius; the rest are absolute.
 export function defaultSettings() {
   return {
-    speedMul: 1,
+    speedMul: 0.8,         // ~2.4 body-lengths/s = Brawl Stars "Normal" speed tier
     sizeMul: 1.25,
     carrySpeedMul: 0.9,    // speed multiplier while carrying the ball
     ballSizeMul: 2,
     shotPower: 1000,       // released-ball speed
-    bulletSpeed: 900,
+    bulletSpeed: 720,      // full-charge bullet ~5.7x move speed (Colt is 5.5x)
     bulletKnockback: 1500, // full-power bullet knockback (quick shot = 0 push + slow)
     bombPower: 1500,
   };
