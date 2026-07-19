@@ -17,6 +17,7 @@ import {
 } from './shared/sim.js';
 import {
   TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD,
+  MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
 } from './shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -211,6 +212,11 @@ function snapshot() {
     x: r1(p.x), y: r1(p.y),
     aimX: Math.round(p.aimX * 100) / 100, aimY: Math.round(p.aimY * 100) / 100,
     firing: p.firing, lastSeq: p.lastSeq,
+    ammo: p.ammo, reloading: p.reloadLock > 0,
+    // progress 0..1 of whatever is refilling next (full reload, or the trickle round)
+    reloadFrac: Math.round(100 * (p.reloadLock > 0
+      ? 1 - p.reloadLock / EMPTY_RELOAD
+      : (p.ammo < MAG_SIZE ? p.ammoT / AMMO_REGEN : 0))) / 100,
   }));
   return {
     type: 'snapshot',

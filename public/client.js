@@ -3,7 +3,7 @@
 
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
-  SHOOT_CHARGE_TIME, clamp,
+  SHOOT_CHARGE_TIME, MAG_SIZE, clamp,
 } from '/shared/constants.js';
 
 const INPUT_RATE = 30;         // inputs sent per second (matches server tick)
@@ -700,6 +700,65 @@ function drawPlayer(p) {
     ctx.fillStyle = '#ffdd43'; ctx.fillRect(x - ws_(5), ty, ws_(10), ws_(8));
     ctx.fillRect(x - ws_(2), ty + ws_(8), ws_(4), ws_(4));
   }
+  drawAmmoBar(p, x, y, r);
+}
+
+// Segmented ammo bar under a player: filled pips = loaded rounds, the next pip
+// fills as it reloads (or all pips fill together during a full empty-reload).
+function drawAmmoBar(p, cx, cy, r) {
+  const ammo = p.ammo == null ? MAG_SIZE : p.ammo;
+  const frac = p.reloadFrac || 0;
+  const reloading = !!p.reloading;
+  const w = r * 0.5, h = Math.max(2, r * 0.24), gap = r * 0.18;
+  const total = MAG_SIZE * w + (MAG_SIZE - 1) * gap;
+  const y = cy + r * 1.28;
+  let x = cx - total / 2;
+  for (let i = 0; i < MAG_SIZE; i++) {
+    ctx.fillStyle = 'rgba(8,12,8,.6)';
+    ctx.fillRect(x, y, w, h);
+    let fill = 0;
+    if (reloading) fill = frac;          // empty mag: all pips fill together
+    else if (i < ammo) fill = 1;          // loaded round
+    else if (i === ammo) fill = frac;     // the round currently trickling back
+    if (fill > 0) {
+      ctx.fillStyle = fill >= 1 ? '#ffe27a' : 'rgba(255,226,122,.72)';
+      ctx.fillRect(x, y, w * fill, h);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = Math.max(1, ws_(1));
+    ctx.strokeRect(x, y, w, h);
+    x += w + gap;
+  }
+}
+
+// When the ball is off-screen, pin an arrow to the nearest screen edge pointing
+// toward it, so you always know where the ball is.
+function drawOffscreenBallArrow(ball) {
+  if (!ball) return;
+  const sx = wx(ball.x), sy = wy(ball.y);
+  const W = canvas.width, H = canvas.height;
+  const m = 30 * dpr; // keep the arrow this far inside the edges
+  if (sx >= m && sx <= W - m && sy >= m && sy <= H - m) return; // ball is visible
+  const dx = sx - W / 2, dy = sy - H / 2;
+  const ang = Math.atan2(dy, dx);
+  const ex = clamp(sx, m, W - m), ey = clamp(sy, m, H - m);
+  const size = 15 * dpr;
+  ctx.save();
+  ctx.translate(ex, ey);
+  // round backing so the marker reads over any field colour
+  ctx.fillStyle = 'rgba(10,16,10,.55)';
+  ctx.beginPath(); ctx.arc(0, 0, size * 1.05, 0, Math.PI * 2); ctx.fill();
+  // little ball dot
+  ctx.fillStyle = '#f8efd5';
+  ctx.beginPath(); ctx.arc(0, 0, size * 0.5, 0, Math.PI * 2); ctx.fill();
+  // triangle pointing toward the ball
+  ctx.rotate(ang);
+  ctx.fillStyle = '#ffe27a';
+  ctx.beginPath();
+  ctx.moveTo(size * 1.5, 0);
+  ctx.lineTo(size * 0.55, -size * 0.7);
+  ctx.lineTo(size * 0.55, size * 0.7);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 function drawBall(b) {
@@ -865,6 +924,7 @@ function renderFrame() {
       else drawPlayer(p);
     }
     for (const pr of view.projectiles) drawProjectile(pr);
+    drawOffscreenBallArrow(view.ball);
   }
   drawHUD();
   specialBtn.classList.toggle('cooling', performance.now() < specialCdUntil);

@@ -52,13 +52,20 @@ export const ENDED_HOLD = 8; // unused (endless match)
 export const CHARACTERS = {
   player: {
     key: 'player', name: 'Player', speed: 158, radius: 21, emoji: '',
-    shootCooldown: 0.45, special: 'bomb', specialCooldown: 2.4,
+    shootCooldown: 0.2, special: 'bomb', specialCooldown: 2.4,
   },
 };
 export const DEFAULT_CHAR = 'player';
 
 // Movement is STRICT — velocity snaps to the target each tick (no gliding).
 export const MOVE_ACCEL = 1;
+
+// Ammo / reload (Brawl-Stars style). You start with a full mag and can fire it
+// fast. While not empty, ammo trickles back 1 round per AMMO_REGEN seconds.
+// Emptying the mag triggers a full EMPTY_RELOAD lockout, then refills all.
+export const MAG_SIZE = 3;
+export const AMMO_REGEN = 1.0;   // seconds to regenerate one round (when not empty)
+export const EMPTY_RELOAD = 1.2; // seconds to refill the whole mag after emptying it
 
 // Bullet fired by the right-stick shoot (both characters).
 export const PROJECTILE = {
@@ -88,7 +95,7 @@ export const KNOCKBACK_MIN = 4;
 // character's base speed/radius; the rest are absolute.
 export function defaultSettings() {
   return {
-    speedMul: 0.8,         // ~2.4 body-lengths/s = Brawl Stars "Normal" speed tier
+    speedMul: 0.9,         // a touch quicker than BS "Normal" for players without the ball
     sizeMul: 1.25,
     carrySpeedMul: 0.9,    // speed multiplier while carrying the ball
     ballSizeMul: 2,
@@ -106,7 +113,7 @@ export function defaultSettings() {
 export const QUICK_CHARGE = 0.25;
 export const FULL_CHARGE = 0.85;
 export const DETACH_SIDE = 170; // random sideways ball speed when knocked off a carrier
-export const CARRIER_KNOCKBACK_MUL = 2.4; // full-power hit shoves a ball-carrier this much harder
+export const CARRIER_KNOCKBACK_MUL = 1.7; // full-power hit shoves a ball-carrier this much harder
 export const SLOW_TIME = 1.5;   // seconds a quick-shot slow lasts
 export const SLOW_MUL = 0.9;    // speed multiplier while slowed
 

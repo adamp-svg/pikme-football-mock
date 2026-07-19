@@ -7,6 +7,7 @@ import {
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
+  MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 
@@ -68,7 +69,10 @@ export function addPlayer(state, id, { name, char, team, slot, isBot }) {
     vx: 0, vy: 0,
     kvx: 0, kvy: 0, // knockback velocity (decays), added on top of movement
     aimX: team === 'A' ? 1 : -1, aimY: 0,
-    shootCd: 0, // bullet cooldown
+    shootCd: 0, // bullet cooldown (per-shot pacing within a mag)
+    ammo: MAG_SIZE, // rounds loaded
+    ammoT: 0,       // seconds accumulated toward the next trickle-regen round
+    reloadLock: 0,  // >0 while a fully-emptied mag is reloading (can't fire)
     specialCd: 0, // bomb cooldown
     slowTimer: 0, // seconds of quick-shot slow remaining
     firing: false, // fired/released this tick (flash)
@@ -240,6 +244,15 @@ export function step(state, inputs, dt) {
 
     p.shootCd = Math.max(0, p.shootCd - dt);
     p.specialCd = Math.max(0, p.specialCd - dt);
+    // Ammo: a fully-emptied mag reloads all at once after EMPTY_RELOAD; otherwise
+    // rounds trickle back one per AMMO_REGEN seconds.
+    if (p.reloadLock > 0) {
+      p.reloadLock -= dt;
+      if (p.reloadLock <= 0) { p.reloadLock = 0; p.ammo = MAG_SIZE; p.ammoT = 0; }
+    } else if (p.ammo < MAG_SIZE) {
+      p.ammoT += dt;
+      if (p.ammoT >= AMMO_REGEN) { p.ammo = Math.min(MAG_SIZE, p.ammo + 1); p.ammoT -= AMMO_REGEN; }
+    }
     p.firing = false;
     p._shoot = !!inp.shoot;
     p._special = !!inp.special;
@@ -266,8 +279,10 @@ export function step(state, inputs, dt) {
         b.vy = p.aimY * state.settings.shotPower * cm;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
-      } else if (p.shootCd <= 0) {
+      } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
         fireBullet(state, p, ch, p._charge);
+        p.ammo -= 1;
+        if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
       }
     }
     if (p._special && p.specialCd <= 0) useSpecial(state, p, ch);
