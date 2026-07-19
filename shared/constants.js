@@ -88,7 +88,7 @@ export const BOMB = {
   fuse: 1.15,      // seconds from plant to blast
   radius: 168,     // blast reaches this far
   power: 820,      // max impulse at the very center (falls off to 0 at edge)
-  ballPush: 1.0,   // multiplier for how hard the blast shoves the ball
+  ballPush: 0.4,   // multiplier for how hard the blast shoves a loose ball
   blastLife: 0.45, // seconds the visual blast ring lives
 };
 
@@ -109,7 +109,7 @@ export function defaultSettings() {
     shotPower: 1850,       // full-power ball shot reaches ~80% of half-court (scales with charge)
     bulletSpeed: 720,      // full-charge bullet ~5.7x move speed (Colt is 5.5x)
     bulletKnockback: 1500, // full-power bullet knockback (quick shot = 0 push + slow)
-    bombPower: 1500,
+    bombPower: 3400,       // bomb launch impulse at the center (~full-shot travel ~800px)
   };
 }
 
@@ -127,8 +127,13 @@ export const SLOW_MUL = 0.9;    // speed multiplier while slowed
 // A fast free ball shoves the opponent it runs into (power shots plow through).
 export const BALL_BUMP_SPEED = 300; // ball speed above which it bumps an opponent
 export const BALL_BUMP_SCALE = 0.5; // knockback = ball speed * this (a bit of a push)
-// A player counts as "on the bomb" (claims a knocked-loose ball) within this radius.
+// Bomb mechanics: a planter standing this close to their own bomb gets launched
+// (full-shot strength) in their AIM direction ("rocket jump") instead of being
+// flung away from center. Enemies in the blast fly away a bit harder.
 export const BOMB_CENTER_R = 95;
+export const BOMB_ENEMY_MUL = 1.25; // enemies of the bomber fly this much harder
+export const BOMB_LAUNCH_TTL = 0.5; // seconds the launched planter can "tackle" an enemy
+export const BOMB_TACKLE_KB = 1800; // shove given to an enemy the flying planter hits
 
 export const TEAM = {
   A: { key: 'A', name: 'Blue', color: '#3b82f6', attacksRight: true },

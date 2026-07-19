@@ -5,7 +5,8 @@
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
-  PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE, BOMB_CENTER_R,
+  PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
+  BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
@@ -91,6 +92,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot }) {
     reloadLock: 0,  // >0 while a fully-emptied mag is reloading (can't fire)
     specialCd: 0, // bomb cooldown
     slowTimer: 0, // seconds of quick-shot slow remaining
+    bombLaunch: 0, // >0 => rocket-jumping off own bomb; can tackle an enemy
     firing: false, // fired/released this tick (flash)
     lastSeq: 0, // last input seq applied (for client reconciliation)
     _shoot: false, _special: false,
@@ -260,6 +262,7 @@ export function step(state, inputs, dt) {
     let spd = ch.speed * state.settings.speedMul;
     if (state.ball.owner === p.id) spd *= state.settings.carrySpeedMul; // slower while carrying
     if (p.slowTimer > 0) { spd *= SLOW_MUL; p.slowTimer -= dt; } // hit by a quick shot
+    if (p.bombLaunch > 0) p.bombLaunch -= dt; // rocket-jump tackle window
     const tvx = mx * spd, tvy = my * spd;
     p.vx += (tvx - p.vx) * MOVE_ACCEL;
     p.vy += (tvy - p.vy) * MOVE_ACCEL;
@@ -293,6 +296,7 @@ export function step(state, inputs, dt) {
     p.lastSeq = inp.seq != null ? inp.seq : p.lastSeq;
   }
 
+  resolveBombTackles(state); // flying planter plows into / steals from an enemy
   separatePlayers(state);
 
   // --- Per-player actions ---
@@ -343,13 +347,14 @@ export function step(state, inputs, dt) {
       if (Math.hypot(b.x - p.x, b.y - p.y) >= radiusOf(p, state) + ballR) continue;
       const enemyOfBall = b.lastTouch && p.team !== b.lastTouch;
       if (bspeed > BALL_BUMP_SPEED && enemyOfBall) {
-        // A fast ball shoves the opponent it runs into and powers on past them.
+        // A fast ball shoves the opponent it runs into, then only trickles a bit
+        // further forward (it loses most of its pace on the hit).
         const nx = b.vx / bspeed, ny = b.vy / bspeed;
         const kb = bspeed * BALL_BUMP_SCALE * knockMul(p);
         p.kvx += nx * kb; p.kvy += ny * kb;
-        // keep lastTouch as the shooter's so a power shot can still score
-        // after plowing through a defender.
-        continue; // don't stop the ball; keep checking other players
+        b.vx *= 0.35; b.vy *= 0.35; // comes forward only a bit after the hit
+        // keep lastTouch as the shooter's (goal credit unchanged)
+        continue; // keep checking other players
       }
       if (b.pickupCd <= 0) { b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; break; }
     }
@@ -421,14 +426,14 @@ function updateProjectiles(state, dt) {
       }
     } else {
       // A HELD ball: only a FULL-power bullet hitting the ball head-on affects it
-      // — it knocks the ball loose (flying forward) AND shoves the carrier back.
+      // — it shoves the CARRIER back, and the ball drops loose where it was (it
+      // does NOT fly forward).
       const bdx = b.x - pr.x, bdy = b.y - pr.y;
       if (pr.charge >= FULL_CHARGE && Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
         const l = Math.hypot(pr.vx, pr.vy) || 1, nx = pr.vx / l, ny = pr.vy / l;
         const carrier = state.players[b.owner];
         b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
-        b.vx = nx * PROJECTILE.ballPush * pr.cmul;
-        b.vy = ny * PROJECTILE.ballPush * pr.cmul;
+        b.vx = 0; b.vy = 0; // ball stays in place
         if (carrier) {
           const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * knockMul(carrier);
           carrier.kvx += nx * kb; carrier.kvy += ny * kb;
@@ -516,43 +521,76 @@ function updateBombs(state, dt) {
 
 function explode(state, bomb) {
   const bomber = state.players[bomb.owner];
-  // Was the bomber standing on their own bomb ("on the center")?
   const bomberOnCenter = bomber && Math.hypot(bomber.x - bomb.x, bomber.y - bomb.y) < BOMB_CENTER_R;
+  const P = state.settings.bombPower;
 
-  // Push players away from center; a bomb never flings its OWN planter (so they
-  // can plant-and-grab). Strength falls off to 0 at the edge.
+  // The planter, if standing on their own bomb, is LAUNCHED in the direction they
+  // are facing (a "rocket jump", ~full-shot strength) rather than flung away — and
+  // for a short window can tackle an enemy in their path (see resolveBombTackles).
+  if (bomberOnCenter) {
+    const al = Math.hypot(bomber.aimX, bomber.aimY) || 1;
+    bomber.kvx += (bomber.aimX / al) * P;
+    bomber.kvy += (bomber.aimY / al) * P;
+    bomber.bombLaunch = BOMB_LAUNCH_TTL;
+  }
+
+  // Everyone else in the blast is flung away from the center; the closer to the
+  // center, the farther. Enemies of the bomber fly a bit harder.
   for (const id in state.players) {
-    if (id === bomb.owner) continue;
+    if (id === bomb.owner && bomberOnCenter) continue; // planter got the aim launch
     const t = state.players[id];
     const dx = t.x - bomb.x, dy = t.y - bomb.y;
     const d = Math.hypot(dx, dy) || 0.0001;
     if (d < BOMB.radius) {
-      const power = state.settings.bombPower * (1 - d / BOMB.radius) * knockMul(t);
+      const enemyMul = bomber && t.team !== bomber.team ? BOMB_ENEMY_MUL : 1;
+      const power = P * (1 - d / BOMB.radius) * enemyMul * knockMul(t);
       t.kvx += (dx / d) * power;
       t.kvy += (dy / d) * power;
     }
   }
 
-  // Ball in the blast: knock it loose. If the planter is on the bomb and blew it
-  // off an ENEMY carrier, the planter takes possession; otherwise it flies out.
+  // Ball in the blast. If the planter is rocket-jumping, LEAVE a carried ball on
+  // the enemy so the flying tackle can steal it (see resolveBombTackles). Any
+  // other case: knock it loose and shove it out of the blast.
   const b = state.ball;
-  const priorCarrier = b.owner ? state.players[b.owner] : null;
   const bx = b.x - bomb.x, by = b.y - bomb.y;
   const bd = Math.hypot(bx, by) || 0.0001;
-  if (bd < BOMB.radius) {
-    const stripped = !!b.owner;
-    const carrierWasEnemy = priorCarrier && bomber && priorCarrier.team !== bomber.team;
+  if (bd < BOMB.radius && !(bomberOnCenter && b.owner)) {
     if (b.owner) { b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; }
-    if (bomberOnCenter && stripped && carrierWasEnemy) {
-      b.owner = bomber.id; b.lastTouch = bomber.team; b.vx = 0; b.vy = 0; b.pickupCd = 0;
-    } else {
-      b.lastTouch = bomb.team;
-      const power = state.settings.bombPower * (1 - bd / BOMB.radius) * BOMB.ballPush;
-      b.vx += (bx / bd) * power;
-      b.vy += (by / bd) * power;
-    }
+    b.lastTouch = bomb.team;
+    const power = P * (1 - bd / BOMB.radius) * BOMB.ballPush;
+    b.vx += (bx / bd) * power;
+    b.vy += (by / bd) * power;
   }
   state.blasts.push({ id: state._nid++, x: bomb.x, y: bomb.y, radius: BOMB.radius, life: BOMB.blastLife, maxLife: BOMB.blastLife });
+}
+
+// A planter rocket-jumping off their own bomb plows into the first enemy in their
+// path: shoves them back, and if that enemy had the ball, steals it.
+function resolveBombTackles(state) {
+  const b = state.ball;
+  for (const id in state.players) {
+    const p = state.players[id];
+    if (!p.bombLaunch || p.bombLaunch <= 0) continue;
+    const speed = Math.hypot(p.kvx, p.kvy);
+    if (speed < 200) { p.bombLaunch = 0; continue; } // launch spent
+    const dirx = p.kvx / speed, diry = p.kvy / speed;
+    for (const oid in state.players) {
+      if (oid === id) continue;
+      const t = state.players[oid];
+      if (t.team === p.team) continue; // only tackle enemies
+      const reach = radiusOf(p, state) + radiusOf(t, state) + 16;
+      if (Math.hypot(t.x - p.x, t.y - p.y) < reach) {
+        t.kvx += dirx * BOMB_TACKLE_KB * knockMul(t);
+        t.kvy += diry * BOMB_TACKLE_KB * knockMul(t);
+        if (b.owner === t.id) { // steal the ball onto the flying planter
+          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; b.pickupCd = 0;
+        }
+        p.bombLaunch = 0; // one tackle per jump
+        break;
+      }
+    }
+  }
 }
 
 function updateBlasts(state, dt) {
