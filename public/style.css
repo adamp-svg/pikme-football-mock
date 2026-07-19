@@ -1,14 +1,17 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 :root {
-  --a: #3b82f6;
-  --b: #ef4444;
-  --bg: #0b1220;
+  --a: #2e70df;
+  --b: #e84b3c;
+  --bg: #101713;
+  --ink: #f7f0d7;
+  --stone: #27312b;
+  --gold: #ffcb43;
 }
 html, body {
   height: 100%;
   background: var(--bg);
-  color: #e8eefc;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   overflow: hidden;
   user-select: none;
   touch-action: none;
@@ -17,17 +20,39 @@ html, body {
 .hidden { display: none !important; }
 
 /* ---- Start screen ---- */
+.screen#start {
+  background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
+  isolation: isolate;
+}
+.start-shade {
+  position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(90deg, rgba(7,13,9,.82), rgba(7,13,9,.38) 52%, rgba(7,13,9,.1)),
+              linear-gradient(0deg, rgba(7,13,9,.72), transparent 45%);
+}
 .panel {
-  width: min(92vw, 420px);
-  background: #121a2c;
-  border: 1px solid #223050;
-  border-radius: 20px;
-  padding: 28px 24px 22px;
-  box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  width: min(90vw, 460px);
+  background: rgba(19,27,22,.94);
+  border: 4px solid #657264;
+  border-radius: 2px;
+  padding: 28px 28px 24px;
+  box-shadow: inset 0 0 0 3px #182018, 0 10px 0 #101611, 0 20px 50px rgba(0,0,0,.55);
   text-align: center;
 }
-.panel h1 { font-size: 30px; letter-spacing: -0.5px; }
-.sub { color: #8fa3c8; margin: 6px 0 20px; font-size: 14px; }
+.block-panel { margin-left: max(5vw, 34px); margin-right: auto; }
+.eyebrow { color: #c8d4bf; font-weight: 900; font-size: 12px; letter-spacing: 3px; display: flex; align-items: center; gap: 12px; justify-content: center; }
+.eyebrow span { width: 36px; height: 3px; background: var(--gold); box-shadow: 0 3px #8f691b; }
+.panel h1 {
+  margin-top: 12px; color: #fff4ca; font: 900 clamp(40px, 7vw, 62px)/.78 "Arial Black", Impact, sans-serif;
+  letter-spacing: -3px; text-shadow: 0 5px 0 #776d4d, 0 8px 0 #252a21;
+}
+.panel h1 span { color: var(--gold); text-shadow: 0 5px 0 #a56a16, 0 8px 0 #252a21; }
+.sub { color: #c2cbb8; margin: 22px 0 18px; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+.match-card { display: grid; grid-template-columns: 1fr 90px 1fr; align-items: center; background: #111812; border: 3px solid #39463b; padding: 10px; margin: 0 0 16px; }
+.team-chip { font-weight: 900; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.team-chip i { display: block; width: 18px; height: 18px; background: currentColor; border: 3px solid #e9dfc0; box-shadow: 3px 3px 0 #050705; }
+.team-chip.blue { color: #5b96ff; } .team-chip.red { color: #ff665b; }
+.mode strong { display: block; color: #fff; font: 900 18px "Arial Black", sans-serif; }
+.mode small { display: block; margin-top: 2px; color: #7f907f; font-size: 8px; font-weight: 900; }
 .field-label { display: block; text-align: left; font-size: 12px; color: #8fa3c8; margin: 14px 2px 6px; text-transform: uppercase; letter-spacing: .5px; }
 #name {
   width: 100%; padding: 13px 14px; border-radius: 12px;
@@ -46,12 +71,16 @@ html, body {
 .char-name { font-weight: 700; font-size: 15px; }
 .char-stats { font-size: 11px; color: #8fa3c8; }
 .play {
-  width: 100%; margin-top: 20px; padding: 15px; border: 0; border-radius: 12px;
-  background: linear-gradient(180deg, #4f8cff, #2f6bff); color: #fff;
-  font-size: 17px; font-weight: 700; cursor: pointer;
+  width: 100%; padding: 15px 18px; border: 3px solid #fff09d; border-radius: 0;
+  background: #e3a92f; color: #302108; box-shadow: inset 0 -6px #a66a18, 0 6px 0 #0b0f0b;
+  font: 900 18px "Arial Black", sans-serif; cursor: pointer; letter-spacing: 1px;
+  display: flex; justify-content: center; align-items: center; position: relative;
 }
-.play:active { transform: translateY(1px); }
-.hint { margin-top: 16px; font-size: 12px; color: #6b7ea3; line-height: 1.5; }
+.play b { position: absolute; right: 18px; font-size: 30px; top: 3px; }
+.play:hover { filter: brightness(1.12); }
+.play:active { transform: translateY(4px); box-shadow: inset 0 -3px #a66a18, 0 2px 0 #0b0f0b; }
+.hint { margin-top: 17px; font-size: 9px; color: #94a090; line-height: 1.6; }
+.hint b { color: #e7dcae; }
 
 /* ---- Game ---- */
 #canvas { display: block; width: 100vw; height: 100vh; }
@@ -61,12 +90,13 @@ html, body {
   pointer-events: none; font-variant-numeric: tabular-nums;
 }
 .score { font-size: 30px; font-weight: 800; display: flex; gap: 10px; align-items: center;
-  background: rgba(6,12,24,.55); padding: 4px 18px; border-radius: 14px; backdrop-filter: blur(6px); }
+  background: #182019e8; padding: 5px 22px 9px; border: 3px solid #667061; border-radius: 0;
+  box-shadow: inset 0 -4px #0b100c, 0 5px 0 rgba(0,0,0,.4); font-family: "Arial Black", sans-serif; }
 .team-a { color: var(--a); } .team-b { color: var(--b); } .dash { color: #55637f; }
 .timer { position: fixed; top: 16px; right: 18px; font-size: 20px; font-weight: 700; color: #cdd8ef;
-  background: rgba(6,12,24,.55); padding: 4px 12px; border-radius: 10px; }
+  background: #182019e8; padding: 6px 12px; border: 2px solid #667061; border-radius: 0; box-shadow: 0 4px 0 rgba(0,0,0,.4); }
 .net { position: fixed; bottom: 8px; left: 12px; font-size: 11px; color: #6b7ea3;
-  background: rgba(6,12,24,.5); padding: 3px 8px; border-radius: 8px; }
+  background: rgba(11,16,12,.78); padding: 4px 8px; border-radius: 0; }
 
 .banner {
   position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -76,21 +106,21 @@ html, body {
 
 /* ---- Joysticks ---- */
 .stick {
-  position: fixed; width: 120px; height: 120px; border-radius: 50%;
-  background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.14);
+  position: fixed; width: 120px; height: 120px; border-radius: 10%;
+  background: rgba(15,23,16,.5); border: 3px solid rgba(240,228,185,.5); box-shadow: inset 0 0 0 5px rgba(0,0,0,.15);
 }
 .stick .knob {
   position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
-  border-radius: 50%; background: rgba(255,255,255,.35); border: 2px solid rgba(255,255,255,.5);
+  border-radius: 8%; background: rgba(226,201,126,.55); border: 3px solid rgba(255,246,209,.8); box-shadow: 4px 4px 0 rgba(0,0,0,.25);
 }
 
 /* Special-skill button — top-right, BELOW the timer and OUT of the bottom-right
    aim-stick zone (so aiming/shooting isn't misread as a bomb tap). */
 .special-btn {
   position: fixed; right: 16px; top: 64px;
-  width: 76px; height: 76px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffd27a, #f59e0b);
-  border: 3px solid rgba(255,255,255,.7); color: #1a1200;
+  width: 72px; height: 72px; border-radius: 4px;
+  background: #d69122; box-shadow: inset 0 -8px #8b5117, 0 7px 0 rgba(0,0,0,.45);
+  border: 3px solid #ffe49a; color: #1a1200;
   font-size: 38px; line-height: 1; cursor: pointer;
   box-shadow: 0 8px 20px rgba(0,0,0,.45);
   display: flex; align-items: center; justify-content: center;
@@ -111,8 +141,8 @@ html, body {
 /* Pause button — top-left, just right of the native ✕ */
 .pause-btn {
   position: fixed; left: 62px; top: 12px;
-  width: 40px; height: 40px; border-radius: 10px;
-  background: rgba(6,12,24,.6); border: 1px solid #2a3450;
+  width: 40px; height: 40px; border-radius: 2px;
+  background: #182019e8; border: 2px solid #667061; box-shadow: 0 4px 0 rgba(0,0,0,.4);
   color: #dfe8fb; font-size: 16px; cursor: pointer; z-index: 6;
   display: flex; align-items: center; justify-content: center;
 }
@@ -126,8 +156,8 @@ html, body {
 }
 .settings-card {
   width: min(92vw, 440px); max-height: 88vh; overflow-y: auto;
-  background: #121a2c; border: 1px solid #223050; border-radius: 18px;
-  padding: 18px 20px; box-shadow: 0 24px 60px rgba(0,0,0,.6);
+  background: #182019; border: 4px solid #667061; border-radius: 2px;
+  padding: 18px 20px; box-shadow: inset 0 0 0 3px #0d120e, 0 10px 0 rgba(0,0,0,.65);
 }
 .settings-card h2 { font-size: 18px; margin-bottom: 12px; text-align: center; }
 .setting { margin: 12px 0; }
@@ -145,6 +175,12 @@ html, body {
 }
 .settings-actions { display: flex; gap: 10px; margin-top: 18px; }
 .settings-actions button { flex: 1; padding: 13px; border-radius: 11px; font-size: 15px; font-weight: 700; cursor: pointer; border: 0; }
-.resume { background: linear-gradient(180deg,#4f8cff,#2f6bff); color: #fff; }
+.resume { background: #d99f29; color: #231706; box-shadow: inset 0 -5px #8d5817; }
 .ghost-btn { background: #0c1322; color: #9fb0d0; border: 1px solid #26324f !important; }
 
+@media (max-width: 700px) {
+  .screen#start { background-position: 58% center; }
+  .block-panel { margin: auto; padding: 22px 18px 20px; }
+  .panel h1 { font-size: 45px; }
+  .hint { max-width: 340px; margin-left: auto; margin-right: auto; }
+}

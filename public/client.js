@@ -466,52 +466,76 @@ function drawStands() {
   drawFanWall(FIELD.W, FIELD.W + NET, TEAM.B.color);   // behind B's (right) goal
 }
 function drawFanWall(x0, x1, color) {
-  ctx.fillStyle = '#0a0f1c';
+  ctx.fillStyle = '#222923';
   ctx.fillRect(wx(x0), wy(0), ws_(x1 - x0), ws_(FIELD.H));
-  const cw = ws_(15), ch = ws_(20), gap = ws_(7);
+  // Stone block courses make the side strips feel like compact stadium stands.
+  const block = ws_(24);
+  for (let y = 0; y < FIELD.H; y += 24) {
+    for (let x = x0; x < x1; x += 24) {
+      const odd = (Math.floor(y / 24) + Math.floor((x - x0) / 24)) % 2;
+      ctx.fillStyle = odd ? '#465149' : '#566058';
+      ctx.fillRect(wx(x) + 1, wy(y) + 1, block - 2, block - 2);
+      ctx.fillStyle = 'rgba(255,255,255,.08)';
+      ctx.fillRect(wx(x) + 2, wy(y) + 2, block - 4, Math.max(1, ws_(3)));
+    }
+  }
+  const cw = ws_(14), ch = ws_(14), gap = ws_(8);
   const wpx = ws_(x1 - x0), hpx = ws_(FIELD.H);
   const cols = Math.max(1, Math.floor(wpx / (cw + gap)));
   const rows = Math.max(1, Math.floor(hpx / (ch + gap)));
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
     const px = wx(x0) + gap + c * (cw + gap);
     const py = wy(0) + gap + r * (ch + gap);
-    ctx.fillStyle = color; roundRect(ctx, px, py, cw, ch, ws_(3)); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.8)';
-    roundRect(ctx, px + cw * 0.15, py + ch * 0.12, cw * 0.7, ch * 0.5, ws_(2)); ctx.fill();
+    ctx.fillStyle = '#d5ad75'; ctx.fillRect(px + cw * .2, py, cw * .6, ch * .42);
+    ctx.fillStyle = color; ctx.fillRect(px, py + ch * .38, cw, ch * .62);
+    ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fillRect(px, py + ch * .38, cw, ch * .14);
   }
 }
 
 function drawField() {
-  // grass + mow stripes
-  ctx.fillStyle = '#2f9e44';
+  // Original block-grass pattern: large tiles with tiny pixel flecks.
+  ctx.fillStyle = '#4b9c36';
   ctx.fillRect(wx(0), wy(0), ws_(FIELD.W), ws_(FIELD.H));
-  const stripes = 12, sw = FIELD.W / stripes;
-  for (let i = 0; i < stripes; i++) {
-    ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)';
-    ctx.fillRect(wx(i * sw), wy(0), ws_(sw), ws_(FIELD.H));
+  const tile = 50;
+  for (let gy = 0; gy < FIELD.H; gy += tile) {
+    for (let gx = 0; gx < FIELD.W; gx += tile) {
+      const odd = (Math.floor(gx / tile) + Math.floor(gy / tile)) % 2;
+      ctx.fillStyle = odd ? '#4f9f38' : '#469234';
+      ctx.fillRect(wx(gx), wy(gy), ws_(tile + 1), ws_(tile + 1));
+      ctx.fillStyle = odd ? '#62ad44' : '#3e842e';
+      ctx.fillRect(wx(gx + 8), wy(gy + 10), ws_(7), ws_(4));
+      ctx.fillRect(wx(gx + 33), wy(gy + 35), ws_(5), ws_(3));
+    }
   }
-  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = Math.max(1, ws_(3));
-  ctx.strokeRect(wx(4), wy(4), ws_(FIELD.W - 8), ws_(FIELD.H - 8));
-  ctx.beginPath(); ctx.moveTo(wx(FIELD.W / 2), wy(4)); ctx.lineTo(wx(FIELD.W / 2), wy(FIELD.H - 4)); ctx.stroke();
-  ctx.beginPath(); ctx.arc(wx(FIELD.W / 2), wy(FIELD.H / 2), ws_(80), 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = '#e9e0b8'; ctx.lineWidth = Math.max(2, ws_(5));
+  ctx.strokeRect(wx(5), wy(5), ws_(FIELD.W - 10), ws_(FIELD.H - 10));
+  ctx.beginPath(); ctx.moveTo(wx(FIELD.W / 2), wy(5)); ctx.lineTo(wx(FIELD.W / 2), wy(FIELD.H - 5)); ctx.stroke();
+  // Stepped centre circle reads as a ring built from pale blocks.
+  const cx = FIELD.W / 2, cy = FIELD.H / 2, rr = 80, pieces = 32;
+  ctx.fillStyle = '#e9e0b8';
+  for (let i = 0; i < pieces; i++) {
+    const a = i / pieces * Math.PI * 2;
+    ctx.fillRect(wx(cx + Math.cos(a) * rr - 4), wy(cy + Math.sin(a) * rr - 4), ws_(8), ws_(8));
+  }
+  ctx.fillRect(wx(cx - 5), wy(cy - 5), ws_(10), ws_(10));
   drawGoal(0, -NET);              // left: line at x=0, net behind (to -NET)
   drawGoal(FIELD.W, FIELD.W + NET); // right: line at x=W, net behind (to W+NET)
 }
 function drawGoal(lineX, backX) {
   const x0 = Math.min(lineX, backX), w = Math.abs(backX - lineX);
-  // net box behind the goal line
-  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  // Dark inset and square rope lattice.
+  ctx.fillStyle = 'rgba(20,25,20,.35)';
   ctx.fillRect(wx(x0), wy(GOAL_TOP), ws_(w), ws_(GOAL.width));
-  ctx.strokeStyle = 'rgba(255,255,255,.30)'; ctx.lineWidth = Math.max(1, ws_(1));
+  ctx.strokeStyle = 'rgba(242,229,181,.48)'; ctx.lineWidth = Math.max(1, ws_(2));
   for (let i = 1; i < 5; i++) { const gx = x0 + (w / 5) * i; ctx.beginPath(); ctx.moveTo(wx(gx), wy(GOAL_TOP)); ctx.lineTo(wx(gx), wy(GOAL_BOTTOM)); ctx.stroke(); }
   for (let j = 1; j < 6; j++) { const gy = GOAL_TOP + (GOAL.width / 6) * j; ctx.beginPath(); ctx.moveTo(wx(x0), wy(gy)); ctx.lineTo(wx(x0 + w), wy(gy)); ctx.stroke(); }
-  // goal line + solid POSTS (the ball bounces off these)
-  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = Math.max(2, ws_(3));
+  // Block-built crossbar and chunky collision posts.
+  ctx.strokeStyle = '#f1e7c4'; ctx.lineWidth = Math.max(3, ws_(7));
   ctx.beginPath(); ctx.moveTo(wx(lineX), wy(GOAL_TOP)); ctx.lineTo(wx(lineX), wy(GOAL_BOTTOM)); ctx.stroke();
   for (const py of [GOAL_TOP, GOAL_BOTTOM]) {
-    ctx.beginPath(); ctx.arc(wx(lineX), wy(py), ws_(POST_R), 0, Math.PI * 2);
-    ctx.fillStyle = '#fff'; ctx.fill();
-    ctx.lineWidth = Math.max(1, ws_(2)); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.stroke();
+    const pr = ws_(POST_R * 1.4);
+    ctx.fillStyle = '#827b68'; ctx.fillRect(wx(lineX) - pr, wy(py) - pr + ws_(2), pr * 2, pr * 2);
+    ctx.fillStyle = '#fff5d4'; ctx.fillRect(wx(lineX) - pr, wy(py) - pr, pr * 2, pr * 1.35);
   }
 }
 
@@ -519,40 +543,51 @@ function drawPlayer(p) {
   const ch = CHARACTERS[p.char] || CHARACTERS.player;
   const isMe = p.id === me.playerId;
   const x = wx(p.x), y = wy(p.y), r = ws_(ch.radius * settings.sizeMul);
-  // aim pointer
-  const al = r * 1.9;
-  ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = Math.max(2, ws_(3));
-  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + p.aimX * al, y + p.aimY * al); ctx.stroke();
-  // body
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = TEAM[p.team].color; ctx.fill();
-  ctx.lineWidth = Math.max(2, ws_(isMe ? 4 : 2.5));
-  ctx.strokeStyle = isMe ? '#fff' : 'rgba(0,0,0,.35)'; ctx.stroke();
-  if (p.firing) { ctx.beginPath(); ctx.arc(x, y, r + ws_(8), 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,220,120,.9)'; ctx.lineWidth = Math.max(2, ws_(3)); ctx.stroke(); }
-  // emoji
-  ctx.font = `${r * 1.1}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(ch.emoji, x, y + r * 0.06);
-  // local-player marker (no names) — small white arrow above you
+  const team = TEAM[p.team].color;
+  const ang = Math.atan2(p.aimY, p.aimX) + Math.PI / 2;
+  const unit = Math.max(2, r / 7);
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  // Square ground shadow, boots, body, arms and head form a tiny block athlete.
+  ctx.fillStyle = 'rgba(17,27,15,.35)'; ctx.fillRect(-r * .78, -r * .55 + unit * 3, r * 1.56, r * 1.35);
+  ctx.fillStyle = '#252824';
+  ctx.fillRect(-r * .7, r * .37, r * .52, r * .42); ctx.fillRect(r * .18, r * .37, r * .52, r * .42);
+  ctx.fillStyle = team;
+  ctx.fillRect(-r * .82, -r * .25, r * 1.64, r * .85);
+  ctx.fillStyle = 'rgba(255,255,255,.82)';
+  ctx.fillRect(-r * .82, r * .07, r * 1.64, unit * 1.35);
+  ctx.fillStyle = team;
+  ctx.fillRect(-r * 1.03, -r * .18, r * .23, r * .62); ctx.fillRect(r * .8, -r * .18, r * .23, r * .62);
+  // Square head faces the aim direction (up in local space).
+  ctx.fillStyle = '#916439'; ctx.fillRect(-r * .58, -r * .96 + unit, r * 1.16, r * .86);
+  ctx.fillStyle = '#d6a46e'; ctx.fillRect(-r * .58, -r * .96, r * 1.16, r * .73);
+  ctx.fillStyle = '#2a1b12';
+  ctx.fillRect(-r * .38, -r * .98, r * .76, unit * 1.7);
+  ctx.fillRect(-r * .34, -r * .64, unit * 1.35, unit * 1.35);
+  ctx.fillRect(r * .16, -r * .64, unit * 1.35, unit * 1.35);
+  if (p.firing) {
+    ctx.strokeStyle = '#ffd54c'; ctx.lineWidth = unit * 1.5;
+    ctx.strokeRect(-r * 1.12, -r * 1.1, r * 2.24, r * 2.12);
+  }
+  ctx.restore();
+  // Crisp selection bracket and arrow for the local player.
   if (isMe) {
-    const ty = y - r - ws_(6);
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.moveTo(x, ty + ws_(7));
-    ctx.lineTo(x - ws_(6), ty);
-    ctx.lineTo(x + ws_(6), ty);
-    ctx.closePath();
-    ctx.fill();
+    ctx.strokeStyle = '#fff2a8'; ctx.lineWidth = Math.max(2, ws_(3));
+    ctx.strokeRect(x - r * 1.2, y - r * 1.2, r * 2.4, r * 2.4);
+    const ty = y - r * 1.55;
+    ctx.fillStyle = '#ffdd43'; ctx.fillRect(x - ws_(5), ty, ws_(10), ws_(8));
+    ctx.fillRect(x - ws_(2), ty + ws_(8), ws_(4), ws_(4));
   }
 }
 
 function drawBall(b) {
   const x = wx(b.x), y = wy(b.y), r = ws_(BALL_RADIUS * settings.ballSizeMul);
-  // flat sprite — white disc, dark rim, small center dot (no shadow)
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = '#fff'; ctx.fill();
-  ctx.lineWidth = Math.max(1, ws_(2)); ctx.strokeStyle = '#1a1a1a'; ctx.stroke();
-  ctx.fillStyle = '#222';
-  ctx.beginPath(); ctx.arc(x, y, r * 0.3, 0, Math.PI * 2); ctx.fill();
+  // Pixel football with clipped square corners and a simple dark patch pattern.
+  const s = r * .38;
+  ctx.fillStyle = 'rgba(20,28,18,.28)'; ctx.fillRect(x - r * .8, y + r * .65, r * 1.6, r * .42);
+  ctx.fillStyle = '#24231f'; ctx.fillRect(x - r, y - r * .62, r * 2, r * 1.24); ctx.fillRect(x - r * .62, y - r, r * 1.24, r * 2);
+  ctx.fillStyle = '#f8efd5'; ctx.fillRect(x - r * .83, y - r * .52, r * 1.66, r * 1.04); ctx.fillRect(x - r * .52, y - r * .83, r * 1.04, r * 1.66);
+  ctx.fillStyle = '#292923'; ctx.fillRect(x - s, y - s, s * 2, s * 2);
+  ctx.fillRect(x - r * .82, y - r * .44, s, s); ctx.fillRect(x + r * .44, y + r * .16, s, s);
 }
 
 // Current aim of the local player (for the aim-to-shoot indicator).
@@ -574,27 +609,23 @@ function drawAimIndicator(wxp, wyp, ax, ay, charge = 0) {
   const len = ws_(150 + 130 * charge);            // longer as it charges
   const ex = px + ax * len, ey = py + ay * len;
   const g = Math.round(255 * (1 - charge));        // white -> red with charge
-  ctx.save();
-  ctx.setLineDash([ws_(9), ws_(9)]);
-  ctx.strokeStyle = `rgba(255,${g},${g},${0.5 + 0.4 * charge})`;
-  ctx.lineWidth = Math.max(2, ws_(3 + 3 * charge));
-  ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(ex, ey); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.beginPath(); ctx.arc(ex, ey, ws_(11), 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(255,${g},${g},.9)`; ctx.lineWidth = Math.max(2, ws_(3)); ctx.stroke();
-  ctx.beginPath(); ctx.arc(ex, ey, ws_(3 + 4 * charge), 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(255,${g},${g},.95)`; ctx.fill();
-  ctx.restore();
+  const steps = 9, block = ws_(5 + charge * 4);
+  ctx.fillStyle = `rgba(255,${g},${g},${0.55 + 0.4 * charge})`;
+  for (let i = 2; i <= steps; i++) {
+    const t = i / steps;
+    ctx.fillRect(px + ax * len * t - block / 2, py + ay * len * t - block / 2, block, block);
+  }
+  const mark = ws_(12 + charge * 5);
+  ctx.strokeStyle = `rgba(255,${g},${g},.95)`; ctx.lineWidth = Math.max(2, ws_(3));
+  ctx.strokeRect(ex - mark, ey - mark, mark * 2, mark * 2);
 }
 
 function drawProjectile(pr) {
   const x = wx(pr.x), y = wy(pr.y), r = ws_(PROJECTILE.radius);
   const col = TEAM[pr.team].color;
-  // no shadowBlur — canvas shadows are very expensive on mobile
-  ctx.beginPath(); ctx.arc(x, y, r + ws_(2), 0, Math.PI * 2);
-  ctx.fillStyle = col; ctx.fill();
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.fillStyle = 'rgba(255,237,142,.42)'; ctx.fillRect(x - r * 1.7, y - r * .45, r * 3.4, r * .9);
+  ctx.fillStyle = col; ctx.fillRect(x - r * 1.15, y - r * 1.15, r * 2.3, r * 2.3);
+  ctx.fillStyle = '#fff0aa'; ctx.fillRect(x - r * .55, y - r * .55, r * 1.1, r * 1.1);
 }
 
 function drawBomb(bomb) {
@@ -602,19 +633,18 @@ function drawBomb(bomb) {
   const r = ws_(15);
   // danger radius preview
   ctx.beginPath(); ctx.arc(x, y, ws_(BOMB.radius), 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(239,68,68,.08)'; ctx.fill();
+  ctx.fillStyle = 'rgba(239,68,68,.07)'; ctx.fill();
   ctx.setLineDash([ws_(6), ws_(6)]);
   ctx.strokeStyle = 'rgba(239,68,68,.5)'; ctx.lineWidth = Math.max(1, ws_(2)); ctx.stroke();
   ctx.setLineDash([]);
   // body — blink faster as the fuse runs down
   const t = bomb.fuse / BOMB.fuse;
   const blink = t < 0.35 ? (Math.floor(bomb.fuse * 12) % 2 === 0) : true;
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = '#141414'; ctx.fill();
-  ctx.lineWidth = Math.max(2, ws_(3)); ctx.strokeStyle = blink ? '#ff5252' : '#555'; ctx.stroke();
-  // fuse spark
-  ctx.font = `${r * 1.1}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('💣', x, y);
+  ctx.fillStyle = blink ? '#f14f3e' : '#6b6252'; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.fillStyle = '#242620'; ctx.fillRect(x - r * .76, y - r * .76, r * 1.52, r * 1.52);
+  ctx.fillStyle = '#55564b'; ctx.fillRect(x - r * .58, y - r * .58, r * .65, r * .28);
+  ctx.fillStyle = '#8b5c26'; ctx.fillRect(x + r * .28, y - r * 1.27, r * .28, r * .65);
+  ctx.fillStyle = blink ? '#fff08a' : '#f0792c'; ctx.fillRect(x + r * .17, y - r * 1.48, r * .55, r * .45);
 }
 
 function drawBlast(bl) {
@@ -622,9 +652,14 @@ function drawBlast(bl) {
   const x = wx(bl.x), y = wy(bl.y), rad = ws_(bl.radius * p);
   ctx.save();
   ctx.globalAlpha = Math.max(0, bl.life / bl.maxLife);
-  ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255,180,60,.35)'; ctx.fill();
-  ctx.lineWidth = Math.max(2, ws_(6)); ctx.strokeStyle = 'rgba(255,240,180,.9)'; ctx.stroke();
+  const count = 12;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    const dist = rad * (.45 + (i % 3) * .2);
+    const sz = Math.max(ws_(5), rad * (i % 2 ? .18 : .12));
+    ctx.fillStyle = i % 3 === 0 ? '#fff0a3' : (i % 3 === 1 ? '#ff9e2b' : '#ef4c32');
+    ctx.fillRect(x + Math.cos(a) * dist - sz / 2, y + Math.sin(a) * dist - sz / 2, sz, sz);
+  }
   ctx.restore();
 }
 
@@ -668,7 +703,7 @@ function renderFrame() {
   }
   updateCamera();
 
-  ctx.fillStyle = '#0a0f1c';
+  ctx.fillStyle = '#172018';
   ctx.fillRect(0, 0, canvas.width, canvas.height); // backdrop behind the field
   ctx.drawImage(bgCanvas, -(camX + NET * scale), -camY); // cached field at camera offset
 
