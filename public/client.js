@@ -44,6 +44,91 @@ const settings = {
   bombPower: 1500,
 };
 
+// --------------------------------------------------------------------------
+// Sound — short CC0 cues, mixed locally in the browser/WKWebView
+// --------------------------------------------------------------------------
+const SOUND_FILES = {
+  step1: '/audio/step-grass-1.mp3', step2: '/audio/step-grass-2.mp3',
+  kick: '/audio/kick.mp3', hit: '/audio/hit.mp3', pickup: '/audio/pickup.mp3',
+  shot: '/audio/shot.mp3', ui: '/audio/ui-click.mp3',
+  explosion: '/audio/explosion.mp3', goal: '/audio/goal.mp3',
+};
+let audioCtx = null;
+let masterGain = null;
+let soundEnabled = true;
+const soundBuffers = new Map();
+let soundLoading = null;
+let soundEventsReady = false;
+let previousBallOwner = null;
+let previousResetTimer = 0;
+let knownBlasts = new Set();
+let lastStepAt = 0;
+let lastStepPos = null;
+let stepVariant = 0;
+
+try { soundEnabled = localStorage.getItem('pikme-sound') !== 'off'; } catch { /* private mode */ }
+
+function updateSoundButton() {
+  const btn = document.getElementById('sound-btn');
+  if (!btn) return;
+  btn.textContent = soundEnabled ? '🔊' : '🔇';
+  btn.classList.toggle('muted', !soundEnabled);
+  btn.setAttribute('aria-label', soundEnabled ? 'Mute sound' : 'Turn sound on');
+  btn.title = soundEnabled ? 'Mute sound' : 'Turn sound on';
+  if (masterGain) masterGain.gain.value = soundEnabled ? 0.72 : 0;
+}
+
+function unlockAudio() {
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    audioCtx = new AudioContextClass();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = soundEnabled ? 0.72 : 0;
+    masterGain.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  if (!soundLoading) {
+    soundLoading = Promise.allSettled(Object.entries(SOUND_FILES).map(async ([name, url]) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`sound ${response.status}: ${url}`);
+      const buffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
+      soundBuffers.set(name, buffer);
+    }));
+  }
+}
+
+function playSound(name, volume = 1, rate = 1) {
+  if (!soundEnabled || !audioCtx || !masterGain) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  const buffer = soundBuffers.get(name);
+  if (!buffer) return;
+  const source = audioCtx.createBufferSource();
+  const gain = audioCtx.createGain();
+  source.buffer = buffer;
+  source.playbackRate.value = rate;
+  gain.gain.value = volume;
+  source.connect(gain).connect(masterGain);
+  source.start();
+}
+
+function processSnapshotSounds(snap) {
+  const blastIds = new Set((snap.blasts || []).map((b) => b.id));
+  if (soundEventsReady) {
+    if (previousResetTimer <= 0 && snap.resetTimer > 0 && snap.lastGoal) playSound('goal', 1);
+    if (previousBallOwner === null && snap.ball.owner !== null) {
+      playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
+    }
+    for (const blast of snap.blasts || []) {
+      if (!knownBlasts.has(blast.id)) playSound('explosion', 0.8, 0.92 + Math.random() * 0.12);
+    }
+  }
+  previousBallOwner = snap.ball.owner;
+  previousResetTimer = snap.resetTimer;
+  knownBlasts = blastIds;
+  soundEventsReady = true;
+}
+
 // --- On-device crash reporting: show any runtime error on screen ---
 function showFatal(msg) {
   try {
@@ -55,6 +140,11 @@ function showFatal(msg) {
 }
 addEventListener('error', (e) => showFatal(`${e.message}\n${(e.filename || '').split('/').pop()}:${e.lineno || '?'}:${e.colno || '?'}`));
 addEventListener('unhandledrejection', (e) => showFatal('promise: ' + ((e.reason && e.reason.message) || e.reason)));
+document.addEventListener('visibilitychange', () => {
+  if (!audioCtx) return;
+  if (document.hidden) audioCtx.suspend().catch(() => {});
+  else if (soundEnabled) audioCtx.resume().catch(() => {});
+});
 
 // --------------------------------------------------------------------------
 // Start screen
@@ -65,6 +155,7 @@ const gameEl = document.getElementById('game');
 const specialIcon = () => '💣'; // special is Bomb
 
 document.getElementById('play').addEventListener('click', () => {
+  unlockAudio();
   const name = 'Player'; // names aren't shown in-game
   startEl.classList.add('hidden');
   gameEl.classList.remove('hidden');
@@ -93,6 +184,7 @@ function connect(name, char) {
       specialBtn.textContent = specialIcon(msg.char);
       renderBackground(); // re-cache stands with the correct team colours
     } else if (msg.type === 'snapshot') {
+      processSnapshotSounds(msg);
       latest = msg;
       snapCount++;
       holdingBall = msg.ball.owner === me.playerId;
@@ -160,7 +252,13 @@ let pendingCharge = 0;     // 0..1 charge captured on release
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
 function beginCharge() { if (chargeStart === null) chargeStart = performance.now(); }
 function currentCharge() { return chargeStart === null ? 0 : Math.min(1, (performance.now() - chargeStart) / CHARGE_MS); }
-function releaseShot(aim) { pendingCharge = currentCharge(); if (aim) aimHold = aim; shootQueued = true; chargeStart = null; }
+function releaseShot(aim) {
+  pendingCharge = currentCharge();
+  if (aim) aimHold = aim;
+  shootQueued = true;
+  playSound(holdingBall ? 'kick' : 'shot', holdingBall ? 0.85 : 0.38, 0.92 + pendingCharge * 0.16);
+  chargeStart = null;
+}
 
 const keys = {};
 addEventListener('keydown', (e) => {
@@ -186,10 +284,25 @@ addEventListener('contextmenu', (e) => e.preventDefault());
 // Special-skill button (touch + click)
 const specialBtn = document.getElementById('special');
 const pauseBtn = document.getElementById('pause-btn');
+const soundBtn = document.getElementById('sound-btn');
 const settingsPanel = document.getElementById('settings');
-function triggerSpecial(e) { if (e) e.preventDefault(); specialQueued = true; flashSpecialCooldown(); }
+function triggerSpecial(e) {
+  if (e) e.preventDefault();
+  specialQueued = true;
+  playSound('hit', 0.5, 0.82);
+  flashSpecialCooldown();
+}
 specialBtn.addEventListener('touchstart', triggerSpecial, { passive: false });
 specialBtn.addEventListener('mousedown', triggerSpecial);
+updateSoundButton();
+soundBtn.addEventListener('click', () => {
+  unlockAudio();
+  if (soundEnabled) playSound('ui', 0.55);
+  soundEnabled = !soundEnabled;
+  try { localStorage.setItem('pikme-sound', soundEnabled ? 'on' : 'off'); } catch { /* private mode */ }
+  updateSoundButton();
+  if (soundEnabled) setTimeout(() => playSound('ui', 0.55, 1.08), 30);
+});
 
 // Local cooldown shading for the button (approximate; server is authoritative).
 let specialCdUntil = 0;
@@ -223,11 +336,13 @@ function sendSettings() {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', settings }));
 }
 function openSettings() {
+  playSound('ui', 0.45);
   shootQueued = false; specialQueued = false; aimHold = null;
   settingsPanel.classList.remove('hidden');
   syncSliderUI();
 }
 function closeSettings() {
+  playSound('ui', 0.45, 1.06);
   settingsPanel.classList.add('hidden');
 }
 pauseBtn.addEventListener('click', openSettings);
@@ -269,7 +384,7 @@ addEventListener('touchstart', (e) => {
   usingTouch = true;
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   for (const t of e.changedTouches) {
-    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target)) continue; // buttons aren't sticks
+    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target)) continue; // buttons aren't sticks
     const left = t.clientX < innerWidth / 2;
     if (left && touchL.id === null) {
       touchL.id = t.identifier; touchL.cx = t.clientX; touchL.cy = t.clientY; touchL.dx = 0; touchL.dy = 0;
@@ -704,6 +819,17 @@ function renderFrame() {
     if (!rendered) rendered = { ...predicted };
     rendered.x += (predicted.x - rendered.x) * 0.35;
     rendered.y += (predicted.y - rendered.y) * 0.35;
+    const now = performance.now();
+    if (!lastStepPos) lastStepPos = { ...rendered };
+    const moved = Math.hypot(rendered.x - lastStepPos.x, rendered.y - lastStepPos.y);
+    if (moved > 22 && now - lastStepAt > 230 && Math.hypot(predVel.x, predVel.y) > 35 && !(latest && latest.resetTimer > 0)) {
+      playSound(stepVariant++ % 2 ? 'step1' : 'step2', holdingBall ? 0.12 : 0.16, 0.94 + Math.random() * 0.12);
+      lastStepAt = now;
+      lastStepPos = { ...rendered };
+    } else if (moved > 70) {
+      // Teleports/kickoffs should not queue a burst of footsteps.
+      lastStepPos = { ...rendered };
+    }
   }
   updateCamera();
 
