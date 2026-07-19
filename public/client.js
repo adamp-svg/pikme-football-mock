@@ -154,40 +154,68 @@ document.addEventListener('visibilitychange', () => {
 // Start screen
 // --------------------------------------------------------------------------
 const startEl = document.getElementById('start');
+const lobbyEl = document.getElementById('lobby');
 const gameEl = document.getElementById('game');
+
+// Lobby element refs.
+const lobbyOnlineEl = document.getElementById('lobby-online');
+const lobbyWaitingEl = document.getElementById('lobby-waiting');
+const memberListEl = document.getElementById('member-list');
+const countdownEl = document.getElementById('lobby-countdown');
+const playNowBtn = document.getElementById('play-now');
+
+// Identity handed over by the Saltiz app through the WebView URL (?name=&avatar=).
+const _params = new URLSearchParams(location.search);
+const MY_NAME = (_params.get('name') || 'Player').toString().slice(0, 16);
+const MY_AVATAR = _params.get('avatar') || null;
 
 const specialIcon = () => '💣'; // special is Bomb
 
+// Title screen -> enter the waiting room (lobby).
 document.getElementById('play').addEventListener('click', () => {
   unlockAudio();
-  const name = 'Player'; // names aren't shown in-game
   startEl.classList.add('hidden');
-  gameEl.classList.remove('hidden');
-  document.getElementById('special').textContent = specialIcon(chosenChar);
-  resize();
-  connect(name, chosenChar);
+  lobbyEl.classList.remove('hidden');
+  connect(MY_NAME, MY_AVATAR);
 });
+
+// Lobby "Play Now" -> ready up (starts or joins the shared 10s countdown).
+playNowBtn.addEventListener('click', () => {
+  unlockAudio();
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'ready' }));
+  playNowBtn.classList.add('armed');
+  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'WAITING…';
+});
+function resetPlayNow() {
+  playNowBtn.classList.remove('armed');
+  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'PLAY NOW';
+}
 
 // --------------------------------------------------------------------------
 // Networking
 // --------------------------------------------------------------------------
-function connect(name, char) {
+function connect(name, avatar) {
   // wss when the page is served over https (Render), ws for local dev.
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}`);
   ws.onopen = () => {
     setNet('connected');
-    ws.send(JSON.stringify({ type: 'join', name, char }));
+    ws.send(JSON.stringify({ type: 'join', name, avatar }));
     setInterval(sendPing, 1500);
   };
   ws.onclose = () => setNet('disconnected');
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'welcome') {
-      me = { playerId: msg.playerId, team: msg.team, char: msg.char };
-      specialBtn.textContent = specialIcon(msg.char);
-      renderBackground(); // re-cache stands with the correct team colours
+      // field/chars confirmed; our playerId + team arrive with matchStart
+    } else if (msg.type === 'lobby') {
+      updateLobbyUI(msg);
+    } else if (msg.type === 'matchStart') {
+      enterMatch(msg);
+    } else if (msg.type === 'toLobby') {
+      exitToLobby();
     } else if (msg.type === 'snapshot') {
+      if (!me.playerId) return; // ignore stray snapshots while in the lobby
       processSnapshotSounds(msg);
       latest = msg;
       snapCount++;
@@ -199,6 +227,81 @@ function connect(name, char) {
       ping = Math.round(performance.now() - msg.t);
     }
   };
+}
+
+// --------------------------------------------------------------------------
+// Lobby <-> match transitions
+// --------------------------------------------------------------------------
+function enterMatch(msg) {
+  me = { playerId: msg.playerId, team: msg.team, char: chosenChar };
+  if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
+  // Reset all interpolation / prediction / sound state for the fresh match.
+  latest = null; snaps = []; predicted = null; rendered = null; predVel = { x: 0, y: 0 };
+  previousBallOwner = null; previousResetTimer = 0; knownBlasts = new Set(); soundEventsReady = false;
+  specialBtn.textContent = specialIcon(me.char);
+  startEl.classList.add('hidden');
+  lobbyEl.classList.add('hidden');
+  gameEl.classList.remove('hidden');
+  resize();
+  renderBackground(); // re-cache the field/stands in our team colours
+  resetPlayNow();
+}
+
+function exitToLobby() {
+  me = { playerId: null, team: null, char: chosenChar };
+  latest = null; snaps = []; predicted = null; rendered = null;
+  gameEl.classList.add('hidden');
+  lobbyEl.classList.remove('hidden');
+  resetPlayNow();
+}
+
+function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
+
+// Keyed reconcile of the member list (avoids reloading avatar <img>s every tick).
+const memberRows = new Map(); // id -> row element
+function updateLobbyUI(msg) {
+  lobbyOnlineEl.textContent = msg.online;
+  lobbyWaitingEl.textContent = msg.waiting;
+
+  if (msg.phase === 'countdown' && msg.countdown > 0) {
+    countdownEl.textContent = msg.countdown;
+    countdownEl.classList.remove('hidden');
+  } else {
+    countdownEl.classList.add('hidden');
+  }
+
+  const seen = new Set();
+  for (const m of msg.members) {
+    seen.add(m.id);
+    let row = memberRows.get(m.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'member-row';
+      const av = document.createElement('div'); av.className = 'member-av';
+      const nm = document.createElement('div'); nm.className = 'member-name';
+      const st = document.createElement('div'); st.className = 'member-status';
+      row.append(av, nm, st);
+      memberRows.set(m.id, row);
+      memberListEl.appendChild(row);
+    }
+    const [av, nm, st] = row.children;
+    if (row._avatar !== (m.avatar || '')) {
+      row._avatar = m.avatar || '';
+      av.innerHTML = '';
+      if (m.avatar) {
+        const img = document.createElement('img');
+        img.src = m.avatar; img.alt = '';
+        img.onerror = () => { av.innerHTML = ''; av.textContent = memberInitials(m.name); };
+        av.appendChild(img);
+      } else { av.textContent = memberInitials(m.name); }
+    }
+    if (nm.textContent !== m.name) nm.textContent = m.name;
+    st.textContent = m.inMatch ? '● playing' : (m.ready ? '● ready' : '');
+    row.classList.toggle('is-ready', !!(m.ready || m.inMatch));
+  }
+  for (const [id, row] of memberRows) {
+    if (!seen.has(id)) { row.remove(); memberRows.delete(id); }
+  }
 }
 
 function sendPing() {
@@ -877,6 +980,7 @@ function frame() {
   catch (e) { showFatal('frame: ' + e.message + '\n' + ((e.stack || '').split('\n')[1] || '').trim()); }
 }
 function renderFrame() {
+  if (gameEl.classList.contains('hidden')) return; // in the lobby — nothing to draw
   // Ease the drawn local player toward the prediction, then point the camera at it.
   if (predicted) {
     if (!rendered) rendered = { ...predicted };

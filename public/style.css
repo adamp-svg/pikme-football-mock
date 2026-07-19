@@ -195,3 +195,68 @@ html, body {
   .panel h1 { font-size: 45px; }
   .hint { max-width: 340px; margin-left: auto; margin-right: auto; }
 }
+
+/* ---- Lobby / waiting room ---- */
+.screen#lobby {
+  background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
+}
+.lobby-wrap {
+  position: relative; z-index: 1;
+  display: flex; gap: 18px; align-items: stretch;
+  width: 100%; max-width: 900px; padding: 20px; max-height: 100%;
+}
+.lobby-main {
+  flex: 1; text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(19,27,22,.9); border: 3px solid #39463b;
+  box-shadow: inset 0 -6px #0b100c, 0 8px 0 rgba(0,0,0,.35); padding: 22px 18px;
+}
+.lobby-title {
+  margin: 10px 0 4px; color: #fff4ca;
+  font: 900 clamp(30px, 5.4vw, 50px)/.8 "Arial Black", Impact, sans-serif;
+  letter-spacing: 1px; text-shadow: 0 5px 0 #a56a16, 0 8px 0 #252a21;
+}
+.lobby-counts { display: flex; gap: 12px; margin: 16px 0 20px; }
+.count-pill {
+  min-width: 90px; padding: 8px 10px; background: #111812; border: 3px solid #39463b;
+  box-shadow: 3px 3px 0 #050705;
+}
+.count-pill strong { display: block; color: var(--gold); font: 900 26px "Arial Black", sans-serif; line-height: 1; }
+.count-pill small { display: block; margin-top: 4px; color: #8aa08c; font-size: 8px; font-weight: 900; letter-spacing: 1.5px; }
+.play.armed { filter: grayscale(.5) brightness(.85); }
+
+.lobby-side {
+  width: clamp(200px, 30vw, 280px); display: flex; flex-direction: column;
+  background: rgba(12,18,13,.92); border: 3px solid #39463b;
+  box-shadow: inset 0 -6px #0b100c, 0 8px 0 rgba(0,0,0,.35);
+}
+.side-head {
+  padding: 12px 14px; color: #c8d4bf; font-weight: 900; font-size: 11px; letter-spacing: 3px;
+  border-bottom: 3px solid #2a352c; background: #141d15;
+}
+.member-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.member-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+  background: #101812; border: 2px solid #2a352c; border-left: 4px solid #2a352c;
+}
+.member-row.is-ready { border-left-color: var(--gold); }
+.member-av {
+  width: 34px; height: 34px; flex: none; overflow: hidden;
+  background: #26332a; border: 2px solid #3c4a3e; color: #e7dcae;
+  font: 900 12px "Arial Black", sans-serif;
+  display: flex; align-items: center; justify-content: center;
+}
+.member-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.member-name {
+  flex: 1; min-width: 0; color: #eef2e6; font-weight: 800; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.member-status { color: var(--gold); font-size: 9px; font-weight: 900; letter-spacing: .5px; white-space: nowrap; }
+
+.lobby-countdown {
+  position: fixed; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(7,13,9,.78);
+  color: #fff4ca; font: 900 clamp(90px, 22vw, 200px)/1 "Arial Black", Impact, sans-serif;
+  text-shadow: 0 8px 0 #a56a16, 0 14px 0 #252a21;
+}

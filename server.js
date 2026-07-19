@@ -1,7 +1,7 @@
 // Authoritative game server + tiny static file server.
 // - Serves the web game from /public and /shared
-// - Runs ONE match room at a fixed 30Hz tick
-// - Fills empty slots with bots so a single player can test the feel
+// - Runs a LOBBY -> COUNTDOWN -> MATCH room state machine
+// - Fills empty match slots with bots; idle players convert to bots (reclaimable)
 //
 // Transport is raw WebSocket (via `ws`) for the mock — low overhead, easy to
 // reason about. We'll revisit Socket.io/reconnection when embedding in the app.
@@ -59,13 +59,23 @@ const server = http.createServer((req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Match room
+// Room state
 // ---------------------------------------------------------------------------
-let state = createState();
-const clients = new Map(); // ws -> playerId
-const inputs = new Map(); // playerId -> latest input
+const COUNTDOWN_TIME = 10;   // seconds from first "Play Now" to kickoff
+const AFK_SECONDS = 10;      // no meaningful input for this long -> becomes a bot
+
+let state = createState();          // sim state — recreated for each match
+const members = new Map();          // ws -> member (a connected client)
+const inputs = new Map();           // sim playerId -> latest input (humans in-match + bots)
+let roomPhase = 'lobby';            // 'lobby' | 'countdown' | 'match'
+let countdownT = 0;                 // seconds left in the pre-match countdown
 let botCounter = 0;
-let msgErrCount = 0; // throttle logging of message-handler errors
+let memberCounter = 0;
+let msgErrCount = 0, tickErrCount = 0, bcErrCount = 0;
+
+const nowMs = () => Date.now();
+
+// member = { id, ws, name, avatar, ready, inMatch, afk, lastInputAt }
 
 function applySettings(s) {
   const c = (v, lo, hi, d) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -107,25 +117,6 @@ function fillBots() {
     addPlayer(state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true });
     inputs.set(id, { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false });
   }
-}
-
-// Humans always join Team A (blue, left, attacking right). Replace a Team-A bot
-// if present; else take a free A slot; only fall back to B if A is full of humans.
-function humanSlot() {
-  const aBot = Object.values(state.players).find((p) => p.isBot && p.team === 'A');
-  if (aBot) {
-    const { slot } = aBot;
-    removePlayer(state, aBot.id);
-    inputs.delete(aBot.id);
-    return { team: 'A', slot };
-  }
-  const usedA = new Set(Object.values(state.players).filter((p) => p.team === 'A').map((p) => p.slot));
-  if (!usedA.has(0)) return { team: 'A', slot: 0 };
-  if (!usedA.has(1)) return { team: 'A', slot: 1 };
-  // Team A full of humans -> fall back to a Team-B bot.
-  const bBot = Object.values(state.players).find((p) => p.isBot && p.team === 'B');
-  if (bBot) { const { slot } = bBot; removePlayer(state, bBot.id); inputs.delete(bBot.id); return { team: 'B', slot }; }
-  return assignSlot();
 }
 
 // ---------------------------------------------------------------------------
@@ -188,19 +179,141 @@ function updateBots() {
 }
 
 // ---------------------------------------------------------------------------
-// Game loop — endless; the match never ends, goals just keep tallying.
+// Lobby / matchmaking
 // ---------------------------------------------------------------------------
-let tickErrCount = 0;
+function send(ws, obj) {
+  if (ws.readyState === ws.OPEN) { try { ws.send(JSON.stringify(obj)); } catch { /* dead socket */ } }
+}
+
+function lobbyPayload() {
+  const list = [...members.values()].map((m) => ({
+    id: m.id, name: m.name, avatar: m.avatar || null, ready: m.ready, inMatch: m.inMatch,
+  }));
+  return {
+    type: 'lobby',
+    phase: roomPhase,
+    countdown: roomPhase === 'countdown' ? Math.max(0, Math.ceil(countdownT)) : 0,
+    online: members.size,
+    waiting: list.filter((m) => !m.inMatch).length,
+    members: list,
+  };
+}
+
+function broadcastLobby() {
+  const payload = lobbyPayload();
+  for (const ws of members.keys()) send(ws, payload);
+}
+
+function emptyInput() {
+  return { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false, charge: 0 };
+}
+
+// Begin (or refresh) the shared pre-match countdown.
+function startCountdown() {
+  roomPhase = 'countdown';
+  countdownT = COUNTDOWN_TIME;
+  broadcastLobby();
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Turn the ready members into a fresh match; empty slots become bots.
+function startMatch() {
+  const ready = shuffle([...members.values()].filter((m) => m.ready && !m.inMatch)).slice(0, MAX_PLAYERS);
+  if (ready.length === 0) { backToLobby(); return; } // everyone bailed during countdown
+
+  state = createState();
+  inputs.clear();
+
+  const perTeam = { A: 0, B: 0 };
+  ready.forEach((m, i) => {
+    const team = i % 2 === 0 ? 'A' : 'B'; // alternate for balanced teams (order is shuffled)
+    const slot = perTeam[team]++;
+    addPlayer(state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false });
+    inputs.set(m.id, emptyInput());
+    m.inMatch = true; m.ready = false; m.afk = false; m.lastInputAt = nowMs();
+    send(m.ws, { type: 'matchStart', playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: state.settings });
+  });
+  // Any extra ready members who didn't fit go back to waiting.
+  for (const m of members.values()) if (m.ready) m.ready = false;
+
+  fillBots();
+  attachBall(state, Math.random() < 0.5 ? 'A' : 'B');
+  roomPhase = 'match';
+  broadcastLobby();
+}
+
+// No human left in the match -> tear it down and return everyone to the lobby.
+function backToLobby() {
+  roomPhase = 'lobby';
+  countdownT = 0;
+  for (const m of members.values()) { m.inMatch = false; m.ready = false; m.afk = false; }
+  state = createState();
+  inputs.clear();
+  for (const ws of members.keys()) send(ws, { type: 'toLobby' });
+  broadcastLobby();
+}
+
+// A member who readies up mid-match drops straight into an open bot slot.
+function placeIntoMatch(member) {
+  const bot = Object.values(state.players).find((p) => p.isBot);
+  if (!bot) return false; // match full of humans
+  const { team, slot } = bot;
+  removePlayer(state, bot.id);
+  inputs.delete(bot.id);
+  addPlayer(state, member.id, { name: member.name, char: DEFAULT_CHAR, team, slot, isBot: false });
+  inputs.set(member.id, emptyInput());
+  member.inMatch = true; member.ready = false; member.afk = false; member.lastInputAt = nowMs();
+  send(member.ws, { type: 'matchStart', playerId: member.id, team, field: FIELD, chars: CHARACTERS, settings: state.settings });
+  return true;
+}
+
+// Convert idle in-match humans to bots; nothing here re-humanizes them — that
+// happens the instant a real input arrives (see the 'input' handler).
+function checkAfk() {
+  const t = nowMs();
+  for (const m of members.values()) {
+    if (!m.inMatch || m.afk) continue;
+    const p = state.players[m.id];
+    if (!p) continue;
+    if (t - m.lastInputAt > AFK_SECONDS * 1000) { m.afk = true; p.isBot = true; }
+  }
+}
+
+function humansInMatch() {
+  let n = 0;
+  for (const m of members.values()) if (m.inMatch) n++;
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// Game loop
+// ---------------------------------------------------------------------------
 function tick() {
   try {
+    if (roomPhase === 'countdown') {
+      countdownT -= DT;
+      if (countdownT <= 0) startMatch();
+      return;
+    }
+    if (roomPhase !== 'match') return;
+
+    checkAfk();
     updateBots();
     const inputMap = {};
     for (const [id, inp] of inputs) inputMap[id] = inp;
     step(state, inputMap, DT);
     // Clear one-shot action flags so a held input doesn't re-fire every tick.
     for (const inp of inputs.values()) { inp.shoot = false; inp.special = false; inp.charge = 0; }
+
+    if (humansInMatch() === 0) backToLobby();
   } catch (e) {
-    // Never let a bad tick crash the process — log it (throttled) and keep going.
     if (tickErrCount++ < 5) console.error('TICK ERROR:', (e && e.stack) || e);
   }
 }
@@ -234,13 +347,12 @@ function snapshot() {
   };
 }
 
-let bcErrCount = 0;
-function broadcast() {
+function broadcastSnapshot() {
   try {
-    const snap = snapshot();
-    const msg = JSON.stringify(snap);
-    for (const ws of clients.keys()) {
-      if (ws.readyState === ws.OPEN) { try { ws.send(msg); } catch { /* dead socket */ } }
+    if (roomPhase !== 'match') return;
+    const msg = JSON.stringify(snapshot());
+    for (const [ws, m] of members) {
+      if (m.inMatch && ws.readyState === ws.OPEN) { try { ws.send(msg); } catch { /* dead socket */ } }
     }
   } catch (e) {
     if (bcErrCount++ < 5) console.error('BROADCAST ERROR:', (e && e.stack) || e);
@@ -248,7 +360,8 @@ function broadcast() {
 }
 
 setInterval(tick, 1000 / TICK_RATE);
-setInterval(broadcast, 1000 / SNAPSHOT_RATE);
+setInterval(broadcastSnapshot, 1000 / SNAPSHOT_RATE);
+setInterval(broadcastLobby, 200); // 5Hz lobby/presence refresh (also drives the countdown)
 
 // ---------------------------------------------------------------------------
 // WebSocket handling
@@ -256,42 +369,56 @@ setInterval(broadcast, 1000 / SNAPSHOT_RATE);
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
-  let playerId = null;
+  let member = null;
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     try {
 
+    // First message: identify + enter the lobby.
     if (msg.type === 'join') {
-      if (playerId) return;
-      const char = DEFAULT_CHAR;
-      const name = (msg.name || 'Player').toString().slice(0, 14);
-      const { team, slot } = humanSlot();
-      playerId = `p-${Date.now()}-${Math.floor(state.tick)}-${clients.size}`;
-      addPlayer(state, playerId, { name, char, team, slot, isBot: false });
-      inputs.set(playerId, { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false, charge: 0 });
-      clients.set(ws, playerId);
-      fillBots(); // top back up to 4 in case teams were uneven
-      ws.send(JSON.stringify({
-        type: 'welcome', playerId, team, char,
-        field: FIELD, chars: CHARACTERS,
-      }));
+      if (member) return;
+      const id = `m-${++memberCounter}`;
+      const name = (msg.name || 'Player').toString().slice(0, 16);
+      let avatar = (msg.avatar || '').toString().slice(0, 400) || null;
+      if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
+      member = { id, ws, name, avatar, ready: false, inMatch: false, afk: false, lastInputAt: nowMs() };
+      members.set(ws, member);
+      send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS });
+      broadcastLobby();
       return;
     }
 
-    if (msg.type === 'input' && playerId) {
-      const prev = inputs.get(playerId) || {};
-      // Latch the charge captured on the frame that set shoot.
+    if (!member) return;
+
+    // Press "Play Now".
+    if (msg.type === 'ready') {
+      if (member.inMatch) return;
+      member.ready = true;
+      if (roomPhase === 'lobby') startCountdown();
+      else if (roomPhase === 'match') placeIntoMatch(member);
+      // during 'countdown' the flag is enough — they join at kickoff
+      broadcastLobby();
+      return;
+    }
+
+    if (msg.type === 'input') {
+      if (!member.inMatch) return;
+      const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.shoot || !!msg.special;
+      if (active) {
+        member.lastInputAt = nowMs();
+        if (member.afk) { member.afk = false; const p = state.players[member.id]; if (p) p.isBot = false; } // reclaim
+      }
+      const prev = inputs.get(member.id) || {};
       let charge = prev.charge || 0;
       if (msg.shoot) charge = msg.charge || 0;
-      inputs.set(playerId, {
+      inputs.set(member.id, {
         seq: msg.seq,
         moveX: msg.moveX || 0,
         moveY: msg.moveY || 0,
         aimX: msg.aimX || 0,
         aimY: msg.aimY || 0,
-        // latch one-shot actions true until the tick consumes them
         shoot: prev.shoot || !!msg.shoot,
         special: prev.special || !!msg.special,
         charge,
@@ -299,32 +426,29 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (msg.type === 'settings' && msg.settings) {
-      applySettings(msg.settings);
-      return;
-    }
+    if (msg.type === 'settings' && msg.settings) { applySettings(msg.settings); return; }
 
-    if (msg.type === 'ping') {
-      ws.send(JSON.stringify({ type: 'pong', t: msg.t }));
-    }
+    if (msg.type === 'ping') { send(ws, { type: 'pong', t: msg.t }); return; }
 
     } catch (e) { if (msgErrCount++ < 5) console.error('MSG ERROR:', (e && e.stack) || e); }
   });
 
   ws.on('close', () => {
-    if (playerId) {
-      removePlayer(state, playerId);
-      inputs.delete(playerId);
-      clients.delete(ws);
-      fillBots(); // replace the leaver with a bot
+    if (!member) return;
+    const wasInMatch = member.inMatch;
+    members.delete(ws);
+    if (wasInMatch && roomPhase === 'match') {
+      // Replace the leaver with a bot so the match keeps 2v2 shape.
+      if (state.players[member.id]) { removePlayer(state, member.id); inputs.delete(member.id); }
+      fillBots();
+      if (humansInMatch() === 0) backToLobby();
     }
+    broadcastLobby();
   });
 });
 
-fillBots();
-attachBall(state, 'A'); // kick off with Team A (Blue) in possession
 server.listen(PORT, () => {
   console.log(`\n⚽ Football mock running:`);
   console.log(`   http://localhost:${PORT}`);
-  console.log(`   Open in 4 tabs for 4 real players, or play solo vs bots.\n`);
+  console.log(`   Lobby -> Play Now -> ${COUNTDOWN_TIME}s countdown -> match (bots fill empty slots).\n`);
 });

@@ -21,9 +21,31 @@
         <div class="team-chip red">RED <i></i></div>
       </div>
 
-      <button id="play" class="play"><span>PLAY NOW</span><b>›</b></button>
+      <button id="play" class="play"><span>PLAY</span><b>›</b></button>
       <p class="hint"><b>MOVE</b> WASD / LEFT STICK &nbsp;·&nbsp; <b>SHOOT</b> CLICK / RIGHT STICK &nbsp;·&nbsp; <b>BOMB</b> E</p>
     </div>
+  </div>
+
+  <!-- Lobby / waiting room -->
+  <div id="lobby" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="lobby-wrap">
+      <div class="lobby-main">
+        <div class="eyebrow"><span></span> WAITING ROOM <span></span></div>
+        <h1 class="lobby-title">BLOCK<br/>FOOTBALL</h1>
+        <div class="lobby-counts">
+          <div class="count-pill"><strong id="lobby-online">0</strong><small>ONLINE</small></div>
+          <div class="count-pill"><strong id="lobby-waiting">0</strong><small>WAITING</small></div>
+        </div>
+        <button id="play-now" class="play"><span>PLAY NOW</span><b>›</b></button>
+        <p class="hint">Press <b>PLAY NOW</b> — the match starts after a 10s countdown. Empty slots become bots.</p>
+      </div>
+      <aside class="lobby-side">
+        <div class="side-head">PLAYERS</div>
+        <div id="member-list" class="member-list"></div>
+      </aside>
+    </div>
+    <div id="lobby-countdown" class="lobby-countdown hidden">10</div>
   </div>
 
   <!-- Game -->
