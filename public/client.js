@@ -224,6 +224,37 @@ const _params = new URLSearchParams(location.search);
 const MY_NAME = (_params.get('name') || 'Player').toString().slice(0, 16);
 const MY_AVATAR = _params.get('avatar') || null;
 
+// ---- Player album (cards) -------------------------------------------------
+// The app injects window.SALTIZ_CARDS pre-load: a compact, non-PII list [{r,n,c,w}]
+// (rarity, card number, copies, worth). Empty on the web/dev without the app.
+const CARD_ART_BASE = 'https://pxsjmychuxwufcvqixgu.supabase.co/storage/v1/object/public/cards';
+const RARITY_GLOW = { common: '#9ab0c5', rare: '#4ea0ff', epic: '#b46bff', legendary: '#ffb800' };
+const RARITY_RANK = { legendary: 3, epic: 2, rare: 1, common: 0 };
+function myCards() { return Array.isArray(window.SALTIZ_CARDS) ? window.SALTIZ_CARDS.slice(0, 256) : []; }
+// Best-first: worth, then rarity, then copies. Drives the carousel + the top-3 intro.
+function rankCards(cards) {
+  return [...(cards || [])].sort((a, b) =>
+    (b.w || 0) - (a.w || 0) ||
+    (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) ||
+    (b.c || 0) - (a.c || 0));
+}
+// Lazily-loaded card-front <img>s, keyed "rarity_number". crossOrigin left unset so the
+// public Supabase art loads without a CORS handshake (the game never reads canvas pixels).
+const _cardImgs = new Map();
+function cardImage(r, n) {
+  const key = r + '_' + n;
+  let img = _cardImgs.get(key);
+  if (!img) {
+    img = new Image();
+    img.onload = () => { img.ready = true; };
+    img.onerror = () => { img.failed = true; };
+    img.src = `${CARD_ART_BASE}/${r}/${n}.webp`;
+    _cardImgs.set(key, img);
+  }
+  return img;
+}
+function preloadCards(cards) { for (const c of (cards || [])) cardImage(c.r, c.n); }
+
 const specialIcon = () => '💣'; // special is Bomb
 function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
 function sendMsg(o) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(o)); }
@@ -234,7 +265,75 @@ function renderHomeCharacter() {
   homeNameEl.textContent = MY_NAME;
   if (MY_AVATAR) { homeFaceEl.style.backgroundImage = `url("${MY_AVATAR}")`; homeFaceEl.textContent = ''; }
   else { homeFaceEl.style.backgroundImage = 'none'; homeFaceEl.textContent = memberInitials(MY_NAME); }
+  renderCarousel();
 }
+
+// Coverflow carousel of the player's cards on the home screen: best card centered,
+// up to 5 visible with the sides shrinking + fading outward. Purely visual
+// (auto-advance + swipe). Hidden when the player has no cards.
+const carouselEl = document.getElementById('home-carousel');
+let cfCards = [], cfIndex = 0, cfTimer = null;
+const CF_SPACING = 60, CF_STEP = 0.2, CF_MAX = 2; // ±2 visible => 5 cards
+function renderCarousel() {
+  cfCards = rankCards(myCards());
+  carouselEl.innerHTML = '';
+  stopCarouselAuto();
+  if (!cfCards.length) { carouselEl.classList.add('hidden'); return; }
+  carouselEl.classList.remove('hidden');
+  cfIndex = 0;
+  preloadCards(cfCards);
+  cfCards.forEach((c, i) => {
+    const el = document.createElement('div');
+    el.className = 'cf-card rarity-' + c.r;
+    el.dataset.n = c.n;
+    const img = document.createElement('img');
+    img.alt = '';
+    img.onerror = () => el.classList.add('cf-noart');
+    img.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`;
+    el.appendChild(img);
+    if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
+    el.addEventListener('click', () => setCarousel(i));
+    carouselEl.appendChild(el);
+  });
+  layoutCarousel();
+  startCarouselAuto();
+}
+function layoutCarousel() {
+  const kids = carouselEl.children, n = kids.length;
+  for (let i = 0; i < n; i++) {
+    let off = i - cfIndex;
+    if (off > n / 2) off -= n; else if (off < -n / 2) off += n; // wrap => symmetric coverflow
+    const a = Math.abs(off), el = kids[i];
+    if (a > CF_MAX) {
+      el.style.opacity = '0'; el.style.pointerEvents = 'none';
+      el.style.transform = `translateX(${off * CF_SPACING * 1.4}px) scale(.4)`;
+      continue;
+    }
+    el.style.opacity = a === 0 ? '1' : a === 1 ? '.82' : '.5';
+    el.style.pointerEvents = 'auto';
+    el.style.zIndex = String(10 - a);
+    el.style.transform = `translateX(${off * CF_SPACING}px) scale(${1 - a * CF_STEP})`;
+    el.classList.toggle('cf-center', a === 0);
+  }
+}
+function setCarousel(i) {
+  if (!cfCards.length) return;
+  cfIndex = ((i % cfCards.length) + cfCards.length) % cfCards.length;
+  layoutCarousel();
+}
+function startCarouselAuto() { stopCarouselAuto(); if (cfCards.length > 1) cfTimer = setInterval(() => setCarousel(cfIndex + 1), 2600); }
+function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = null; } }
+(function bindCarouselSwipe() {
+  let sx = null;
+  carouselEl.addEventListener('pointerdown', (e) => { sx = e.clientX; stopCarouselAuto(); });
+  carouselEl.addEventListener('pointerup', (e) => {
+    if (sx == null) return;
+    const dx = e.clientX - sx; sx = null;
+    if (Math.abs(dx) > 28) setCarousel(cfIndex + (dx < 0 ? 1 : -1));
+    startCarouselAuto();
+  });
+  carouselEl.addEventListener('pointercancel', () => { sx = null; startCarouselAuto(); });
+})();
 
 // Title -> connect + show home menu.
 document.getElementById('play').addEventListener('click', () => {
@@ -287,7 +386,7 @@ function connect(name, avatar) {
   ws = new WebSocket(`${proto}//${location.host}`);
   ws.onopen = () => {
     setNet('connected');
-    ws.send(JSON.stringify({ type: 'join', name, avatar }));
+    ws.send(JSON.stringify({ type: 'join', name, avatar, cards: myCards() }));
     if (pingIv) clearInterval(pingIv);
     pingIv = setInterval(sendPing, 1500);
   };
@@ -352,9 +451,12 @@ function enterMatch(msg) {
   previousBallOwner = null; previousResetTimer = 0;
   knownBlasts = new Set(); knownImpacts = new Set(); soundEventsReady = false;
   specialBtn.textContent = specialIcon(me.char);
+  matchRoster = Array.isArray(msg.players) ? msg.players : [];
+  audienceReady = false; // rebuild seat assignment for this match's roster
   showScreen('game');
   resize();
   renderBackground(); // re-cache the field/stands in our team colours
+  showTeamIntro(msg.players);
   resetPlayNow();
 }
 
@@ -365,6 +467,59 @@ function exitToLobby() {
   showScreen('lobby');
   resetPlayNow();
 }
+
+// ---- Team intro overlay + match roster --------------------------------------
+let matchRoster = [];        // [{id,name,avatar,team,cards}] from matchStart (humans)
+let audienceReady = false;   // seat layout rebuilt per match (see drawAudience)
+const teamIntroEl = document.getElementById('team-intro');
+let introTimer = null;
+function introCardEl(c) {
+  const el = document.createElement('div');
+  el.className = 'ti-card rarity-' + c.r; el.dataset.n = c.n;
+  const img = document.createElement('img'); img.alt = '';
+  img.onerror = () => el.classList.add('cf-noart');
+  img.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`;
+  el.appendChild(img);
+  return el;
+}
+function fillIntroCol(colEl, players, team) {
+  const rows = colEl.querySelector('.ti-rows'); rows.innerHTML = '';
+  const humans = players.filter((p) => p.team === team);
+  for (let i = 0; i < 2; i++) {
+    const p = humans[i];
+    const row = document.createElement('div'); row.className = 'ti-row';
+    const av = document.createElement('div'); av.className = 'ti-av';
+    const nm = document.createElement('div'); nm.className = 'ti-name';
+    const cw = document.createElement('div'); cw.className = 'ti-cards';
+    if (p) {
+      if (p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
+      else av.textContent = memberInitials(p.name);
+      nm.textContent = p.id === myMemberId ? `${p.name} (you)` : p.name;
+      rankCards(p.cards).slice(0, 3).forEach((c) => cw.appendChild(introCardEl(c)));
+    } else { av.textContent = '🤖'; nm.textContent = 'BOT'; }
+    row.append(av, nm, cw);
+    rows.appendChild(row);
+  }
+}
+function showTeamIntro(players) {
+  if (!teamIntroEl || !Array.isArray(players)) return;
+  const mine = me.team === 'B' ? 'B' : 'A';
+  const cols = teamIntroEl.querySelectorAll('.ti-col');
+  fillIntroCol(cols[0], players, mine);                       // home column = my team
+  fillIntroCol(cols[1], players, mine === 'A' ? 'B' : 'A');   // away column = rivals
+  preloadCards(players.flatMap((p) => p.cards || []));
+  teamIntroEl.classList.remove('hidden');
+  requestAnimationFrame(() => teamIntroEl.classList.add('show'));
+  clearTimeout(introTimer);
+  introTimer = setTimeout(hideTeamIntro, 3000);
+}
+function hideTeamIntro() {
+  clearTimeout(introTimer);
+  if (!teamIntroEl) return;
+  teamIntroEl.classList.remove('show');
+  setTimeout(() => teamIntroEl.classList.add('hidden'), 340);
+}
+if (teamIntroEl) teamIntroEl.addEventListener('click', hideTeamIntro);
 
 // Keyed reconcile of the two team lists (avoids reloading avatar <img>s every tick).
 const memberRows = new Map(); // id -> row element
@@ -925,24 +1080,72 @@ function drawFanWall(x0, y0, x1, y1, color) {
       ctx.fillRect(ax + 1, ay + 1, b - 2, Math.max(1, Math.round(b * 0.18)));
     }
   }
-  // Crowd of blocky mob heads (creepers + team-kit villagers) filling the terrace.
-  const cell = Math.max(6, Math.round(ws_(48)));
-  for (let ay = ay0 + Math.round(cell * 0.3), row = 0; ay < ay0 + ah - cell * 0.6; ay += cell, row++) {
-    for (let ax = ax0 + Math.round(cell * 0.25), col = 0; ax < ax0 + aw - cell * 0.6; ax += cell, col++) {
-      const creeper = ((row + col) % 3) === 0;
-      const head = creeper ? '#66a637' : '#d8b48a';
-      const shade = creeper ? '#528a2c' : '#bd9670';
-      const hw = Math.round(cell * 0.62), hh = Math.round(cell * 0.62);
-      const bx = Math.round(ax + hash(ax, ay) * 2 - 1), by = Math.round(ay);
-      ctx.fillStyle = color; ctx.fillRect(bx - 1, by + hh - 2, hw + 2, Math.round(hh * 0.7)); // kit
-      ctx.fillStyle = head; ctx.fillRect(bx, by, hw, hh);
-      ctx.fillStyle = shade; ctx.fillRect(bx, by, Math.max(1, Math.round(hw * 0.22)), hh);
-      const es = Math.max(1, Math.round(hw * 0.2)), ey = by + Math.round(hh * 0.34);
-      ctx.fillStyle = '#1b1f26';
-      ctx.fillRect(bx + Math.round(hw * 0.2), ey, es, es);
-      ctx.fillRect(bx + Math.round(hw * 0.6), ey, es, es);
-      if (creeper) ctx.fillRect(bx + Math.round(hw * 0.42), ey + es, es, es * 2); // frown
+  // Faint team-colour wash so the terrace still reads as home/away even when the
+  // card audience (drawn dynamically on top) is sparse or still loading.
+  ctx.globalAlpha = 0.1; ctx.fillStyle = color; ctx.fillRect(ax0, ay0, aw, ah); ctx.globalAlpha = 1;
+}
+
+// ---- Card audience -----------------------------------------------------------
+// Real album cards fill the terraces as a jumping crowd: the local player's own
+// cards on their side (home), the opposing team's cards pooled on the far side.
+// Seats are laid out once per match (buildAudienceSeats) then drawn per-frame with
+// a bob, inside the mirrored-world transform so home stays on the player's own side.
+const AUD = { seatW: 30, seatH: 40, gapX: 6, gapY: 9, bob: 5, capPerCard: 20, capTotal: 160 };
+let audSeats = [];
+function expandPool(cards) {
+  const out = [];
+  for (const c of cards) {
+    const copies = Math.max(1, Math.min(AUD.capPerCard, c.c || 1));
+    for (let k = 0; k < copies; k++) { out.push(c); if (out.length >= AUD.capTotal) return out; }
+  }
+  return out;
+}
+function buildAudienceSeats() {
+  audSeats = [];
+  const midX = FIELD.W / 2, mine = me.team === 'B' ? 'B' : 'A';
+  const regions = [
+    [-NET, 0, 0, FIELD.H, 'A'], [FIELD.W, 0, FIELD.W + NET, FIELD.H, 'B'],
+    [-NET, -BAND, midX, 0, 'A'], [midX, -BAND, FIELD.W + NET, 0, 'B'],
+    [-NET, FIELD.H, midX, FIELD.H + BAND, 'A'], [midX, FIELD.H, FIELD.W + NET, FIELD.H + BAND, 'B'],
+  ];
+  const myPool = expandPool(rankCards(myCards())); // home = you
+  const rivalPool = expandPool(rankCards(
+    matchRoster.filter((p) => p.team && p.team !== mine).flatMap((p) => p.cards || []))); // away = rivals pooled
+  let iMe = 0, iRv = 0;
+  for (const [x0, y0, x1, y1, rt] of regions) {
+    const isMine = rt === mine, pool = isMine ? myPool : rivalPool;
+    const rw = x1 - x0, rh = y1 - y0;
+    const cols = Math.max(1, Math.floor(rw / (AUD.seatW + AUD.gapX)));
+    const rows = Math.max(1, Math.floor(rh / (AUD.seatH + AUD.gapY)));
+    const ox = x0 + (rw - (cols * AUD.seatW + (cols - 1) * AUD.gapX)) / 2;
+    const oy = y0 + (rh - (rows * AUD.seatH + (rows - 1) * AUD.gapY)) / 2;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const card = pool[isMine ? iMe++ : iRv++];
+      audSeats.push({
+        x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY),
+        r: card ? card.r : null, n: card ? card.n : null, seed: r * 1.7 + c * 0.9 + (isMine ? 0 : 3),
+      });
     }
+  }
+  preloadCards([...myPool, ...rivalPool]);
+}
+function drawAudience() {
+  if (me.team == null) return;
+  if (!audienceReady) { buildAudienceSeats(); audienceReady = true; }
+  const t = performance.now(), w = Math.ceil(ws_(AUD.seatW)), h = Math.ceil(ws_(AUD.seatH)), amp = ws_(AUD.bob), flip = flipView();
+  for (const s of audSeats) {
+    if (!s.r) continue; // empty seat — cobble shows through
+    const px = Math.round(wx(s.x)), py = Math.round(wy(s.y) + Math.sin(t * 0.004 + s.seed) * amp);
+    if (px + w < -4 || px > wbW + 4 || py + h < -4 || py > wbH + 4) continue; // cull off-screen
+    const img = cardImage(s.r, s.n);
+    if (img.ready) {
+      if (flip) { ctx.save(); ctx.translate(px + w, py); ctx.scale(-1, 1); ctx.drawImage(img, 0, 0, w, h); ctx.restore(); }
+      else ctx.drawImage(img, px, py, w, h);
+    } else {
+      ctx.fillStyle = RARITY_GLOW[s.r] || '#8a97a8'; ctx.fillRect(px, py, w, h);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 0.5, py + 0.5, w - 1, h - 1);
   }
 }
 
@@ -1592,6 +1795,7 @@ function renderFrame() {
   ctx.save();
   if (flipView()) { ctx.translate(wbW, 0); ctx.scale(-1, 1); }
   ctx.drawImage(bgCanvas, -(camX + NET * scale), -(camY + BAND * scale)); // cached field at camera offset
+  drawAudience(); // card-art crowd (dynamic, bobbing) on top of the cached terraces
   drawObstacles(); // walls / bushes / trampolines (static layout + built walls)
 
   const view = interpolated();

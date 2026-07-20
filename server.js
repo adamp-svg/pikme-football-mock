@@ -279,11 +279,13 @@ function startMatch(room) {
     const t = teamSlots.A.length ? 'A' : 'B';
     a[1] = t; a[2] = teamSlots[t].shift();
   }
+  // Roster for the team-intro overlay: every human, their team + album (cards).
+  const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [] }));
   for (const [m, team, slot] of assigned) {
     addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false });
     room.inputs.set(m.id, emptyInput());
     m.team = team; m.inMatch = true; m.afk = false; m.lastInputAt = nowMs();
-    send(m.ws, { type: 'matchStart', playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings });
+    send(m.ws, { type: 'matchStart', playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
   }
   fillBots(room);
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
@@ -400,7 +402,7 @@ function broadcastSnapshots() {
 }
 
 function lobbyPayload(room) {
-  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch }));
+  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cards: m.cards || [] }));
   return {
     type: 'lobby',
     mode: room.isPrivate ? 'private' : 'quick',
@@ -431,6 +433,26 @@ setInterval(tickAll, 1000 / TICK_RATE);
 setInterval(broadcastSnapshots, 1000 / SNAPSHOT_RATE);
 setInterval(broadcastPresence, 200);
 
+// Sanitize the album handed over from the app (join.cards): a compact, non-PII list
+// [{r,n,c,w}]. Validate rarity/number, clamp copies/worth, cap the length.
+const CARD_RARITIES = ['common', 'rare', 'epic', 'legendary'];
+function sanitizeCards(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const card of raw) {
+    if (!card || !CARD_RARITIES.includes(card.r)) continue;
+    const n = Math.trunc(Number(card.n));
+    if (!Number.isFinite(n) || n < 1 || n > 200) continue;
+    out.push({
+      r: card.r, n,
+      c: Math.max(1, Math.min(99, Math.trunc(Number(card.c)) || 1)),
+      w: Math.max(0, Number(card.w) || 0),
+    });
+    if (out.length >= 256) break;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket handling
 // ---------------------------------------------------------------------------
@@ -449,7 +471,7 @@ wss.on('connection', (ws) => {
         const name = (msg.name || 'Player').toString().slice(0, 16);
         let avatar = (msg.avatar || '').toString().slice(0, 400) || null;
         if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
-        member = { id, ws, name, avatar, team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null };
+        member = { id, ws, name, avatar, cards: sanitizeCards(msg.cards), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null };
         members.set(ws, member);
         send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS });
         send(ws, { type: 'home', online: onlineCount() });

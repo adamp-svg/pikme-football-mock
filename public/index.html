@@ -36,6 +36,7 @@
         <div id="home-name" class="char-name-big">Player</div>
         <div class="char-sub">BLOCK FOOTBALLER</div>
       </div>
+      <div id="home-carousel" class="carousel hidden"></div>
       <button id="quick-match-btn" class="play"><span>QUICK MATCH</span><b>›</b></button>
       <button id="friends-btn" class="play ghost">PLAY WITH FRIENDS</button>
     </div>
@@ -102,6 +103,16 @@
     </div>
 
     <div id="banner" class="banner hidden"></div>
+
+    <!-- Team intro shown briefly at match start (roster from matchStart.players). -->
+    <div id="team-intro" class="team-intro hidden">
+      <div class="ti-inner">
+        <div class="ti-col ti-home"><div class="ti-team-title">HOME</div><div class="ti-rows"></div></div>
+        <div class="ti-vs">VS</div>
+        <div class="ti-col ti-away"><div class="ti-team-title">RIVALS</div><div class="ti-rows"></div></div>
+      </div>
+      <div class="ti-tap">tap to skip</div>
+    </div>
 
     <!-- On-screen joysticks (touch). Hidden until first touch. -->
     <div id="stickL" class="stick hidden"><div class="knob"></div></div>
