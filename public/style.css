@@ -187,6 +187,23 @@ html, body {
 .sound-btn:active { transform: scale(.94); }
 .sound-btn.muted { filter: grayscale(1); opacity: .65; }
 
+/* Training ground HUD */
+.train-tag {
+  position: fixed; top: 16px; right: 18px; z-index: 6;
+  font-size: 15px; font-weight: 800; color: #ffd76a;
+  letter-spacing: .5px; text-shadow: 0 2px 0 rgba(0,0,0,.5);
+}
+.train-tag.hidden { display: none; }
+.reset-ball-btn {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 6; padding: 9px 18px; border-radius: 3px;
+  background: #182019e8; border: 2px solid #667061; box-shadow: 0 4px 0 rgba(0,0,0,.4);
+  color: #ffd76a; font-size: 14px; font-weight: 700; cursor: pointer;
+  touch-action: manipulation;
+}
+.reset-ball-btn:active { transform: translateX(-50%) scale(.95); }
+.reset-ball-btn.hidden { display: none; }
+
 /* Settings overlay */
 .settings-panel {
   position: fixed; inset: 0; z-index: 20;
@@ -482,3 +499,141 @@ html, body {
 .lobby-code-wrap { color: #c8d4bf; font-size: 11px; font-weight: 800; letter-spacing: 1px; margin-top: 6px; }
 .lobby-code-wrap b { color: var(--gold); font: 900 22px "Arial Black", sans-serif; letter-spacing: 4px; margin: 0 6px; }
 .lobby-code-wrap small { color: #8aa08c; font-size: 9px; letter-spacing: 1px; }
+
+/* ---- Hero picker ---------------------------------------------------------- */
+.pick-open {
+  margin: 8px auto 0; display: inline-flex; align-items: center; gap: 6px;
+  background: #2c3a2e; color: #e7dcae; border: 1px solid #4a5a4c; border-radius: 999px;
+  padding: 7px 16px; font: 800 13px "Arial Black", sans-serif; letter-spacing: .5px;
+  cursor: pointer; box-shadow: 0 4px 0 #0b0f0b;
+}
+.pick-open:active { transform: translateY(3px); box-shadow: 0 1px 0 #0b0f0b; }
+
+.picker { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center;
+  background: rgba(4,8,10,.78); backdrop-filter: blur(6px); padding: 16px; }
+.picker.hidden { display: none; }
+.picker-panel {
+  width: 100%; max-width: 380px; max-height: 92vh; overflow-y: auto;
+  background: var(--stone); border: 1px solid #3a473d; border-radius: 18px;
+  padding: 16px; display: flex; flex-direction: column; gap: 12px; align-items: center;
+  box-shadow: 0 24px 60px rgba(0,0,0,.5);
+}
+.picker-top { width: 100%; display: flex; align-items: center; justify-content: space-between; }
+.picker-title { font: 900 18px "Arial Black", sans-serif; color: var(--ink); letter-spacing: .5px; }
+.picker-x { background: none; border: 0; color: #9fb0a2; font-size: 20px; cursor: pointer; line-height: 1; padding: 4px; }
+.picker-x:hover { color: var(--ink); }
+.pick-preview { width: 150px; height: auto; image-rendering: pixelated;
+  background: radial-gradient(circle at 50% 40%, #1f6b2f, #15481f); border-radius: 14px; border: 1px solid #3a473d; }
+.pick-name { font: 900 15px "Arial Black", sans-serif; color: var(--gold); letter-spacing: .4px; text-align: center; min-height: 18px; }
+
+.pick-tiers { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; }
+.pick-tier { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  background: #202a23; border: 1px solid #3a473d; border-radius: 999px; padding: 6px 12px;
+  color: #b8c6ba; font: 800 12px "Arial Black", sans-serif; letter-spacing: .3px; }
+.pick-tier .dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa79f; }
+.pick-tier.on { color: var(--ink); border-color: var(--gold); background: #2a352b; }
+.pick-tier.r-Rare .dot { background: linear-gradient(135deg, #ffe08a, #e0a72e); }
+.pick-tier.r-Epic .dot { background: conic-gradient(from 0deg, #ff5d5d, #ffd24d, #5dff8f, #4dd2ff, #b06bff, #ff5d5d); }
+.pick-tier.r-Legendary .dot { background: #ffa24b; box-shadow: 0 0 6px #ffa24b; }
+
+.pick-heroes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; }
+.pick-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;
+  background: #202a23; border: 2px solid transparent; border-radius: 12px; padding: 6px 2px 5px; }
+.pick-hero canvas { width: 66px; height: 78px; image-rendering: pixelated; }
+.pick-hero span { font: 800 11px "Arial Black", sans-serif; color: #9fb0a2; letter-spacing: .3px; }
+.pick-hero.on { border-color: var(--gold); background: #2a352b; }
+.pick-hero.on span { color: var(--ink); }
+.picker-panel .play { width: 100%; margin-top: 2px; }
+
+/* ================= Home hub (landscape, immersive) =================
+   Full-bleed single screen over the real stadium bg. All classes are
+   namespaced hub-* so they never collide with the wardrobe/experience agents. */
+.screen#home { align-items: stretch; justify-content: stretch; }
+.hub {
+  position: relative; z-index: 1;
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 12px 10px; overflow: hidden;
+}
+/* top bar: identity (right) · xp slot (center, reserved) · online (left) */
+.hub-top { display: flex; align-items: center; gap: 12px; padding: 2px 2px 0; }
+.hub-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.hub-pfp {
+  width: 46px; height: 46px; flex: none; border: 3px solid #ffe49a;
+  background: #26332a center/cover no-repeat; color: #e7dcae;
+  font: 900 18px "Arial Black", sans-serif; display: flex; align-items: center; justify-content: center;
+  box-shadow: 4px 4px 0 #050705;
+}
+.hub-idtext { min-width: 0; }
+.hub-name {
+  color: #fff4ca; font: 900 20px "Arial Black", sans-serif; letter-spacing: .5px; line-height: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw;
+}
+.hub-rank {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 5px;
+  font: 900 11px "Arial Black", sans-serif; color: #2a1c06;
+  background: linear-gradient(180deg, #ffe27a, #e0a92a); padding: 2px 9px; box-shadow: 2px 2px 0 #050705;
+}
+.hub-xp { flex: 1; min-width: 40px; }                 /* reserved slot; hidden until the XP agent fills it */
+.hub-online {
+  margin-right: auto; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  font: 900 11px "Arial Black", sans-serif; letter-spacing: 1px; color: #c8d4bf;
+  background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: 6px 11px;
+}
+.hub-online i { width: 8px; height: 8px; border-radius: 50%; background: #57e08a; box-shadow: 0 0 8px #57e08a; }
+
+/* center hero — tap opens the wardrobe */
+.hub-stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.hub-hero {
+  appearance: none; background: none; border: none; cursor: pointer; padding: 0;
+  position: relative; display: flex; align-items: center; justify-content: center;
+}
+.hub-char {
+  height: clamp(96px, 26vh, 172px); width: auto; image-rendering: pixelated;
+  filter: drop-shadow(0 14px 10px rgba(0,0,0,.5));
+}
+.hub-edit {
+  position: absolute; top: 2px; right: 2px; width: 30px; height: 30px; display: grid; place-items: center;
+  font-size: 14px; color: #2a1c06; background: linear-gradient(180deg, #ffe27a, #e0a92a); box-shadow: 2px 2px 0 #050705;
+}
+.hub-herohint {
+  position: absolute; bottom: -4px; white-space: nowrap;
+  font: 900 10px "Arial Black", sans-serif; letter-spacing: .5px; color: #ffcb43; opacity: .92;
+}
+
+/* cards strip: album stat chips + coverflow of owned cards */
+.hub-cards { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
+.hub-cstats { display: flex; gap: 7px; flex: none; }
+.hub-chip { background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: 5px 10px; text-align: center; min-width: 58px; }
+.hub-chip b { display: block; color: #fff4ca; font: 900 16px "Arial Black", sans-serif; line-height: 1; font-variant-numeric: tabular-nums; }
+.hub-chip.gold b { color: var(--gold); }
+.hub-chip small { display: block; margin-top: 3px; color: #8aa08c; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
+.hub-cards .carousel { flex: 1; height: 92px; }
+.hub-cards .cf-card { width: 64px; height: 88px; margin: -44px 0 0 -32px; }
+
+/* play rail: featured Quick Match + horizontal-scroll modes */
+.hub-play { padding: 2px 0 0; }
+.hub-rail { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.hub-rail::-webkit-scrollbar { display: none; }
+.hub-mode {
+  flex: none; scroll-snap-align: end; cursor: pointer; text-align: right;
+  display: flex; align-items: center; gap: 11px; min-width: 168px; padding: 11px 14px;
+  background: rgba(19,27,22,.92); border: 3px solid #39463b; color: #e7dcae;
+  box-shadow: inset 0 -5px #0b100c, 0 5px 0 rgba(0,0,0,.35);
+}
+.hub-mode .hub-mic { width: 40px; height: 40px; flex: none; display: grid; place-items: center; font-size: 21px; background: rgba(0,0,0,.28); }
+.hub-mtx { min-width: 0; }
+.hub-mtx b { display: block; font: 900 15px "Arial Black", sans-serif; }
+.hub-mtx small { display: block; color: #8aa08c; font-size: 10px; font-weight: 800; margin-top: 2px; }
+.hub-mode.quick {
+  min-width: 224px; background: #e3a92f; color: #302108; border-color: #fff09d;
+  box-shadow: inset 0 -6px #a66a18, 0 6px 0 #0b0f0b;
+}
+.hub-mode.quick .hub-mic { background: rgba(0,0,0,.14); }
+.hub-mode.quick .hub-mtx b { font-size: 19px; }
+.hub-mode.quick .hub-mtx small { color: #5c4410; }
+.hub-mode.quick .hub-go { margin-right: auto; font: 900 26px "Arial Black", sans-serif; }
+.hub-mode:active { transform: translateY(3px); box-shadow: inset 0 -3px #0b100c, 0 2px 0 rgba(0,0,0,.35); }
+.hub-mode.soon { opacity: .55; cursor: default; }
+.hub-mode.soon:active { transform: none; }
+.hub-badge { margin-right: auto; font: 900 9px "Arial Black", sans-serif; letter-spacing: .5px; color: #8aa08c; background: rgba(0,0,0,.3); padding: 4px 8px; }

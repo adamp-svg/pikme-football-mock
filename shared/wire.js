@@ -7,7 +7,7 @@
 // carried once in the `roster` message; the rest are reconstructed on decode.
 //
 // See docs/specs — synthesized from the snapshot-egress-optimization workflow.
-import { BOMB, BUILT_WALL } from './constants.js';
+import { BOMB, BUILT_WALL, FRAGILE_HP } from './constants.js';
 
 export const MSG_KEYFRAME = 0x01;
 const IMP = ['player', 'ball', 'wall', 'tramp'];
@@ -55,7 +55,7 @@ export function encodeKeyframe(s, slotIds, rv) {
   }
   const sec = (arr, fn) => { u8(arr.length & 255); for (const e of arr) fn(e); };
   sec(s.projectiles, (p) => { u16(p.id); P(p.x); P(p.y); u8(teamBit(p.team)); });
-  sec(s.walls, (w) => { u16(w.id); P(w.x); P(w.y); u8(w.w); u8(w.h); u8(teamBit(w.team) | (w.hp << 1)); });
+  sec(s.walls, (w) => { u16(w.id); P(w.x); P(w.y); u8(w.w); u8(w.h); u8(teamBit(w.team) | ((Math.min(w.hp, 3)) << 1) | (w.fragile ? 8 : 0)); });
   sec(s.bombs, (b) => { u16(b.id); P(b.x); P(b.y); u8(teamBit(b.team)); u8(Math.round(b.fuse * 100)); });
   sec(s.blasts, (b) => { u16(b.id); P(b.x); P(b.y); u8(fadeProg(b)); });
   sec(s.impacts, (i) => { u16(i.id); u8(IMP_IDX[i.type] ?? 2); P(i.x); P(i.y); i8(Math.round(i.dx * 100)); i8(Math.round(i.dy * 100)); u8(fadeProg(i)); });
@@ -100,7 +100,7 @@ export function decodeSnapshot(dv, slotId, slotTeam, rosterVersion) {
   ball.owner = ownerSlot === 0xff ? null : slotId[ownerSlot];
   const rd = (fn) => { const c = u8(); const a = []; for (let i = 0; i < c; i++) a.push(fn()); return a; };
   const projectiles = rd(() => ({ id: u16(), x: P(), y: P(), team: u8() ? 'B' : 'A' }));
-  const walls = rd(() => { const id = u16(), x = P(), y = P(), w = u8(), h = u8(), f = u8(); return { id, x, y, w, h, team: (f & 1) ? 'B' : 'A', hp: f >> 1, maxHp: BUILT_WALL.hp }; });
+  const walls = rd(() => { const id = u16(), x = P(), y = P(), w = u8(), h = u8(), f = u8(); const fragile = !!(f & 8); return { id, x, y, w, h, team: (f & 1) ? 'B' : 'A', hp: (f >> 1) & 3, fragile, maxHp: fragile ? FRAGILE_HP : BUILT_WALL.hp }; });
   const bombs = rd(() => ({ id: u16(), x: P(), y: P(), team: u8() ? 'B' : 'A', fuse: u8() / 100 }));
   const blasts = rd(() => { const id = u16(), x = P(), y = P(), lp = u8(); return { id, x, y, radius: BOMB.radius, maxLife: 1, life: 1 - lp / 100 }; });
   const impacts = rd(() => { const id = u16(), t = u8(), x = P(), y = P(), dx = i8() / 100, dy = i8() / 100, lp = u8(); return { id, type: IMP[t] || 'wall', x, y, dx, dy, maxLife: 1, life: 1 - lp / 100 }; });

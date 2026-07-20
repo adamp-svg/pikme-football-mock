@@ -88,3 +88,10 @@ export function resolveWalls(e, r, built, opts) {
 export function pointInBox(x, y, box) {
   return x > box.x && x < box.x + box.w && y > box.y && y < box.y + box.h;
 }
+
+// Does a circle (cx,cy,r) overlap an axis-aligned box? (no mutation — used to detect a
+// power kick smashing a fragile wall without bouncing it.)
+export function circleHitsBox(cx, cy, r, box) {
+  const nx = clamp(cx, box.x, box.x + box.w), ny = clamp(cy, box.y, box.y + box.h);
+  return (cx - nx) * (cx - nx) + (cy - ny) * (cy - ny) < r * r;
+}

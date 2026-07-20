@@ -7,7 +7,13 @@ import {
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
+import { PEN } from '/shared/training.js';
 import { decodeSnapshot } from '/shared/wire.js';
+import { drawHero } from '/heroes.js';
+import {
+  HERO_KEYS, HERO_NAMES, SIGNATURE_NAMES, SKIN_KEYS, SKIN_NAMES, SKIN_RARITY,
+  DEFAULT_COSMETIC, normalizeCosmetic,
+} from '/shared/cosmetics.js';
 let slotIds = [], slotTeam = [], rosterVersion = -1; // binary-snapshot slot->id/team (from the 'roster' control msg)
 
 const PENALTY_TOP = (FIELD.H - PENALTY.width) / 2;
@@ -24,6 +30,9 @@ const GOAL_BOTTOM = (FIELD.H + GOAL.width) / 2;
 // --------------------------------------------------------------------------
 let ws = null;
 let me = { playerId: null, team: null, char: 'striker' };
+let matchId = null;            // stable per-match id from matchStart (app-bound matchResult key)
+let training = false;          // true in the training ground (no clock, penned dummy, reset-ball)
+let matchResultSent = false;   // one-shot guard: matchResult is posted to the app exactly once per match
 let snaps = [];                // interpolation buffer: {tRecv, snap}
 let latest = null;             // most recent snapshot (for HUD/own authoritative)
 let predicted = null;          // {x, y} predicted own position
@@ -35,7 +44,12 @@ let snapCount = 0;   // snapshots received since last sample
 let snapRate = 0;    // snapshots/sec (on-screen diagnostic)
 setInterval(() => { snapRate = snapCount; snapCount = 0; }, 1000);
 
-const chosenChar = 'player'; // one player type
+const chosenChar = 'player'; // one player type (physics); look is set by the cosmetic below
+const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' }; // home/picker preview kit colours
+function loadCosmetic() { try { return normalizeCosmetic(localStorage.getItem('pikme_cosmetic')); } catch { return DEFAULT_COSMETIC; } }
+function saveCosmetic(c) { try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } }
+let myCosmetic = loadCosmetic();          // this player's chosen "hero:skin"
+let cosmeticById = {};                    // playerId -> "hero:skin", from the roster control frame
 let holdingBall = false;     // am I currently carrying the ball?
 
 // Live-tunable settings (pause menu). Client keeps its own copy for prediction
@@ -129,6 +143,31 @@ const VIBE = { hit: 12, playerHit: 28, bomb: [55, 45, 100], goal: [55, 45, 55, 4
 function haptic(kind) {
   try { if (navigator.vibrate) navigator.vibrate(VIBE[kind] || 15); } catch { /* unsupported */ }
   try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ t: 'haptic', kind })); } catch { /* not in app */ }
+}
+
+// Match-end report to the native RN host (one-way, same bridge as haptic()). The
+// game stays 100% PII-free — it reports the outcome; the app attributes it to the
+// phone it holds. A snapshot player is HUMAN iff its id is in matchRoster (humans
+// captured at match start), else a bot. Never throws off-app (desktop/browser).
+function postMatchResult(myT, opT, myScore, opScore) {
+  try {
+    const result = myScore > opScore ? 'win' : (myScore < opScore ? 'loss' : 'draw');
+    const rosterIds = new Set(matchRoster.map((p) => p.id));
+    const players = (latest && latest.players) || [];
+    const humanOpponents = players.filter((p) => p.team === opT && rosterIds.has(p.id)).length;
+    const payload = {
+      t: 'matchResult',
+      matchId,
+      result,                       // win | loss | draw, from MY team's perspective
+      myTeam: myT,
+      myScore,
+      opScore,
+      durationSec: MATCH_DURATION,
+      humanOpponents,               // opponents whose snapshot id is in matchRoster
+      vsHuman: humanOpponents > 0,
+    };
+    window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
+  } catch { /* not in app */ }
 }
 
 function processSnapshotSounds(snap) {
@@ -269,6 +308,47 @@ function renderHomeCharacter() {
   if (MY_AVATAR) { homeFaceEl.style.backgroundImage = `url("${MY_AVATAR}")`; homeFaceEl.textContent = ''; }
   else { homeFaceEl.style.backgroundImage = 'none'; homeFaceEl.textContent = memberInitials(MY_NAME); }
   renderCarousel();
+  renderHubStats();
+  _cardsSig = cardsSig();
+}
+
+// Album-derived stats + collector rank on the home hub — all from myCards(), so it
+// works the moment the app injects window.SALTIZ_CARDS. The 3rd chip upgrades from
+// "copies" to real total views automatically if the app ever injects window.SALTIZ_PROFILE.views.
+let _cardsSig = '';
+const HUB_RANKS = [
+  { min: 5000000, label: '🏆 אספן אגדי' },
+  { min: 1000000, label: '💎 אספן אדיר' },
+  { min: 250000,  label: '⭐ אספן נדיר' },
+  { min: 50000,   label: '🃏 אספן נפוץ' },
+  { min: 0,       label: '🌱 אספן מתחיל' },
+];
+function fmtCompact(n) {
+  n = Math.round(Number(n) || 0);
+  if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1).replace(/\.0$/, '') + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
+function setTxt(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+function cardsSig() { const c = myCards(); return c.length + ':' + (c[0] ? c[0].r + c[0].n + c[0].w : ''); }
+function renderHubStats() {
+  const cards = myCards();
+  const videos = new Set(cards.map((c) => c.n)).size;              // distinct card moments owned (of 50)
+  const worth = cards.reduce((s, c) => s + (c.w || 0), 0);
+  const copies = cards.reduce((s, c) => s + (c.c || 1), 0);
+  const views = window.SALTIZ_PROFILE && Number(window.SALTIZ_PROFILE.views);
+  setTxt('hub-count', videos + '/50');
+  setTxt('hub-worth', fmtCompact(worth));
+  if (Number.isFinite(views) && views > 0) { setTxt('hub-extra', fmtCompact(views)); setTxt('hub-extra-l', 'צפיות'); }
+  else { setTxt('hub-extra', fmtCompact(copies)); setTxt('hub-extra-l', 'עותקים'); }
+  const rankEl = document.getElementById('hub-rank');
+  if (rankEl) {
+    if (cards.length) {
+      rankEl.textContent = (HUB_RANKS.find((r) => worth >= r.min) || HUB_RANKS[HUB_RANKS.length - 1]).label;
+      rankEl.classList.remove('hidden');
+    } else rankEl.classList.add('hidden');
+  }
 }
 
 // Coverflow carousel of the player's cards on the home screen: best card centered,
@@ -343,39 +423,119 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
 const homeCharCanvas = document.getElementById('home-char');
 const homeCharCtx = homeCharCanvas ? homeCharCanvas.getContext('2d') : null;
 let homeDanceRAF = null;
-// A blocky footballer doing a little dance (bob + arm pumps + sway) on the home screen.
+// Home preview: the player's chosen hero+skin, jogging gently in place. Uses the
+// same drawHero() renderer as the pitch, so what you pick is exactly what you get.
 function drawDancer(g, W, H, t) {
   g.clearRect(0, 0, W, H);
   g.imageSmoothingEnabled = false;
   const sf = H / 46, ox = W / 2, feetY = H - sf * 4;
-  const P = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
-  const S = (u) => u * sf;
-  const beat = t * 0.005;
-  const bounce = Math.abs(Math.sin(beat * 2)) * 3, sway = Math.sin(beat) * 3;
-  const armL = Math.sin(beat * 2) * 6, armR = -armL, legL = Math.sin(beat * 2) * 2;
-  const topY = -30 - bounce;
-  const X = (u) => ox + sway + S(u), Y = (u) => feetY + S(topY + u);
-  const sk = '#e7b072', skS = '#c8925a', hair = '#3a2a17', J = '#3f7bd6', JS = '#2c5aa6', wht = '#f2efe4', sh = '#eef0f2', boot = '#20232a';
-  P(ox - S(8), feetY + S(-1), S(16), S(3), 'rgba(0,0,0,.28)');                 // ground shadow
-  P(X(-4), Y(20), S(3), S(6 + legL), sk); P(X(-4), Y(26 + legL), S(4), S(2), boot);
-  P(X(1), Y(20), S(3), S(6 - legL), sk); P(X(1), Y(26 - legL), S(4), S(2), boot);
-  P(X(-5), Y(17), S(10), S(4), sh);                                            // shorts
-  P(X(-5), Y(9), S(10), S(9), J); P(X(-5), Y(9), S(2), S(9), JS); P(X(3), Y(9), S(2), S(9), JS); P(X(-1), Y(11), S(2), S(5), wht); // torso
-  P(X(-8), Y(9 + armL), S(3), S(6), J); P(X(-8), Y(15 + armL), S(3), S(2), sk); // arms pumping
-  P(X(5), Y(9 + armR), S(3), S(6), J); P(X(5), Y(15 + armR), S(3), S(2), sk);
-  P(X(-5), Y(0), S(10), S(9), sk); P(X(-5), Y(0), S(10), S(3), hair);          // head + hair
-  P(X(-3), Y(4), S(2), S(2), wht); P(X(1), Y(4), S(2), S(2), wht);
-  P(X(-2), Y(4), S(1), S(2), '#20242b'); P(X(2), Y(4), S(1), S(2), '#20242b');
-  P(X(-1), Y(7), S(3), S(1), skS);
+  const walkPhase = t * 0.008;                 // gentle in-place jog
+  const dir = Math.sin(t * 0.0009);            // slow look left/right
+  drawHero(g, ox, feetY, sf, dir, walkPhase, 0.7, false, myCosmetic, PREVIEW_KIT, t / 1000);
 }
 function startHomeDance() {
   if (!homeCharCtx || homeDanceRAF) return;
+  let lastCardCheck = 0;
   const loop = () => {
-    if (!homeEl.classList.contains('hidden')) drawDancer(homeCharCtx, homeCharCanvas.width, homeCharCanvas.height, performance.now());
+    const now = performance.now();
+    if (!homeEl.classList.contains('hidden')) {
+      drawDancer(homeCharCtx, homeCharCanvas.width, homeCharCanvas.height, now);
+      if (now - lastCardCheck > 700) {            // late album injection (cold cache) -> refresh the hub
+        lastCardCheck = now;
+        if (cardsSig() !== _cardsSig) renderHomeCharacter();
+      }
+    }
     homeDanceRAF = requestAnimationFrame(loop);
   };
   loop();
 }
+
+// ---- Hero picker overlay ----------------------------------------------------
+// Full-screen character select: pick a hero (grid) + a tier (Base/Gold/Holo/
+// Signature) with a live preview. Saves to localStorage and tells the server.
+(function setupHeroPicker() {
+  const overlay = document.getElementById('hero-picker');
+  const btnOpen = document.getElementById('pick-hero-btn');
+  if (!overlay || !btnOpen) return;
+  const previewCv = document.getElementById('pick-preview');
+  const previewCtx = previewCv.getContext('2d');
+  const nameEl = document.getElementById('pick-name');
+  const tiersEl = document.getElementById('pick-tiers');
+  const heroesEl = document.getElementById('pick-heroes');
+  let sel = { hero: 'striker', skin: 'base' };
+  let previewRAF = null;
+
+  // static thumbnail of a hero in the currently-selected tier
+  function drawThumb(cv, heroKey) {
+    const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+    g.imageSmoothingEnabled = false;
+    const sf = cv.height / 40, ox = cv.width / 2, feetY = cv.height - sf * 3;
+    drawHero(g, ox, feetY, sf, 1, 0, 0, false, `${heroKey}:${sel.skin}`, PREVIEW_KIT, 0);
+  }
+  function refreshName() {
+    const hn = HERO_NAMES[sel.hero];
+    nameEl.textContent = sel.skin === 'sig' ? `${SIGNATURE_NAMES[sel.hero]} · ${hn}` : `${hn} · ${SKIN_NAMES[sel.skin]}`;
+  }
+  function refreshHeroSel() {
+    heroesEl.querySelectorAll('.pick-hero').forEach((el) => {
+      const on = el.dataset.hero === sel.hero;
+      el.classList.toggle('on', on);
+      drawThumb(el.querySelector('canvas'), el.dataset.hero);
+    });
+  }
+  function refreshTierSel() {
+    tiersEl.querySelectorAll('.pick-tier').forEach((el) => el.classList.toggle('on', el.dataset.skin === sel.skin));
+  }
+
+  // build tier chips + hero grid once
+  SKIN_KEYS.forEach((sk) => {
+    const b = document.createElement('button');
+    b.className = 'pick-tier r-' + SKIN_RARITY[sk]; b.dataset.skin = sk;
+    b.innerHTML = `<span class="dot"></span>${SKIN_NAMES[sk]}`;
+    b.addEventListener('click', () => { sel.skin = sk; refreshTierSel(); refreshHeroSel(); refreshName(); });
+    tiersEl.appendChild(b);
+  });
+  HERO_KEYS.forEach((hk) => {
+    const cell = document.createElement('button');
+    cell.className = 'pick-hero'; cell.dataset.hero = hk;
+    const c = document.createElement('canvas'); c.width = 66; c.height = 78;
+    const lbl = document.createElement('span'); lbl.textContent = HERO_NAMES[hk];
+    cell.appendChild(c); cell.appendChild(lbl);
+    cell.addEventListener('click', () => { sel.hero = hk; refreshHeroSel(); refreshName(); });
+    heroesEl.appendChild(cell);
+  });
+
+  function open() {
+    unlockAudio();
+    const cut = myCosmetic.indexOf(':');
+    sel = { hero: myCosmetic.slice(0, cut), skin: myCosmetic.slice(cut + 1) };
+    refreshTierSel(); refreshHeroSel(); refreshName();
+    overlay.classList.remove('hidden');
+    if (!previewRAF) {
+      const loop = () => {
+        const t = performance.now();
+        previewCtx.clearRect(0, 0, previewCv.width, previewCv.height);
+        previewCtx.imageSmoothingEnabled = false;
+        const sf = previewCv.height / 34, ox = previewCv.width / 2, feetY = previewCv.height - sf * 3;
+        drawHero(previewCtx, ox, feetY, sf, Math.sin(t * 0.0009), t * 0.008, 0.7, false, `${sel.hero}:${sel.skin}`, PREVIEW_KIT, t / 1000);
+        previewRAF = requestAnimationFrame(loop);
+      };
+      loop();
+    }
+  }
+  function close() { overlay.classList.add('hidden'); if (previewRAF) { cancelAnimationFrame(previewRAF); previewRAF = null; } }
+  function saveAndClose() {
+    myCosmetic = normalizeCosmetic(`${sel.hero}:${sel.skin}`);
+    saveCosmetic(myCosmetic);
+    sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
+    close();
+  }
+
+  btnOpen.addEventListener('click', open);
+  document.getElementById('pick-close').addEventListener('click', close);
+  document.getElementById('pick-save').addEventListener('click', saveAndClose);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+})();
 
 // The user/home screen is shown first (no title gate): render identity + card
 // carousel, start the character dance, and connect straight away.
@@ -387,6 +547,8 @@ connect(MY_NAME, MY_AVATAR);
 // Home actions.
 document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
 document.getElementById('friends-btn').addEventListener('click', () => { unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends'); });
+document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'training' }); });
+document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Friends actions.
 document.getElementById('create-room-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'createRoom' }); });
 document.getElementById('join-room-btn').addEventListener('click', () => {
@@ -428,7 +590,7 @@ function connect(name, avatar) {
   ws.binaryType = 'arraybuffer'; // snapshots arrive as compact binary frames
   ws.onopen = () => {
     setNet('connected');
-    ws.send(JSON.stringify({ type: 'join', name, avatar, cards: myCards() }));
+    ws.send(JSON.stringify({ type: 'join', name, avatar, cards: myCards(), cosmetic: myCosmetic }));
     if (pingIv) clearInterval(pingIv);
     pingIv = setInterval(sendPing, 1500);
   };
@@ -466,6 +628,7 @@ function connect(name, avatar) {
       rosterVersion = msg.v; // slot->id/team map for the binary snapshots that follow
       slotIds = msg.slots.map((s) => s.id);
       slotTeam = msg.slots.map((s) => s.team);
+      cosmeticById = {}; msg.slots.forEach((s) => { cosmeticById[s.id] = s.c || DEFAULT_COSMETIC; }); // per-player look (humans + bots)
     } else if (msg.type === 'home') {
       homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
     } else if (msg.type === 'roomJoined') {
@@ -507,11 +670,17 @@ function enterMatch(msg) {
   knownBlasts = new Set(); knownImpacts = new Set(); soundEventsReady = false;
   specialBtn.textContent = specialIcon(me.char);
   matchRoster = Array.isArray(msg.players) ? msg.players : [];
+  matchId = msg.matchId || null; // stable id for this match's app-bound result
+  matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
   audienceReady = false; // rebuild seat assignment for this match's roster
+  training = msg.mode === 'training';
+  document.getElementById('train-tag').classList.toggle('hidden', !training);
+  document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
   showScreen('game');
   resize();
   renderBackground(); // re-cache the field/stands in our team colours
-  if (quickVs) { quickVs = false; hideTeamIntro(); } // the VS countdown already served as the intro
+  if (training) hideTeamIntro();                      // training: straight onto the pitch, no VS intro
+  else if (quickVs) { quickVs = false; hideTeamIntro(); } // the VS countdown already served as the intro
   else showTeamIntro(msg.players);                    // private room: brief VS intro overlay
   resetPlayNow();
 }
@@ -1407,6 +1576,22 @@ function drawField() {
   }
   drawGoal(0, -NET);              // left: line at x=0, net behind (to -NET)
   drawGoal(FIELD.W, FIELD.W + NET); // right: line at x=W, net behind (to W+NET)
+  if (training) drawPenZone();    // training: outline the dummy's confinement box
+}
+
+// Faint outline of the training dummy's pen (PEN is shared with the server).
+function drawPenZone() {
+  const sx = wx(PEN.x0), sy = wy(PEN.y0), sw = ws_(PEN.x1 - PEN.x0), sh = ws_(PEN.y1 - PEN.y0);
+  ctx.save();
+  ctx.globalAlpha = 0.10;
+  ctx.fillStyle = TEAM.B.color;
+  ctx.fillRect(Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh));
+  ctx.globalAlpha = 0.5;
+  ctx.strokeStyle = TEAM.B.color;
+  ctx.lineWidth = Math.max(1, ws_(3));
+  ctx.setLineDash([ws_(18), ws_(14)]);
+  ctx.strokeRect(Math.round(sx), Math.round(sy), Math.round(sw), Math.round(sh));
+  ctx.restore();
 }
 function drawGoal(lineX, backX) {
   const x0 = Math.min(lineX, backX), w = Math.abs(backX - lineX);
@@ -1433,52 +1618,8 @@ function shade(hex, m = 0.72) {
   return `rgb(${r},${g},${b})`;
 }
 
-// Chunky Steve/Alex-style kit player, drawn as integer voxels into the low-res
-// buffer. Faces the camera and mirrors L<->R toward the aim (`dir`); the whole
-// world buffer is flipped for team B, so passing true-world dir stays correct.
-// Units are "sprite pixels" with the feet at `feetY`; `sf` scales them to art px.
-function drawKitAvatar(ox, feetY, sf, dir, J, JS, walkPhase, moving, firing) {
-  const S = (u) => u * sf;
-  const sk = '#e7b072', skS = '#c8925a', hair = '#3a2a17', hairS = '#2c2012';
-  const eye = '#20242b', wht = '#f2efe4', sh = '#eef0f2', shS = '#c9cdd2', boot = '#20232a', bootS = '#0f1116';
-  const swing = Math.sin(walkPhase) * 2 * moving;
-  const bob = Math.abs(Math.cos(walkPhase)) * moving;
-  const topY = -28 + bob;                              // head top, feet-relative
-  const X = (u) => ox + S(u);
-  const Y = (u) => feetY + S(topY + u);                // u measured down from head top
-  // grounded contact shadow (does not bob)
-  pxi(ox + S(-7), feetY + S(-1), S(14), S(3), 'rgba(0,0,0,.30)');
-  // legs (skin) + boots — opposite stride
-  pxi(X(-4), Y(20), S(3), S(6 + swing), sk);
-  pxi(X(-4), Y(26 + swing), S(4), S(2), boot); pxi(X(-4), Y(27 + swing), S(4), S(1), bootS);
-  pxi(X(1), Y(20), S(3), S(6 - swing), sk);
-  pxi(X(1), Y(26 - swing), S(4), S(2), boot); pxi(X(1), Y(27 - swing), S(4), S(1), bootS);
-  // shorts
-  pxi(X(-5), Y(17), S(10), S(4), sh); pxi(X(-5), Y(20), S(10), S(1), shS);
-  // torso jersey (side shade + number stripe)
-  pxi(X(-5), Y(9), S(10), S(9), J);
-  pxi(X(-5), Y(9), S(2), S(9), JS); pxi(X(3), Y(9), S(2), S(9), JS);
-  pxi(X(-1), Y(11), S(2), S(5), wht);
-  // arms (jersey sleeve + skin hand) swinging opposite the legs
-  pxi(X(-8), Y(9 - swing), S(3), S(6), J); pxi(X(-8), Y(15 - swing), S(3), S(2), sk);
-  pxi(X(5), Y(9 + swing), S(3), S(6), J); pxi(X(5), Y(15 + swing), S(3), S(2), sk);
-  // head: skin + hair cap + sideburns
-  pxi(X(-5), Y(0), S(10), S(9), sk);
-  pxi(X(-5), Y(0), S(10), S(3), hair);
-  pxi(X(-5), Y(0), S(2), S(6), hairS); pxi(X(3), Y(0), S(2), S(6), hairS);
-  // face — eyes shift toward the facing direction
-  const ex = dir >= 0 ? 1 : -1;
-  pxi(X(-3 + ex), Y(4), S(2), S(2), wht); pxi(X(1 + ex), Y(4), S(2), S(2), wht);
-  pxi(X(-2 + ex), Y(4), S(1), S(2), eye); pxi(X(2 + ex), Y(4), S(1), S(2), eye);
-  pxi(X(-1), Y(7), S(3), S(1), skS);
-  // muzzle-flash outline while firing
-  if (firing) {
-    const tk = Math.max(1, Math.round(sf));
-    pxi(X(-9), Y(-1), S(18), tk, '#ffd54c'); pxi(X(-9), Y(29), S(18), tk, '#ffd54c');
-    pxi(X(-9), Y(-1), tk, S(30), '#ffd54c'); pxi(X(9) - tk, Y(-1), tk, S(30), '#ffd54c');
-  }
-}
-
+// The on-pitch athlete is now drawn by drawHero() in /heroes.js, which renders
+// any hero+skin cosmetic. drawPlayer resolves the player's cosmetic and calls it.
 function drawPlayer(p) {
   const ch = CHARACTERS[p.char] || CHARACTERS.player;
   const isMe = p.id === me.playerId;
@@ -1497,7 +1638,10 @@ function drawPlayer(p) {
   const sf = Math.max(0.2, r * 0.103);        // sprite-pixel -> art px
   const feetY = y + 14 * sf;                  // centres the 28-tall sprite on p.y
   const ox = Math.round(x);
-  drawKitAvatar(ox, feetY, sf, dir, team, shade(team), walkPhase, moving, p.firing);
+  // Look = this player's cosmetic (from the roster frame). Fall back to my own
+  // pick for the local player before the roster arrives, else the default hero.
+  const cos = cosmeticById[p.id] || (isMe ? myCosmetic : DEFAULT_COSMETIC);
+  drawHero(ctx, ox, feetY, sf, dir, walkPhase, moving, p.firing, cos, { J: team, JS: shade(team) }, performance.now() / 1000);
 
   // Local player: pixel corner-bracket + bobbing marker so you find yourself fast.
   if (isMe) {
@@ -1760,12 +1904,17 @@ function drawHUD() {
   const myScore = latest.score[myT], opScore = latest.score[opT];
   document.getElementById('scoreA').textContent = myScore;
   document.getElementById('scoreB').textContent = opScore;
-  // Match clock counts DOWN to 0:00, then the match ends.
-  const remain = Math.max(0, Math.ceil(MATCH_DURATION - (latest.elapsed || 0)));
-  const m = Math.floor(remain / 60), s = remain % 60;
+  // Match clock counts DOWN to 0:00, then the match ends. Training has no clock.
   const timerEl = document.getElementById('timer');
-  timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
-  timerEl.classList.toggle('urgent', remain <= 10 && latest.phase !== 'ended');
+  if (training) {
+    timerEl.classList.add('hidden');
+  } else {
+    timerEl.classList.remove('hidden');
+    const remain = Math.max(0, Math.ceil(MATCH_DURATION - (latest.elapsed || 0)));
+    const m = Math.floor(remain / 60), s = remain % 60;
+    timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    timerEl.classList.toggle('urgent', remain <= 10 && latest.phase !== 'ended');
+  }
   document.getElementById('net').textContent = `${ping}ms · ${snapRate}/s`;
 
   // Build-wall HUD: charges + reload on the build button; "hidden" cue when in a bush.
@@ -1780,6 +1929,8 @@ function drawHUD() {
     banner.textContent = txt;
     banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
     banner.classList.remove('count'); banner.classList.remove('hidden');
+    // Report the final result to the app exactly once (PII-free, one-way bridge).
+    if (!matchResultSent) { matchResultSent = true; postMatchResult(myT, opT, myScore, opScore); }
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
     // "GOAL!" during the freeze that shows the scoring positions, then 3-2-1.
     const showing = latest.resetTimer > GOAL_RESET - GOAL_FREEZE_HOLD;
@@ -1831,7 +1982,24 @@ function drawWallBlock(w) {
   });
 }
 
+// Fragile wall (built in a bush/penalty): glassy, translucent, always cracked — reads as
+// breakable (any bullet shatters it, a power kick smashes through).
+function drawFragileWall(w) {
+  const ax = wx(w.x), ay = wy(w.y), aw = ws_(w.w), ah = ws_(w.h);
+  ctx.save();
+  ctx.globalAlpha = 0.5;
+  pxi(ax, ay, aw, ah, '#8fb8c8');
+  pxi(ax, ay, aw, Math.max(2, ws_(4)), '#dbeef7');
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = 'rgba(18,38,52,.7)'; ctx.lineWidth = Math.max(1, ws_(2));
+  const cx = ax + aw / 2, cy = ay + ah / 2;
+  for (let i = 0; i < 3; i++) { const a = i * 2.1 + w.id; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * aw * 0.4, cy + Math.sin(a) * ah * 0.4); ctx.stroke(); }
+  ctx.setLineDash([Math.max(2, ws_(6)), Math.max(2, ws_(5))]);
+  ctx.strokeStyle = 'rgba(219,238,247,.85)'; ctx.strokeRect(ax, ay, aw, ah); ctx.setLineDash([]);
+  ctx.restore();
+}
 function drawBuiltWall(w) {
+  if (w.fragile) return drawFragileWall(w);
   const f = (w.hp || 1) / (w.maxHp || 1);
   const g = Math.round(60 + 46 * f);
   const pal = { top: `rgb(190,${g + 26},72)`, face: `rgb(120,${Math.round(52 * f) + 26},36)`, hi: 'rgba(255,224,170,.30)', shadow: '#4a2c12' };

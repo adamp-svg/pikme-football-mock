@@ -10,10 +10,10 @@ import {
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
-  WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS,
+  WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
-import { ARENA, resolveWalls, resolveCircleBox, pointInBox } from './arena.js';
+import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox } from './arena.js';
 
 const GOAL_TOP = (FIELD.H - GOAL.width) / 2;
 const GOAL_BOTTOM = (FIELD.H + GOAL.width) / 2;
@@ -81,10 +81,12 @@ export function attachBall(state, team) {
   state.ball.vx = 0; state.ball.vy = 0;
 }
 
-export function addPlayer(state, id, { name, char, team, slot, isBot }) {
+export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic }) {
   const c = CHARACTERS[char] ? char : DEFAULT_CHAR;
   const p = {
     id, name, char: c, team, slot, isBot: !!isBot,
+    cosmetic: cosmetic || null, // "hero:skin" visual id; never read by physics
+
     ...spawnPos(team, slot),
     vx: 0, vy: 0,
     kvx: 0, kvy: 0, // knockback velocity (decays), added on top of movement
@@ -230,7 +232,8 @@ export function step(state, inputs, dt) {
 
   // Match clock: at MATCH_DURATION the match ends. Play freezes; the room
   // returns to the lobby after a short hold (handled by the server).
-  if (state.phase === 'playing' && state.elapsed >= MATCH_DURATION) {
+  // Training rooms set state.noClock — they run endlessly, never 'ended'.
+  if (!state.noClock && state.phase === 'playing' && state.elapsed >= MATCH_DURATION) {
     state.phase = 'ended';
   }
   if (state.phase === 'ended') {
@@ -380,8 +383,15 @@ export function step(state, inputs, dt) {
       b.x += b.vx * dt / bSteps;
       b.y += b.vy * dt / bSteps;
       for (const w of ARENA.walls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE });     // ricochet off static
-      for (const w of state.builtWalls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE }); // and built walls
+      for (const w of state.builtWalls) {
+        // A POWER kick (fast ball) smashes THROUGH a fragile wall — destroy it, no bounce —
+        // so a hard shot beats a bush/box wall; otherwise the ball ricochets off normally.
+        if (w.fragile && (b.vx * b.vx + b.vy * b.vy) > FRAGILE_PASS_SPEED * FRAGILE_PASS_SPEED) {
+          if (circleHitsBox(b.x, b.y, ballR, w)) w.hp = 0;
+        } else resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE });
+      }
     }
+    if (state.builtWalls.some((w) => w.hp <= 0)) state.builtWalls = state.builtWalls.filter((w) => w.hp > 0); // clear smashed walls
     b.vx *= BALL_FRICTION;
     b.vy *= BALL_FRICTION;
     const bspeed = Math.hypot(b.vx, b.vy);
@@ -469,10 +479,12 @@ function buildWall(state, p) {
   let cy = p.y + ay * BUILT_WALL.offset;
   let x = clamp(cx - w / 2, 2, FIELD.W - w - 2);
   let y = clamp(cy - h / 2, 2, FIELD.H - h - 2);
-  // No building inside a bush or a penalty area — reject without spending a charge.
-  if (boxInBush(x, y, w, h) || boxInPenalty(x, y, w, h)) return;
+  // Building inside a bush or penalty area is allowed, but the wall is FRAGILE (hp 1):
+  // any bullet breaks it and a power kick smashes through (see the ball/bullet handling).
+  const fragile = boxInBush(x, y, w, h) || boxInPenalty(x, y, w, h);
+  const hp = fragile ? FRAGILE_HP : BUILT_WALL.hp;
   state.builtWalls.push({
-    id: state._nid++, x, y, w, h, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp,
+    id: state._nid++, x, y, w, h, hp, maxHp: hp, fragile,
     team: p.team, ttl: BUILT_WALL.ttl,
   });
   if (state.builtWalls.length > MAX_BUILT_WALLS) state.builtWalls.shift(); // drop oldest

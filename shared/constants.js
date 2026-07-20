@@ -163,6 +163,10 @@ export const BUILD_MAG = 2;       // wall charges a player can hold
 export const BUILD_RELOAD = 30;   // seconds to regenerate ONE wall charge
 export const BUILD_COOLDOWN = 0.4;// min seconds between placements
 export const MAX_BUILT_WALLS = 8; // global safety cap (oldest removed past this)
+// Walls built INSIDE a bush or penalty area are allowed but FRAGILE: hp 1 so any bullet
+// (even a quick shot) breaks them, and a fast ball (power kick) smashes straight through.
+export const FRAGILE_HP = 1;
+export const FRAGILE_PASS_SPEED = 900; // ball faster than this passes through (+ destroys) a fragile wall
 
 export const TEAM = {
   A: { key: 'A', name: 'Blue', color: '#3b82f6', attacksRight: true },

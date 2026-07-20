@@ -11,19 +11,74 @@
        so existing references (startEl) stay valid. -->
   <div id="start" class="screen hidden"></div>
 
-  <!-- Home / user screen — shown first: your dancing character, name, pfp, cards -->
+  <!-- Home / user hub — landscape, single screen: identity + XP (top), tappable hero
+       (center → wardrobe), cards strip, Quick Match + scrollable mode rail.
+       Keeps every id the app + other agents rely on (#home-online/-face/-name/-char,
+       #home-carousel, #pick-hero-btn [wardrobe opener], #quick-match-btn, #friends-btn). -->
   <div id="home" class="screen">
     <div class="start-shade"></div>
-    <div class="home-wrap" dir="rtl">
-      <div class="eyebrow"><span></span> <span id="home-online">0</span> מחוברים <span></span></div>
-      <canvas id="home-char" class="home-char" width="200" height="210"></canvas>
-      <div class="char-id">
-        <div id="home-face" class="home-avatar"></div>
-        <div id="home-name" class="char-name-big">שחקן</div>
+    <div class="hub" dir="rtl">
+
+      <div class="hub-top">
+        <div class="hub-id">
+          <div id="home-face" class="hub-pfp"></div>
+          <div class="hub-idtext">
+            <div id="home-name" class="hub-name">שחקן</div>
+            <div id="hub-rank" class="hub-rank hidden"></div>
+          </div>
+        </div>
+        <!-- RESERVED for the experience agent: populate window.SALTIZ_XP and unhide #hub-xp -->
+        <div id="hub-xp" class="hub-xp hidden"></div>
+        <span class="hub-online"><i></i><span id="home-online">0</span> מחוברים</span>
       </div>
-      <div id="home-carousel" class="carousel hidden"></div>
-      <button id="quick-match-btn" class="play"><span>משחק מהיר</span><b>›</b></button>
-      <button id="friends-btn" class="play ghost">שחק עם חברים</button>
+
+      <div class="hub-stage">
+        <!-- tapping the hero opens the wardrobe: hero-picker.js binds open() to #pick-hero-btn -->
+        <button id="pick-hero-btn" class="hub-hero" aria-label="הקש להחלפת מראה">
+          <canvas id="home-char" class="hub-char" width="200" height="210"></canvas>
+          <span class="hub-edit">✎</span>
+          <span class="hub-herohint">🎽 הקש להחלפת מראה</span>
+        </button>
+      </div>
+
+      <div class="hub-cards">
+        <div class="hub-cstats">
+          <span class="hub-chip"><b id="hub-count">0</b><small>קלפים</small></span>
+          <span class="hub-chip gold"><b id="hub-worth">0</b><small>שווי</small></span>
+          <span class="hub-chip"><b id="hub-extra">0</b><small id="hub-extra-l">עותקים</small></span>
+        </div>
+        <div id="home-carousel" class="carousel hub-thumbs hidden"></div>
+      </div>
+
+      <div class="hub-play">
+        <div class="hub-rail">
+          <button id="quick-match-btn" class="hub-mode quick">
+            <span class="hub-mic">⚽</span>
+            <span class="hub-mtx"><b>משחק מהיר</b><small>2 נגד 2 · התאמה אוטומטית</small></span>
+            <span class="hub-go">›</span>
+          </button>
+          <button id="friends-btn" class="hub-mode">
+            <span class="hub-mic">👥</span>
+            <span class="hub-mtx"><b>שחק עם חברים</b><small>צור חדר · קוד</small></span>
+          </button>
+          <button id="training-btn" class="hub-mode">
+            <span class="hub-mic">🎯</span>
+            <span class="hub-mtx"><b>אימון</b><small>מגרש תרגול · בול לתרגל בעיטות</small></span>
+            <span class="hub-go">›</span>
+          </button>
+          <button class="hub-mode soon" disabled>
+            <span class="hub-mic">🏆</span>
+            <span class="hub-mtx"><b>טורניר</b><small>סוללת משחקים</small></span>
+            <span class="hub-badge">בקרוב</span>
+          </button>
+          <button class="hub-mode soon" disabled>
+            <span class="hub-mic">🥅</span>
+            <span class="hub-mtx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
+            <span class="hub-badge">בקרוב</span>
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -97,6 +152,10 @@
       <div class="timer" id="timer">2:00</div>
       <div class="net" id="net">מתחבר…</div>
     </div>
+
+    <!-- Training-only: label + reset-ball button (shown only in the training ground) -->
+    <div id="train-tag" class="train-tag hidden">🎯 אימון</div>
+    <button id="reset-ball-btn" class="reset-ball-btn hidden">↺ אפס כדור</button>
 
     <div id="banner" class="banner hidden"></div>
 
@@ -172,6 +231,21 @@
           <button id="resume" class="resume">המשך</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Hero picker overlay (hero grid + rarity tiers + live preview) -->
+  <div id="hero-picker" class="picker hidden" dir="rtl">
+    <div class="picker-panel">
+      <div class="picker-top">
+        <span class="picker-title">בחר דמות</span>
+        <button id="pick-close" class="picker-x" aria-label="סגור">✕</button>
+      </div>
+      <canvas id="pick-preview" class="pick-preview" width="180" height="200"></canvas>
+      <div id="pick-name" class="pick-name"></div>
+      <div id="pick-tiers" class="pick-tiers"></div>
+      <div id="pick-heroes" class="pick-heroes"></div>
+      <button id="pick-save" class="play">שמור ›</button>
     </div>
   </div>
 

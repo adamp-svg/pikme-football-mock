@@ -19,8 +19,10 @@ import {
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
 import { encodeKeyframe } from './shared/wire.js';
+import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC } from './shared/cosmetics.js';
 const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
+import { PEN, penDummy, trainingDummyInput } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3010;
@@ -67,6 +69,10 @@ const members = new Map();   // ws -> member (a connected client)
 const rooms = new Map();     // roomId -> room
 let publicRoom = null;       // the current forming quick-match room (in lobby/countdown)
 let memberCounter = 0, roomCounter = 0;
+// Module-level monotonic match counter — never resets, so matchId is globally unique even when a
+// private room CODE is reused by a later room instance (a per-room counter would collide and the
+// backend's recordedMatchIds idempotency guard could silently drop a legit match).
+let matchSeq = 0;
 let msgErrCount = 0, tickErrCount = 0, bcErrCount = 0;
 
 const nowMs = () => Date.now();
@@ -77,15 +83,17 @@ function send(ws, obj) {
 }
 function onlineCount() { return members.size; }
 
-function makeRoom(id, isPrivate) {
+function makeRoom(id, isPrivate, mode = 'match') {
   return {
     id, isPrivate: !!isPrivate,
+    mode,                    // 'match' | 'training' (solo practice vs a penned dummy)
     phase: 'lobby',          // lobby | countdown | match
     countdownT: 0, endHoldT: 0,
     state: createState(),
     inputs: new Map(),       // playerId -> input
     botMem: createBotMemory(), // persistent bot-AI memory (roles, aim, beliefs)
     botCounter: 0,
+    matchCounter: 0,         // increments each match — feeds the stable per-match id
     members: new Set(),      // member objects
     slotIds: null, slotTeam: null, rosterVersion: 0, // binary-snapshot slot->id/team mapping
   };
@@ -132,13 +140,14 @@ function balancedTeam(room) {
 }
 
 function fillBots(room) {
+  if (room.mode === 'training') return; // training keeps exactly one penned dummy — no backfill
   const teamCount = (t) => Object.values(room.state.players).filter((p) => p.team === t).length;
   const usedSlots = (t) => new Set(Object.values(room.state.players).filter((p) => p.team === t).map((p) => p.slot));
   while (Object.keys(room.state.players).length < MAX_PLAYERS) {
     const team = teamCount('A') <= teamCount('B') ? 'A' : 'B';
     const slot = usedSlots(team).has(0) ? 1 : 0;
     const id = `bot-${room.id}-${++room.botCounter}`;
-    addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true });
+    addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic: randomBotCosmetic() });
     room.inputs.set(id, emptyInput());
   }
 }
@@ -151,6 +160,12 @@ function fillBots(room) {
 function updateBots(room) {
   const inputs = computeBotInputs(room.state, room.botMem, DT);
   for (const id in inputs) room.inputs.set(id, inputs[id]);
+}
+
+// Training ground: drive the penned dummy from the shared, testable controller.
+function updateTrainingDummy(room) {
+  const inp = trainingDummyInput(room.state, room.dummyId);
+  if (inp) room.inputs.set(room.dummyId, inp);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +190,42 @@ function quickMatch(member) {
   send(member.ws, { type: 'roomJoined', mode: 'quick', code: null });
   if (room.phase === 'lobby') startCountdown(room); // quick match: joining kicks off the countdown
   broadcastLobby(room);
+}
+
+// Solo training ground: instant entry, no lobby/countdown, one penned dummy,
+// endless clock. Reuses the whole match render/snapshot pipeline.
+function startTraining(member) {
+  leaveCurrentRoom(member);
+  const room = makeRoom(`train-${++roomCounter}`, false, 'training');
+  rooms.set(room.id, room);
+  addToRoom(member, room);
+
+  room.state = createState();
+  room.state.noClock = true;      // never transitions to 'ended'
+  room.inputs.clear();
+  room.botCounter = 0;
+
+  // You are team A (spawn left, attack the right goal).
+  addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC });
+  room.inputs.set(member.id, emptyInput());
+  member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
+
+  // One penned dummy on team B, in front of the right goal.
+  const dummyId = `dummy-${room.id}`;
+  addPlayer(room.state, dummyId, { name: 'Target', char: DEFAULT_CHAR, team: 'B', slot: 0, isBot: true, cosmetic: randomBotCosmetic() });
+  room.inputs.set(dummyId, emptyInput());
+  room.dummyId = dummyId;
+  const d = room.state.players[dummyId];
+  d.x = (PEN.x0 + PEN.x1) / 2; d.y = FIELD.H / 2; // start centred in the pen
+
+  const matchId = `${room.id}-${++matchSeq}`;
+  const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [] }];
+  attachBall(room.state, 'A');
+  room.endHoldT = 0;
+  room.phase = 'match';
+  send(member.ws, { type: 'roomJoined', mode: 'training', code: null });
+  send(member.ws, { type: 'matchStart', mode: 'training', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+  room.rosterVersion++; broadcastRoster(room);
 }
 
 function createPrivateRoom(member) {
@@ -248,13 +299,17 @@ function startMatch(room) {
     const t = teamSlots.A.length ? 'A' : 'B';
     a[1] = t; a[2] = teamSlots[t].shift();
   }
+  // Stable per-match id (roomId + GLOBAL monotonic match seq): unique per match instance across the
+  // whole process — a reused private-room code can't collide with an earlier room's matchId — and
+  // identical if the same matchStart is resent. Feeds matchResult idempotency downstream (app -> backend).
+  const matchId = `${room.id}-${++matchSeq}`;
   // Roster for the team-intro overlay: every human, their team + album (cards).
   const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [] }));
   for (const [m, team, slot] of assigned) {
-    addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false });
+    addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false, cosmetic: m.cosmetic || DEFAULT_COSMETIC });
     room.inputs.set(m.id, emptyInput());
     m.team = team; m.inMatch = true; m.afk = false; m.lastInputAt = nowMs();
-    send(m.ws, { type: 'matchStart', playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
   }
   fillBots(room);
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
@@ -306,11 +361,16 @@ function tickRoom(room) {
     return;
   }
   if (room.phase !== 'match') return;
-  checkAfk(room);
-  updateBots(room);
+  if (room.mode === 'training') {
+    updateTrainingDummy(room);
+  } else {
+    checkAfk(room);
+    updateBots(room);
+  }
   const inputMap = {};
   for (const [id, inp] of room.inputs) inputMap[id] = inp;
   step(room.state, inputMap, DT);
+  if (room.mode === 'training') penDummy(room.state, room.dummyId); // keep the dummy inside its pen after physics
   for (const inp of room.inputs.values()) { inp.shoot = false; inp.special = false; inp.build = false; inp.charge = 0; }
   if (room.state.phase === 'ended') {
     room.endHoldT += DT;
@@ -366,7 +426,7 @@ function broadcastRoster(room) {
   const ps = Object.values(room.state.players);
   room.slotIds = ps.map((p) => p.id);
   room.slotTeam = ps.map((p) => p.team);
-  const payload = { type: 'roster', v: room.rosterVersion, slots: ps.map((p, i) => ({ i, id: p.id, team: p.team })) };
+  const payload = { type: 'roster', v: room.rosterVersion, slots: ps.map((p, i) => ({ i, id: p.id, team: p.team, c: p.cosmetic || DEFAULT_COSMETIC })) };
   for (const m of room.members) if (m.inMatch && m.ws.readyState === m.ws.OPEN) send(m.ws, payload);
 }
 
@@ -455,7 +515,7 @@ wss.on('connection', (ws, req) => {
         const name = (msg.name || 'Player').toString().slice(0, 16);
         let avatar = (msg.avatar || '').toString().slice(0, 400) || null;
         if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
-        member = { id, ws, name, avatar, cards: sanitizeCards(msg.cards), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null };
+        member = { id, ws, name, avatar, cards: sanitizeCards(msg.cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null };
         members.set(ws, member);
         send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS });
         send(ws, { type: 'home', online: onlineCount() });
@@ -463,7 +523,15 @@ wss.on('connection', (ws, req) => {
       }
       if (!member) return;
 
+      // Cosmetic (hero+skin) chosen on the home screen; applied at the next match start.
+      if (msg.type === 'setCosmetic') { member.cosmetic = normalizeCosmetic(msg.cosmetic); return; }
       if (msg.type === 'quickMatch') { quickMatch(member); return; }
+      if (msg.type === 'training') { startTraining(member); return; }
+      if (msg.type === 'resetBall') { // training only: recenter the ball on demand
+        const r = member.room;
+        if (r && r.mode === 'training' && r.phase === 'match') attachBall(r.state, member.team);
+        return;
+      }
       if (msg.type === 'createRoom') { createPrivateRoom(member); return; }
       if (msg.type === 'joinRoom') { joinPrivateRoom(member, msg.code); return; }
       if (msg.type === 'leaveRoom') {
