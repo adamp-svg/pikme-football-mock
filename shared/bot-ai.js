@@ -35,7 +35,7 @@ const ownGoalX = (team) => (team === 'A' ? 0 : FIELD.W);
 // ---- difficulty skill vectors (Normal ships; presets wired for later scaling) ----
 export const BOT_SKILL = {
   easy:   { react: 0.30, aimSigma: 0.17, aimTau: 0.60, turnRate: 6.0,  leadGain: 0.70, decisionHz: 7,  toolSkill: 0.45, evade: 0.55, aggro: 0.75 },
-  normal: { react: 0.09, aimSigma: 0.05, aimTau: 0.30, turnRate: 15.0, leadGain: 0.96, decisionHz: 15, toolSkill: 0.85, evade: 0.85, aggro: 0.95 },
+  normal: { react: 0.06, aimSigma: 0.035, aimTau: 0.26, turnRate: 18.0, leadGain: 0.98, decisionHz: 18, toolSkill: 0.85, evade: 0.85, aggro: 0.95 },
   hard:   { react: 0.06, aimSigma: 0.028, aimTau: 0.26, turnRate: 14.0, leadGain: 1.0, decisionHz: 20, toolSkill: 0.96, evade: 0.96, aggro: 1.0 },
 };
 export const DEFAULT_SKILL = 'normal';
@@ -157,8 +157,8 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
   } else bmem.stuck = 0;
   // low-pass so movement doesn't twitch (sim MOVE_ACCEL snaps velocity).
   const px = bmem.mvx ?? best[0], py = bmem.mvy ?? best[1];
-  bmem.mvx = px + (best[0] - px) * 0.35;
-  bmem.mvy = py + (best[1] - py) * 0.35;
+  bmem.mvx = px + (best[0] - px) * 0.55; // snappy enough to chase a bouncing ball
+  bmem.mvy = py + (best[1] - py) * 0.55;
   return unit(bmem.mvx, bmem.mvy);
 }
 
@@ -272,10 +272,10 @@ function decideBot(p, role, state, mem, sk, dt) {
     const distGoal = hyp(egX - p.x, GY - p.y);
     let nearFoe = null, nfd = 1e9;
     for (const e of visibleEnemies) { const d = hyp(e.x - p.x, e.y - p.y); if (d < nfd) { nfd = d; nearFoe = e; } }
-    const linedUp = Math.abs(p.y - GY) < GOAL.width / 2 + 220;
+    const linedUp = Math.abs(p.y - GY) < GOAL.width / 2 + 280;
     const shotLane = laneClear(p.x, p.y, egX, GY, state, team, { enemies: false }); // power shot plows through a defender
     // 1) open shot on goal -> RELEASE full power (can't dribble a goal in)
-    if (distGoal < 820 && linedUp && shotLane) {
+    if (distGoal < 720 && linedUp && shotLane) {
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1;
     } else if (mate && nfd < 260) {
       // 2) marked -> pass to a better-placed, open mate
@@ -344,10 +344,11 @@ function decideBot(p, role, state, mem, sk, dt) {
         tgt = { x: shadowX, y: shadowY };
       }
       aim = { x: c.x - p.x, y: c.y - p.y };
-      // build a wall to block the shot lane to our goal when we're goal-side & threatened
-      const carrierLiningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 160 && Math.abs(c.x - ogX) < FIELD.W * 0.42;
+      // build ONE shielding wall goalward of us when the carrier lines up a shot on
+      // our goal (aim toward own goal so the wall screens the mouth, not the open play)
+      const carrierLiningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 200 && Math.abs(c.x - ogX) < FIELD.W * 0.36;
       const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
-      if (buildReady && carrierLiningUp && goalSide && Math.random() < sk.toolSkill * 0.5) {
+      if (buildReady && carrierLiningUp && goalSide && distC > 160 && Math.random() < 0.3) {
         build = true; aim = { x: ogX - p.x, y: GY - p.y }; shoot = false; special = false;
       } else if (canShoot && seeC && lane && distC < 320) {
         shoot = true; charge = 1; // opportunistic strip if a clean full-charge is there
@@ -365,6 +366,24 @@ function decideBot(p, role, state, mem, sk, dt) {
       const holdX = (b.x + ogX) / 2, holdY = (b.y + GY) / 2;
       tgt = { x: holdX, y: holdY };
       aim = { x: b.x - p.x, y: b.y - p.y };
+    }
+  }
+
+  // SEPARATION: the off-ball bot never crowds the play — keep >= MIN_SEP from the
+  // focus (carrier/ball), preserving its bearing (ahead when attacking, back when
+  // defending). This is what actually kills the "both bots chase the ball".
+  if (!isOnBall) {
+    const f = carrier || b;
+    // Contest a nearby LOOSE ball as the second man (wins 50/50s); otherwise keep
+    // real spacing so we don't both crowd a carried ball.
+    const looseNear = !carrier && hyp(b.x - p.x, b.y - p.y) < 440;
+    if (looseNear) {
+      const [bx, by] = predictBall(b, clamp(hyp(b.x - p.x, b.y - p.y) / 900, 0.05, 0.4));
+      tgt = { x: bx, y: by };
+    } else {
+      const dx = tgt.x - f.x, dy = tgt.y - f.y, d = hyp(dx, dy);
+      const MIN_SEP = 330;
+      if (d < MIN_SEP) { const [ux, uy] = unit(dx || (ogX - f.x), dy || (GY - f.y)); tgt = { x: f.x + ux * MIN_SEP, y: f.y + uy * MIN_SEP }; }
     }
   }
 

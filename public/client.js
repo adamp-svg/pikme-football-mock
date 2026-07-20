@@ -1161,18 +1161,19 @@ function expandPool(cards) {
   }
   return out;
 }
-// Fill one side's seats from its card pool. Proportional: the number of occupied
-// seats scales with collection size (few cards => visibly sparse), and cards cycle
-// to fill ~fillMult× the owned count so a small album still reads as a modest crowd —
-// capped at the side's capacity so a big collection packs the stands.
+// Fill EVERY seat on a side, cycling the pool so the stand always packs full
+// (a small album just repeats — like real tifo — rather than leaving empty seats).
 function fillSideSeats(seats, pool) {
   if (!pool.length) return;
-  const target = Math.min(seats.length, Math.ceil(pool.length * AUD.fillMult));
-  for (let i = 0; i < target; i++) {
+  for (let i = 0; i < seats.length; i++) {
     const c = pool[i % pool.length];
     seats[i].r = c.r; seats[i].n = c.n;
     audSeats.push(seats[i]);
   }
+}
+// Generic crowd used only when nobody has any cards, so the bowl is never bare.
+function synthPool() {
+  return ['common', 'common', 'rare', 'rare', 'epic', 'legendary'].map((r, i) => ({ r, n: 'crowd' + i, c: 1 }));
 }
 function buildAudienceSeats() {
   audSeats = [];
@@ -1203,12 +1204,18 @@ function buildAudienceSeats() {
       side[key].push({ x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY), r: null, n: null, seed: r * 1.7 + c * 0.9 + (key === 'rv' ? 3 : 0) });
     }
   }
-  const myPool = expandPool(rankCards(myCards()));                          // home = you
-  const rivalPool = expandPool(rankCards(
+  let myPool = expandPool(rankCards(myCards()));                            // home = you
+  let rivalPool = expandPool(rankCards(
     matchRoster.filter((p) => p.team && p.team !== mine).flatMap((p) => p.cards || []))); // away = rivals pooled
-  fillSideSeats(side.me, myPool);
-  fillSideSeats(side.rv, rivalPool);
-  preloadCards([...myPool, ...rivalPool]);
+  // Never leave a stand empty: an opponent with no cards (bots, or the server not
+  // sending collections) borrows the other side's cards; with none at all, use a
+  // generic crowd. Every seat then fills.
+  if (!myPool.length && !rivalPool.length) { myPool = rivalPool = synthPool(); }
+  const homePool = myPool.length ? myPool : rivalPool;
+  const awayPool = rivalPool.length ? rivalPool : myPool;
+  fillSideSeats(side.me, homePool);
+  fillSideSeats(side.rv, awayPool);
+  preloadCards([...homePool, ...awayPool]);
 }
 // Perf: the audience is baked into two offscreen layers (even/odd seats), sized like
 // the field cache. Each frame we blit those TWO images with opposite vertical bob — a
