@@ -33,7 +33,7 @@ const ownGoalX = (team) => (team === 'A' ? 0 : FIELD.W);
 export const BOT_SKILL = {
   easy:   { react: 0.30, aimSigma: 0.17, aimTau: 0.60, turnRate: 6.0,  leadGain: 0.70, decisionHz: 7,  toolSkill: 0.45, evade: 0.55, aggro: 0.75 },
   normal: { react: 0.06, aimSigma: 0.035, aimTau: 0.26, turnRate: 18.0, leadGain: 0.98, decisionHz: 18, toolSkill: 0.85, evade: 0.85, aggro: 0.95 },
-  hard:   { react: 0.06, aimSigma: 0.028, aimTau: 0.26, turnRate: 14.0, leadGain: 1.0, decisionHz: 20, toolSkill: 0.96, evade: 0.96, aggro: 1.0 },
+  hard:   { react: 0.04, aimSigma: 0.022, aimTau: 0.22, turnRate: 21.0, leadGain: 1.0, decisionHz: 22, toolSkill: 0.97, evade: 0.96, aggro: 1.0 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -121,7 +121,7 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
   // gather dangers: walls (static+built), live bombs, incoming enemy bullets.
   const walls = ARENA.walls.concat(state.builtWalls);
   const look = 110;
-  let best = null, bestScore = -1e9;
+  let best = null, bestScore = -1e9, safest = null, safeD = 1e9;
   for (const [dx, dy] of DIRS) {
     const interest = dx * tox + dy * toy;            // -1..1
     let danger = 0;
@@ -131,6 +131,12 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
       const d = hyp(px - nx, py - ny);
       if (d < r + 46) danger = Math.max(danger, (r + 46 - d) / (r + 46));
     }
+    // field boundary (the "stadium wall") — don't steer into the pitch edge and pin there
+    const m = r + 34;
+    if (px < m) danger = Math.max(danger, (m - px) / m);
+    else if (px > FIELD.W - m) danger = Math.max(danger, (px - (FIELD.W - m)) / m);
+    if (py < m) danger = Math.max(danger, (m - py) / m);
+    else if (py > FIELD.H - m) danger = Math.max(danger, (py - (FIELD.H - m)) / m);
     // live bombs: flee the blast (weight by how soon it blows) — but NOT my own planted
     // bomb, which I'm deliberately standing on to trigger the rocket-jump.
     for (const b of state.bombs) {
@@ -152,13 +158,19 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
     }
     const score = interest - danger * 2.2;
     if (score > bestScore) { bestScore = score; best = [dx, dy]; }
+    if (danger < safeD) { safeD = danger; safest = [dx, dy]; } // most-open dir (escape route)
   }
-  // stuck detection: barely moved while wanting to move -> nudge tangentially (wall-follow)
+  // stuck detection: barely moved while wanting to move -> break toward the most-open
+  // direction (reliably escapes a wall/edge pin, unlike a fixed rotate that can re-pin).
   const moved = hyp(bot.x - (bmem.lastX ?? bot.x), bot.y - (bmem.lastY ?? bot.y));
   bmem.lastX = bot.x; bmem.lastY = bot.y;
-  if (moved < 2.2 && (bmem.wantMove || 0) > 0.5) {
+  if (moved < 2.0 && (bmem.wantMove || 0) > 0.5) {
     bmem.stuck = (bmem.stuck || 0) + 1;
-    if (bmem.stuck > 4) { const h = bmem.stuckSign || (bmem.stuckSign = (idHash(bot.id) & 1) ? 1 : -1); best = [ -best[1] * h, best[0] * h ]; }
+    if (bmem.stuck > 3 && safest) {
+      const h = bmem.stuckSign || (bmem.stuckSign = (idHash(bot.id) & 1) ? 1 : -1);
+      // bias the escape sideways (deterministic per bot) so two stuck bots don't mirror
+      best = [safest[0] - safest[1] * 0.4 * h, safest[1] + safest[0] * 0.4 * h];
+    }
   } else bmem.stuck = 0;
   // low-pass so movement doesn't twitch (sim MOVE_ACCEL snaps velocity).
   const px = bmem.mvx ?? best[0], py = bmem.mvy ?? best[1];
@@ -273,9 +285,11 @@ function decideBot(p, role, state, mem, sk, dt) {
   } else if (bm.bombHold) bm.bombHold = null;
 
   const carrier = b.owner ? state.players[b.owner] : null;
+  if (b.owner !== p.id) bm.carryT = 0; // reset carry stall timer when not holding
 
   if (b.owner === p.id) {
     // ===== I CARRY: attack =====
+    bm.carryT = (bm.carryT || 0) + dt;
     const distGoal = hyp(egX - p.x, GY - p.y);
     let nearFoe = null, nfd = 1e9;
     for (const e of visibleEnemies) { const d = hyp(e.x - p.x, e.y - p.y); if (d < nfd) { nfd = d; nearFoe = e; } }
@@ -301,9 +315,20 @@ function decideBot(p, role, state, mem, sk, dt) {
       special = true; aim = { x: egX - p.x, y: GY - p.y };
       bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY };
     }
-    // dribble toward goal, veering off the nearest defender
+    // Anti-idle: if we've carried a while with no shot/pass, just BLAST it goalward —
+    // decisive, never dither with the ball.
+    if (!shoot && !special && bm.carryT > 1.0 && distGoal < 1150 && shotLane) {
+      aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.carryT = 0;
+    }
+    // Drive at goal; if marked, JUKE decisively to the more-open side (advance + strong
+    // lateral break) — never the old cancel-to-zero veer that left the carrier idling.
     tgt = { x: egX, y: GY };
-    if (nearFoe && nfd < 230) { tgt = { x: p.x + (p.x - nearFoe.x) * 1.2 + (egX - p.x) * 0.6, y: p.y + (p.y - nearFoe.y) * 1.2 + (GY - p.y) * 0.4 }; }
+    if (nearFoe && nfd < 300) {
+      const [gx, gy] = unit(egX - p.x, GY - p.y);
+      let perpx = -gy, perpy = gx;
+      if ((nearFoe.x - p.x) * perpx + (nearFoe.y - p.y) * perpy > 0) { perpx = -perpx; perpy = -perpy; } // break AWAY from the defender
+      tgt = { x: p.x + gx * 240 + perpx * 320, y: p.y + gy * 240 + perpy * 320 };
+    }
     if (!shoot && !special) aim = { x: egX - p.x, y: GY - p.y };
 
   } else if (carrier && carrier.team === team) {

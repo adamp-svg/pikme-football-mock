@@ -217,6 +217,15 @@ html, body {
 .resume { background: #d99f29; color: #231706; box-shadow: inset 0 -5px #8d5817; }
 .ghost-btn { background: #0c1322; color: #9fb0d0; border: 1px solid #26324f !important; }
 
+/* Bot difficulty selector (settings panel) */
+.difficulty { display: flex; gap: 8px; margin-top: 6px; }
+.diff-btn {
+  flex: 1; padding: 11px 0; border-radius: 10px; cursor: pointer;
+  background: #0c1322; color: #9fb0d0; border: 1px solid #26324f;
+  font-size: 15px; font-weight: 800;
+}
+.diff-btn.active { background: #d99f29; color: #231706; border-color: #ffe49a; box-shadow: inset 0 -4px #8d5817; }
+
 @media (max-width: 700px) {
   .screen#start { background-position: 58% center; }
   .block-panel { margin: auto; padding: 22px 18px 20px; }

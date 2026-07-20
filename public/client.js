@@ -499,6 +499,8 @@ function connect(name, avatar) {
 function enterMatch(msg) {
   me = { playerId: msg.playerId, team: msg.team, char: chosenChar };
   if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
+  // apply this player's saved bot-difficulty to the match room
+  if (botDifficulty && botDifficulty !== 'normal' && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', botDifficulty }));
   // Reset all interpolation / prediction / sound state for the fresh match.
   latest = null; snaps = []; predicted = null; rendered = null; predVel = { x: 0, y: 0 };
   previousBallOwner = null; previousResetTimer = 0;
@@ -835,11 +837,25 @@ function syncSliderUI() {
 function sendSettings() {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', settings }));
 }
+// Bot difficulty selector — persists locally, pushed live to the authoritative server.
+let botDifficulty = (() => { try { return localStorage.getItem('pikme-bot-diff') || 'normal'; } catch { return 'normal'; } })();
+const diffBtns = Array.from(document.querySelectorAll('#difficulty .diff-btn'));
+function syncDifficultyUI() { for (const b of diffBtns) b.classList.toggle('active', b.dataset.diff === botDifficulty); }
+function setDifficulty(d) {
+  botDifficulty = d;
+  try { localStorage.setItem('pikme-bot-diff', d); } catch { /* private mode */ }
+  syncDifficultyUI();
+  playSound('ui', 0.5, 1.05);
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', botDifficulty: d }));
+}
+for (const b of diffBtns) b.addEventListener('click', () => setDifficulty(b.dataset.diff));
+
 function openSettings() {
   playSound('ui', 0.45);
   shootQueued = false; specialQueued = false; aimHold = null;
   settingsPanel.classList.remove('hidden');
   syncSliderUI();
+  syncDifficultyUI();
 }
 function closeSettings() {
   playSound('ui', 0.45, 1.06);

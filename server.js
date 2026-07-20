@@ -232,7 +232,7 @@ function startMatch(room) {
   if (humans.length === 0) { endRoom(room); return; }
 
   room.state = createState();
-  room.botMem = createBotMemory();
+  room.botMem = createBotMemory(room.botDifficulty);
   room.inputs.clear();
   room.botCounter = 0;
 
@@ -271,7 +271,7 @@ function endRoom(room) {
   const hadHumans = [...room.members];
   if (room.isPrivate && room.members.size > 0) {
     room.phase = 'lobby'; room.countdownT = 0; room.endHoldT = 0;
-    room.state = createState(); room.botMem = createBotMemory(); room.inputs.clear(); room.botCounter = 0;
+    room.state = createState(); room.botMem = createBotMemory(room.botDifficulty); room.inputs.clear(); room.botCounter = 0;
     for (const m of room.members) { m.inMatch = false; m.afk = false; }
     for (const m of room.members) send(m.ws, { type: 'toLobby' });
     broadcastLobby(room);
@@ -500,7 +500,14 @@ wss.on('connection', (ws, req) => {
         });
         return;
       }
-      if (msg.type === 'settings' && msg.settings && room) { applySettings(room, msg.settings); return; }
+      if (msg.type === 'settings' && room) {
+        if (msg.settings) applySettings(room, msg.settings);
+        if (['easy', 'normal', 'hard'].includes(msg.botDifficulty)) {
+          room.botDifficulty = msg.botDifficulty;
+          if (room.botMem) room.botMem.skill = msg.botDifficulty; // live — read each tick by the bot AI
+        }
+        return;
+      }
       if (msg.type === 'ping') { send(ws, { type: 'pong', t: msg.t }); return; }
     } catch (e) { if (msgErrCount++ < 5) console.error('MSG ERROR:', (e && e.stack) || e); }
   });
