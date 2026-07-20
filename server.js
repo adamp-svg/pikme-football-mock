@@ -17,6 +17,7 @@ import {
   TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD,
 } from './shared/constants.js';
+import { ARENA } from './shared/arena.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3010;
@@ -138,50 +139,107 @@ function fillBots(room) {
 }
 
 // ---------------------------------------------------------------------------
-// Bot AI (per room)
+// Bot AI (per room) — chase/pass/shoot, plus bombs, defensive walls, static-wall
+// avoidance, and lurking in bushes to ambush.
 // ---------------------------------------------------------------------------
+const BOT_RADIUS = 30;
+// Nudge a unit move dir away from any static wall just ahead so bots don't jam on it.
+function avoidWalls(x, y, mx, my) {
+  const ax = x + mx * 90, ay = y + my * 90; // lookahead point
+  for (const w of ARENA.walls) {
+    const nx = Math.max(w.x, Math.min(ax, w.x + w.w));
+    const ny = Math.max(w.y, Math.min(ay, w.y + w.h));
+    const dx = ax - nx, dy = ay - ny, d = Math.hypot(dx, dy);
+    if (d < BOT_RADIUS + 44) {
+      if (d > 0.01) { mx += (dx / d) * 1.5; my += (dy / d) * 1.5; }
+      else { const ox = mx, oy = my; mx = ox - oy * 1.5; my = oy + ox * 1.5; } // dead-centre: veer
+    }
+  }
+  const l = Math.hypot(mx, my) || 1;
+  return [mx / l, my / l];
+}
+function nearestBush(x, y) {
+  let best = null, bd = 1e9;
+  for (const g of ARENA.bushes) {
+    const cx = g.x + g.w / 2, cy = g.y + g.h / 2, d = Math.hypot(cx - x, cy - y);
+    if (d < bd) { bd = d; best = { x: cx, y: cy }; }
+  }
+  return best;
+}
 function updateBots(room) {
   const state = room.state, b = state.ball;
   const carrier = b.owner ? state.players[b.owner] : null;
-  for (const p of Object.values(state.players)) {
+  const players = Object.values(state.players);
+  for (const p of players) {
     if (!p.isBot) continue;
     const oppGoalX = p.team === 'A' ? FIELD.W : 0;
+    const ownGoalX = p.team === 'A' ? 0 : FIELD.W;
     const goalY = FIELD.H / 2;
-    const mate = Object.values(state.players).find((q) => q.team === p.team && q.id !== p.id);
-    let moveX = 0, moveY = 0, aimX = p.aimX, aimY = p.aimY, shoot = false, special = false, charge = 0;
+    const mate = players.find((q) => q.team === p.team && q.id !== p.id);
+    const distBall = Math.hypot(b.x - p.x, b.y - p.y);
+    const mateDistBall = mate ? Math.hypot(b.x - mate.x, b.y - mate.y) : 1e9;
+    const iAmClosest = distBall <= mateDistBall;
+    let moveX = 0, moveY = 0, aimX = p.aimX, aimY = p.aimY, shoot = false, special = false, build = false, charge = 0;
 
     if (b.owner === p.id) {
+      // Carrying: drive at goal; shoot when close; sometimes pass to a better-placed mate.
       const distGoal = Math.hypot(oppGoalX - p.x, goalY - p.y);
       moveX = oppGoalX - p.x; moveY = goalY - p.y;
       aimX = oppGoalX - p.x; aimY = goalY - p.y;
-      if (distGoal < 300) { shoot = true; charge = 1; }
+      if (distGoal < 320) { shoot = true; charge = 1; }
       else if (mate) {
         const mateDistGoal = Math.hypot(oppGoalX - mate.x, goalY - mate.y);
-        const mateNear = Math.hypot(mate.x - p.x, mate.y - p.y);
-        if (mateDistGoal < distGoal - 50 && mateNear < 380 && Math.random() < 0.05) {
+        if (mateDistGoal < distGoal - 50 && Math.hypot(mate.x - p.x, mate.y - p.y) < 380 && Math.random() < 0.05) {
           aimX = mate.x - p.x; aimY = mate.y - p.y; shoot = true; charge = 0.5;
         }
       }
     } else if (carrier && carrier.team === p.team) {
+      // Teammate carries: get open ahead as a passing option.
       moveX = oppGoalX - p.x; moveY = (goalY + (p.slot === 0 ? -130 : 130)) - p.y;
       aimX = oppGoalX - p.x; aimY = goalY - p.y;
     } else if (carrier) {
-      moveX = b.x - p.x; moveY = b.y - p.y;
-      aimX = b.x - p.x; aimY = b.y - p.y;
-      const d = Math.hypot(b.x - p.x, b.y - p.y);
-      if (d < 430) { shoot = true; charge = 1; }
-      if (d < 150 && Math.random() < 0.012) special = true;
+      // Enemy carries. Closer bot presses (spray + bomb); the other drops back and
+      // lurks in a bush near its own goal to ambush.
+      const threat = Math.abs(carrier.x - ownGoalX) < FIELD.W * 0.5;
+      if (iAmClosest || distBall < 260) {
+        moveX = carrier.x - p.x; moveY = carrier.y - p.y;
+        aimX = carrier.x - p.x; aimY = carrier.y - p.y;
+        if (distBall < 430) { shoot = true; charge = 1; }                              // spray to knock it loose
+        if (distBall < 210 && p.specialCd <= 0 && Math.random() < 0.035) special = true; // bomb the carrier
+      } else {
+        const bush = nearestBush(ownGoalX + (p.team === 'A' ? 320 : -320), goalY);
+        const tx = bush ? bush.x : ownGoalX + (p.team === 'A' ? 280 : -280);
+        const ty = bush ? bush.y : goalY + (p.slot === 0 ? -120 : 120);
+        moveX = tx - p.x; moveY = ty - p.y;
+        aimX = carrier.x - p.x; aimY = carrier.y - p.y;
+      }
+      // Throw up a defensive wall between the goal and the incoming carrier.
+      if (threat && p.buildAmmo >= 1 && p.buildCd <= 0 &&
+          Math.abs(p.x - ownGoalX) <= Math.abs(carrier.x - ownGoalX) + 90 && Math.random() < 0.02) {
+        build = true; aimX = carrier.x - p.x; aimY = carrier.y - p.y; shoot = false; special = false;
+      }
     } else {
-      moveX = b.x - p.x; moveY = b.y - p.y;
-      aimX = oppGoalX - p.x; aimY = goalY - p.y;
+      // Loose ball. Closest bot chases; the other lurks in the nearest bush.
+      if (iAmClosest) {
+        moveX = b.x - p.x; moveY = b.y - p.y;
+        aimX = oppGoalX - p.x; aimY = goalY - p.y;
+      } else {
+        const bush = nearestBush(p.x, p.y);
+        const tx = bush ? bush.x : FIELD.W / 2;
+        const ty = bush ? bush.y : goalY + (p.slot === 0 ? -140 : 140);
+        moveX = tx - p.x; moveY = ty - p.y;
+        aimX = b.x - p.x; aimY = b.y - p.y;
+      }
     }
+
     const mLen = Math.hypot(moveX, moveY) || 1;
+    const [mvx, mvy] = avoidWalls(p.x, p.y, moveX / mLen, moveY / mLen);
     const aLen = Math.hypot(aimX, aimY) || 1;
     room.inputs.set(p.id, {
       seq: (room.inputs.get(p.id)?.seq || 0) + 1,
-      moveX: moveX / mLen, moveY: moveY / mLen,
+      moveX: mvx, moveY: mvy,
       aimX: aimX / aLen, aimY: aimY / aLen,
-      shoot, special, charge,
+      shoot, special, build, charge,
     });
   }
 }

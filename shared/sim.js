@@ -641,11 +641,21 @@ function explode(state, bomb) {
   const bx = b.x - bomb.x, by = b.y - bomb.y;
   const bd = Math.hypot(bx, by) || 0.0001;
   if (bd < BOMB.radius && !(bomberOnCenter && b.owner)) {
+    const wasCarried = !!b.owner;
     if (b.owner) { b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; }
     b.lastTouch = bomb.team;
-    const power = P * (1 - bd / BOMB.radius) * BOMB.ballPush;
-    b.vx += (bx / bd) * power;
-    b.vy += (by / bd) * power;
+    if (wasCarried) {
+      // A carried ball knocked loose by a bomb pops off in a slightly RANDOM
+      // direction (roughly away from the blast) and only travels a little.
+      const ang = Math.atan2(by, bx) + (Math.random() - 0.5) * 2.2; // away ± ~1.1 rad
+      const speed = 240 + Math.random() * 170;
+      b.vx = Math.cos(ang) * speed;
+      b.vy = Math.sin(ang) * speed;
+    } else {
+      const power = P * (1 - bd / BOMB.radius) * BOMB.ballPush;
+      b.vx += (bx / bd) * power;
+      b.vy += (by / bd) * power;
+    }
   }
   state.blasts.push({ id: state._nid++, x: bomb.x, y: bomb.y, radius: BOMB.radius, life: BOMB.blastLife, maxLife: BOMB.blastLife });
 }

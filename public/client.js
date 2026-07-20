@@ -325,14 +325,15 @@ function startCarouselAuto() { stopCarouselAuto(); if (cfCards.length > 1) cfTim
 function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = null; } }
 (function bindCarouselSwipe() {
   let sx = null;
-  carouselEl.addEventListener('pointerdown', (e) => { sx = e.clientX; stopCarouselAuto(); });
-  carouselEl.addEventListener('pointerup', (e) => {
+  carouselEl.addEventListener('pointerdown', (e) => { sx = e.clientX; stopCarouselAuto(); try { carouselEl.setPointerCapture(e.pointerId); } catch { /* older webviews */ } });
+  carouselEl.addEventListener('pointermove', (e) => {
     if (sx == null) return;
-    const dx = e.clientX - sx; sx = null;
-    if (Math.abs(dx) > 28) setCarousel(cfIndex + (dx < 0 ? 1 : -1));
-    startCarouselAuto();
+    const dx = e.clientX - sx;
+    if (Math.abs(dx) > 34) { setCarousel(cfIndex + (dx < 0 ? 1 : -1)); sx = e.clientX; } // spin as the finger drags
   });
-  carouselEl.addEventListener('pointercancel', () => { sx = null; startCarouselAuto(); });
+  const end = () => { if (sx != null) { sx = null; startCarouselAuto(); } };
+  carouselEl.addEventListener('pointerup', end);
+  carouselEl.addEventListener('pointercancel', end);
 })();
 
 // Title -> connect + show home menu.
@@ -1129,8 +1130,16 @@ function buildAudienceSeats() {
     const rw = x1 - x0, rh = y1 - y0;
     const cols = Math.max(1, Math.floor(rw / (AUD.seatW + AUD.gapX)));
     const rows = Math.max(1, Math.floor(rh / (AUD.seatH + AUD.gapY)));
-    const ox = x0 + (rw - (cols * AUD.seatW + (cols - 1) * AUD.gapX)) / 2;
-    const oy = y0 + (rh - (rows * AUD.seatH + (rows - 1) * AUD.gapY)) / 2;
+    const usedW = cols * AUD.seatW + (cols - 1) * AUD.gapX;
+    const usedH = rows * AUD.seatH + (rows - 1) * AUD.gapY;
+    const gap = 8; // small gap between the front row and the pitch
+    // Anchor to the FIELD-facing edge so the front row hugs the pitch (not centred far out).
+    const ox = x1 <= 0 ? x1 - usedW - gap
+      : x0 >= FIELD.W ? x0 + gap
+      : x0 + (rw - usedW) / 2;
+    const oy = y1 <= 0 ? y1 - usedH - gap
+      : y0 >= FIELD.H ? y0 + gap
+      : y0 + (rh - usedH) / 2;
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       side[key].push({ x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY), r: null, n: null, seed: r * 1.7 + c * 0.9 + (key === 'rv' ? 3 : 0) });
     }
@@ -1692,19 +1701,22 @@ function drawBush(g, t) {
   const ax = wx(g.x), ay = wy(g.y), aw = ws_(g.w), ah = ws_(g.h);
   pxi(ax + ws_(4), ay + ws_(6), aw, ah, 'rgba(0,0,0,.16)');       // soft shadow
   pxi(ax, ay, aw, ah, '#1f5325');                                  // dark base
-  const step = Math.max(6, ws_(30));
-  for (let y = ay + step * .3; y < ay + ah; y += step) {
-    for (let x = ax + step * .3; x < ax + aw; x += step) {
-      const h = hash(x * 0.5, y * 0.5);
-      const sway = Math.sin(t * 0.6 + x * 0.05 + y * 0.03) * ws_(1);
-      const s = step * (0.7 + h * 0.5);
-      pxi(x + sway, y, s, s, h > 0.6 ? '#3a8a3c' : '#2f7331');
+  // Iterate in WORLD space so the leaf texture is anchored to the pitch — it no
+  // longer crawls/shimmers as the camera pans (that was the "jiggle"). Sway is a
+  // slow, tiny drift so the bush reads as essentially static.
+  const stepW = 30, px = ws_(stepW);
+  for (let wyv = g.y + stepW * .3; wyv < g.y + g.h; wyv += stepW) {
+    for (let wxv = g.x + stepW * .3; wxv < g.x + g.w; wxv += stepW) {
+      const h = hash(wxv * 0.11, wyv * 0.11);
+      const sway = Math.sin(t * 0.25 + wxv * 0.02) * ws_(0.8);
+      const s = px * (0.7 + h * 0.5);
+      pxi(wx(wxv) + sway, wy(wyv), s, s, h > 0.6 ? '#3a8a3c' : '#2f7331');
     }
   }
   // brighter top flecks
-  for (let x = ax + step * .6; x < ax + aw; x += step * 1.5) {
-    const sway = Math.sin(t * 0.6 + x * 0.05) * ws_(1);
-    pxi(x + sway, ay + ws_(6), Math.max(2, ws_(4)), Math.max(2, ws_(8)), 'rgba(150,220,110,.55)');
+  for (let wxv = g.x + stepW * .6; wxv < g.x + g.w; wxv += stepW * 1.5) {
+    const sway = Math.sin(t * 0.25 + wxv * 0.02) * ws_(0.8);
+    pxi(wx(wxv) + sway, wy(g.y) + ws_(6), Math.max(2, ws_(4)), Math.max(2, ws_(8)), 'rgba(150,220,110,.55)');
   }
 }
 
