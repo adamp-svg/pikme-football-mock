@@ -129,6 +129,34 @@ html, body {
 .special-btn:active { transform: scale(.92); }
 .special-btn.cooling { filter: grayscale(.7) brightness(.6); }
 
+/* Build-wall button — sits under the bomb; tap to build ahead, drag to aim. */
+.build-btn {
+  position: fixed; right: 16px; top: 148px;
+  width: 72px; height: 72px; border-radius: 4px;
+  background: #b06a34; border: 3px solid #e6b483; color: #1a1200;
+  box-shadow: inset 0 -8px #6e3d17, 0 8px 20px rgba(0,0,0,.45);
+  font-size: 34px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: none; z-index: 5; overflow: hidden;
+}
+.build-btn:active { transform: scale(.94); }
+.build-btn.empty { filter: grayscale(.75) brightness(.55); }
+.build-icon { pointer-events: none; }
+.build-pips { position: absolute; top: 4px; left: 0; right: 0; display: flex; gap: 4px; justify-content: center; pointer-events: none; }
+.build-pips i { width: 13px; height: 5px; border-radius: 1px; background: rgba(0,0,0,.4); border: 1px solid rgba(0,0,0,.45); }
+.build-pips i.full { background: #ffd27a; border-color: #a86a1e; }
+.build-cd { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: #ffe49a; transform: scaleX(0); transform-origin: left; pointer-events: none; }
+
+/* "You're hidden" cue — lights up while standing in a bush (not carrying the ball). */
+.stealth-cue {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+  background: rgba(18,54,28,.72); border: 1px solid rgba(126,255,240,.55);
+  color: #c8ffe9; padding: 5px 14px; border-radius: 999px;
+  font-size: 12px; font-weight: 800; letter-spacing: .12em;
+  opacity: 0; transition: opacity .15s; pointer-events: none; z-index: 6;
+}
+.stealth-cue.on { opacity: 1; }
+
 /* Crash banner — shows any runtime error on-device */
 .fatal {
   position: fixed; top: 0; left: 0; right: 0; z-index: 100;

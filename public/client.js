@@ -3,8 +3,10 @@
 
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
-  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION, clamp,
+  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, clamp,
 } from '/shared/constants.js';
+import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
 
 const PENALTY_TOP = (FIELD.H - PENALTY.width) / 2;
 const PENALTY_BOTTOM = (FIELD.H + PENALTY.width) / 2;
@@ -459,6 +461,11 @@ function stepPrediction(moveX, moveY, dt) {
   const r = ownRadius();
   predicted.x = clamp(predicted.x + predVel.x * dt, r, FIELD.W - r);
   predicted.y = clamp(predicted.y + predVel.y * dt, r, FIELD.H - r);
+  // Keep the prediction out of walls (built walls arrive in the snapshot) so the
+  // local player slides along cover instead of clipping through then rubber-banding.
+  const e = { x: predicted.x, y: predicted.y, vx: predVel.x, vy: predVel.y };
+  resolveWalls(e, r, latest && latest.walls);
+  predicted.x = e.x; predicted.y = e.y; predVel.x = e.vx; predVel.y = e.vy;
 }
 
 // Gently pull the prediction toward the authoritative position (no hard replay
@@ -479,9 +486,14 @@ function reconcile(snap) {
 // --------------------------------------------------------------------------
 let shootQueued = false;   // a shot was released this frame
 let specialQueued = false; // special skill
+let buildQueued = false;   // a wall build was released this frame
+let buildHold = null;      // aim captured at build-button release (drag-to-aim)
 let aimHold = null;        // aim captured at right-stick release
 let chargeStart = null;    // timestamp when the current aim-hold began (charging)
 let pendingCharge = 0;     // 0..1 charge captured on release
+
+// Build a wall — like a shot, you can drag to aim (pull-to-build) then release.
+function releaseBuild(aim) { buildQueued = true; if (aim) buildHold = aim; playSound('ui', 0.5, 0.86); }
 
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
 function beginCharge() { if (chargeStart === null) chargeStart = performance.now(); }
@@ -499,6 +511,7 @@ addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()] = true;
   if (e.key === ' ' && !e.repeat) beginCharge();     // hold space to charge
   if (e.key.toLowerCase() === 'e') specialQueued = true;
+  if (e.key.toLowerCase() === 'q' && !e.repeat) releaseBuild(); // build a wall in the facing direction
 });
 addEventListener('keyup', (e) => {
   keys[e.key.toLowerCase()] = false;
@@ -528,6 +541,30 @@ function triggerSpecial(e) {
 }
 specialBtn.addEventListener('touchstart', triggerSpecial, { passive: false });
 specialBtn.addEventListener('mousedown', triggerSpecial);
+
+// Build button — press and DRAG to aim the wall (pull-to-build), release to place.
+// A plain tap builds in the direction you're facing. Pointer events cover mouse+touch.
+const buildBtn = document.getElementById('build');
+let buildDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
+if (buildBtn) {
+  buildBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    try { buildBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
+    buildDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0 };
+  });
+  buildBtn.addEventListener('pointermove', (e) => {
+    if (!buildDrag.active || e.pointerId !== buildDrag.id) return;
+    buildDrag.dx = e.clientX - buildDrag.cx; buildDrag.dy = e.clientY - buildDrag.cy;
+  });
+  const endBuildDrag = (e) => {
+    if (!buildDrag.active || e.pointerId !== buildDrag.id) return;
+    if (Math.hypot(buildDrag.dx, buildDrag.dy) > 12) releaseBuild({ x: buildDrag.dx, y: buildDrag.dy });
+    else releaseBuild();
+    buildDrag.active = false; buildDrag.id = null; buildDrag.dx = 0; buildDrag.dy = 0;
+  };
+  buildBtn.addEventListener('pointerup', endBuildDrag);
+  buildBtn.addEventListener('pointercancel', endBuildDrag);
+}
 updateSoundButton();
 soundBtn.addEventListener('click', () => {
   unlockAudio();
@@ -618,7 +655,7 @@ addEventListener('touchstart', (e) => {
   usingTouch = true;
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   for (const t of e.changedTouches) {
-    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target)) continue; // buttons aren't sticks
+    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target))) continue; // buttons aren't sticks
     const left = t.clientX < innerWidth / 2;
     if (left && touchL.id === null) {
       touchL.id = t.identifier; touchL.cx = t.clientX; touchL.cy = t.clientY; touchL.dx = 0; touchL.dy = 0;
@@ -703,11 +740,14 @@ function sampleInput() {
   }
   // A right-stick release captured its aim direction — use it for this shot.
   if (aimHold) { aimX = flip ? -aimHold.x : aimHold.x; aimY = aimHold.y; aimHold = null; }
+  // A build-button drag aims the wall the same way; overrides aim for this frame.
+  if (buildHold) { aimX = flip ? -buildHold.x : buildHold.x; aimY = buildHold.y; buildHold = null; }
   const shoot = shootQueued; shootQueued = false;
   const special = specialQueued; specialQueued = false;
+  const build = buildQueued; buildQueued = false;
   const charge = shoot ? pendingCharge : 0;
   if (shoot) pendingCharge = 0;
-  return { moveX, moveY, aimX, aimY, shoot, special, charge };
+  return { moveX, moveY, aimX, aimY, shoot, special, build, charge };
 }
 
 // Send inputs + advance prediction at a fixed rate.
@@ -725,53 +765,80 @@ setInterval(() => {
 // Rendering
 // --------------------------------------------------------------------------
 const mainCtx = canvas.getContext('2d');
+// --- True pixel-art pipeline (Minecraft look) ---------------------------------
+// The whole world is rendered into a LOW-RES buffer (`worldBuf`) at ART_PX
+// device-pixels per art-pixel, then nearest-neighbour up-scaled onto the display.
+// That single up-scale is what turns every edge into a chunky, aliased block.
+// The HUD/overlays are drawn straight onto the crisp full-res main canvas after.
+const ART_PX = 3.25;                 // device px per art-pixel (bigger = chunkier)
+const worldBuf = document.createElement('canvas');
+const wbCtx = worldBuf.getContext('2d');
+let wbW = 1, wbH = 1;                 // world-buffer dims (art px)
 // Offscreen canvas caches the STATIC field (grass, lines, goals, stands) for the
 // whole world incl. the behind-goal net areas; blitted at the camera offset.
 const bgCanvas = document.createElement('canvas');
 const bgCtx = bgCanvas.getContext('2d');
-let ctx = mainCtx;          // active draw target
-let scale = 1, dpr = 1;     // scale = canvas px per world unit (dpr folded in)
-let camX = 0, camY = 0;     // camera offset in canvas px (subtracted in wx/wy)
+let ctx = wbCtx;            // active draw target (world draws target the low-res buffer)
+let scale = 1, dpr = 1;     // scale = ART pixels per world unit
+let camX = 0, camY = 0;     // camera offset in ART px (subtracted in wx/wy)
 const NET = GOAL.depth;     // net depth behind each goal line
+const BAND = 170;           // depth (world units) of the top/bottom touchline terraces
 
 function resize() {
   dpr = Math.min(devicePixelRatio || 1, 2);
   canvas.width = innerWidth * dpr;
   canvas.height = innerHeight * dpr;
-  // Tighter zoom (Brawl-Stars-like): the player renders large and the camera
-  // scrolls in both axes, showing ~half the arena at a time.
-  scale = 1.85 * canvas.width / FIELD.W;
+  canvas.style.imageRendering = 'pixelated'; // keep the up-scaled blocks crisp
+  // Low-res world buffer: render the scene small, then blow it up ×ART_PX.
+  wbW = Math.max(1, Math.ceil(canvas.width / ART_PX));
+  wbH = Math.max(1, Math.ceil(canvas.height / ART_PX));
+  worldBuf.width = wbW; worldBuf.height = wbH;
+  wbCtx.imageSmoothingEnabled = false;
+  // Tighter zoom (Brawl-Stars-like): player renders large, camera scrolls both
+  // axes. `scale` is now ART px/world-unit; ×ART_PX keeps on-screen zoom ~same.
+  scale = 1.85 * wbW / FIELD.W;
   bgCanvas.width = Math.ceil((FIELD.W + 2 * NET) * scale);
-  bgCanvas.height = Math.ceil(FIELD.H * scale);
+  bgCanvas.height = Math.ceil((FIELD.H + 2 * BAND) * scale);
+  bgCtx.imageSmoothingEnabled = false;
   renderBackground();
 }
 
-// Centre the camera on the local player, clamped to the field (+ behind-goal net).
+// Centre the camera on the local player, clamped to the field (+ behind-goal end
+// terraces horizontally, + top/bottom touchline terraces vertically). The side
+// terraces sit off-pitch, so walking to an edge pans the camera to reveal them.
 function updateCamera() {
   const cx = rendered ? rendered.x : FIELD.W / 2;
   const cy = rendered ? rendered.y : FIELD.H / 2;
-  const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - canvas.width;
-  camX = clamp(cx * scale - canvas.width / 2, minX, Math.max(minX, maxX));
-  const fieldHpx = FIELD.H * scale;
-  if (fieldHpx <= canvas.height) camY = (fieldHpx - canvas.height) / 2; // centre vertically
-  else camY = clamp(cy * scale - canvas.height / 2, 0, fieldHpx - canvas.height);
+  const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - wbW;
+  camX = clamp(cx * scale - wbW / 2, minX, Math.max(minX, maxX));
+  const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * BAND) * scale;
+  const minY = -BAND * scale, maxY = (FIELD.H + BAND) * scale - wbH;
+  if (worldHpx <= wbH) camY = (fieldHpx - wbH) / 2; // whole bowl fits — centre the pitch
+  else camY = clamp(cy * scale - wbH / 2, minY, Math.max(minY, maxY));
 }
 
-// World -> canvas px (through the camera). scale already includes dpr.
+// World -> ART px (through the camera).
 function wx(x) { return x * scale - camX; }
 function wy(y) { return y * scale - camY; }
 function ws_(v) { return v * scale; }
+// Integer-snapped rect fill — the core of the crisp pixel look. All world sprites
+// draw through this so their edges land exactly on the low-res grid.
+function pxi(x, y, w, h, col) {
+  ctx.fillStyle = col;
+  ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+}
 function screenToWorld(px, py) {
-  // Invert the camera; for a mirrored team-B view, also undo the horizontal flip.
-  const cx = flipView() ? (canvas.width - px * dpr) : (px * dpr);
-  return { x: (cx + camX) / scale, y: (py * dpr + camY) / scale };
+  // CSS px -> art px, then invert the camera; undo the flip for a mirrored B view.
+  const ax = px * dpr / ART_PX, ay = py * dpr / ART_PX;
+  const cx = flipView() ? (wbW - ax) : ax;
+  return { x: (cx + camX) / scale, y: (ay + camY) / scale };
 }
 
 // Render the static field to the offscreen cache. Temporarily point the camera so
-// wx/wy produce bg-local coords (bg pixel 0,0 = world (-NET, 0)).
+// wx/wy produce bg-local coords (bg pixel 0,0 = world (-NET, -BAND)).
 function renderBackground() {
   const sx = camX, sy = camY, sctx = ctx;
-  camX = -NET * scale; camY = 0; ctx = bgCtx;
+  camX = -NET * scale; camY = -BAND * scale; ctx = bgCtx;
   try {
     bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
     drawStands();
@@ -826,99 +893,206 @@ function roundRect(c, x, y, w, h, r) {
   c.closePath();
 }
 
-// Fans behind each goal (in the net-behind area), in that team's colour.
+// Deterministic value noise (stable across re-caches) — drives grass flecks,
+// cobble shading, etc. so the pixel textures don't shimmer.
+function hash(x, y) { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); }
+
+// Cobblestone terraces packed with a blocky mob crowd, wrapping the pitch on all
+// four sides. The end terraces (behind the goals) are always in frame; the top and
+// bottom touchline terraces sit off-pitch and scroll in as you walk to the edges.
 function drawStands() {
-  drawFanWall(-NET, 0, teamColor('A'));                 // behind A's (left) goal
-  drawFanWall(FIELD.W, FIELD.W + NET, teamColor('B'));   // behind B's (right) goal
+  const cA = teamColor('A'), cB = teamColor('B'), midX = FIELD.W / 2;
+  drawFanWall(-NET, 0, 0, FIELD.H, cA);                          // behind A's (left) goal
+  drawFanWall(FIELD.W, 0, FIELD.W + NET, FIELD.H, cB);           // behind B's (right) goal
+  // Split each side terrace at halfway so every team's colours fill its own half.
+  drawFanWall(-NET, -BAND, midX, 0, cA);                         // top,    home half
+  drawFanWall(midX, -BAND, FIELD.W + NET, 0, cB);                // top,    away half
+  drawFanWall(-NET, FIELD.H, midX, FIELD.H + BAND, cA);          // bottom, home half
+  drawFanWall(midX, FIELD.H, FIELD.W + NET, FIELD.H + BAND, cB); // bottom, away half
 }
-function drawFanWall(x0, x1, color) {
-  ctx.fillStyle = '#222923';
-  ctx.fillRect(wx(x0), wy(0), ws_(x1 - x0), ws_(FIELD.H));
-  // Stone block courses make the side strips feel like compact stadium stands.
-  const block = ws_(24);
-  for (let y = 0; y < FIELD.H; y += 24) {
-    for (let x = x0; x < x1; x += 24) {
-      const odd = (Math.floor(y / 24) + Math.floor((x - x0) / 24)) % 2;
-      ctx.fillStyle = odd ? '#465149' : '#566058';
-      ctx.fillRect(wx(x) + 1, wy(y) + 1, block - 2, block - 2);
-      ctx.fillStyle = 'rgba(255,255,255,.08)';
-      ctx.fillRect(wx(x) + 2, wy(y) + 2, block - 4, Math.max(1, ws_(3)));
+function drawFanWall(x0, y0, x1, y1, color) {
+  const ax0 = Math.round(wx(x0)), ay0 = Math.round(wy(y0));
+  const aw = Math.round(ws_(x1 - x0)), ah = Math.round(ws_(y1 - y0));
+  ctx.fillStyle = '#33383a'; ctx.fillRect(ax0, ay0, aw, ah);
+  // Cobblestone courses — mottled grey blocks with a top-light edge.
+  const b = Math.max(3, Math.round(ws_(26)));
+  for (let ay = ay0; ay < ay0 + ah; ay += b) {
+    for (let ax = ax0; ax < ax0 + aw; ax += b) {
+      const h = hash(ax * 0.7, ay * 0.7);
+      ctx.fillStyle = h > 0.7 ? '#6b726a' : h > 0.4 ? '#585f59' : '#484f4a';
+      ctx.fillRect(ax + 1, ay + 1, b - 2, b - 2);
+      ctx.fillStyle = 'rgba(255,255,255,.06)';
+      ctx.fillRect(ax + 1, ay + 1, b - 2, Math.max(1, Math.round(b * 0.18)));
     }
   }
-  const cw = ws_(14), ch = ws_(14), gap = ws_(8);
-  const wpx = ws_(x1 - x0), hpx = ws_(FIELD.H);
-  const cols = Math.max(1, Math.floor(wpx / (cw + gap)));
-  const rows = Math.max(1, Math.floor(hpx / (ch + gap)));
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-    const px = wx(x0) + gap + c * (cw + gap);
-    const py = wy(0) + gap + r * (ch + gap);
-    ctx.fillStyle = '#d5ad75'; ctx.fillRect(px + cw * .2, py, cw * .6, ch * .42);
-    ctx.fillStyle = color; ctx.fillRect(px, py + ch * .38, cw, ch * .62);
-    ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fillRect(px, py + ch * .38, cw, ch * .14);
+  // Crowd of blocky mob heads (creepers + team-kit villagers) filling the terrace.
+  const cell = Math.max(6, Math.round(ws_(48)));
+  for (let ay = ay0 + Math.round(cell * 0.3), row = 0; ay < ay0 + ah - cell * 0.6; ay += cell, row++) {
+    for (let ax = ax0 + Math.round(cell * 0.25), col = 0; ax < ax0 + aw - cell * 0.6; ax += cell, col++) {
+      const creeper = ((row + col) % 3) === 0;
+      const head = creeper ? '#66a637' : '#d8b48a';
+      const shade = creeper ? '#528a2c' : '#bd9670';
+      const hw = Math.round(cell * 0.62), hh = Math.round(cell * 0.62);
+      const bx = Math.round(ax + hash(ax, ay) * 2 - 1), by = Math.round(ay);
+      ctx.fillStyle = color; ctx.fillRect(bx - 1, by + hh - 2, hw + 2, Math.round(hh * 0.7)); // kit
+      ctx.fillStyle = head; ctx.fillRect(bx, by, hw, hh);
+      ctx.fillStyle = shade; ctx.fillRect(bx, by, Math.max(1, Math.round(hw * 0.22)), hh);
+      const es = Math.max(1, Math.round(hw * 0.2)), ey = by + Math.round(hh * 0.34);
+      ctx.fillStyle = '#1b1f26';
+      ctx.fillRect(bx + Math.round(hw * 0.2), ey, es, es);
+      ctx.fillRect(bx + Math.round(hw * 0.6), ey, es, es);
+      if (creeper) ctx.fillRect(bx + Math.round(hw * 0.42), ey + es, es, es * 2); // frown
+    }
   }
 }
 
-// Penalty box: three lines (front + the two sides), goal-line side is the edge,
-// plus a penalty spot. lineX = goal line, innerX = front edge (into the pitch).
+// Quartz-white line palette for all pitch markings.
+const MARK = '#e9e6d8', MARK_EDGE = '#c8c4b2';
+function markThick() { return Math.max(1, Math.round(ws_(7))); }
+
+// Grass-block surface. A noisy tile is generated once and tiled as a pattern
+// (fast — no per-pixel loop even on big canvases), then subtle mowing stripes
+// are overlaid. Only re-runs into the static cache, so a cached tile is plenty.
+let grassPat = null, grassPatKey = '';
+function ensureGrassTile() {
+  const key = 'g'; // tile is scale-independent art px; build once
+  if (grassPat && grassPatKey === key) return;
+  grassPatKey = key;
+  const N = 64;
+  const tc = document.createElement('canvas'); tc.width = N; tc.height = N;
+  const tctx = tc.getContext('2d');
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    let col = '#549934';
+    const h = hash(x, y);
+    if (h > 0.9) col = '#63aa41'; else if (h > 0.8) col = '#5aa23a'; else if (h < 0.1) col = '#468028';
+    tctx.fillStyle = col; tctx.fillRect(x, y, 1, 1);
+  }
+  grassPat = bgCtx.createPattern(tc, 'repeat');
+}
+function fillGrass(x0w, y0w, x1w, y1w) {
+  ensureGrassTile();
+  const ax0 = Math.floor(wx(x0w)), ay0 = Math.floor(wy(y0w));
+  const aw = Math.ceil(wx(x1w)) - ax0, ah = Math.ceil(wy(y1w)) - ay0;
+  ctx.fillStyle = grassPat; ctx.fillRect(ax0, ay0, aw, ah);
+  // Mowing stripes: alternating faint light/dark bands across the pitch.
+  const stripeH = Math.max(3, Math.round(ws_(72)));
+  for (let ay = ay0, i = 0; ay < ay0 + ah; ay += stripeH, i++) {
+    ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.055)' : 'rgba(18,54,18,.10)';
+    ctx.fillRect(ax0, ay, aw, stripeH);
+  }
+}
+
+// Penalty box drawn as chunky quartz blocks: front edge + the two sides + spot.
 function drawPenaltyBox(lineX, innerX) {
-  ctx.strokeStyle = '#e9e0b8'; ctx.lineWidth = Math.max(2, ws_(4));
-  ctx.beginPath();
-  ctx.moveTo(wx(lineX), wy(PENALTY_TOP));
-  ctx.lineTo(wx(innerX), wy(PENALTY_TOP));
-  ctx.lineTo(wx(innerX), wy(PENALTY_BOTTOM));
-  ctx.lineTo(wx(lineX), wy(PENALTY_BOTTOM));
-  ctx.stroke();
+  const t = markThick();
+  const xa = Math.min(wx(lineX), wx(innerX)), xw = Math.abs(wx(innerX) - wx(lineX));
+  pxi(wx(innerX) - t / 2, wy(PENALTY_TOP), t, ws_(PENALTY_BOTTOM - PENALTY_TOP), MARK); // front
+  pxi(xa, wy(PENALTY_TOP) - t / 2, xw, t, MARK);      // top side
+  pxi(xa, wy(PENALTY_BOTTOM) - t / 2, xw, t, MARK);   // bottom side
   const spotX = lineX + (innerX - lineX) * 0.62;
-  ctx.fillStyle = '#e9e0b8';
-  ctx.fillRect(wx(spotX) - ws_(4), wy(FIELD.H / 2) - ws_(4), ws_(8), ws_(8));
+  pxi(wx(spotX) - t / 2, wy(FIELD.H / 2) - t / 2, t, t, MARK);
 }
 
 function drawField() {
-  // Original block-grass pattern: large tiles with tiny pixel flecks.
-  ctx.fillStyle = '#4b9c36';
-  ctx.fillRect(wx(0), wy(0), ws_(FIELD.W), ws_(FIELD.H));
-  const tile = 50;
-  for (let gy = 0; gy < FIELD.H; gy += tile) {
-    for (let gx = 0; gx < FIELD.W; gx += tile) {
-      const odd = (Math.floor(gx / tile) + Math.floor(gy / tile)) % 2;
-      ctx.fillStyle = odd ? '#4f9f38' : '#469234';
-      ctx.fillRect(wx(gx), wy(gy), ws_(tile + 1), ws_(tile + 1));
-      ctx.fillStyle = odd ? '#62ad44' : '#3e842e';
-      ctx.fillRect(wx(gx + 8), wy(gy + 10), ws_(7), ws_(4));
-      ctx.fillRect(wx(gx + 33), wy(gy + 35), ws_(5), ws_(3));
-    }
-  }
-  ctx.strokeStyle = '#e9e0b8'; ctx.lineWidth = Math.max(2, ws_(5));
-  ctx.strokeRect(wx(5), wy(5), ws_(FIELD.W - 10), ws_(FIELD.H - 10));
-  ctx.beginPath(); ctx.moveTo(wx(FIELD.W / 2), wy(5)); ctx.lineTo(wx(FIELD.W / 2), wy(FIELD.H - 5)); ctx.stroke();
-  // Stepped centre circle reads as a ring built from pale blocks.
-  const cx = FIELD.W / 2, cy = FIELD.H / 2, rr = 80, pieces = 32;
-  ctx.fillStyle = '#e9e0b8';
+  fillGrass(0, 0, FIELD.W, FIELD.H);
+  const t = markThick();
+  const L = 10, R = FIELD.W - 10, T = 10, B = FIELD.H - 10;
+  // Boundary rectangle (quartz blocks).
+  pxi(wx(L), wy(T) - t / 2, ws_(R - L), t, MARK);
+  pxi(wx(L), wy(B) - t / 2, ws_(R - L), t, MARK);
+  pxi(wx(L) - t / 2, wy(T), t, ws_(B - T), MARK);
+  pxi(wx(R) - t / 2, wy(T), t, ws_(B - T), MARK);
+  // Halfway line + blocky centre circle + spot.
+  pxi(wx(FIELD.W / 2) - t / 2, wy(T), t, ws_(B - T), MARK);
+  const cx = FIELD.W / 2, cy = FIELD.H / 2, rr = 90, pieces = 40;
   for (let i = 0; i < pieces; i++) {
     const a = i / pieces * Math.PI * 2;
-    ctx.fillRect(wx(cx + Math.cos(a) * rr - 4), wy(cy + Math.sin(a) * rr - 4), ws_(8), ws_(8));
+    pxi(wx(cx + Math.cos(a) * rr) - t / 2, wy(cy + Math.sin(a) * rr) - t / 2, t, t, i % 4 ? MARK : MARK_EDGE);
   }
-  ctx.fillRect(wx(cx - 5), wy(cy - 5), ws_(10), ws_(10));
+  pxi(wx(cx) - t / 2, wy(cy) - t / 2, t, t, MARK);
   drawPenaltyBox(0, PENALTY.depth);                 // left box
   drawPenaltyBox(FIELD.W, FIELD.W - PENALTY.depth); // right box
+  // Biome bits: poppies + dandelions dotted on the turf (never on the markings).
+  const flowers = [[180, 170], [330, 900], [1480, 250], [1770, 860], [520, 560], [1420, 800], [820, 180], [1180, 970]];
+  for (let i = 0; i < flowers.length; i++) {
+    const [fx, fy] = flowers[i];
+    if (Math.abs(fx - cx) < rr + 40 && Math.abs(fy - cy) < rr + 40) continue;
+    const c = i % 2 ? '#f5c518' : '#d94b3f';
+    const s = Math.max(1, Math.round(ws_(9)));
+    pxi(wx(fx), wy(fy), s, s, c);
+    pxi(wx(fx) + Math.round(s / 3), wy(fy) + s, Math.max(1, Math.round(s / 3)), s, '#3f7a2a'); // stem
+  }
   drawGoal(0, -NET);              // left: line at x=0, net behind (to -NET)
   drawGoal(FIELD.W, FIELD.W + NET); // right: line at x=W, net behind (to W+NET)
 }
 function drawGoal(lineX, backX) {
   const x0 = Math.min(lineX, backX), w = Math.abs(backX - lineX);
-  // Dark inset and square rope lattice.
-  ctx.fillStyle = 'rgba(20,25,20,.35)';
-  ctx.fillRect(wx(x0), wy(GOAL_TOP), ws_(w), ws_(GOAL.width));
-  ctx.strokeStyle = 'rgba(242,229,181,.48)'; ctx.lineWidth = Math.max(1, ws_(2));
-  for (let i = 1; i < 5; i++) { const gx = x0 + (w / 5) * i; ctx.beginPath(); ctx.moveTo(wx(gx), wy(GOAL_TOP)); ctx.lineTo(wx(gx), wy(GOAL_BOTTOM)); ctx.stroke(); }
-  for (let j = 1; j < 6; j++) { const gy = GOAL_TOP + (GOAL.width / 6) * j; ctx.beginPath(); ctx.moveTo(wx(x0), wy(gy)); ctx.lineTo(wx(x0 + w), wy(gy)); ctx.stroke(); }
-  // Block-built crossbar and chunky collision posts.
-  ctx.strokeStyle = '#f1e7c4'; ctx.lineWidth = Math.max(3, ws_(7));
-  ctx.beginPath(); ctx.moveTo(wx(lineX), wy(GOAL_TOP)); ctx.lineTo(wx(lineX), wy(GOAL_BOTTOM)); ctx.stroke();
+  const nx = wx(x0), ny = wy(GOAL_TOP), nw = ws_(w), nh = ws_(GOAL.width);
+  // Dark net backing.
+  pxi(nx, ny, nw, nh, '#28312a');
+  // Square rope lattice.
+  const step = Math.max(3, Math.round(ws_(26)));
+  for (let ax = Math.round(nx); ax < nx + nw; ax += step) pxi(ax, ny, 1, nh, 'rgba(236,236,220,.30)');
+  for (let ay = Math.round(ny); ay < ny + nh; ay += step) pxi(nx, ay, nw, 1, 'rgba(236,236,220,.30)');
+  // Quartz frame on the goal line + chunky corner posts.
+  const t = Math.max(2, Math.round(ws_(POST_R * 1.6)));
+  pxi(wx(lineX) - t / 2, ny, t, nh, '#eef0f2');
   for (const py of [GOAL_TOP, GOAL_BOTTOM]) {
-    const pr = ws_(POST_R * 1.4);
-    ctx.fillStyle = '#827b68'; ctx.fillRect(wx(lineX) - pr, wy(py) - pr + ws_(2), pr * 2, pr * 2);
-    ctx.fillStyle = '#fff5d4'; ctx.fillRect(wx(lineX) - pr, wy(py) - pr, pr * 2, pr * 1.35);
+    pxi(wx(lineX) - t, wy(py) - t, t * 2, t * 2, '#c9cdd2');
+    pxi(wx(lineX) - t, wy(py) - t, t * 2, t, '#fff8ea');
+  }
+}
+
+// Darken a #rrggbb colour (team-kit side shading).
+function shade(hex, m = 0.72) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round((n >> 16 & 255) * m), g = Math.round((n >> 8 & 255) * m), b = Math.round((n & 255) * m);
+  return `rgb(${r},${g},${b})`;
+}
+
+// Chunky Steve/Alex-style kit player, drawn as integer voxels into the low-res
+// buffer. Faces the camera and mirrors L<->R toward the aim (`dir`); the whole
+// world buffer is flipped for team B, so passing true-world dir stays correct.
+// Units are "sprite pixels" with the feet at `feetY`; `sf` scales them to art px.
+function drawKitAvatar(ox, feetY, sf, dir, J, JS, walkPhase, moving, firing) {
+  const S = (u) => u * sf;
+  const sk = '#e7b072', skS = '#c8925a', hair = '#3a2a17', hairS = '#2c2012';
+  const eye = '#20242b', wht = '#f2efe4', sh = '#eef0f2', shS = '#c9cdd2', boot = '#20232a', bootS = '#0f1116';
+  const swing = Math.sin(walkPhase) * 2 * moving;
+  const bob = Math.abs(Math.cos(walkPhase)) * moving;
+  const topY = -28 + bob;                              // head top, feet-relative
+  const X = (u) => ox + S(u);
+  const Y = (u) => feetY + S(topY + u);                // u measured down from head top
+  // grounded contact shadow (does not bob)
+  pxi(ox + S(-7), feetY + S(-1), S(14), S(3), 'rgba(0,0,0,.30)');
+  // legs (skin) + boots — opposite stride
+  pxi(X(-4), Y(20), S(3), S(6 + swing), sk);
+  pxi(X(-4), Y(26 + swing), S(4), S(2), boot); pxi(X(-4), Y(27 + swing), S(4), S(1), bootS);
+  pxi(X(1), Y(20), S(3), S(6 - swing), sk);
+  pxi(X(1), Y(26 - swing), S(4), S(2), boot); pxi(X(1), Y(27 - swing), S(4), S(1), bootS);
+  // shorts
+  pxi(X(-5), Y(17), S(10), S(4), sh); pxi(X(-5), Y(20), S(10), S(1), shS);
+  // torso jersey (side shade + number stripe)
+  pxi(X(-5), Y(9), S(10), S(9), J);
+  pxi(X(-5), Y(9), S(2), S(9), JS); pxi(X(3), Y(9), S(2), S(9), JS);
+  pxi(X(-1), Y(11), S(2), S(5), wht);
+  // arms (jersey sleeve + skin hand) swinging opposite the legs
+  pxi(X(-8), Y(9 - swing), S(3), S(6), J); pxi(X(-8), Y(15 - swing), S(3), S(2), sk);
+  pxi(X(5), Y(9 + swing), S(3), S(6), J); pxi(X(5), Y(15 + swing), S(3), S(2), sk);
+  // head: skin + hair cap + sideburns
+  pxi(X(-5), Y(0), S(10), S(9), sk);
+  pxi(X(-5), Y(0), S(10), S(3), hair);
+  pxi(X(-5), Y(0), S(2), S(6), hairS); pxi(X(3), Y(0), S(2), S(6), hairS);
+  // face — eyes shift toward the facing direction
+  const ex = dir >= 0 ? 1 : -1;
+  pxi(X(-3 + ex), Y(4), S(2), S(2), wht); pxi(X(1 + ex), Y(4), S(2), S(2), wht);
+  pxi(X(-2 + ex), Y(4), S(1), S(2), eye); pxi(X(2 + ex), Y(4), S(1), S(2), eye);
+  pxi(X(-1), Y(7), S(3), S(1), skS);
+  // muzzle-flash outline while firing
+  if (firing) {
+    const tk = Math.max(1, Math.round(sf));
+    pxi(X(-9), Y(-1), S(18), tk, '#ffd54c'); pxi(X(-9), Y(29), S(18), tk, '#ffd54c');
+    pxi(X(-9), Y(-1), tk, S(30), '#ffd54c'); pxi(X(9) - tk, Y(-1), tk, S(30), '#ffd54c');
   }
 }
 
@@ -927,60 +1101,32 @@ function drawPlayer(p) {
   const isMe = p.id === me.playerId;
   const x = wx(p.x), y = wy(p.y), r = ws_(ch.radius * settings.sizeMul);
   const team = teamColor(p.team);
-  const ang = Math.atan2(p.aimY, p.aimX) + Math.PI / 2;
-  const unit = Math.max(2, r / 7);
   const speed = Math.hypot(p.vx || 0, p.vy || 0);
   const moving = clamp(speed / Math.max(1, ch.speed * settings.speedMul), 0, 1);
   let idSeed = 0;
   for (let i = 0; i < p.id.length; i++) idSeed = (idSeed + p.id.charCodeAt(i)) % 97;
-  const walkPhase = performance.now() * (0.013 + moving * 0.009) + idSeed;
-  const stride = Math.sin(walkPhase) * r * 0.22 * moving;
-  const armSwing = -stride * 0.8;
-  const bob = Math.abs(Math.cos(walkPhase)) * r * 0.08 * moving;
-  const sway = Math.sin(walkPhase) * r * 0.035 * moving;
+  const walkPhase = performance.now() * (0.011 + moving * 0.011) + idSeed;
+  const dir = (p.aimX || 0) >= 0 ? 1 : -1;
+  // Avatar scale is tied directly to the (settings-driven) collision radius so
+  // the Player-size slider visibly grows/shrinks the athlete across its range.
+  // 0.103 keeps the default sizeMul looking the same as before; the small floor
+  // just stops it collapsing at extreme-tiny settings.
+  const sf = Math.max(0.2, r * 0.103);        // sprite-pixel -> art px
+  const feetY = y + 14 * sf;                  // centres the 28-tall sprite on p.y
+  const ox = Math.round(x);
+  drawKitAvatar(ox, feetY, sf, dir, team, shade(team), walkPhase, moving, p.firing);
 
-  // The shadow stays grounded while the block athlete bobs and swings limbs.
-  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
-  ctx.fillStyle = 'rgba(17,27,15,.35)';
-  ctx.fillRect(-r * (.72 + moving * .08), r * .12, r * (1.44 + moving * .16), r * .78);
-  ctx.translate(sway, -bob);
-  // Alternating boots make direction and running speed readable at a glance.
-  ctx.fillStyle = '#252824';
-  ctx.fillRect(-r * .7, r * .36 + stride, r * .52, r * .43);
-  ctx.fillRect(r * .18, r * .36 - stride, r * .52, r * .43);
-  ctx.fillStyle = '#111512';
-  ctx.fillRect(-r * .7, r * .67 + stride, r * .52, r * .16);
-  ctx.fillRect(r * .18, r * .67 - stride, r * .52, r * .16);
-  // Jersey and opposite arm swing preserve the chunky voxel silhouette.
-  ctx.fillStyle = team;
-  ctx.fillRect(-r * .82, -r * .25, r * 1.64, r * .85);
-  ctx.fillStyle = 'rgba(255,255,255,.82)';
-  ctx.fillRect(-r * .82, r * .07, r * 1.64, unit * 1.35);
-  ctx.fillStyle = team;
-  ctx.fillRect(-r * 1.03, -r * .18 + armSwing, r * .23, r * .62);
-  ctx.fillRect(r * .8, -r * .18 - armSwing, r * .23, r * .62);
-  ctx.fillStyle = '#d6a46e';
-  ctx.fillRect(-r * 1.03, r * .29 + armSwing, r * .23, r * .18);
-  ctx.fillRect(r * .8, r * .29 - armSwing, r * .23, r * .18);
-  // Square head faces the aim direction (up in local space).
-  ctx.fillStyle = '#916439'; ctx.fillRect(-r * .58, -r * .96 + unit, r * 1.16, r * .86);
-  ctx.fillStyle = '#d6a46e'; ctx.fillRect(-r * .58, -r * .96, r * 1.16, r * .73);
-  ctx.fillStyle = '#2a1b12';
-  ctx.fillRect(-r * .38, -r * .98, r * .76, unit * 1.7);
-  ctx.fillRect(-r * .34, -r * .64, unit * 1.35, unit * 1.35);
-  ctx.fillRect(r * .16, -r * .64, unit * 1.35, unit * 1.35);
-  if (p.firing) {
-    ctx.strokeStyle = '#ffd54c'; ctx.lineWidth = unit * 1.5;
-    ctx.strokeRect(-r * 1.12, -r * 1.1, r * 2.24, r * 2.12);
-  }
-  ctx.restore();
-  // Crisp selection bracket and arrow for the local player.
+  // Local player: pixel corner-bracket + bobbing marker so you find yourself fast.
   if (isMe) {
-    ctx.strokeStyle = '#fff2a8'; ctx.lineWidth = Math.max(2, ws_(3));
-    ctx.strokeRect(x - r * 1.2, y - r * 1.2, r * 2.4, r * 2.4);
-    const ty = y - r * 1.55;
-    ctx.fillStyle = '#ffdd43'; ctx.fillRect(x - ws_(5), ty, ws_(10), ws_(8));
-    ctx.fillRect(x - ws_(2), ty + ws_(8), ws_(4), ws_(4));
+    const bw = Math.round(r * 2.4), bh = Math.round(r * 2.7);
+    const bx = ox - Math.round(r * 1.2), by = Math.round(y - r * 1.35);
+    const cl = Math.max(2, Math.round(ws_(9))), tk = Math.max(1, Math.round(ws_(3))), col = '#fff2a8';
+    pxi(bx, by, cl, tk, col); pxi(bx, by, tk, cl, col);
+    pxi(bx + bw - cl, by, cl, tk, col); pxi(bx + bw - tk, by, tk, cl, col);
+    pxi(bx, by + bh - tk, cl, tk, col); pxi(bx, by + bh - cl, tk, cl, col);
+    pxi(bx + bw - cl, by + bh - tk, cl, tk, col); pxi(bx + bw - tk, by + bh - cl, tk, cl, col);
+    const ty = by - Math.round(ws_(11));
+    pxi(ox - ws_(5), ty, ws_(10), ws_(7), '#ffdd43'); pxi(ox - ws_(2), ty + ws_(7), ws_(4), ws_(4), '#ffdd43');
   }
   drawAmmoBar(p, x, y, r);
 }
@@ -1017,41 +1163,46 @@ function drawAmmoBar(p, cx, cy, r) {
 function drawOffscreenBallArrow(ball) {
   if (!ball) return;
   const sx = wx(ball.x), sy = wy(ball.y);
-  const W = canvas.width, H = canvas.height;
-  const m = 30 * dpr; // keep the arrow this far inside the edges
+  const W = ctx.canvas.width, H = ctx.canvas.height; // low-res buffer dims (art px)
+  const m = 9; // keep the arrow this far inside the edges (art px)
   if (sx >= m && sx <= W - m && sy >= m && sy <= H - m) return; // ball is visible
   const dx = sx - W / 2, dy = sy - H / 2;
   const ang = Math.atan2(dy, dx);
   const ex = clamp(sx, m, W - m), ey = clamp(sy, m, H - m);
-  const size = 15 * dpr;
+  const size = 5;
   ctx.save();
   ctx.translate(ex, ey);
-  // round backing so the marker reads over any field colour
-  ctx.fillStyle = 'rgba(10,16,10,.55)';
-  ctx.beginPath(); ctx.arc(0, 0, size * 1.05, 0, Math.PI * 2); ctx.fill();
-  // little ball dot
+  ctx.fillStyle = 'rgba(10,16,10,.6)';
+  ctx.beginPath(); ctx.arc(0, 0, size * 1.1, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#f8efd5';
   ctx.beginPath(); ctx.arc(0, 0, size * 0.5, 0, Math.PI * 2); ctx.fill();
-  // triangle pointing toward the ball
   ctx.rotate(ang);
   ctx.fillStyle = '#ffe27a';
   ctx.beginPath();
-  ctx.moveTo(size * 1.5, 0);
-  ctx.lineTo(size * 0.55, -size * 0.7);
-  ctx.lineTo(size * 0.55, size * 0.7);
+  ctx.moveTo(size * 1.6, 0);
+  ctx.lineTo(size * 0.55, -size * 0.75);
+  ctx.lineTo(size * 0.55, size * 0.75);
   ctx.closePath(); ctx.fill();
   ctx.restore();
 }
 
 function drawBall(b) {
   const x = wx(b.x), y = wy(b.y), r = ws_(BALL_RADIUS * settings.ballSizeMul);
-  // Pixel football with clipped square corners and a simple dark patch pattern.
-  const s = r * .38;
-  ctx.fillStyle = 'rgba(20,28,18,.28)'; ctx.fillRect(x - r * .8, y + r * .65, r * 1.6, r * .42);
-  ctx.fillStyle = '#24231f'; ctx.fillRect(x - r, y - r * .62, r * 2, r * 1.24); ctx.fillRect(x - r * .62, y - r, r * 1.24, r * 2);
-  ctx.fillStyle = '#f8efd5'; ctx.fillRect(x - r * .83, y - r * .52, r * 1.66, r * 1.04); ctx.fillRect(x - r * .52, y - r * .83, r * 1.04, r * 1.66);
-  ctx.fillStyle = '#292923'; ctx.fillRect(x - s, y - s, s * 2, s * 2);
-  ctx.fillRect(x - r * .82, y - r * .44, s, s); ctx.fillRect(x + r * .44, y + r * .16, s, s);
+  const white = '#f4efe0', whiteHi = '#fdfaf0', whiteSh = '#d7d2c2', black = '#1f201b';
+  pxi(x - r * .72, y + r * .72, r * 1.44, r * .34, 'rgba(0,0,0,.30)');       // contact shadow
+  // Round-ish body: a plus of two rects clips the corners.
+  pxi(x - r, y - r * .62, r * 2, r * 1.24, white);
+  pxi(x - r * .62, y - r, r * 1.24, r * 2, white);
+  pxi(x - r * .66, y + r * .28, r * 1.32, r * .36, whiteSh);                 // underside shade
+  pxi(x - r * .7, y - r * .7, r * .48, r * .42, whiteHi);                    // top-left glint
+  // Black panels — centre pentagon + spokes, nudged as it rolls.
+  const o = Math.round((b.x + b.y) * .03) % 2;
+  const s = r * .34;
+  pxi(x - s, y - s, s * 2, s * 2, black);
+  pxi(x - r * .86, y - r * .2 + o * r * .12, s, s, black);
+  pxi(x + r * .5, y + r * .08 - o * r * .12, s, s, black);
+  pxi(x - r * .16, y - r * .9, s, s, black);
+  pxi(x - r * .1, y + r * .5 + o * r * .1, s, s, black);
 }
 
 // Current aim of the local player (for the aim-to-shoot indicator).
@@ -1078,87 +1229,93 @@ function drawAimIndicator(wxp, wyp, ax, ay, charge = 0) {
   const len = ws_(150 + 130 * charge);            // longer as it charges
   const ex = px + ax * len, ey = py + ay * len;
   const g = Math.round(255 * (1 - charge));        // white -> red with charge
-  const steps = 9, block = ws_(5 + charge * 4);
-  ctx.fillStyle = `rgba(255,${g},${g},${0.55 + 0.4 * charge})`;
+  const steps = 9, block = Math.max(2, ws_(5 + charge * 4));
+  const col = `rgba(255,${g},${g},${0.55 + 0.4 * charge})`;
   for (let i = 2; i <= steps; i++) {
     const t = i / steps;
-    ctx.fillRect(px + ax * len * t - block / 2, py + ay * len * t - block / 2, block, block);
+    pxi(px + ax * len * t - block / 2, py + ay * len * t - block / 2, block, block, col);
   }
-  const mark = ws_(12 + charge * 5);
-  ctx.strokeStyle = `rgba(255,${g},${g},.95)`; ctx.lineWidth = Math.max(2, ws_(3));
-  ctx.strokeRect(ex - mark, ey - mark, mark * 2, mark * 2);
+  const mark = Math.max(2, ws_(12 + charge * 5)), tk = Math.max(1, Math.round(ws_(3)));
+  const mc = `rgba(255,${g},${g},.95)`;
+  pxi(ex - mark, ey - mark, mark * 2, tk, mc); pxi(ex - mark, ey + mark - tk, mark * 2, tk, mc);
+  pxi(ex - mark, ey - mark, tk, mark * 2, mc); pxi(ex + mark - tk, ey - mark, tk, mark * 2, mc);
 }
 
 function drawProjectile(pr) {
   const x = wx(pr.x), y = wy(pr.y), r = ws_(PROJECTILE.radius);
   const col = teamColor(pr.team);
-  ctx.fillStyle = 'rgba(255,237,142,.42)'; ctx.fillRect(x - r * 1.7, y - r * .45, r * 3.4, r * .9);
-  ctx.fillStyle = col; ctx.fillRect(x - r * 1.15, y - r * 1.15, r * 2.3, r * 2.3);
-  ctx.fillStyle = '#fff0aa'; ctx.fillRect(x - r * .55, y - r * .55, r * 1.1, r * 1.1);
+  pxi(x - r * 1.7, y - r * .45, r * 3.4, r * .9, 'rgba(255,237,142,.42)'); // tracer
+  pxi(x - r * 1.15, y - r * 1.15, r * 2.3, r * 2.3, col);
+  pxi(x - r * .55, y - r * .55, r * 1.1, r * 1.1, '#fff0aa');
 }
 
+// Special = a TNT block: red body, white "TNT" band, wood-grain top, live fuse.
 function drawBomb(bomb) {
-  const x = wx(bomb.x), y = wy(bomb.y);
-  const r = ws_(15);
+  const x = wx(bomb.x), y = wy(bomb.y), r = ws_(16);
   // danger radius preview
   ctx.beginPath(); ctx.arc(x, y, ws_(BOMB.radius), 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(239,68,68,.07)'; ctx.fill();
   ctx.setLineDash([ws_(6), ws_(6)]);
   ctx.strokeStyle = 'rgba(239,68,68,.5)'; ctx.lineWidth = Math.max(1, ws_(2)); ctx.stroke();
   ctx.setLineDash([]);
-  // body — blink faster as the fuse runs down
   const t = bomb.fuse / BOMB.fuse;
   const blink = t < 0.35 ? (Math.floor(bomb.fuse * 12) % 2 === 0) : true;
-  ctx.fillStyle = blink ? '#f14f3e' : '#6b6252'; ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  ctx.fillStyle = '#242620'; ctx.fillRect(x - r * .76, y - r * .76, r * 1.52, r * 1.52);
-  ctx.fillStyle = '#55564b'; ctx.fillRect(x - r * .58, y - r * .58, r * .65, r * .28);
-  ctx.fillStyle = '#8b5c26'; ctx.fillRect(x + r * .28, y - r * 1.27, r * .28, r * .65);
-  ctx.fillStyle = blink ? '#fff08a' : '#f0792c'; ctx.fillRect(x + r * .17, y - r * 1.48, r * .55, r * .45);
+  const red = '#b3352a', redD = '#8f2a20', redHi = '#cf4636';
+  const L = x - r, T = y - r, W = r * 2, H = r * 2;
+  pxi(L, T - r * .42, W, r * .42, '#7d5a34'); pxi(L, T - r * .42, W, r * .13, '#8f6a40'); // wood top
+  pxi(L, T, W, H, red);
+  pxi(L, T, W, r * .28, redHi); pxi(L, T, r * .28, H, redHi);
+  pxi(L + W - r * .28, T, r * .28, H, redD); pxi(L, T + H - r * .28, W, r * .28, redD);
+  pxi(L, y - r * .34, W, r * .68, '#efe7d2'); pxi(L, y - r * .34, W, r * .13, '#fff8e6'); pxi(L, y + r * .22, W, r * .12, '#cabfa6'); // band
+  const lc = '#7a2018', u = Math.max(1, Math.round(r * .16));
+  pxi(x - r * .62, y - r * .16, u * 3, u, lc); pxi(x - r * .62 + u, y - r * .16, u, u * 3, lc);                 // T
+  pxi(x - r * .06, y - r * .16, u, u * 3, lc); pxi(x - r * .06 + u * 2, y - r * .16, u, u * 3, lc); pxi(x - r * .06 + u, y - r * .16 + u, u, u, lc); // N
+  pxi(x + r * .34, y - r * .16, u * 3, u, lc); pxi(x + r * .34 + u, y - r * .16, u, u * 3, lc);                 // T
+  pxi(x + r * .5, T - r * .55, r * .22, r * .55, '#5b4a2c');                                                    // fuse
+  if (blink) { pxi(x + r * .42, T - r * .98, r * .48, r * .48, '#ffe27a'); pxi(x + r * .55, T - r * .86, r * .22, r * .22, '#fff'); }
+  else pxi(x + r * .48, T - r * .78, r * .28, r * .28, '#f0792c');
 }
 
+// TNT detonation: fat pixel fire core -> flung embers -> blocky smoke -> flash.
 function drawBlast(bl) {
   const p = 1 - bl.life / bl.maxLife; // 0..1
   const x = wx(bl.x), y = wy(bl.y), rad = ws_(bl.radius * p);
-  ctx.save();
-  const fade = Math.max(0, 1 - p);
-  // A stepped shockwave sells the radius without losing the voxel look.
-  const ringCount = 28;
-  ctx.globalAlpha = fade * .85;
-  for (let i = 0; i < ringCount; i++) {
-    const a = (i / ringCount) * Math.PI * 2;
-    const sz = Math.max(ws_(4), ws_(11) * (1 - p * .45));
-    ctx.fillStyle = i % 3 === 0 ? '#fff1a0' : '#ff8b25';
-    ctx.fillRect(x + Math.cos(a) * rad - sz / 2, y + Math.sin(a) * rad - sz / 2, sz, sz);
-  }
-  // Hot fragments travel at different speeds; the id keeps their paths stable.
   const seed = (bl.id * 0.61803398875) % 1;
-  for (let i = 0; i < 34; i++) {
-    const jitter = ((Math.sin((i + 1) * 91.733 + seed * 77) + 1) * .5);
-    const a = i * 2.399963 + seed * Math.PI * 2;
-    const travel = rad * (.18 + jitter * .92);
-    const sz = Math.max(ws_(3), ws_(5 + (i % 5) * 2) * (1 - p * .35));
-    ctx.globalAlpha = fade * (.55 + jitter * .45);
-    ctx.fillStyle = i % 5 === 0 ? '#fff7c2' : (i % 3 === 0 ? '#ef3f2f' : '#ff9b27');
-    ctx.fillRect(x + Math.cos(a) * travel - sz / 2, y + Math.sin(a) * travel - sz / 2, sz, sz);
-  }
-  // Late, blocky smoke rolls behind the sparks.
-  if (p > .16) {
-    for (let i = 0; i < 13; i++) {
-      const a = i * 2.12 + seed * 5;
-      const dist = rad * (.12 + (i % 4) * .16);
-      const sz = ws_(12 + (i % 3) * 8) * (0.55 + p * .5);
-      ctx.globalAlpha = fade * .38;
-      ctx.fillStyle = i % 2 ? '#2b2924' : '#494238';
-      ctx.fillRect(x + Math.cos(a) * dist - sz / 2, y + Math.sin(a) * dist - sz / 2, sz, sz);
+  const fade = Math.max(0, 1 - p);
+  ctx.save();
+  // Fire core — chunky filled disc that shrinks as the blast ages.
+  const coreR = ws_(bl.radius) * 0.42 * Math.max(0, 1 - p * 1.6);
+  const cstep = Math.max(2, Math.round(ws_(7)));
+  ctx.globalAlpha = fade;
+  for (let ry = -coreR; ry <= coreR; ry += cstep) {
+    for (let rx = -coreR; rx <= coreR; rx += cstep) {
+      const d = Math.hypot(rx, ry); if (d > coreR) continue;
+      pxi(x + rx, y + ry, cstep, cstep, d < coreR * .45 ? '#fff6d0' : d < coreR * .75 ? '#ffce3a' : '#ff7a1e');
     }
   }
-  // White-hot square core flashes only at detonation.
-  if (p < .32) {
-    const core = ws_(24) * (1 + p * 2.2);
-    ctx.globalAlpha = 1 - p / .32;
-    ctx.fillStyle = '#fffbe0'; ctx.fillRect(x - core / 2, y - core / 2, core, core);
-    ctx.fillStyle = '#ffd03b'; ctx.fillRect(x - core * .3, y - core * .3, core * .6, core * .6);
+  // Flung embers — stable directions per blast id.
+  for (let i = 0; i < 26; i++) {
+    const jitter = ((Math.sin((i + 1) * 91.733 + seed * 77) + 1) * .5);
+    const a = i * 2.399963 + seed * Math.PI * 2;
+    const travel = rad * (.2 + jitter * .9);
+    const sz = Math.max(2, ws_(4 + (i % 4) * 2) * (1 - p * .4));
+    ctx.globalAlpha = fade * (.5 + jitter * .5);
+    pxi(x + Math.cos(a) * travel - sz / 2, y + Math.sin(a) * travel - sz / 2, sz, sz,
+      i % 5 === 0 ? '#fff7c2' : (i % 3 === 0 ? '#c8382b' : '#ff9b27'));
   }
+  // Blocky smoke rolls up behind the sparks.
+  if (p > .16) {
+    for (let i = 0; i < 12; i++) {
+      const a = i * 2.12 + seed * 5;
+      const dist = rad * (.12 + (i % 4) * .16);
+      const sz = ws_(11 + (i % 3) * 7) * (0.55 + p * .5);
+      ctx.globalAlpha = fade * .4;
+      pxi(x + Math.cos(a) * dist - sz / 2, y + Math.sin(a) * dist - sz / 2 - ws_(bl.radius) * p * .15, sz, sz, i % 2 ? '#2b2924' : '#493f36');
+    }
+  }
+  // Hard white flash at the instant of detonation.
+  if (p < .16) { const core = ws_(26) * (1 + p * 2); ctx.globalAlpha = 1 - p / .16; pxi(x - core / 2, y - core / 2, core, core, '#fffbe0'); }
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
@@ -1172,34 +1329,45 @@ function drawImpact(impact) {
     ? ['#fff5b0', '#ffba32', '#ef493f']
     : impact.type === 'ball'
       ? ['#ffffff', '#e9e0b8', '#64d34f']
-      : ['#fff0bd', '#a99d7f', '#5a5549'];
+      : impact.type === 'tramp'
+        ? ['#eafff9', '#7bfff0', '#1aa79a']
+        : ['#fff0bd', '#a99d7f', '#5a5549'];
   ctx.save();
   ctx.globalAlpha = fade;
-
   // Pixel burst sprays back from the collision normal.
   const count = impact.type === 'player' ? 16 : 11;
   for (let i = 0; i < count; i++) {
     const spread = ((i / Math.max(1, count - 1)) - .5) * 1.7;
     const a = back + spread + Math.sin(i * 12.31 + impact.id) * .12;
     const dist = ws_(8 + (i % 5) * 8) * (0.3 + p);
-    const size = ws_(impact.type === 'player' ? 7 : 5) * (1 - p * .45);
-    ctx.fillStyle = palette[i % palette.length];
-    ctx.fillRect(x + Math.cos(a) * dist - size / 2, y + Math.sin(a) * dist - size / 2, size, size);
+    const size = Math.max(2, ws_(impact.type === 'player' ? 7 : 5) * (1 - p * .45));
+    pxi(x + Math.cos(a) * dist - size / 2, y + Math.sin(a) * dist - size / 2, size, size, palette[i % palette.length]);
   }
-
-  // Distinct centre marks: cross-hit for players, square ring for ball/wall.
-  const mark = ws_(10 + p * 22);
-  ctx.strokeStyle = palette[0];
-  ctx.lineWidth = Math.max(ws_(3), mark * .18);
+  // Distinct centre marks: pixel X for players, square ring for ball/wall.
+  const mark = ws_(10 + p * 22), tk = Math.max(1, Math.round(Math.max(ws_(3), mark * .18)));
+  const col = palette[0];
   if (impact.type === 'player') {
-    ctx.beginPath();
-    ctx.moveTo(x - mark, y - mark); ctx.lineTo(x + mark, y + mark);
-    ctx.moveTo(x + mark, y - mark); ctx.lineTo(x - mark, y + mark);
-    ctx.stroke();
+    for (let k = -mark; k <= mark; k += Math.max(2, tk)) {
+      pxi(x + k - tk / 2, y + k - tk / 2, tk, tk, col);
+      pxi(x + k - tk / 2, y - k - tk / 2, tk, tk, col);
+    }
   } else {
-    ctx.strokeRect(x - mark, y - mark, mark * 2, mark * 2);
+    pxi(x - mark, y - mark, mark * 2, tk, col); pxi(x - mark, y + mark - tk, mark * 2, tk, col);
+    pxi(x - mark, y - mark, tk, mark * 2, col); pxi(x + mark - tk, y - mark, tk, mark * 2, col);
   }
+  ctx.globalAlpha = 1;
   ctx.restore();
+}
+
+// Reflect build charges + reload progress on the build button.
+function updateBuildHud(p) {
+  if (!buildBtn) return;
+  const pips = buildBtn.querySelectorAll('.build-pips i');
+  const ammo = p.buildAmmo != null ? p.buildAmmo : BUILD_MAG;
+  for (let i = 0; i < pips.length; i++) pips[i].classList.toggle('full', i < ammo);
+  const cd = buildBtn.querySelector('.build-cd');
+  if (cd) cd.style.transform = `scaleX(${ammo < BUILD_MAG ? (p.buildFrac || 0) : 0})`;
+  buildBtn.classList.toggle('empty', ammo <= 0);
 }
 
 function drawHUD() {
@@ -1216,6 +1384,12 @@ function drawHUD() {
   timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
   timerEl.classList.toggle('urgent', remain <= 10 && latest.phase !== 'ended');
   document.getElementById('net').textContent = `${ping}ms · ${snapRate}/s`;
+
+  // Build-wall HUD: charges + reload on the build button; "hidden" cue when in a bush.
+  const meP = latest.players && latest.players.find((pp) => pp.id === me.playerId);
+  if (meP) updateBuildHud(meP);
+  const hiddenCue = document.getElementById('stealth-cue');
+  if (hiddenCue) hiddenCue.classList.toggle('on', !!(rendered && pointInBush(rendered.x, rendered.y) && latest.ball.owner !== me.playerId));
 
   const banner = document.getElementById('banner');
   if (latest.phase === 'ended') {
@@ -1242,6 +1416,144 @@ function frame() {
   try { renderFrame(); }
   catch (e) { showFatal('frame: ' + e.message + '\n' + ((e.stack || '').split('\n')[1] || '').trim()); }
 }
+// --------------------------------------------------------------------------
+// Arena obstacles — walls, bushes, trampolines. Drawn in the dynamic world layer
+// (static layout from /shared/arena.js + built walls from the snapshot) so this
+// stays out of the cached-background code. Blocks are raised with a top face +
+// bevel + ground shadow to match the TNT bomb's block-height.
+// --------------------------------------------------------------------------
+const STONE_PAL = { top: '#8f897a', face: '#615c50', hi: 'rgba(255,255,255,.16)', shadow: '#403c35' };
+
+// One raised block (used by stone + built walls). box in WORLD coords.
+function drawBlockBox(box, pal, opts = {}) {
+  const ax = wx(box.x), ay = wy(box.y), aw = ws_(box.w), ah = ws_(box.h);
+  const lift = Math.max(3, ws_(16));            // fake height of the block front face
+  const bev = Math.max(2, Math.round(ws_(5)));
+  pxi(ax + bev, ay + ah - lift + bev, aw, lift, 'rgba(0,0,0,.30)'); // ground shadow at the base
+  pxi(ax, ay - lift, aw, ah + lift, pal.face);   // extruded body (front + sides)
+  pxi(ax, ay - lift, aw, ah, pal.top);           // lit top face
+  pxi(ax, ay - lift, aw, bev, pal.hi);           // top edge highlight
+  pxi(ax, ay - lift, bev, ah, pal.hi);           // left edge highlight
+  pxi(ax + aw - bev, ay - lift, bev, ah + lift, pal.shadow); // right edge shadow
+  if (opts.texture) opts.texture(ax, ay - lift, aw, ah);
+}
+
+function drawWallBlock(w) {
+  drawBlockBox(w, STONE_PAL, {
+    texture: (ax, ay, aw, ah) => {           // stone courses on the top face
+      ctx.fillStyle = 'rgba(0,0,0,.16)';
+      for (let y = ay + Math.round(ws_(22)); y < ay + ah; y += Math.max(4, ws_(22))) ctx.fillRect(ax, Math.round(y), aw, 1);
+    },
+  });
+}
+
+function drawBuiltWall(w) {
+  const f = (w.hp || 1) / (w.maxHp || 1);
+  const g = Math.round(60 + 46 * f);
+  const pal = { top: `rgb(190,${g + 26},72)`, face: `rgb(120,${Math.round(52 * f) + 26},36)`, hi: 'rgba(255,224,170,.30)', shadow: '#4a2c12' };
+  drawBlockBox(w, pal, {
+    texture: (ax, ay, aw, ah) => {
+      const along = w.w >= w.h;                // plank lines
+      ctx.fillStyle = 'rgba(30,14,0,.35)';
+      if (along) for (let x = ax + Math.round(ws_(26)); x < ax + aw; x += Math.max(4, ws_(26))) ctx.fillRect(Math.round(x), ay, 1, ah);
+      else for (let y = ay + Math.round(ws_(26)); y < ay + ah; y += Math.max(4, ws_(26))) ctx.fillRect(ax, Math.round(y), aw, 1);
+    },
+  });
+  // Damage cracks + HP pips grow as it's chipped.
+  if (f < 0.99) {
+    const cx = wx(w.x + w.w / 2), cy = wy(w.y + w.h / 2 - 16);
+    ctx.strokeStyle = 'rgba(20,8,0,.7)'; ctx.lineWidth = Math.max(1, ws_(2));
+    const n = f < 0.34 ? 4 : 2;
+    for (let i = 0; i < n; i++) { const a = i * 2.2 + w.id; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * ws_(w.w * .35), cy + Math.sin(a) * ws_(w.h * .35)); ctx.stroke(); }
+  }
+  const pipY = wy(w.y) - ws_(16) - Math.max(2, ws_(7));
+  for (let i = 0; i < (w.maxHp || 1); i++) {
+    pxi(wx(w.x) + i * Math.max(3, ws_(11)) + 2, pipY, Math.max(2, ws_(8)), Math.max(2, ws_(5)), i < w.hp ? '#ffd27a' : 'rgba(0,0,0,.4)');
+  }
+}
+
+function drawBush(g, t) {
+  const ax = wx(g.x), ay = wy(g.y), aw = ws_(g.w), ah = ws_(g.h);
+  pxi(ax + ws_(4), ay + ws_(6), aw, ah, 'rgba(0,0,0,.16)');       // soft shadow
+  pxi(ax, ay, aw, ah, '#1f5325');                                  // dark base
+  const step = Math.max(6, ws_(30));
+  for (let y = ay + step * .3; y < ay + ah; y += step) {
+    for (let x = ax + step * .3; x < ax + aw; x += step) {
+      const h = hash(x * 0.5, y * 0.5);
+      const sway = Math.sin(t * 1.5 + x * 0.05 + y * 0.03) * ws_(2);
+      const s = step * (0.7 + h * 0.5);
+      pxi(x + sway, y, s, s, h > 0.6 ? '#3a8a3c' : '#2f7331');
+    }
+  }
+  // brighter top flecks
+  for (let x = ax + step * .6; x < ax + aw; x += step * 1.5) {
+    const sway = Math.sin(t * 1.5 + x * 0.05) * ws_(2);
+    pxi(x + sway, ay + ws_(6), Math.max(2, ws_(4)), Math.max(2, ws_(8)), 'rgba(150,220,110,.55)');
+  }
+}
+
+function drawTramp(tr, t) {
+  const x = wx(tr.x), y = wy(tr.y), r = ws_(tr.r);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y + ws_(6), r + ws_(3), 0, 7); ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fill(); // shadow
+  ctx.beginPath(); ctx.arc(x, y, r + ws_(4), 0, 7); ctx.fillStyle = '#0e3038'; ctx.fill();               // rim
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = '#1aa79a'; ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y - ws_(3), r * .8, 0, 7); ctx.fillStyle = '#3fe0cf'; ctx.fill();
+  ctx.strokeStyle = 'rgba(6,30,34,.55)'; ctx.lineWidth = Math.max(1, ws_(4));
+  for (let rr = r - ws_(10); rr > ws_(8); rr -= ws_(12)) { ctx.beginPath(); ctx.arc(x, y, rr, 0, 7); ctx.stroke(); }
+  const bob = Math.sin(t * 4) * ws_(3);                                                                   // bouncing up-arrow
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.beginPath(); ctx.moveTo(x, y - ws_(14) + bob); ctx.lineTo(x - ws_(11), y + ws_(3) + bob); ctx.lineTo(x + ws_(11), y + ws_(3) + bob); ctx.fill();
+  ctx.restore();
+}
+
+// A hidden enemy in a bush — only a faint grass rustle betrays them.
+function drawRustle(p, t) {
+  ctx.save(); ctx.globalAlpha = 0.5;
+  for (let i = 0; i < 4; i++) {
+    const a = t * 3 + i * 1.6;
+    pxi(wx(p.x) + Math.cos(a) * ws_(12) - ws_(2), wy(p.y) + Math.sin(a * 1.3) * ws_(8), Math.max(2, ws_(4)), Math.max(2, ws_(9)), 'rgba(130,205,95,.9)');
+  }
+  ctx.globalAlpha = 1; ctx.restore();
+}
+
+// Client-side stealth: can the local player SEE `p`? Teammates always; an enemy in
+// a bush is hidden unless close, recently firing, or carrying the ball.
+const firedReveal = {};
+function canSeePlayer(p) {
+  if (p.firing) firedReveal[p.id] = performance.now();
+  if (p.team === me.team) return true;
+  if (!pointInBush(p.x, p.y)) return true;
+  if (latest && latest.ball && latest.ball.owner === p.id) return true;
+  if (performance.now() - (firedReveal[p.id] || -1e9) < SHOT_REVEAL_TIME * 1000) return true;
+  if (rendered && Math.hypot(rendered.x - p.x, rendered.y - p.y) < BUSH_REVEAL_DIST) return true;
+  return false;
+}
+
+function drawObstacles() {
+  const t = performance.now() / 1000;
+  for (const g of ARENA.bushes) drawBush(g, t);
+  for (const tr of ARENA.trampolines) drawTramp(tr, t);
+  for (const w of ARENA.walls) drawWallBlock(w);
+  if (latest && latest.walls) for (const w of latest.walls) drawBuiltWall(w);
+  // Ghost preview while dragging the build button.
+  if (buildDrag.active && rendered) {
+    let dx = buildDrag.dx, dy = buildDrag.dy;
+    if (flipView()) dx = -dx;
+    const l = Math.hypot(dx, dy);
+    let ax, ay;
+    if (l > 12) { ax = dx / l; ay = dy / l; }
+    else { const meV = latest && latest.players.find((q) => q.id === me.playerId); ax = meV ? meV.aimX : 1; ay = meV ? meV.aimY : 0; }
+    const horiz = Math.abs(ax) >= Math.abs(ay);
+    const gw = horiz ? BUILT_WALL.thick : BUILT_WALL.len;
+    const gh = horiz ? BUILT_WALL.len : BUILT_WALL.thick;
+    const cx = rendered.x + ax * BUILT_WALL.offset, cy = rendered.y + ay * BUILT_WALL.offset;
+    ctx.save(); ctx.globalAlpha = 0.4;
+    pxi(wx(cx - gw / 2), wy(cy - gh / 2), ws_(gw), ws_(gh), '#ffd27a');
+    ctx.globalAlpha = 1; ctx.restore();
+  }
+}
+
 function renderFrame() {
   if (gameEl.classList.contains('hidden')) return; // in the lobby — nothing to draw
   // Ease the drawn local player toward the prediction, then point the camera at it.
@@ -1264,18 +1576,23 @@ function renderFrame() {
   updateCamera();
   if (performance.now() < screenShakeUntil) {
     const left = (screenShakeUntil - performance.now()) / 260;
-    camX += (Math.random() * 2 - 1) * screenShakeStrength * dpr * left;
-    camY += (Math.random() * 2 - 1) * screenShakeStrength * dpr * left;
+    const amp = screenShakeStrength * left * (dpr / ART_PX); // shake in ART px
+    camX += (Math.random() * 2 - 1) * amp;
+    camY += (Math.random() * 2 - 1) * amp;
   } else {
     screenShakeStrength = 0;
   }
 
-  ctx.fillStyle = '#172018';
-  ctx.fillRect(0, 0, canvas.width, canvas.height); // backdrop behind the field
+  // --- Render the whole world into the low-res buffer -------------------------
+  ctx = wbCtx;
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = '#0c120c';
+  ctx.fillRect(0, 0, wbW, wbH); // backdrop behind the field
   // Team B sees a horizontally-mirrored pitch so they too attack left->right.
   ctx.save();
-  if (flipView()) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
-  ctx.drawImage(bgCanvas, -(camX + NET * scale), -camY); // cached field at camera offset
+  if (flipView()) { ctx.translate(wbW, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(bgCanvas, -(camX + NET * scale), -(camY + BAND * scale)); // cached field at camera offset
+  drawObstacles(); // walls / bushes / trampolines (static layout + built walls)
 
   const view = interpolated();
   if (view) {
@@ -1300,14 +1617,20 @@ function renderFrame() {
       if (p.id === me.playerId && rendered) {
         drawPlayer({ ...p, x: rendered.x, y: rendered.y, vx: predVel.x, vy: predVel.y });
       }
-      else drawPlayer(p);
+      else if (canSeePlayer(p)) drawPlayer(p);
+      else drawRustle(p, performance.now() / 1000); // hidden enemy in a bush
     }
     for (const pr of view.projectiles) drawProjectile(pr);
     for (const impact of view.impacts) drawImpact(impact);
     drawOffscreenBallArrow(view.ball);
   }
-  ctx.restore(); // end the mirrored world; HUD/overlays draw in normal screen space
-  drawHUD();
+  ctx.restore(); // end the mirrored world
+
+  // --- Blow the buffer up onto the display (nearest-neighbour = fat pixels) ---
+  ctx = mainCtx;
+  mainCtx.imageSmoothingEnabled = false;
+  mainCtx.drawImage(worldBuf, 0, 0, wbW, wbH, 0, 0, canvas.width, canvas.height);
+  drawHUD(); // HUD/overlays draw crisp, in full-res screen space
   specialBtn.classList.toggle('cooling', performance.now() < specialCdUntil);
 
   // Charge power indicator: the right (aim) stick reddens as you hold.

@@ -22,7 +22,7 @@
       </div>
 
       <button id="play" class="play"><span>PLAY</span><b>›</b></button>
-      <p class="hint"><b>MOVE</b> WASD / LEFT STICK &nbsp;·&nbsp; <b>SHOOT</b> CLICK / RIGHT STICK &nbsp;·&nbsp; <b>BOMB</b> E</p>
+      <p class="hint"><b>MOVE</b> WASD / LEFT STICK &nbsp;·&nbsp; <b>SHOOT</b> CLICK / RIGHT STICK &nbsp;·&nbsp; <b>BOMB</b> E &nbsp;·&nbsp; <b>WALL</b> Q / DRAG 🧱</p>
     </div>
   </div>
 
@@ -109,6 +109,16 @@
 
     <!-- Special-skill button (right side). Icon set per character. -->
     <button id="special" class="special-btn">💣</button>
+
+    <!-- Build-wall button: tap to build ahead, or drag to aim (pull-to-build). -->
+    <button id="build" class="build-btn">
+      <span class="build-icon">🧱</span>
+      <span class="build-pips"><i></i><i></i></span>
+      <span class="build-cd"></span>
+    </button>
+
+    <!-- Stealth cue — lights up when you're hidden in a bush. -->
+    <div id="stealth-cue" class="stealth-cue">🌿 HIDDEN</div>
 
     <!-- Crash banner (shows any runtime error so we can diagnose on-device) -->
     <div id="fatal" class="fatal hidden"></div>

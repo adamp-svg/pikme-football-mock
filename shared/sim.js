@@ -10,8 +10,10 @@ import {
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
+  WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
+import { ARENA, resolveWalls, resolveCircleBox, pointInBox } from './arena.js';
 
 const GOAL_TOP = (FIELD.H - GOAL.width) / 2;
 const GOAL_BOTTOM = (FIELD.H + GOAL.width) / 2;
@@ -47,6 +49,7 @@ export function createState() {
     lastGoal: null, // team key that just scored (for a flash), cleared after freeze
     projectiles: [], // bullets
     bombs: [], // planted bombs (fusing)
+    builtWalls: [], // player-built destructible walls { id, x, y, w, h, hp, maxHp, team, ttl }
     blasts: [], // short-lived explosion visuals
     impacts: [], // short-lived bullet collision events for synchronized VFX
     pendingReset: false, // goal scored — snap to kickoff once the "show" hold ends
@@ -93,9 +96,13 @@ export function addPlayer(state, id, { name, char, team, slot, isBot }) {
     specialCd: 0, // bomb cooldown
     slowTimer: 0, // seconds of quick-shot slow remaining
     bombLaunch: 0, // >0 => rocket-jumping off own bomb; can tackle an enemy
+    trampCd: 0, // >0 => recently launched by a trampoline (no re-launch)
+    buildAmmo: BUILD_MAG, // wall charges available
+    buildAmmoT: 0,        // seconds accumulated toward the next wall charge
+    buildCd: 0,           // min pacing between wall placements
     firing: false, // fired/released this tick (flash)
     lastSeq: 0, // last input seq applied (for client reconciliation)
-    _shoot: false, _special: false,
+    _shoot: false, _special: false, _build: false, _charge: 0,
   };
   state.players[id] = p;
   return p;
@@ -117,6 +124,7 @@ function repositionKickoff(state, ballTeam) {
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null };
   state.projectiles = [];
   state.bombs = [];
+  state.builtWalls = []; // built defences don't survive a kickoff
   state.impacts = [];
   if (ballTeam) attachBall(state, ballTeam);
 }
@@ -272,6 +280,24 @@ export function step(state, inputs, dt) {
     p.y = clamp(p.y + (p.vy + p.kvy) * dt, rad, FIELD.H - rad);
     p.kvx *= KNOCKBACK_DECAY; p.kvy *= KNOCKBACK_DECAY;
     if (Math.hypot(p.kvx, p.kvy) < KNOCKBACK_MIN) { p.kvx = 0; p.kvy = 0; }
+    // Push out of walls (static + built) — players slide along them.
+    resolveWalls(p, rad, state.builtWalls);
+    // Trampolines fling you the way you're moving (or aim, if standing still).
+    p.trampCd = Math.max(0, p.trampCd - dt);
+    if (p.trampCd <= 0) {
+      for (const t of ARENA.trampolines) {
+        if (Math.hypot(p.x - t.x, p.y - t.y) < t.r + rad * 0.4) {
+          const sp = Math.hypot(p.vx, p.vy);
+          let dx, dy;
+          if (sp > TRAMPOLINE.minMove) { dx = p.vx / sp; dy = p.vy / sp; }
+          else { const al = Math.hypot(p.aimX, p.aimY) || 1; dx = p.aimX / al; dy = p.aimY / al; }
+          p.kvx += dx * TRAMPOLINE.power; p.kvy += dy * TRAMPOLINE.power;
+          p.trampCd = TRAMPOLINE.cooldown;
+          state.impacts.push({ id: state._nid++, type: 'tramp', target: null, x: t.x, y: t.y, dx, dy, team: p.team, life: 0.3, maxLife: 0.3 });
+          break;
+        }
+      }
+    }
 
     // Aim follows the aim stick, else the movement direction.
     const alen = Math.hypot(inp.aimX || 0, inp.aimY || 0);
@@ -280,6 +306,12 @@ export function step(state, inputs, dt) {
 
     p.shootCd = Math.max(0, p.shootCd - dt);
     p.specialCd = Math.max(0, p.specialCd - dt);
+    // Wall-build charges trickle back one every BUILD_RELOAD seconds (up to BUILD_MAG).
+    p.buildCd = Math.max(0, p.buildCd - dt);
+    if (p.buildAmmo < BUILD_MAG) {
+      p.buildAmmoT += dt;
+      if (p.buildAmmoT >= BUILD_RELOAD) { p.buildAmmo = Math.min(BUILD_MAG, p.buildAmmo + 1); p.buildAmmoT -= BUILD_RELOAD; }
+    }
     // Ammo: a fully-emptied mag reloads all at once after EMPTY_RELOAD; otherwise
     // rounds trickle back one per AMMO_REGEN seconds.
     if (p.reloadLock > 0) {
@@ -292,12 +324,15 @@ export function step(state, inputs, dt) {
     p.firing = false;
     p._shoot = !!inp.shoot;
     p._special = !!inp.special;
+    p._build = !!inp.build;
     p._charge = inp.charge != null ? inp.charge : 0; // 0..1 hold power
     p.lastSeq = inp.seq != null ? inp.seq : p.lastSeq;
   }
 
   resolveBombTackles(state); // flying planter plows into / steals from an enemy
   separatePlayers(state);
+  // Separation can nudge a body into a wall — push everyone back out once more.
+  for (const id in state.players) { const p = state.players[id]; resolveWalls(p, radiusOf(p, state), state.builtWalls); }
 
   // --- Per-player actions ---
   //   Holding the ball + SHOOT  -> release it in the aim direction (shot/pass)
@@ -323,6 +358,7 @@ export function step(state, inputs, dt) {
       }
     }
     if (p._special && p.specialCd <= 0) useSpecial(state, p, ch);
+    if (p._build && p.buildCd <= 0 && p.buildAmmo >= 1) buildWall(state, p);
   }
 
   // --- Ball: glued to a holder, or free physics + pickup ---
@@ -338,10 +374,13 @@ export function step(state, inputs, dt) {
     b.y += b.vy * dt;
     b.vx *= BALL_FRICTION;
     b.vy *= BALL_FRICTION;
+    const ballR = ballRadius(state);
+    // Ricochet off every wall (static + built).
+    for (const w of ARENA.walls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE });
+    for (const w of state.builtWalls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE });
     const bspeed = Math.hypot(b.vx, b.vy);
     if (bspeed < BALL_MIN_SPEED) { b.vx = 0; b.vy = 0; }
     if (b.pickupCd > 0) b.pickupCd -= dt;
-    const ballR = ballRadius(state);
     for (const id in state.players) {
       const p = state.players[id];
       if (Math.hypot(b.x - p.x, b.y - p.y) >= radiusOf(p, state) + ballR) continue;
@@ -399,6 +438,37 @@ function useSpecial(state, p, ch) {
   });
 }
 
+// BUILD skill — spawn a small destructible wall in front of the player, oriented
+// perpendicular to their aim (so it shields the direction they're facing). Costs
+// one build charge (regenerates one every BUILD_RELOAD seconds).
+function buildWall(state, p) {
+  const al = Math.hypot(p.aimX, p.aimY) || 1;
+  const ax = p.aimX / al, ay = p.aimY / al;
+  const horizAim = Math.abs(ax) >= Math.abs(ay);
+  const w = horizAim ? BUILT_WALL.thick : BUILT_WALL.len;
+  const h = horizAim ? BUILT_WALL.len : BUILT_WALL.thick;
+  let cx = p.x + ax * BUILT_WALL.offset;
+  let cy = p.y + ay * BUILT_WALL.offset;
+  let x = clamp(cx - w / 2, 2, FIELD.W - w - 2);
+  let y = clamp(cy - h / 2, 2, FIELD.H - h - 2);
+  state.builtWalls.push({
+    id: state._nid++, x, y, w, h, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp,
+    team: p.team, ttl: BUILT_WALL.ttl,
+  });
+  if (state.builtWalls.length > MAX_BUILT_WALLS) state.builtWalls.shift(); // drop oldest
+  p.buildAmmo -= 1;
+  p.buildCd = BUILD_COOLDOWN;
+  p.firing = true;
+}
+
+// Chip a built wall's HP; drop it if destroyed. Returns true if a wall absorbed the hit.
+function damageBuiltWallAt(state, x, y, dmg) {
+  for (const w of state.builtWalls) {
+    if (pointInBox(x, y, w)) { w.hp -= dmg; if (w.hp <= 0) state.builtWalls = state.builtWalls.filter((q) => q.hp > 0); return true; }
+  }
+  return false;
+}
+
 function updateProjectiles(state, dt) {
   const b = state.ball;
   const keep = [];
@@ -412,6 +482,12 @@ function updateProjectiles(state, dt) {
       addImpact(state, pr, 'wall', clamp(pr.x, 0, FIELD.W), clamp(pr.y, 0, FIELD.H));
       continue;
     }
+
+    // Walls stop bullets. A built wall takes one point of damage; stone is immune.
+    let hitWall = false;
+    for (const w of ARENA.walls) { if (pointInBox(pr.x, pr.y, w)) { hitWall = true; break; } }
+    if (!hitWall && damageBuiltWallAt(state, pr.x, pr.y, 1)) hitWall = true;
+    if (hitWall) { addImpact(state, pr, 'wall', pr.x, pr.y); continue; }
 
     // A LOOSE ball is nudged by any bullet.
     if (!b.owner) {
@@ -548,6 +624,13 @@ function explode(state, bomb) {
       t.kvy += (dy / d) * power;
     }
   }
+
+  // Bombs chip built walls caught in the blast (2 damage each).
+  for (const w of state.builtWalls) {
+    const nx = clamp(bomb.x, w.x, w.x + w.w), ny = clamp(bomb.y, w.y, w.y + w.h);
+    if (Math.hypot(bomb.x - nx, bomb.y - ny) < BOMB.radius) w.hp -= 2;
+  }
+  state.builtWalls = state.builtWalls.filter((w) => w.hp > 0);
 
   // Ball in the blast. If the planter is rocket-jumping, LEAVE a carried ball on
   // the enemy so the flying tackle can steal it (see resolveBombTackles). Any

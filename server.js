@@ -15,7 +15,7 @@ import {
 } from './shared/sim.js';
 import {
   TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD,
-  MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
+  MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD,
 } from './shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -96,7 +96,7 @@ function genCode() {
 }
 
 function emptyInput() {
-  return { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false, charge: 0 };
+  return { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false, build: false, charge: 0 };
 }
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
@@ -339,7 +339,7 @@ function tickRoom(room) {
   const inputMap = {};
   for (const [id, inp] of room.inputs) inputMap[id] = inp;
   step(room.state, inputMap, DT);
-  for (const inp of room.inputs.values()) { inp.shoot = false; inp.special = false; inp.charge = 0; }
+  for (const inp of room.inputs.values()) { inp.shoot = false; inp.special = false; inp.build = false; inp.charge = 0; }
   if (room.state.phase === 'ended') {
     room.endHoldT += DT;
     if (room.endHoldT >= ENDED_HOLD) endRoom(room);
@@ -370,6 +370,8 @@ function snapshot(room) {
     reloadFrac: Math.round(100 * (p.reloadLock > 0
       ? 1 - p.reloadLock / EMPTY_RELOAD
       : (p.ammo < MAG_SIZE ? p.ammoT / AMMO_REGEN : 0))) / 100,
+    buildAmmo: p.buildAmmo,
+    buildFrac: Math.round(100 * (p.buildAmmo < BUILD_MAG ? p.buildAmmoT / BUILD_RELOAD : 0)) / 100,
   }));
   return {
     type: 'snapshot',
@@ -378,6 +380,7 @@ function snapshot(room) {
     ball: { x: r1(state.ball.x), y: r1(state.ball.y), owner: state.ball.owner },
     players,
     projectiles: state.projectiles.map((p) => ({ id: p.id, x: r1(p.x), y: r1(p.y), team: p.team })),
+    walls: state.builtWalls.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, hp: w.hp, maxHp: w.maxHp, team: w.team })),
     bombs: state.bombs.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), team: b.team, fuse: Math.round(b.fuse * 100) / 100 })),
     blasts: state.blasts.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), radius: b.radius, life: b.life, maxLife: b.maxLife })),
     impacts: state.impacts.map((i) => ({ id: i.id, type: i.type, target: i.target, team: i.team, x: r1(i.x), y: r1(i.y), dx: i.dx, dy: i.dy, life: i.life, maxLife: i.maxLife })),
@@ -477,7 +480,7 @@ wss.on('connection', (ws) => {
       }
       if (msg.type === 'input') {
         if (!room || !member.inMatch) return;
-        const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.shoot || !!msg.special;
+        const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.shoot || !!msg.special || !!msg.build;
         if (active) {
           member.lastInputAt = nowMs();
           if (member.afk) { member.afk = false; const p = room.state.players[member.id]; if (p) p.isBot = false; }
@@ -487,7 +490,7 @@ wss.on('connection', (ws) => {
         if (msg.shoot) charge = msg.charge || 0;
         room.inputs.set(member.id, {
           seq: msg.seq, moveX: msg.moveX || 0, moveY: msg.moveY || 0, aimX: msg.aimX || 0, aimY: msg.aimY || 0,
-          shoot: prev.shoot || !!msg.shoot, special: prev.special || !!msg.special, charge,
+          shoot: prev.shoot || !!msg.shoot, special: prev.special || !!msg.special, build: prev.build || !!msg.build, charge,
         });
         return;
       }

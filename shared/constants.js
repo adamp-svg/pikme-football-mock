@@ -135,6 +135,34 @@ export const BOMB_ENEMY_MUL = 1.25; // enemies of the bomber fly this much harde
 export const BOMB_LAUNCH_TTL = 0.5; // seconds the launched planter can "tackle" an enemy
 export const BOMB_TACKLE_KB = 1800; // shove given to an enemy the flying planter hits
 
+// --- Arena obstacles -------------------------------------------------------
+// Ball restitution off any wall (static or built) — a touch bouncier than the
+// field edges so passes ricochet nicely off cover.
+export const WALL_BOUNCE = 0.62;
+// Bullets/bombs that reach a built wall chip its HP; static stone is immune.
+// Trampoline launch pad.
+export const TRAMPOLINE = {
+  power: 3200,      // launch impulse (kvx/kvy) — comparable to a bomb rocket-jump
+  cooldown: 0.55,   // seconds before the same player can be launched again
+  minMove: 45,      // px/s of movement to launch along velocity (else along aim)
+};
+// Stealth: an enemy in a bush is hidden UNLESS you are within BUSH_REVEAL_DIST,
+// they fired within SHOT_REVEAL_TIME, or they are carrying the ball.
+export const BUSH_REVEAL_DIST = 220;
+export const SHOT_REVEAL_TIME = 0.45;
+// Player-built destructible wall (SPECIAL-style pull-to-build).
+export const BUILT_WALL = {
+  len: 176,         // long side of the placed segment
+  thick: 32,        // short side (thickness)
+  offset: 60,       // distance in front of the builder's centre to the wall centre
+  hp: 3,            // hits to destroy (bullet = 1, bomb = 2)
+  ttl: 0,           // 0 = permanent until destroyed
+};
+export const BUILD_MAG = 2;       // wall charges a player can hold
+export const BUILD_RELOAD = 10;   // seconds to regenerate ONE wall charge
+export const BUILD_COOLDOWN = 0.4;// min seconds between placements
+export const MAX_BUILT_WALLS = 8; // global safety cap (oldest removed past this)
+
 export const TEAM = {
   A: { key: 'A', name: 'Blue', color: '#3b82f6', attacksRight: true },
   B: { key: 'B', name: 'Red', color: '#ef4444', attacksRight: false },
