@@ -155,11 +155,11 @@ export const BUILT_WALL = {
   len: 176,         // long side of the placed segment
   thick: 32,        // short side (thickness)
   offset: 60,       // distance in front of the builder's centre to the wall centre
-  hp: 3,            // hits to destroy (bullet = 1, bomb = 2)
+  hp: 3,            // hits to destroy: full-charge shot = 1, mid = 2, tap = 3; a bomb = instant
   ttl: 0,           // 0 = permanent until destroyed
 };
 export const BUILD_MAG = 2;       // wall charges a player can hold
-export const BUILD_RELOAD = 10;   // seconds to regenerate ONE wall charge
+export const BUILD_RELOAD = 30;   // seconds to regenerate ONE wall charge
 export const BUILD_COOLDOWN = 0.4;// min seconds between placements
 export const MAX_BUILT_WALLS = 8; // global safety cap (oldest removed past this)
 

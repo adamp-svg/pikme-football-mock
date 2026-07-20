@@ -937,7 +937,7 @@ let ctx = wbCtx;            // active draw target (world draws target the low-re
 let scale = 1, dpr = 1;     // scale = ART pixels per world unit
 let camX = 0, camY = 0;     // camera offset in ART px (subtracted in wx/wy)
 const NET = GOAL.depth;     // net depth behind each goal line
-const BAND = 170;           // depth (world units) of the top/bottom touchline terraces
+const BAND = 240;           // depth (world units) of the top/bottom touchline terraces (~3 audience rows)
 
 function resize() {
   dpr = Math.min(devicePixelRatio || 1, 2);
@@ -1090,8 +1090,9 @@ function drawFanWall(x0, y0, x1, y1, color) {
 // cards on their side (home), the opposing team's cards pooled on the far side.
 // Seats are laid out once per match (buildAudienceSeats) then drawn per-frame with
 // a bob, inside the mirrored-world transform so home stays on the player's own side.
-const AUD = { seatW: 30, seatH: 40, gapX: 6, gapY: 9, bob: 5, capPerCard: 20, capTotal: 160 };
+const AUD = { seatW: 42, seatH: 56, gapX: 5, gapY: 7, bob: 6, capPerCard: 12, capTotal: 220, fillMult: 1.6 };
 let audSeats = [];
+// Expand a ranked card list into one entry per copy (capped), best-worth first.
 function expandPool(cards) {
   const out = [];
   for (const c of cards) {
@@ -1099,6 +1100,19 @@ function expandPool(cards) {
     for (let k = 0; k < copies; k++) { out.push(c); if (out.length >= AUD.capTotal) return out; }
   }
   return out;
+}
+// Fill one side's seats from its card pool. Proportional: the number of occupied
+// seats scales with collection size (few cards => visibly sparse), and cards cycle
+// to fill ~fillMult× the owned count so a small album still reads as a modest crowd —
+// capped at the side's capacity so a big collection packs the stands.
+function fillSideSeats(seats, pool) {
+  if (!pool.length) return;
+  const target = Math.min(seats.length, Math.ceil(pool.length * AUD.fillMult));
+  for (let i = 0; i < target; i++) {
+    const c = pool[i % pool.length];
+    seats[i].r = c.r; seats[i].n = c.n;
+    audSeats.push(seats[i]);
+  }
 }
 function buildAudienceSeats() {
   audSeats = [];
@@ -1108,25 +1122,24 @@ function buildAudienceSeats() {
     [-NET, -BAND, midX, 0, 'A'], [midX, -BAND, FIELD.W + NET, 0, 'B'],
     [-NET, FIELD.H, midX, FIELD.H + BAND, 'A'], [midX, FIELD.H, FIELD.W + NET, FIELD.H + BAND, 'B'],
   ];
-  const myPool = expandPool(rankCards(myCards())); // home = you
-  const rivalPool = expandPool(rankCards(
-    matchRoster.filter((p) => p.team && p.team !== mine).flatMap((p) => p.cards || []))); // away = rivals pooled
-  let iMe = 0, iRv = 0;
+  // Collect seat slots per side (home = my regions, away = rival regions), in rows.
+  const side = { me: [], rv: [] };
   for (const [x0, y0, x1, y1, rt] of regions) {
-    const isMine = rt === mine, pool = isMine ? myPool : rivalPool;
+    const key = rt === mine ? 'me' : 'rv';
     const rw = x1 - x0, rh = y1 - y0;
     const cols = Math.max(1, Math.floor(rw / (AUD.seatW + AUD.gapX)));
     const rows = Math.max(1, Math.floor(rh / (AUD.seatH + AUD.gapY)));
     const ox = x0 + (rw - (cols * AUD.seatW + (cols - 1) * AUD.gapX)) / 2;
     const oy = y0 + (rh - (rows * AUD.seatH + (rows - 1) * AUD.gapY)) / 2;
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      const card = pool[isMine ? iMe++ : iRv++];
-      audSeats.push({
-        x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY),
-        r: card ? card.r : null, n: card ? card.n : null, seed: r * 1.7 + c * 0.9 + (isMine ? 0 : 3),
-      });
+      side[key].push({ x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY), r: null, n: null, seed: r * 1.7 + c * 0.9 + (key === 'rv' ? 3 : 0) });
     }
   }
+  const myPool = expandPool(rankCards(myCards()));                          // home = you
+  const rivalPool = expandPool(rankCards(
+    matchRoster.filter((p) => p.team && p.team !== mine).flatMap((p) => p.cards || []))); // away = rivals pooled
+  fillSideSeats(side.me, myPool);
+  fillSideSeats(side.rv, rivalPool);
   preloadCards([...myPool, ...rivalPool]);
 }
 function drawAudience() {
@@ -1683,14 +1696,14 @@ function drawBush(g, t) {
   for (let y = ay + step * .3; y < ay + ah; y += step) {
     for (let x = ax + step * .3; x < ax + aw; x += step) {
       const h = hash(x * 0.5, y * 0.5);
-      const sway = Math.sin(t * 1.5 + x * 0.05 + y * 0.03) * ws_(2);
+      const sway = Math.sin(t * 0.6 + x * 0.05 + y * 0.03) * ws_(1);
       const s = step * (0.7 + h * 0.5);
       pxi(x + sway, y, s, s, h > 0.6 ? '#3a8a3c' : '#2f7331');
     }
   }
   // brighter top flecks
   for (let x = ax + step * .6; x < ax + aw; x += step * 1.5) {
-    const sway = Math.sin(t * 1.5 + x * 0.05) * ws_(2);
+    const sway = Math.sin(t * 0.6 + x * 0.05) * ws_(1);
     pxi(x + sway, ay + ws_(6), Math.max(2, ws_(4)), Math.max(2, ws_(8)), 'rgba(150,220,110,.55)');
   }
 }
@@ -1721,14 +1734,17 @@ function drawRustle(p, t) {
 }
 
 // Client-side stealth: can the local player SEE `p`? Teammates always; an enemy in
-// a bush is hidden unless close, recently firing, or carrying the ball.
+// a bush is hidden unless close, carrying the ball, or they FIRED from inside the
+// bush (which reveals them for BUSH_FIRE_REVEAL).
+const BUSH_FIRE_REVEAL = 1000; // ms an enemy stays visible after shooting from a bush
 const firedReveal = {};
 function canSeePlayer(p) {
-  if (p.firing) firedReveal[p.id] = performance.now();
   if (p.team === me.team) return true;
-  if (!pointInBush(p.x, p.y)) return true;
+  const inBush = pointInBush(p.x, p.y);
+  if (p.firing && inBush) firedReveal[p.id] = performance.now();
+  if (!inBush) return true;
   if (latest && latest.ball && latest.ball.owner === p.id) return true;
-  if (performance.now() - (firedReveal[p.id] || -1e9) < SHOT_REVEAL_TIME * 1000) return true;
+  if (performance.now() - (firedReveal[p.id] || -1e9) < BUSH_FIRE_REVEAL) return true;
   if (rendered && Math.hypot(rendered.x - p.x, rendered.y - p.y) < BUSH_REVEAL_DIST) return true;
   return false;
 }
@@ -1818,11 +1834,13 @@ function renderFrame() {
     const aim = currentAim();
     if (aim.aiming && rendered) drawAimIndicator(rendered.x, rendered.y, aim.ax, aim.ay, currentCharge());
     for (const p of view.players) {
-      if (p.id === me.playerId && rendered) {
-        drawPlayer({ ...p, x: rendered.x, y: rendered.y, vx: predVel.x, vy: predVel.y });
-      }
-      else if (canSeePlayer(p)) drawPlayer(p);
-      else drawRustle(p, performance.now() / 1000); // hidden enemy in a bush
+      const isMe = p.id === me.playerId && rendered;
+      const dp = isMe ? { ...p, x: rendered.x, y: rendered.y, vx: predVel.x, vy: predVel.y } : p;
+      if (!isMe && !canSeePlayer(p)) { drawRustle(p, performance.now() / 1000); continue; } // hidden enemy
+      // You + teammates hidden in a bush render translucent, so you can tell you're concealed.
+      if (dp.team === me.team && pointInBush(dp.x, dp.y)) {
+        ctx.save(); ctx.globalAlpha = 0.5; drawPlayer(dp); ctx.restore();
+      } else drawPlayer(dp);
     }
     for (const pr of view.projectiles) drawProjectile(pr);
     for (const impact of view.impacts) drawImpact(impact);

@@ -483,10 +483,12 @@ function updateProjectiles(state, dt) {
       continue;
     }
 
-    // Walls stop bullets. A built wall takes one point of damage; stone is immune.
+    // Walls stop bullets. Static stone is immune; a built wall takes charge-scaled
+    // damage — full-power = destroy (hp), mid = ~half (2 shots), tap = 1 (3 shots).
     let hitWall = false;
     for (const w of ARENA.walls) { if (pointInBox(pr.x, pr.y, w)) { hitWall = true; break; } }
-    if (!hitWall && damageBuiltWallAt(state, pr.x, pr.y, 1)) hitWall = true;
+    const wallDmg = pr.charge >= FULL_CHARGE ? BUILT_WALL.hp : pr.charge >= QUICK_CHARGE ? BUILT_WALL.hp / 2 : 1;
+    if (!hitWall && damageBuiltWallAt(state, pr.x, pr.y, wallDmg)) hitWall = true;
     if (hitWall) { addImpact(state, pr, 'wall', pr.x, pr.y); continue; }
 
     // A LOOSE ball is nudged by any bullet.
@@ -625,10 +627,10 @@ function explode(state, bomb) {
     }
   }
 
-  // Bombs chip built walls caught in the blast (2 damage each).
+  // A bomb blast destroys any built wall it reaches outright.
   for (const w of state.builtWalls) {
     const nx = clamp(bomb.x, w.x, w.x + w.w), ny = clamp(bomb.y, w.y, w.y + w.h);
-    if (Math.hypot(bomb.x - nx, bomb.y - ny) < BOMB.radius) w.hp -= 2;
+    if (Math.hypot(bomb.x - nx, bomb.y - ny) < BOMB.radius) w.hp = 0;
   }
   state.builtWalls = state.builtWalls.filter((w) => w.hp > 0);
 

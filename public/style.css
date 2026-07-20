@@ -231,7 +231,7 @@ html, body {
 .lobby-wrap {
   position: relative; z-index: 1;
   display: flex; gap: 18px; align-items: stretch;
-  width: 100%; max-width: 900px; padding: 20px; max-height: 100%;
+  width: 100%; max-width: 900px; padding: 20px; max-height: 100%; overflow-y: auto;
 }
 .lobby-main {
   flex: 1; text-align: center;
@@ -322,8 +322,9 @@ html, body {
 }
 .home-wrap {
   position: relative; z-index: 1;
-  width: min(92vw, 460px); padding: 22px;
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  width: min(92vw, 460px); padding: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  max-height: 100%; overflow-y: auto;
   background: rgba(19,27,22,.94); border: 4px solid #657264;
   box-shadow: inset 0 0 0 3px #182018, 0 10px 0 #101611, 0 18px 44px rgba(0,0,0,.55);
 }
@@ -348,7 +349,7 @@ html, body {
 .play.join-btn { width: auto; padding: 12px 22px; }
 
 /* ---- Home card carousel (coverflow) ---- */
-.carousel { position: relative; width: 100%; height: 132px; touch-action: pan-y; }
+.carousel { position: relative; width: 100%; height: 116px; touch-action: pan-y; }
 .carousel.hidden { display: none; }
 .cf-card {
   position: absolute; left: 50%; top: 50%; width: 84px; height: 116px;
@@ -424,6 +425,18 @@ html, body {
 .ti-card.cf-noart.rarity-rare { background: linear-gradient(160deg, #7fbcff, #4ea0ff); }
 .ti-card.cf-noart.rarity-common { background: linear-gradient(160deg, #c4d3e0, #9ab0c5); }
 .ti-tap { color: #9fb0d0; font: 700 11px sans-serif; letter-spacing: 1px; }
+
+/* Short landscape (phones): compact the home menu so the carousel + both buttons
+   fit without clipping. (The wrap also scrolls as a fallback.) */
+@media (max-height: 480px) {
+  .home-wrap { gap: 8px; padding: 12px; }
+  .char-face { width: 68px; height: 68px; font-size: 24px; }
+  .char-sub { display: none; }
+  .carousel { height: 80px; }
+  .cf-card { width: 58px; height: 80px; margin: -40px 0 0 -29px; }
+  .home-wrap .play { padding: 10px 18px; font-size: 16px; }
+  .home-wrap .play b { font-size: 24px; top: 2px; }
+}
 .room-error { color: #ff7a6e; font-size: 12px; font-weight: 800; }
 
 /* ---- Lobby header additions ---- */

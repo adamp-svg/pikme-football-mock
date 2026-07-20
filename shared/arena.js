@@ -26,12 +26,10 @@ const BUSHES = [
   { x: 1570, y: 470, w: 180, h: 160 },  // right wing
 ];
 
-// Trampolines — circular launch pads. Stepping on one flings the player the way
-// they are moving (see sim). Placed on the centre line, one per half.
-const TRAMPOLINES = [
-  { x: 740, y: 550, r: 60 },
-  { x: 1260, y: 550, r: 60 },
-];
+// Trampolines — DISABLED (hidden) for now. Empty layout => no launch pads spawn,
+// the sim's trampoline loop is a no-op, and nothing renders. Restore entries here
+// to bring them back.
+const TRAMPOLINES = [];
 
 export const ARENA = { walls: WALLS, bushes: BUSHES, trampolines: TRAMPOLINES };
 

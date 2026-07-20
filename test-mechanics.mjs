@@ -49,28 +49,7 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   ok(!past, `bullet stopped by wall (none passed through; ${s.projectiles.length} live)`);
 }
 
-// 4) A trampoline launches a moving player hard, in their movement direction.
-{
-  const s = fresh();
-  const p = s.players.p1;
-  const t = ARENA.trampolines[0];
-  p.x = t.x; p.y = t.y; p.vx = 0; p.vy = 0;
-  step(s, { p1: inp({ moveX: 1, moveY: 0 }), p2: inp() }, DT);
-  ok(p.kvx > 1000, `trampoline launches player (kvx=${p.kvx.toFixed(0)} > 1000)`);
-  ok(p.kvx > Math.abs(p.kvy) * 4, `launch follows movement dir (kvx>>kvy)`);
-  ok(p.trampCd > 0, `re-launch cooldown set (${p.trampCd.toFixed(2)}s)`);
-}
-
-// 5) A carried ball stays with the player through a trampoline launch.
-{
-  const s = fresh();
-  attachBall(s, 'A');
-  const p = Object.values(s.players).find((q) => q.team === 'A');
-  const t = ARENA.trampolines[0];
-  p.x = t.x; p.y = t.y;
-  step(s, { [p.id]: inp({ moveX: 1 }), p2: inp() }, DT);
-  ok(s.ball.owner === p.id, `carrier keeps the ball after launch (owner=${s.ball.owner})`);
-}
+// (4 & 5) Trampolines removed — see arena.js `TRAMPOLINES = []`. Tests dropped.
 
 // 6) Build spawns a destructible wall ahead, costs one charge, respects cooldown.
 {
@@ -97,13 +76,35 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   ok(p.buildAmmo === 2, `build charge regenerated after ${BUILD_RELOAD}s (${p.buildAmmo})`);
 }
 
-// 8) A bomb chips/destroys a built wall in its blast.
+// 8) A bomb blast destroys a built wall outright, even at full HP.
 {
   const s = fresh();
-  s.builtWalls.push({ id: 99, x: 990, y: 520, w: 60, h: 60, hp: 2, maxHp: 2, team: 'A' });
+  s.builtWalls.push({ id: 99, x: 990, y: 520, w: 60, h: 60, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp, team: 'A' });
   s.bombs.push({ id: 98, owner: 'p2', team: 'B', x: 1010, y: 550, fuse: 0.001 });
-  step(s, { p1: inp(), p2: inp() }, DT); // fuse expires -> explode -> wall (hp2) - 2 = gone
-  ok(s.builtWalls.length === 0, `bomb destroyed the built wall (${s.builtWalls.length} left)`);
+  step(s, { p1: inp(), p2: inp() }, DT); // fuse expires -> explode -> wall destroyed
+  ok(s.builtWalls.length === 0, `bomb destroyed a full-HP built wall (${s.builtWalls.length} left)`);
+}
+
+// 10) A full-power shot destroys a fresh built wall in a single hit.
+{
+  const s = fresh();
+  const p = s.players.p1;
+  p.x = 900; p.y = 550; p.aimX = 1; p.aimY = 0; p.ammo = 3;
+  s.builtWalls.push({ id: 5, x: 958, y: 520, w: 40, h: 60, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp, team: 'A' });
+  step(s, { p1: inp({ shoot: true, charge: 1 }), p2: inp() }, DT);
+  for (let i = 0; i < 40 && s.builtWalls.length; i++) step(s, { p1: inp(), p2: inp() }, DT);
+  ok(s.builtWalls.length === 0, `full-power shot destroys a fresh wall in one hit`);
+}
+
+// 11) A minimum-charge shot only chips the wall by 1 (needs 3 to break it).
+{
+  const s = fresh();
+  const p = s.players.p1;
+  p.x = 900; p.y = 550; p.aimX = 1; p.aimY = 0; p.ammo = 3;
+  s.builtWalls.push({ id: 6, x: 958, y: 520, w: 40, h: 60, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp, team: 'A' });
+  step(s, { p1: inp({ shoot: true, charge: 0 }), p2: inp() }, DT);
+  for (let i = 0; i < 40 && s.builtWalls.length && s.builtWalls[0].hp === BUILT_WALL.hp; i++) step(s, { p1: inp(), p2: inp() }, DT);
+  ok(s.builtWalls.length === 1 && s.builtWalls[0].hp === BUILT_WALL.hp - 1, `min-power shot chips wall by 1 (hp=${s.builtWalls[0]?.hp})`);
 }
 
 // 9) Bush geometry helper agrees with the layout.
