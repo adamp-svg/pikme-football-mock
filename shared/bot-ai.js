@@ -18,7 +18,7 @@
 
 import {
   FIELD, GOAL, PENALTY, PENALTY_KNOCKBACK_MUL, BOMB, PROJECTILE, MAG_SIZE, FULL_CHARGE,
-  BOMB_CENTER_R, BUILT_WALL, RELEASE_PICKUP_CD, CHARACTERS, DEFAULT_CHAR, clamp,
+  BOMB_CENTER_R, BUILT_WALL, RELEASE_PICKUP_CD, BUSH_REVEAL_DIST, CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
 import { ARENA, pointInBox, pointInBush } from './arena.js';
 
@@ -49,6 +49,13 @@ const hyp = Math.hypot;
 function unit(x, y) { const l = hyp(x, y) || 1; return [x / l, y / l]; }
 function len(x, y) { return hyp(x, y); }
 function seededNoise(seed) { const n = Math.sin(seed * 127.1) * 43758.5453; return (n - Math.floor(n)) * 2 - 1; } // [-1,1], deterministic
+function idHash(id) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; } // stable per-id seed (decorrelates bots)
+// Nearest bush centre to (x,y) within maxD — off-ball bots lurk here to ambush.
+function nearestBushCenter(x, y, maxD = 520) {
+  let best = null, bd = maxD;
+  for (const g of ARENA.bushes) { const cx = g.x + g.w / 2, cy = g.y + g.h / 2, d = hyp(cx - x, cy - y); if (d < bd) { bd = d; best = { x: cx, y: cy }; } }
+  return best;
+}
 
 // A player's effective radius given live settings.
 function radOf(state) { return CHARACTERS[DEFAULT_CHAR].radius * (state.settings.sizeMul || 1); }
@@ -103,7 +110,7 @@ export function botCanSee(viewer, target, state) {
   if (!pointInBush(target.x, target.y)) return true;
   if (state.ball.owner === target.id) return true;      // carrying reveals
   if (target.firing) return true;                        // muzzle reveals
-  if (hyp(viewer.x - target.x, viewer.y - target.y) < 200) return true; // BUSH_REVEAL_DIST-ish
+  if (hyp(viewer.x - target.x, viewer.y - target.y) < BUSH_REVEAL_DIST) return true; // real stealth radius
   return false;
 }
 
@@ -128,8 +135,10 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
       const d = hyp(px - nx, py - ny);
       if (d < r + 46) danger = Math.max(danger, (r + 46 - d) / (r + 46));
     }
-    // live bombs: flee the blast (weight by how soon it blows)
+    // live bombs: flee the blast (weight by how soon it blows) — but NOT my own planted
+    // bomb, which I'm deliberately standing on to trigger the rocket-jump.
     for (const b of state.bombs) {
+      if (b.owner === bot.id) continue;
       const d = hyp(px - b.x, py - b.y);
       if (d < BOMB.radius + 40) { const soon = clamp(1 - b.fuse / BOMB.fuse, 0, 1); danger = Math.max(danger, (1 - d / (BOMB.radius + 40)) * (0.4 + 0.6 * soon) * sk.evade); }
     }
@@ -153,7 +162,7 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
   bmem.lastX = bot.x; bmem.lastY = bot.y;
   if (moved < 2.2 && (bmem.wantMove || 0) > 0.5) {
     bmem.stuck = (bmem.stuck || 0) + 1;
-    if (bmem.stuck > 4) { const h = bmem.stuckSign || (bmem.stuckSign = seededNoise(bot.id.length + 1) > 0 ? 1 : -1); best = [ -best[1] * h, best[0] * h ]; }
+    if (bmem.stuck > 4) { const h = bmem.stuckSign || (bmem.stuckSign = (idHash(bot.id) & 1) ? 1 : -1); best = [ -best[1] * h, best[0] * h ]; }
   } else bmem.stuck = 0;
   // low-pass so movement doesn't twitch (sim MOVE_ACCEL snaps velocity).
   const px = bmem.mvx ?? best[0], py = bmem.mvy ?? best[1];
@@ -219,6 +228,7 @@ function predictBall(b, tau) {
 // opts.onlyTeam limits output to one team (used by the bot-vs-bot eval harness).
 export function computeBotInputs(state, mem, dt, opts = {}) {
   mem.t += dt;
+  for (const id in mem.bots) if (!state.players[id]) delete mem.bots[id]; // prune departed bots
   const sk = BOT_SKILL[mem.skill] || BOT_SKILL[DEFAULT_SKILL];
   const out = {};
   const teams = opts.onlyTeam ? [opts.onlyTeam] : ['A', 'B'];
@@ -245,7 +255,7 @@ function decideBot(p, role, state, mem, sk, dt) {
   const mate = state.players[isOnBall ? role.support : role.onBall];
   const enemies = Object.values(state.players).filter((q) => q.team !== team);
   const visibleEnemies = enemies.filter((e) => botCanSee(p, e, state));
-  const canShoot = p.ammo > 0 && (p.reloadLock || 0) <= 0;
+  const canShoot = p.ammo > 0 && (p.reloadLock || 0) <= 0 && (p.shootCd || 0) <= 0;
   const bombReady = (p.specialCd || 0) <= 0;
   const buildReady = p.buildAmmo >= 1 && (p.buildCd || 0) <= 0;
   const settings = state.settings;
@@ -256,13 +266,14 @@ function decideBot(p, role, state, mem, sk, dt) {
   let aim = { x: p.aimX, y: p.aimY };
   let shoot = false, charge = 0, special = false, build = false;
 
-  // --- If mid bomb-hold, freeze on the plant spot until the fuse blows ---
+  // --- If mid bomb-hold, STAND on the plant until the fuse blows (staying within
+  // BOMB_CENTER_R is what makes the rocket-jump/tackle actually fire). Aim tracks the
+  // live target so the launch/tackle vector points at where it is now. ---
   if (bm.bombHold && mem.t < bm.bombHold.until) {
-    tgt = { x: bm.bombHold.x, y: bm.bombHold.y };
-    const tp = bm.bombHold.target;
-    aim = { x: (tp ? tp.x : p.x + p.aimX) - p.x, y: (tp ? tp.y : p.y + p.aimY) - p.y };
-    bm.wantMove = 0.2;
-    return finalize(p, tgt, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+    const tp = bm.bombHold.targetId ? state.players[bm.bombHold.targetId] : null;
+    const gx = tp ? tp.x : bm.bombHold.aimX, gy = tp ? tp.y : bm.bombHold.aimY;
+    aim = { x: gx - p.x, y: gy - p.y };
+    return finalize(p, { x: bm.bombHold.x, y: bm.bombHold.y }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt, { hold: true });
   } else if (bm.bombHold) bm.bombHold = null;
 
   const carrier = b.owner ? state.players[b.owner] : null;
@@ -281,13 +292,18 @@ function decideBot(p, role, state, mem, sk, dt) {
       // 2) marked -> pass to a better-placed, open mate
       const mateBetter = hyp(egX - mate.x, GY - mate.y) < distGoal - 30;
       if (mateBetter && laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4 })) {
-        aim = { x: mate.x - p.x, y: mate.y - p.y }; shoot = true; charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
+        charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
+        const passSpeed = (settings.shotPower || 1850) * clamp(charge, 0.33, 1);
+        const [pax, pay] = quadraticIntercept(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, passSpeed); // lead the runner
+        aim = { x: pax, y: pay }; shoot = true;
       }
     }
-    // 3) cornered breakaway: bomb rocket-jump toward goal (HOLD after planting)
-    if (!shoot && bombReady && nfd < 150 && distGoal < 900 && shotLane && Math.random() < sk.aggro) {
+    // 3) genuine finish only: bomb rocket-jump toward goal (HOLD after planting). Close
+    // to goal + clear lane + no teammate in the blast — else the stationary fuse is easy to strip.
+    const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
+    if (!shoot && bombReady && nfd < 150 && distGoal < 560 && shotLane && mateSafe && Math.random() < sk.aggro) {
       special = true; aim = { x: egX - p.x, y: GY - p.y };
-      bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, target: { x: egX, y: GY } };
+      bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY };
     }
     // dribble toward goal, veering off the nearest defender
     tgt = { x: egX, y: GY };
@@ -323,15 +339,18 @@ function decideBot(p, role, state, mem, sk, dt) {
       tgt = { x: c.x, y: c.y };
       const [ax, ay] = quadraticIntercept(p.x, p.y, c.x, c.y, c.vx || 0, c.vy || 0, bulletSpeed);
       aim = { x: ax, y: ay };
-      // strip only works with a FULL charge, and only OUTSIDE the enemy's box.
-      const cInBox = inEnemyBox({ team: c.team, x: c.x, y: c.y }); // carrier attacking its target box
-      const carrierProtected = c.team === 'A' ? c.x > FIELD.W - PENALTY.depth && Math.abs(c.y - GY) < PENALTY.width / 2
-                                              : c.x < PENALTY.depth && Math.abs(c.y - GY) < PENALTY.width / 2;
-      if (canShoot && seeC && lane && distC < 430 && !carrierProtected) { shoot = true; charge = 1; }
-      // bomb tackle-steal: get close, plant, HOLD within center for the fuse
-      if (bombReady && seeC && distC > BOMB_CENTER_R && distC < 300 && Math.random() < sk.aggro * 0.6) {
+      // a FULL-charge bullet strips the ball even INSIDE the box (only knockback is cut there)
+      if (canShoot && seeC && lane && distC < 430) { shoot = true; charge = 1; }
+      // bomb tackle-steal: only if the blast will actually REACH the carrier at detonation
+      // (predict them forward by the fuse), no teammate is caught, and the carrier isn't
+      // deep in its box (reduced knockback blunts the tackle there).
+      const carrierDeepInBox = inEnemyBox({ team: c.team, x: c.x, y: c.y });
+      const pcx = c.x + (c.vx || 0) * BOMB.fuse, pcy = c.y + (c.vy || 0) * BOMB.fuse;
+      const willReach = hyp(pcx - p.x, pcy - p.y) < BOMB_CENTER_R + BOMB.radius * 0.6;
+      const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
+      if (bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && !carrierDeepInBox && Math.random() < sk.aggro * 0.6) {
         special = true; shoot = false; aim = { x: c.x - p.x, y: c.y - p.y };
-        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, target: { x: c.x, y: c.y } };
+        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
       }
     } else {
       // cover: sit on the carrier->own-goal shadow, mark the SECOND enemy if any
@@ -341,15 +360,17 @@ function decideBot(p, role, state, mem, sk, dt) {
         // mark: stand goal-side of the second enemy
         tgt = { x: (other.x + ogX) / 2, y: (other.y + GY) / 2 };
       } else {
-        tgt = { x: shadowX, y: shadowY };
+        const bush = nearestBushCenter(shadowX, shadowY, 300); // cover the shadow from a bush if one is close
+        tgt = bush || { x: shadowX, y: shadowY };
       }
       aim = { x: c.x - p.x, y: c.y - p.y };
-      // build ONE shielding wall goalward of us when the carrier lines up a shot on
-      // our goal (aim toward own goal so the wall screens the mouth, not the open play)
-      const carrierLiningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 200 && Math.abs(c.x - ogX) < FIELD.W * 0.36;
+      // build a wall FACING the carrier to screen the shot lane — but only clear of our
+      // own penalty box (the sim silently rejects a wall overlapping it).
+      const carrierLiningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 240 && Math.abs(c.x - ogX) < FIELD.W * 0.4;
       const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
-      if (buildReady && carrierLiningUp && goalSide && distC > 160 && Math.random() < 0.3) {
-        build = true; aim = { x: ogX - p.x, y: GY - p.y }; shoot = false; special = false;
+      const outOfBox = Math.abs(p.x - ogX) > PENALTY.depth + BUILT_WALL.offset + 30;
+      if (buildReady && carrierLiningUp && goalSide && outOfBox && distC > 140 && Math.random() < 0.5) {
+        build = true; aim = { x: c.x - p.x, y: c.y - p.y }; shoot = false; special = false;
       } else if (canShoot && seeC && lane && distC < 320) {
         shoot = true; charge = 1; // opportunistic strip if a clean full-charge is there
       }

@@ -137,6 +137,7 @@ function processSnapshotSounds(snap) {
       const ourGoal = snap.lastGoal === me.team;
       playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
       haptic(ourGoal ? 'goal' : 'concede'); // melodic buzz when we score
+      confettiBurst(ourGoal ? 90 : 45);      // the stands erupt on a goal
     }
     if (previousBallOwner === null && snap.ball.owner !== null) {
       playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
@@ -1150,7 +1151,14 @@ function drawFanWall(x0, y0, x1, y1, color) {
 // cards on their side (home), the opposing team's cards pooled on the far side.
 // Seats are laid out once per match (buildAudienceSeats) then drawn per-frame with
 // a bob, inside the mirrored-world transform so home stays on the player's own side.
-const AUD = { seatW: 64, seatH: 86, gapX: 6, gapY: 9, bob: 8, capPerCard: 12, capTotal: 220, fillMult: 1.6 };
+const AUD = { seatW: 64, seatH: 86, gapX: 6, gapY: 9, capPerCard: 12, capTotal: 260 };
+// The crowd animates as N offscreen layers, each with its own rapid, out-of-phase
+// jitter — overlapping they read as a chaotic jumping mob, not one smooth wave.
+const N_LAYERS = 6;
+const LAYERS = Array.from({ length: N_LAYERS }, (_, i) => ({
+  fy: 8.5 + i * 1.7, phy: i * 1.9, ay: 6 + (i % 3) * 3,   // vertical jump: fast, varied
+  fx: 5.5 + i * 1.1, phx: i * 2.7 + 1, ax: 2 + (i % 2) * 3, // small side sway
+}));
 let audSeats = [];
 // Expand a ranked card list into one entry per copy (capped), best-worth first.
 function expandPool(cards) {
@@ -1161,61 +1169,44 @@ function expandPool(cards) {
   }
   return out;
 }
-// Fill EVERY seat on a side, cycling the pool so the stand always packs full
-// (a small album just repeats — like real tifo — rather than leaving empty seats).
-function fillSideSeats(seats, pool) {
-  if (!pool.length) return;
-  for (let i = 0; i < seats.length; i++) {
-    const c = pool[i % pool.length];
-    seats[i].r = c.r; seats[i].n = c.n;
-    audSeats.push(seats[i]);
-  }
-}
-// Generic crowd used only when nobody has any cards, so the bowl is never bare.
-function synthPool() {
-  return ['common', 'common', 'rare', 'rare', 'epic', 'legendary'].map((r, i) => ({ r, n: 'crowd' + i, c: 1 }));
+// Spread `pool` across a section's seats: if there are more cards than seats, fill
+// every seat; if fewer, space the cards out so the album is visible among empty
+// seats (never clumped). Called PER section so top / bottom / goal all show the
+// same set. Only the user's own cards are used — few cards => mostly empty stands.
+function spreadPool(seats, pool) {
+  const S = seats.length, P = pool.length;
+  if (!S || !P) return;
+  const place = (st, c) => { st.r = c.r; st.n = c.n; audSeats.push(st); };
+  if (P >= S) { for (let i = 0; i < S; i++) place(seats[i], pool[i]); return; }
+  const step = S / P;
+  for (let k = 0; k < P; k++) place(seats[Math.min(S - 1, Math.round(k * step + step * 0.5))], pool[k]);
 }
 function buildAudienceSeats() {
   audSeats = [];
-  const midX = FIELD.W / 2, mine = me.team === 'B' ? 'B' : 'A';
+  const pool = expandPool(rankCards(myCards())); // ONLY the user's own album; sparse if few
+  if (!pool.length) return;                        // no cards -> empty stands (as requested)
+  const midX = FIELD.W / 2;
   const regions = [
-    [-NET, 0, 0, FIELD.H, 'A'], [FIELD.W, 0, FIELD.W + NET, FIELD.H, 'B'],
-    [-NET, -BAND, midX, 0, 'A'], [midX, -BAND, FIELD.W + NET, 0, 'B'],
-    [-NET, FIELD.H, midX, FIELD.H + BAND, 'A'], [midX, FIELD.H, FIELD.W + NET, FIELD.H + BAND, 'B'],
+    [-NET, 0, 0, FIELD.H], [FIELD.W, 0, FIELD.W + NET, FIELD.H],           // behind each goal
+    [-NET, -BAND, midX, 0], [midX, -BAND, FIELD.W + NET, 0],               // top
+    [-NET, FIELD.H, midX, FIELD.H + BAND], [midX, FIELD.H, FIELD.W + NET, FIELD.H + BAND], // bottom
   ];
-  // Collect seat slots per side (home = my regions, away = rival regions), in rows.
-  const side = { me: [], rv: [] };
-  for (const [x0, y0, x1, y1, rt] of regions) {
-    const key = rt === mine ? 'me' : 'rv';
+  for (const [x0, y0, x1, y1] of regions) {
     const rw = x1 - x0, rh = y1 - y0;
     const cols = Math.max(1, Math.floor(rw / (AUD.seatW + AUD.gapX)));
     const rows = Math.max(1, Math.floor(rh / (AUD.seatH + AUD.gapY)));
     const usedW = cols * AUD.seatW + (cols - 1) * AUD.gapX;
     const usedH = rows * AUD.seatH + (rows - 1) * AUD.gapY;
-    const gap = 2; // front row hugs the pitch (cards right up to the touchline)
-    // Anchor to the FIELD-facing edge so the front row hugs the pitch (not centred far out).
-    const ox = x1 <= 0 ? x1 - usedW - gap
-      : x0 >= FIELD.W ? x0 + gap
-      : x0 + (rw - usedW) / 2;
-    const oy = y1 <= 0 ? y1 - usedH - gap
-      : y0 >= FIELD.H ? y0 + gap
-      : y0 + (rh - usedH) / 2;
+    const gap = 2;
+    const ox = x1 <= 0 ? x1 - usedW - gap : x0 >= FIELD.W ? x0 + gap : x0 + (rw - usedW) / 2;
+    const oy = y1 <= 0 ? y1 - usedH - gap : y0 >= FIELD.H ? y0 + gap : y0 + (rh - usedH) / 2;
+    const seats = [];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      side[key].push({ x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY), r: null, n: null, seed: r * 1.7 + c * 0.9 + (key === 'rv' ? 3 : 0) });
+      seats.push({ x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY), r: null, n: null, layer: (r * cols + c) % N_LAYERS });
     }
+    spreadPool(seats, pool); // every section shows the user's cards spread among empty seats
   }
-  let myPool = expandPool(rankCards(myCards()));                            // home = you
-  let rivalPool = expandPool(rankCards(
-    matchRoster.filter((p) => p.team && p.team !== mine).flatMap((p) => p.cards || []))); // away = rivals pooled
-  // Never leave a stand empty: an opponent with no cards (bots, or the server not
-  // sending collections) borrows the other side's cards; with none at all, use a
-  // generic crowd. Every seat then fills.
-  if (!myPool.length && !rivalPool.length) { myPool = rivalPool = synthPool(); }
-  const homePool = myPool.length ? myPool : rivalPool;
-  const awayPool = rivalPool.length ? rivalPool : myPool;
-  fillSideSeats(side.me, homePool);
-  fillSideSeats(side.rv, awayPool);
-  preloadCards([...homePool, ...awayPool]);
+  preloadCards(pool);
 }
 // Perf: the audience is baked into two offscreen layers (even/odd seats), sized like
 // the field cache. Each frame we blit those TWO images with opposite vertical bob — a
@@ -1224,12 +1215,12 @@ function buildAudienceSeats() {
 let audLayers = null, audNeedsRebake = false;
 function bakeAudience() {
   const W = bgCanvas.width, H = bgCanvas.height;
-  audLayers = [document.createElement('canvas'), document.createElement('canvas')];
+  audLayers = Array.from({ length: N_LAYERS }, () => document.createElement('canvas'));
   const gx = audLayers.map((c) => { c.width = W; c.height = H; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; return g; });
   const sw = Math.ceil(ws_(AUD.seatW)), sh = Math.ceil(ws_(AUD.seatH));
-  for (let i = 0; i < audSeats.length; i++) {
-    const s = audSeats[i]; if (!s.r) continue;
-    const g = gx[i & 1];
+  for (const s of audSeats) {
+    if (!s.r) continue;
+    const g = gx[s.layer % N_LAYERS];
     const px = Math.round((s.x + NET) * scale), py = Math.round((s.y + BAND) * scale); // bg-cache coords
     const img = cardImage(s.r, s.n);
     if (img.ready) g.drawImage(img, px, py, sw, sh);
@@ -1241,10 +1232,72 @@ function drawAudience() {
   if (me.team == null) return;
   if (!audienceReady) { buildAudienceSeats(); audienceReady = true; audNeedsRebake = true; }
   if (audNeedsRebake || !audLayers || audLayers[0].width !== bgCanvas.width) { bakeAudience(); audNeedsRebake = false; }
-  const b = Math.sin(performance.now() * 0.004) * ws_(AUD.bob);
+  const t = performance.now() * 0.001;
   const ox = -(camX + NET * scale), oy = -(camY + BAND * scale);
-  ctx.drawImage(audLayers[0], ox, oy + b);   // even seats bob up
-  ctx.drawImage(audLayers[1], ox, oy - b);   // odd seats bob down — crowd wave
+  ctx.save();
+  // Clip to OUTSIDE the pitch so the crowd is cut cleanly at the touchlines (fans
+  // behind the boards) instead of spilling onto the grass.
+  ctx.beginPath();
+  ctx.rect(0, 0, wbW, wbH);
+  ctx.rect(wx(0), wy(0), ws_(FIELD.W), ws_(FIELD.H));
+  ctx.clip('evenodd');
+  for (let L = 0; L < audLayers.length; L++) {
+    const p = LAYERS[L];
+    const dx = Math.sin(t * p.fx + p.phx) * ws_(p.ax);
+    const dy = Math.sin(t * p.fy + p.phy) * ws_(p.ay);
+    ctx.drawImage(audLayers[L], ox + dx, oy + dy);
+  }
+  ctx.restore();
+}
+
+// ---- Confetti: fans throwing colour into the air, ambient + goal bursts --------
+const confetti = [];
+let confPrevT = 0;
+const CONFETTI_COLS = ['#ff5b4c', '#3d84ff', '#ffcb43', '#e9e0b8', '#7ee081', '#ff8fd0', '#ffffff', '#b46bff'];
+function spawnConfetti(x, y, up) {
+  if (confetti.length > 200) return;
+  confetti.push({
+    x, y,
+    vx: (Math.random() * 2 - 1) * 150,
+    vy: up ? -(220 + Math.random() * 260) : (40 + Math.random() * 90),
+    rot: Math.random() * 6.28, vr: (Math.random() * 2 - 1) * 12,
+    col: CONFETTI_COLS[(Math.random() * CONFETTI_COLS.length) | 0],
+    life: 2 + Math.random() * 1.8, sz: 9 + Math.random() * 9,
+  });
+}
+// A burst thrown up from the stands (all four sides) — used on a goal.
+function confettiBurst(n) {
+  for (let i = 0; i < n; i++) {
+    const top = Math.random() < 0.5;
+    const x = -NET + Math.random() * (FIELD.W + 2 * NET);
+    const y = top ? -Math.random() * BAND : FIELD.H + Math.random() * BAND;
+    spawnConfetti(x, y, true);
+  }
+}
+function updateConfetti(dt) {
+  if (me.team == null) return;
+  // ambient: a light trickle thrown up from random stand spots (goals add big bursts)
+  if (Math.random() < 0.3) {
+    const top = Math.random() < 0.5;
+    spawnConfetti(-NET + Math.random() * (FIELD.W + 2 * NET), top ? -Math.random() * BAND : FIELD.H + Math.random() * BAND, true);
+  }
+  for (let i = confetti.length - 1; i >= 0; i--) {
+    const p = confetti[i];
+    p.vy += 340 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.life -= dt;
+    if (p.life <= 0) confetti.splice(i, 1);
+  }
+}
+function drawConfetti() {
+  for (const p of confetti) {
+    const s = ws_(p.sz);
+    ctx.save();
+    ctx.translate(wx(p.x), wy(p.y)); ctx.rotate(p.rot);
+    ctx.globalAlpha = Math.min(1, p.life);
+    ctx.fillStyle = p.col;
+    ctx.fillRect(-s / 2, -s / 2, s, s * 0.55);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
 }
 
 // Quartz-white line palette for all pitch markings.
@@ -1900,7 +1953,8 @@ function renderFrame() {
   ctx.save();
   if (flipView()) { ctx.translate(wbW, 0); ctx.scale(-1, 1); }
   ctx.drawImage(bgCanvas, -(camX + NET * scale), -(camY + BAND * scale)); // cached field at camera offset
-  drawAudience(); // card-art crowd (dynamic, bobbing) on top of the cached terraces
+  drawAudience(); // card-art crowd (dynamic, jumping) on top of the cached terraces
+  { const cn = performance.now(); const cdt = confPrevT ? Math.min(0.05, (cn - confPrevT) / 1000) : 0.016; confPrevT = cn; updateConfetti(cdt); drawConfetti(); }
   drawObstacles(); // walls / bushes / trampolines (static layout + built walls)
 
   const view = interpolated();
