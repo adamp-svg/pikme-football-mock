@@ -188,9 +188,9 @@ function createPrivateRoom(member) {
 
 function joinPrivateRoom(member, code) {
   const room = rooms.get((code || '').toUpperCase());
-  if (!room || !room.isPrivate) { send(member.ws, { type: 'roomError', msg: 'Room not found' }); return; }
-  if (room.phase === 'match') { send(member.ws, { type: 'roomError', msg: 'Match already in progress' }); return; }
-  if (room.members.size >= MAX_PLAYERS) { send(member.ws, { type: 'roomError', msg: 'Room is full' }); return; }
+  if (!room || !room.isPrivate) { send(member.ws, { type: 'roomError', msg: 'החדר לא נמצא' }); return; }
+  if (room.phase === 'match') { send(member.ws, { type: 'roomError', msg: 'המשחק כבר התחיל' }); return; }
+  if (room.members.size >= MAX_PLAYERS) { send(member.ws, { type: 'roomError', msg: 'החדר מלא' }); return; }
   leaveCurrentRoom(member);
   addToRoom(member, room);
   send(member.ws, { type: 'roomJoined', mode: 'private', code: room.id });

@@ -84,8 +84,8 @@ function updateSoundButton() {
   if (!btn) return;
   btn.textContent = soundEnabled ? '🔊' : '🔇';
   btn.classList.toggle('muted', !soundEnabled);
-  btn.setAttribute('aria-label', soundEnabled ? 'Mute sound' : 'Turn sound on');
-  btn.title = soundEnabled ? 'Mute sound' : 'Turn sound on';
+  btn.setAttribute('aria-label', soundEnabled ? 'השתקה' : 'הפעלת סאונד');
+  btn.title = soundEnabled ? 'השתקה' : 'הפעלת סאונד';
   if (masterGain) masterGain.gain.value = soundEnabled ? 0.72 : 0;
 }
 
@@ -174,7 +174,7 @@ function showFatal(msg) {
     const el = document.getElementById('fatal');
     if (!el) return;
     el.classList.remove('hidden');
-    el.textContent = '⚠️ ERROR (screenshot this):\n' + msg;
+    el.textContent = '⚠️ שגיאה (צלמו מסך):\n' + msg;
   } catch { /* ignore */ }
 }
 addEventListener('error', (e) => showFatal(`${e.message}\n${(e.filename || '').split('/').pop()}:${e.lineno || '?'}:${e.colno || '?'}`));
@@ -392,7 +392,7 @@ document.getElementById('create-room-btn').addEventListener('click', () => { unl
 document.getElementById('join-room-btn').addEventListener('click', () => {
   unlockAudio();
   const code = (joinCodeEl.value || '').trim().toUpperCase();
-  if (code.length < 3) { showRoomError('Enter a room code'); return; }
+  if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
   sendMsg({ type: 'joinRoom', code });
 });
 document.getElementById('friends-back').addEventListener('click', () => showScreen('home'));
@@ -404,11 +404,11 @@ playNowBtn.addEventListener('click', () => {
   unlockAudio();
   sendMsg({ type: 'ready' });
   playNowBtn.classList.add('armed');
-  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'STARTING…';
+  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'מתחיל…';
 });
 function resetPlayNow() {
   playNowBtn.classList.remove('armed');
-  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'PLAY NOW';
+  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'שחק עכשיו';
 }
 // Clear the team lists when entering a fresh room.
 function clearLobbyLists() {
@@ -479,7 +479,7 @@ function connect(name, avatar) {
       quickVs = false; hideVs(); showScreen('home');
     } else if (msg.type === 'roomError') {
       quickVs = false; hideVs();
-      showRoomError(msg.msg || 'Could not join room');
+      showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
       showScreen('friends');
     } else if (msg.type === 'lobby') {
       if (quickVs) updateVsCountdown(msg); else updateLobbyUI(msg);
@@ -565,9 +565,9 @@ function fillIntroCol(colEl, players, team) {
     if (p) {
       if (p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
       else av.textContent = memberInitials(p.name);
-      nm.textContent = p.id === myMemberId ? `${p.name} (you)` : p.name;
+      nm.textContent = p.id === myMemberId ? `${p.name} (אני)` : p.name;
       rankCards(p.cards).slice(0, 3).forEach((c) => cw.appendChild(introCardEl(c)));
-    } else { av.textContent = '🤖'; nm.textContent = 'BOT'; }
+    } else { av.textContent = '🤖'; nm.textContent = 'בוט'; }
     row.append(av, nm, cw);
     rows.appendChild(row);
   }
@@ -612,7 +612,7 @@ function updateLobbyUI(msg) {
   if (msg.code) roomCode = msg.code;
   const isPrivate = msg.mode === 'private';
   lobbyOnlineEl.textContent = msg.online;
-  lobbyTitleEl.innerHTML = `<span></span> ${isPrivate ? 'PRIVATE ROOM' : 'QUICK MATCH'} <span></span>`;
+  lobbyTitleEl.innerHTML = `<span></span> ${isPrivate ? 'חדר פרטי' : 'משחק מהיר'} <span></span>`;
   lobbyCodeWrap.classList.toggle('hidden', !isPrivate);
   if (isPrivate && msg.code) lobbyCodeEl.textContent = msg.code;
   // Team picking + PLAY NOW are private-room only; quick match auto-teams + auto-starts.
@@ -620,8 +620,8 @@ function updateLobbyUI(msg) {
   joinBtn.B.style.display = isPrivate ? '' : 'none';
   playNowBtn.style.display = isPrivate ? '' : 'none';
   lobbyHintEl.textContent = isPrivate
-    ? 'Pick a team, then PLAY NOW. Empty slots fill with bots.'
-    : 'Finding players… the match starts automatically.';
+    ? 'בחרו קבוצה ואז שחקו עכשיו. מקומות פנויים יתמלאו בבוטים.'
+    : 'מחפש שחקנים… המשחק יתחיל אוטומטית.';
 
   if (msg.phase === 'countdown' && msg.countdown > 0) {
     countdownEl.textContent = msg.countdown;
@@ -648,9 +648,9 @@ function updateLobbyUI(msg) {
         av.appendChild(img);
       } else { av.textContent = memberInitials(m.name); }
     }
-    const label = m.id === myMemberId ? `${m.name} (you)` : m.name;
+    const label = m.id === myMemberId ? `${m.name} (אני)` : m.name;
     if (nm.textContent !== label) nm.textContent = label;
-    st.textContent = m.inMatch ? '● playing' : '';
+    st.textContent = m.inMatch ? '● במשחק' : '';
     row.classList.toggle('is-me', m.id === myMemberId);
     if (m.id === myMemberId) myLobbyTeam = m.team === 'B' ? 'B' : 'A';
   }
@@ -666,7 +666,8 @@ function sendPing() {
 }
 
 function setNet(s) {
-  document.getElementById('net').textContent = s === 'connected' ? 'live' : s;
+  const map = { connected: 'מחובר', 'reconnecting…': 'מתחבר מחדש…', disconnected: 'מנותק' };
+  document.getElementById('net').textContent = map[s] || s;
 }
 
 // --------------------------------------------------------------------------
@@ -1759,14 +1760,14 @@ function drawHUD() {
 
   const banner = document.getElementById('banner');
   if (latest.phase === 'ended') {
-    const txt = myScore === opScore ? 'DRAW' : (myScore > opScore ? 'BLUE WINS' : 'RED WINS');
+    const txt = myScore === opScore ? 'תיקו' : (myScore > opScore ? 'הכחולים ניצחו' : 'האדומים ניצחו');
     banner.textContent = txt;
     banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
     banner.classList.remove('count'); banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
     // "GOAL!" during the freeze that shows the scoring positions, then 3-2-1.
     const showing = latest.resetTimer > GOAL_RESET - GOAL_FREEZE_HOLD;
-    if (showing) { banner.textContent = 'GOAL!'; banner.style.color = teamColor(latest.lastGoal); banner.classList.remove('count'); }
+    if (showing) { banner.textContent = 'גול!'; banner.style.color = teamColor(latest.lastGoal); banner.classList.remove('count'); }
     else { banner.textContent = String(Math.ceil(latest.resetTimer)); banner.style.color = ''; banner.classList.add('count'); } // main-menu countdown look
     banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0) {

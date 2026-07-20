@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <title>PikMe Block Football</title>
+  <title>PikMe כדורגל בלוקים</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -14,61 +14,61 @@
   <!-- Home / user screen — shown first: your dancing character, name, pfp, cards -->
   <div id="home" class="screen">
     <div class="start-shade"></div>
-    <div class="home-wrap">
-      <div class="eyebrow"><span></span> <span id="home-online">0</span> ONLINE <span></span></div>
+    <div class="home-wrap" dir="rtl">
+      <div class="eyebrow"><span></span> <span id="home-online">0</span> מחוברים <span></span></div>
       <canvas id="home-char" class="home-char" width="200" height="210"></canvas>
       <div class="char-id">
         <div id="home-face" class="home-avatar"></div>
-        <div id="home-name" class="char-name-big">Player</div>
+        <div id="home-name" class="char-name-big">שחקן</div>
       </div>
       <div id="home-carousel" class="carousel hidden"></div>
-      <button id="quick-match-btn" class="play"><span>QUICK MATCH</span><b>›</b></button>
-      <button id="friends-btn" class="play ghost">PLAY WITH FRIENDS</button>
+      <button id="quick-match-btn" class="play"><span>משחק מהיר</span><b>›</b></button>
+      <button id="friends-btn" class="play ghost">שחק עם חברים</button>
     </div>
   </div>
 
   <!-- Play with friends: create / join a private room -->
   <div id="friends" class="screen hidden">
     <div class="start-shade"></div>
-    <div class="home-wrap">
-      <div class="eyebrow"><span></span> PLAY WITH FRIENDS <span></span></div>
-      <button id="create-room-btn" class="play"><span>CREATE ROOM</span><b>›</b></button>
+    <div class="home-wrap" dir="rtl">
+      <div class="eyebrow"><span></span> שחק עם חברים <span></span></div>
+      <button id="create-room-btn" class="play"><span>צור חדר</span><b>›</b></button>
       <div class="join-row">
-        <input id="join-code" class="code-input" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" />
-        <button id="join-room-btn" class="play join-btn">JOIN</button>
+        <input id="join-code" class="code-input" dir="ltr" maxlength="4" placeholder="קוד" autocapitalize="characters" autocomplete="off" />
+        <button id="join-room-btn" class="play join-btn">הצטרף</button>
       </div>
       <p id="room-error" class="room-error hidden"></p>
-      <button id="friends-back" class="play ghost small">‹ BACK</button>
+      <button id="friends-back" class="play ghost small">‹ חזרה</button>
     </div>
   </div>
 
   <!-- Lobby / waiting room -->
   <div id="lobby" class="screen hidden">
     <div class="start-shade"></div>
-    <div class="lobby-wrap">
+    <div class="lobby-wrap" dir="rtl">
       <div class="lobby-head">
-        <button id="lobby-leave" class="lobby-leave">‹ LEAVE</button>
-        <div id="lobby-title" class="eyebrow"><span></span> QUICK MATCH <span></span></div>
-        <div id="lobby-code-wrap" class="lobby-code-wrap hidden">ROOM CODE <b id="lobby-code">····</b> <small>share it with friends</small></div>
+        <button id="lobby-leave" class="lobby-leave">‹ יציאה</button>
+        <div id="lobby-title" class="eyebrow"><span></span> משחק מהיר <span></span></div>
+        <div id="lobby-code-wrap" class="lobby-code-wrap hidden">קוד חדר <b id="lobby-code">····</b> <small>שתפו עם חברים</small></div>
         <div class="lobby-counts">
-          <div class="count-pill"><strong id="lobby-online">0</strong><small>ONLINE</small></div>
+          <div class="count-pill"><strong id="lobby-online">0</strong><small>מחוברים</small></div>
         </div>
       </div>
       <div class="teams">
         <div class="team-panel team1">
-          <div class="team-title">TEAM 1</div>
+          <div class="team-title">קבוצה 1</div>
           <div id="team-a-list" class="team-members"></div>
-          <button id="join-a" class="team-join">JOIN</button>
+          <button id="join-a" class="team-join">הצטרף</button>
         </div>
-        <div class="vs">VS</div>
+        <div class="vs">נגד</div>
         <div class="team-panel team2">
-          <div class="team-title">TEAM 2</div>
+          <div class="team-title">קבוצה 2</div>
           <div id="team-b-list" class="team-members"></div>
-          <button id="join-b" class="team-join">JOIN</button>
+          <button id="join-b" class="team-join">הצטרף</button>
         </div>
       </div>
-      <button id="play-now" class="play"><span>PLAY NOW</span><b>›</b></button>
-      <p id="lobby-hint" class="hint">Pick a team to line up with a friend, then <b>PLAY NOW</b> — match starts after a 5s countdown; empty slots become bots.</p>
+      <button id="play-now" class="play"><span>שחק עכשיו</span><b>›</b></button>
+      <p id="lobby-hint" class="hint">בחרו קבוצה כדי להיות עם חבר, ואז <b>שחקו עכשיו</b> — המשחק מתחיל אחרי ספירה של 5 שניות; מקומות פנויים מתמלאים בבוטים.</p>
     </div>
     <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
   </div>
@@ -77,11 +77,11 @@
   <div id="team-intro" class="team-intro hidden">
     <div id="ti-count" class="ti-count hidden">5</div>
     <div class="ti-inner">
-      <div class="ti-col ti-home"><div class="ti-team-title">HOME</div><div class="ti-rows"></div></div>
-      <div class="ti-vs">VS</div>
-      <div class="ti-col ti-away"><div class="ti-team-title">RIVALS</div><div class="ti-rows"></div></div>
+      <div class="ti-col ti-home"><div class="ti-team-title">הקבוצה שלי</div><div class="ti-rows"></div></div>
+      <div class="ti-vs">נגד</div>
+      <div class="ti-col ti-away"><div class="ti-team-title">יריבים</div><div class="ti-rows"></div></div>
     </div>
-    <div class="ti-tap">tap to skip</div>
+    <div class="ti-tap">הקש לדילוג</div>
   </div>
 
   <!-- Game -->
@@ -95,7 +95,7 @@
         <span class="team-b" id="scoreB">0</span>
       </div>
       <div class="timer" id="timer">2:00</div>
-      <div class="net" id="net">connecting…</div>
+      <div class="net" id="net">מתחבר…</div>
     </div>
 
     <div id="banner" class="banner hidden"></div>
@@ -122,46 +122,46 @@
 
     <!-- Pause / settings -->
     <button id="pause-btn" class="pause-btn">⏸</button>
-    <button id="sound-btn" class="sound-btn" aria-label="Mute sound" title="Mute sound">🔊</button>
+    <button id="sound-btn" class="sound-btn" aria-label="השתקה" title="השתקה">🔊</button>
 
     <div id="settings" class="settings-panel hidden">
-      <div class="settings-card">
-        <h2>Settings</h2>
+      <div class="settings-card" dir="rtl">
+        <h2>הגדרות</h2>
         <div class="setting">
-          <div class="setting-row"><span>Player speed</span><span id="v-speedMul"></span></div>
+          <div class="setting-row"><span>מהירות שחקן</span><span id="v-speedMul"></span></div>
           <input type="range" id="s-speedMul" min="0.3" max="1.8" step="0.05" />
         </div>
         <div class="setting">
-          <div class="setting-row"><span>Player size</span><span id="v-sizeMul"></span></div>
+          <div class="setting-row"><span>גודל שחקן</span><span id="v-sizeMul"></span></div>
           <input type="range" id="s-sizeMul" min="0.5" max="2" step="0.05" />
         </div>
         <div class="setting">
-          <div class="setting-row"><span>Carry speed (with ball)</span><span id="v-carrySpeedMul"></span></div>
+          <div class="setting-row"><span>מהירות עם הכדור</span><span id="v-carrySpeedMul"></span></div>
           <input type="range" id="s-carrySpeedMul" min="0.2" max="1" step="0.05" />
         </div>
         <div class="setting">
-          <div class="setting-row"><span>Ball size</span><span id="v-ballSizeMul"></span></div>
+          <div class="setting-row"><span>גודל כדור</span><span id="v-ballSizeMul"></span></div>
           <input type="range" id="s-ballSizeMul" min="0.5" max="2.5" step="0.05" />
         </div>
         <div class="setting">
-          <div class="setting-row"><span>Shot power</span><span id="v-shotPower"></span></div>
+          <div class="setting-row"><span>עוצמת בעיטה</span><span id="v-shotPower"></span></div>
           <input type="range" id="s-shotPower" min="300" max="2500" step="20" />
         </div>
         <div class="setting">
-          <div class="setting-row"><span>Bullet speed</span><span id="v-bulletSpeed"></span></div>
+          <div class="setting-row"><span>מהירות ירי</span><span id="v-bulletSpeed"></span></div>
           <input type="range" id="s-bulletSpeed" min="120" max="1300" step="10" />
         </div>
         <div class="setting">
-          <div class="setting-row"><span>Bullet push (full-power knockback)</span><span id="v-bulletKnockback"></span></div>
+          <div class="setting-row"><span>הדיפת ירי (עוצמה מלאה)</span><span id="v-bulletKnockback"></span></div>
           <input type="range" id="s-bulletKnockback" min="0" max="2500" step="10" />
         </div>
         <div class="setting">
-          <div class="setting-row"><span>Bomb push (knockback)</span><span id="v-bombPower"></span></div>
+          <div class="setting-row"><span>הדיפת פצצה</span><span id="v-bombPower"></span></div>
           <input type="range" id="s-bombPower" min="0" max="5000" step="20" />
         </div>
         <div class="settings-actions">
-          <button id="reset-settings" class="ghost-btn">Reset</button>
-          <button id="resume" class="resume">Resume</button>
+          <button id="reset-settings" class="ghost-btn">איפוס</button>
+          <button id="resume" class="resume">המשך</button>
         </div>
       </div>
     </div>
