@@ -14,7 +14,7 @@ import {
   createState, addPlayer, removePlayer, step, attachBall,
 } from './shared/sim.js';
 import {
-  TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD,
+  TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, GOAL, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
@@ -166,79 +166,128 @@ function nearestBush(x, y) {
   }
   return best;
 }
+// True if the straight line (x0,y0)->(x1,y1) is clear of every wall (static + built).
+function boxHas(w, x, y) { return x > w.x && x < w.x + w.w && y > w.y && y < w.y + w.h; }
+function laneClear(x0, y0, x1, y1, built) {
+  for (let i = 1; i <= 8; i++) {
+    const x = x0 + (x1 - x0) * i / 8, y = y0 + (y1 - y0) * i / 8;
+    for (const w of ARENA.walls) if (boxHas(w, x, y)) return false;
+    if (built) for (const w of built) if (boxHas(w, x, y)) return false;
+  }
+  return true;
+}
+// Unit aim toward where a moving target will be by the time a bullet reaches it.
+function leadAim(px, py, t, speed) {
+  const lt = Math.min(0.5, Math.hypot(t.x - px, t.y - py) / Math.max(1, speed));
+  const dx = (t.x + (t.vx || 0) * lt) - px, dy = (t.y + (t.vy || 0) * lt) - py, l = Math.hypot(dx, dy) || 1;
+  return [dx / l, dy / l];
+}
+const SHOOT_RANGE = 400;       // knock-loose bullet reach (leaves carriers mid-range room)
+const GOAL_SHOOT_RANGE = 760;  // distance to attempt a shot on goal
+const BOMB_STEAL_RANGE = 760;  // rocket-jump reach to tackle-steal / break away
+
 function updateBots(room) {
   const state = room.state, b = state.ball;
   const carrier = b.owner ? state.players[b.owner] : null;
   const players = Object.values(state.players);
+  const bulletSpeed = state.settings.bulletSpeed || 720;
+
   for (const p of players) {
     if (!p.isBot) continue;
     const oppGoalX = p.team === 'A' ? FIELD.W : 0;
     const ownGoalX = p.team === 'A' ? 0 : FIELD.W;
     const goalY = FIELD.H / 2;
     const mate = players.find((q) => q.team === p.team && q.id !== p.id);
-    const distBall = Math.hypot(b.x - p.x, b.y - p.y);
-    const mateDistBall = mate ? Math.hypot(b.x - mate.x, b.y - mate.y) : 1e9;
-    const iAmClosest = distBall <= mateDistBall;
+    const enemies = players.filter((q) => q.team !== p.team);
+    // Orient around the carrier if someone holds the ball, else the loose ball.
+    const focus = carrier || b;
+    const distFocus = Math.hypot(focus.x - p.x, focus.y - p.y);
+    const mateDistFocus = mate ? Math.hypot(focus.x - mate.x, focus.y - mate.y) : 1e9;
+    const isPrimary = distFocus <= mateDistFocus; // my team's nearest to the play commits
+    // A smart bot only attempts a skill it can actually use this instant.
+    const canShoot = p.ammo > 0 && (p.reloadLock || 0) <= 0;
+    const bombReady = (p.specialCd || 0) <= 0;
+    const buildReady = p.buildAmmo >= 1 && (p.buildCd || 0) <= 0;
+
     let moveX = 0, moveY = 0, aimX = p.aimX, aimY = p.aimY, shoot = false, special = false, build = false, charge = 0;
 
     if (b.owner === p.id) {
-      // Carrying: drive at goal; shoot when close; sometimes pass to a better-placed mate.
+      // === I HAVE THE BALL — attack ===
       const distGoal = Math.hypot(oppGoalX - p.x, goalY - p.y);
-      moveX = oppGoalX - p.x; moveY = goalY - p.y;
-      aimX = oppGoalX - p.x; aimY = goalY - p.y;
-      if (distGoal < 320) { shoot = true; charge = 1; }
-      else if (mate) {
-        const mateDistGoal = Math.hypot(oppGoalX - mate.x, goalY - mate.y);
-        if (mateDistGoal < distGoal - 50 && Math.hypot(mate.x - p.x, mate.y - p.y) < 380 && Math.random() < 0.05) {
-          aimX = mate.x - p.x; aimY = mate.y - p.y; shoot = true; charge = 0.5;
+      let blocker = null, bDist = 1e9;
+      for (const e of enemies) { const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < bDist) { bDist = d; blocker = e; } }
+      const laneToGoal = laneClear(p.x, p.y, oppGoalX, goalY, state.builtWalls);
+      const linedUp = Math.abs(p.y - goalY) < GOAL.width / 2 + 200;
+      if (distGoal < GOAL_SHOOT_RANGE && linedUp && laneToGoal) {
+        aimX = oppGoalX - p.x; aimY = goalY - p.y; shoot = true; charge = 1; // power shot on goal
+      } else if (mate && bDist < 240) {
+        // Marked — pass to a better-placed, open mate.
+        const mateBetter = Math.hypot(oppGoalX - mate.x, goalY - mate.y) < distGoal - 40;
+        if (mateBetter && laneClear(p.x, p.y, mate.x, mate.y, state.builtWalls)) {
+          aimX = mate.x - p.x; aimY = mate.y - p.y; shoot = true; charge = 0.55;
         }
       }
+      if (!shoot && bombReady && bDist < 150 && distGoal < BOMB_STEAL_RANGE && laneToGoal) {
+        aimX = oppGoalX - p.x; aimY = goalY - p.y; special = true; // rocket-jump breakaway (ball comes along)
+      }
+      moveX = oppGoalX - p.x; moveY = goalY - p.y;
+      if (blocker && bDist < 220) { moveX += (p.x - blocker.x) * 1.1; moveY += (p.y - blocker.y) * 1.1; } // veer around
+      if (!shoot && !special) { aimX = oppGoalX - p.x; aimY = goalY - p.y; }
+
     } else if (carrier && carrier.team === p.team) {
-      // Teammate carries: get open ahead as a passing option.
-      moveX = oppGoalX - p.x; moveY = (goalY + (p.slot === 0 ? -130 : 130)) - p.y;
+      // === TEAMMATE ATTACKS — get open ahead as an outlet ===
+      moveX = (oppGoalX - (p.team === 'A' ? 260 : -260)) - p.x;
+      moveY = (goalY + (p.slot === 0 ? -180 : 180)) - p.y;
+      if (mate && Math.hypot(mate.x - p.x, mate.y - p.y) < 200) { moveX += (p.x - mate.x); moveY += (p.y - mate.y); }
       aimX = oppGoalX - p.x; aimY = goalY - p.y;
+
     } else if (carrier) {
-      // Enemy carries. Closer bot presses (spray + bomb); the other drops back and
-      // lurks in a bush near its own goal to ambush.
-      const threat = Math.abs(carrier.x - ownGoalX) < FIELD.W * 0.5;
-      if (iAmClosest || distBall < 260) {
-        moveX = carrier.x - p.x; moveY = carrier.y - p.y;
-        aimX = carrier.x - p.x; aimY = carrier.y - p.y;
-        if (distBall < 430) { shoot = true; charge = 1; }                              // spray to knock it loose
-        if (distBall < 210 && p.specialCd <= 0 && Math.random() < 0.035) special = true; // bomb the carrier
+      // === ENEMY HAS THE BALL ===
+      const c = carrier, distC = Math.hypot(c.x - p.x, c.y - p.y);
+      const laneToC = laneClear(p.x, p.y, c.x, c.y, state.builtWalls);
+      if (isPrimary || distC < 240) {
+        // PRESS: lead-aim knock-loose shots + bomb tackle-steal.
+        moveX = c.x - p.x; moveY = c.y - p.y;
+        const [lax, lay] = leadAim(p.x, p.y, c, bulletSpeed); aimX = lax; aimY = lay;
+        if (canShoot && laneToC && distC < SHOOT_RANGE) { shoot = true; charge = 1; }
+        if (bombReady && distC > 60 && distC < BOMB_STEAL_RANGE && laneToC && Math.random() < 0.05) {
+          aimX = c.x - p.x; aimY = c.y - p.y; special = true; shoot = false;
+        }
+        if (buildReady && Math.abs(c.x - ownGoalX) < FIELD.W * 0.5 &&
+            Math.abs(p.x - ownGoalX) <= Math.abs(c.x - ownGoalX) + 90 && Math.random() < 0.02) {
+          aimX = c.x - p.x; aimY = c.y - p.y; build = true; shoot = false; special = false; // block the lane
+        }
       } else {
-        const bush = nearestBush(ownGoalX + (p.team === 'A' ? 320 : -320), goalY);
-        const tx = bush ? bush.x : ownGoalX + (p.team === 'A' ? 280 : -280);
-        const ty = bush ? bush.y : goalY + (p.slot === 0 ? -120 : 120);
-        moveX = tx - p.x; moveY = ty - p.y;
-        aimX = carrier.x - p.x; aimY = carrier.y - p.y;
+        // COVER + AMBUSH: sit between carrier and my goal; lurk in a bush there.
+        const coverX = (c.x + ownGoalX * 1.4) / 2.4, coverY = (c.y + goalY) / 2;
+        const bush = nearestBush(coverX, coverY);
+        moveX = (bush ? bush.x : coverX) - p.x; moveY = (bush ? bush.y : coverY) - p.y;
+        aimX = c.x - p.x; aimY = c.y - p.y;
+        if (canShoot && laneToC && distC < SHOOT_RANGE * 0.7) { shoot = true; charge = 1; } // opportunistic
       }
-      // Throw up a defensive wall between the goal and the incoming carrier.
-      if (threat && p.buildAmmo >= 1 && p.buildCd <= 0 &&
-          Math.abs(p.x - ownGoalX) <= Math.abs(carrier.x - ownGoalX) + 90 && Math.random() < 0.02) {
-        build = true; aimX = carrier.x - p.x; aimY = carrier.y - p.y; shoot = false; special = false;
-      }
+
     } else {
-      // Loose ball. Closest bot chases; the other lurks in the nearest bush.
-      if (iAmClosest) {
-        moveX = b.x - p.x; moveY = b.y - p.y;
+      // === LOOSE BALL ===
+      if (isPrimary) {
+        const lt = Math.min(0.4, distFocus / 900);
+        moveX = (b.x + b.vx * lt) - p.x; moveY = (b.y + b.vy * lt) - p.y; // intercept its path
         aimX = oppGoalX - p.x; aimY = goalY - p.y;
       } else {
-        const bush = nearestBush(p.x, p.y);
-        const tx = bush ? bush.x : FIELD.W / 2;
-        const ty = bush ? bush.y : goalY + (p.slot === 0 ? -140 : 140);
-        moveX = tx - p.x; moveY = ty - p.y;
+        const holdX = (b.x + ownGoalX) / 2, holdY = (b.y + goalY) / 2;
+        const bush = nearestBush(holdX, holdY);
+        moveX = (bush ? bush.x : holdX) - p.x; moveY = (bush ? bush.y : holdY) - p.y;
         aimX = b.x - p.x; aimY = b.y - p.y;
       }
     }
 
+    // Steer around static walls; add a little aim jitter so bots stay beatable.
     const mLen = Math.hypot(moveX, moveY) || 1;
     const [mvx, mvy] = avoidWalls(p.x, p.y, moveX / mLen, moveY / mLen);
-    const aLen = Math.hypot(aimX, aimY) || 1;
+    let aLen = Math.hypot(aimX, aimY) || 1, ax = aimX / aLen, ay = aimY / aLen;
+    if (shoot || special) { const j = (Math.random() - 0.5) * 0.09, cs = Math.cos(j), sn = Math.sin(j), nx = ax * cs - ay * sn; ay = ax * sn + ay * cs; ax = nx; }
     room.inputs.set(p.id, {
       seq: (room.inputs.get(p.id)?.seq || 0) + 1,
-      moveX: mvx, moveY: mvy,
-      aimX: aimX / aLen, aimY: aimY / aLen,
+      moveX: mvx, moveY: mvy, aimX: ax, aimY: ay,
       shoot, special, build, charge,
     });
   }
