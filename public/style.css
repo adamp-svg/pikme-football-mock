@@ -287,3 +287,46 @@ html, body {
 .member-row.is-me { outline: 2px solid var(--gold); }
 
 .timer.urgent { color: #ff5a4d; }
+
+/* ---- Home / friends menus ---- */
+.screen#home, .screen#friends {
+  background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
+}
+.home-wrap {
+  position: relative; z-index: 1;
+  width: min(92vw, 460px); padding: 22px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  background: rgba(19,27,22,.94); border: 4px solid #657264;
+  box-shadow: inset 0 0 0 3px #182018, 0 10px 0 #101611, 0 18px 44px rgba(0,0,0,.55);
+}
+.char-card { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 6px 0 10px; }
+.char-face {
+  width: 96px; height: 96px; border: 4px solid #ffe49a; background: #26332a center/cover no-repeat;
+  box-shadow: 5px 5px 0 #050705, inset 0 0 0 3px #2a1b12;
+  display: flex; align-items: center; justify-content: center;
+  color: #e7dcae; font: 900 34px "Arial Black", sans-serif;
+}
+.char-name-big { color: #fff4ca; font: 900 22px "Arial Black", sans-serif; letter-spacing: .5px; }
+.char-sub { color: #8aa08c; font-size: 9px; font-weight: 900; letter-spacing: 2px; }
+.play.ghost { background: #2c3a2e; color: #e7dcae; box-shadow: inset 0 -6px #1a241c, 0 6px 0 #0b0f0b; border-color: #4a5a4c; }
+.play.small { padding: 10px 14px; font-size: 13px; }
+.join-row { display: flex; gap: 10px; width: 100%; }
+.code-input {
+  flex: 1; text-align: center; text-transform: uppercase; letter-spacing: 8px;
+  font: 900 26px "Arial Black", sans-serif; color: #fff4ca;
+  background: #111812; border: 3px solid #39463b; padding: 10px; outline: none;
+}
+.code-input:focus { border-color: var(--gold); }
+.play.join-btn { width: auto; padding: 12px 22px; }
+.room-error { color: #ff7a6e; font-size: 12px; font-weight: 800; }
+
+/* ---- Lobby header additions ---- */
+.lobby-head { position: relative; }
+.lobby-leave {
+  position: absolute; left: 0; top: 0; background: #182019e8; border: 2px solid #667061;
+  color: #dfe8fb; font: 900 11px "Arial Black", sans-serif; letter-spacing: 1px;
+  padding: 6px 10px; cursor: pointer; box-shadow: 0 4px 0 rgba(0,0,0,.4);
+}
+.lobby-code-wrap { color: #c8d4bf; font-size: 11px; font-weight: 800; letter-spacing: 1px; margin-top: 6px; }
+.lobby-code-wrap b { color: var(--gold); font: 900 22px "Arial Black", sans-serif; letter-spacing: 4px; margin: 0 6px; }
+.lobby-code-wrap small { color: #8aa08c; font-size: 9px; letter-spacing: 1px; }

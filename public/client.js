@@ -181,29 +181,41 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // --------------------------------------------------------------------------
-// Start screen
+// Screens: start -> home -> (friends) -> lobby -> game
 // --------------------------------------------------------------------------
 const startEl = document.getElementById('start');
+const homeEl = document.getElementById('home');
+const friendsEl = document.getElementById('friends');
 const lobbyEl = document.getElementById('lobby');
 const gameEl = document.getElementById('game');
+const screens = { start: startEl, home: homeEl, friends: friendsEl, lobby: lobbyEl, game: gameEl };
+function showScreen(name) { for (const k in screens) screens[k].classList.toggle('hidden', k !== name); }
 
-// Lobby element refs.
+// Home + friends refs.
+const homeOnlineEl = document.getElementById('home-online');
+const homeFaceEl = document.getElementById('home-face');
+const homeNameEl = document.getElementById('home-name');
+const joinCodeEl = document.getElementById('join-code');
+const roomErrorEl = document.getElementById('room-error');
+// Lobby refs.
 const lobbyOnlineEl = document.getElementById('lobby-online');
-const lobbyWaitingEl = document.getElementById('lobby-waiting');
+const lobbyTitleEl = document.getElementById('lobby-title');
+const lobbyCodeWrap = document.getElementById('lobby-code-wrap');
+const lobbyCodeEl = document.getElementById('lobby-code');
+const lobbyHintEl = document.getElementById('lobby-hint');
 const teamListEl = { A: document.getElementById('team-a-list'), B: document.getElementById('team-b-list') };
 const joinBtn = { A: document.getElementById('join-a'), B: document.getElementById('join-b') };
 const countdownEl = document.getElementById('lobby-countdown');
 const playNowBtn = document.getElementById('play-now');
 let myMemberId = null;        // this client's lobby member id (from welcome)
 let myLobbyTeam = 'A';        // my chosen lobby team (mirrors server)
+let roomMode = 'quick';       // 'quick' | 'private'
+let roomCode = null;
 
 // Local perspective: every player always sees THEIR team as blue attacking
 // left->right, so team B's view is mirrored horizontally + colours are remapped.
 function flipView() { return me.team === 'B'; }
 function teamColor(t) { return t === me.team ? TEAM.A.color : TEAM.B.color; }
-
-joinBtn.A.addEventListener('click', () => { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'setTeam', team: 'A' })); });
-joinBtn.B.addEventListener('click', () => { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'setTeam', team: 'B' })); });
 
 // Identity handed over by the Saltiz app through the WebView URL (?name=&avatar=).
 const _params = new URLSearchParams(location.search);
@@ -211,25 +223,55 @@ const MY_NAME = (_params.get('name') || 'Player').toString().slice(0, 16);
 const MY_AVATAR = _params.get('avatar') || null;
 
 const specialIcon = () => '💣'; // special is Bomb
+function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
+function sendMsg(o) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(o)); }
+function showRoomError(msg) { roomErrorEl.textContent = msg; roomErrorEl.classList.remove('hidden'); }
 
-// Title screen -> enter the waiting room (lobby).
+// Show the player's character (their avatar as the face) on the home menu.
+function renderHomeCharacter() {
+  homeNameEl.textContent = MY_NAME;
+  if (MY_AVATAR) { homeFaceEl.style.backgroundImage = `url("${MY_AVATAR}")`; homeFaceEl.textContent = ''; }
+  else { homeFaceEl.style.backgroundImage = 'none'; homeFaceEl.textContent = memberInitials(MY_NAME); }
+}
+
+// Title -> connect + show home menu.
 document.getElementById('play').addEventListener('click', () => {
   unlockAudio();
-  startEl.classList.add('hidden');
-  lobbyEl.classList.remove('hidden');
+  renderHomeCharacter();
+  showScreen('home');
   connect(MY_NAME, MY_AVATAR);
 });
 
-// Lobby "Play Now" -> ready up (starts or joins the shared 10s countdown).
+// Home actions.
+document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
+document.getElementById('friends-btn').addEventListener('click', () => { unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends'); });
+// Friends actions.
+document.getElementById('create-room-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'createRoom' }); });
+document.getElementById('join-room-btn').addEventListener('click', () => {
+  unlockAudio();
+  const code = (joinCodeEl.value || '').trim().toUpperCase();
+  if (code.length < 3) { showRoomError('Enter a room code'); return; }
+  sendMsg({ type: 'joinRoom', code });
+});
+document.getElementById('friends-back').addEventListener('click', () => showScreen('home'));
+// Lobby actions.
+document.getElementById('lobby-leave').addEventListener('click', () => { sendMsg({ type: 'leaveRoom' }); showScreen('home'); });
+joinBtn.A.addEventListener('click', () => sendMsg({ type: 'setTeam', team: 'A' }));
+joinBtn.B.addEventListener('click', () => sendMsg({ type: 'setTeam', team: 'B' }));
 playNowBtn.addEventListener('click', () => {
   unlockAudio();
-  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'ready' }));
+  sendMsg({ type: 'ready' });
   playNowBtn.classList.add('armed');
-  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'WAITING…';
+  const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'STARTING…';
 });
 function resetPlayNow() {
   playNowBtn.classList.remove('armed');
   const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'PLAY NOW';
+}
+// Clear the team lists when entering a fresh room.
+function clearLobbyLists() {
+  memberRows.clear();
+  teamListEl.A.innerHTML = ''; teamListEl.B.innerHTML = '';
 }
 
 // --------------------------------------------------------------------------
@@ -248,15 +290,14 @@ function connect(name, avatar) {
     pingIv = setInterval(sendPing, 1500);
   };
   // If the socket drops (network / server restart / WebView backgrounding), the
-  // game would otherwise freeze forever — so fall back to the lobby and retry.
+  // game would otherwise freeze forever — so fall back to the home menu and retry.
   ws.onclose = () => {
     setNet('reconnecting…');
     if (pingIv) { clearInterval(pingIv); pingIv = null; }
     me = { playerId: null, team: null, char: chosenChar };
     latest = null; snaps = []; predicted = null; rendered = null;
     if (!startEl.classList.contains('hidden')) return; // still on the title screen
-    gameEl.classList.add('hidden');
-    lobbyEl.classList.remove('hidden');
+    showScreen('home');
     resetPlayNow();
     if (!reconnectT) reconnectT = setTimeout(() => { reconnectT = null; connect(name, avatar); }, 1500);
   };
@@ -264,6 +305,19 @@ function connect(name, avatar) {
     const msg = JSON.parse(e.data);
     if (msg.type === 'welcome') {
       myMemberId = msg.id; // our lobby identity; playerId + team arrive with matchStart
+    } else if (msg.type === 'home') {
+      homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
+    } else if (msg.type === 'roomJoined') {
+      roomMode = msg.mode; roomCode = msg.code || null;
+      clearLobbyLists(); resetPlayNow();
+      showScreen('lobby');
+    } else if (msg.type === 'toHome') {
+      if (msg.online != null) homeOnlineEl.textContent = msg.online;
+      me = { playerId: null, team: null, char: chosenChar };
+      showScreen('home');
+    } else if (msg.type === 'roomError') {
+      showRoomError(msg.msg || 'Could not join room');
+      showScreen('friends');
     } else if (msg.type === 'lobby') {
       updateLobbyUI(msg);
     } else if (msg.type === 'matchStart') {
@@ -296,23 +350,19 @@ function enterMatch(msg) {
   previousBallOwner = null; previousResetTimer = 0;
   knownBlasts = new Set(); knownImpacts = new Set(); soundEventsReady = false;
   specialBtn.textContent = specialIcon(me.char);
-  startEl.classList.add('hidden');
-  lobbyEl.classList.add('hidden');
-  gameEl.classList.remove('hidden');
+  showScreen('game');
   resize();
   renderBackground(); // re-cache the field/stands in our team colours
   resetPlayNow();
 }
 
+// Match ended in a private room -> back to that room's lobby (rematch).
 function exitToLobby() {
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
-  gameEl.classList.add('hidden');
-  lobbyEl.classList.remove('hidden');
+  showScreen('lobby');
   resetPlayNow();
 }
-
-function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
 
 // Keyed reconcile of the two team lists (avoids reloading avatar <img>s every tick).
 const memberRows = new Map(); // id -> row element
@@ -328,8 +378,20 @@ function buildMemberRow(m, listEl) {
   return row;
 }
 function updateLobbyUI(msg) {
+  roomMode = msg.mode || roomMode;
+  if (msg.code) roomCode = msg.code;
+  const isPrivate = msg.mode === 'private';
   lobbyOnlineEl.textContent = msg.online;
-  lobbyWaitingEl.textContent = msg.waiting;
+  lobbyTitleEl.innerHTML = `<span></span> ${isPrivate ? 'PRIVATE ROOM' : 'QUICK MATCH'} <span></span>`;
+  lobbyCodeWrap.classList.toggle('hidden', !isPrivate);
+  if (isPrivate && msg.code) lobbyCodeEl.textContent = msg.code;
+  // Team picking + PLAY NOW are private-room only; quick match auto-teams + auto-starts.
+  joinBtn.A.style.display = isPrivate ? '' : 'none';
+  joinBtn.B.style.display = isPrivate ? '' : 'none';
+  playNowBtn.style.display = isPrivate ? '' : 'none';
+  lobbyHintEl.textContent = isPrivate
+    ? 'Pick a team, then PLAY NOW. Empty slots fill with bots.'
+    : 'Finding players… the match starts automatically.';
 
   if (msg.phase === 'countdown' && msg.countdown > 0) {
     countdownEl.textContent = msg.countdown;
@@ -358,15 +420,13 @@ function updateLobbyUI(msg) {
     }
     const label = m.id === myMemberId ? `${m.name} (you)` : m.name;
     if (nm.textContent !== label) nm.textContent = label;
-    st.textContent = m.inMatch ? '● playing' : (m.ready ? '● ready' : '');
-    row.classList.toggle('is-ready', !!(m.ready || m.inMatch));
+    st.textContent = m.inMatch ? '● playing' : '';
     row.classList.toggle('is-me', m.id === myMemberId);
     if (m.id === myMemberId) myLobbyTeam = m.team === 'B' ? 'B' : 'A';
   }
   for (const [id, row] of memberRows) {
     if (!seen.has(id)) { row.remove(); memberRows.delete(id); }
   }
-  // Highlight the team I'm on; disable its JOIN button.
   joinBtn.A.classList.toggle('current', myLobbyTeam === 'A');
   joinBtn.B.classList.toggle('current', myLobbyTeam === 'B');
 }

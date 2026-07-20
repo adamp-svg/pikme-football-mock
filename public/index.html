@@ -26,15 +26,46 @@
     </div>
   </div>
 
+  <!-- Home / main menu (shows your character) -->
+  <div id="home" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="home-wrap">
+      <div class="eyebrow"><span></span> <span id="home-online">0</span> ONLINE <span></span></div>
+      <div class="char-card">
+        <div id="home-face" class="char-face"></div>
+        <div id="home-name" class="char-name-big">Player</div>
+        <div class="char-sub">BLOCK FOOTBALLER</div>
+      </div>
+      <button id="quick-match-btn" class="play"><span>QUICK MATCH</span><b>›</b></button>
+      <button id="friends-btn" class="play ghost">PLAY WITH FRIENDS</button>
+    </div>
+  </div>
+
+  <!-- Play with friends: create / join a private room -->
+  <div id="friends" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="home-wrap">
+      <div class="eyebrow"><span></span> PLAY WITH FRIENDS <span></span></div>
+      <button id="create-room-btn" class="play"><span>CREATE ROOM</span><b>›</b></button>
+      <div class="join-row">
+        <input id="join-code" class="code-input" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" />
+        <button id="join-room-btn" class="play join-btn">JOIN</button>
+      </div>
+      <p id="room-error" class="room-error hidden"></p>
+      <button id="friends-back" class="play ghost small">‹ BACK</button>
+    </div>
+  </div>
+
   <!-- Lobby / waiting room -->
   <div id="lobby" class="screen hidden">
     <div class="start-shade"></div>
     <div class="lobby-wrap">
       <div class="lobby-head">
-        <div class="eyebrow"><span></span> WAITING ROOM <span></span></div>
+        <button id="lobby-leave" class="lobby-leave">‹ LEAVE</button>
+        <div id="lobby-title" class="eyebrow"><span></span> QUICK MATCH <span></span></div>
+        <div id="lobby-code-wrap" class="lobby-code-wrap hidden">ROOM CODE <b id="lobby-code">····</b> <small>share it with friends</small></div>
         <div class="lobby-counts">
           <div class="count-pill"><strong id="lobby-online">0</strong><small>ONLINE</small></div>
-          <div class="count-pill"><strong id="lobby-waiting">0</strong><small>WAITING</small></div>
         </div>
       </div>
       <div class="teams">
@@ -51,7 +82,7 @@
         </div>
       </div>
       <button id="play-now" class="play"><span>PLAY NOW</span><b>›</b></button>
-      <p class="hint">Pick a team to line up with a friend, then <b>PLAY NOW</b> — match starts after a 5s countdown; empty slots become bots.</p>
+      <p id="lobby-hint" class="hint">Pick a team to line up with a friend, then <b>PLAY NOW</b> — match starts after a 5s countdown; empty slots become bots.</p>
     </div>
     <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
   </div>
