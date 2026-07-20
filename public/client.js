@@ -246,7 +246,7 @@ function cardImage(r, n) {
   let img = _cardImgs.get(key);
   if (!img) {
     img = new Image();
-    img.onload = () => { img.ready = true; };
+    img.onload = () => { img.ready = true; audNeedsRebake = true; };
     img.onerror = () => { img.failed = true; };
     img.src = `${CARD_ART_BASE}/${r}/${n}.webp`;
     _cardImgs.set(key, img);
@@ -1210,24 +1210,34 @@ function buildAudienceSeats() {
   fillSideSeats(side.rv, rivalPool);
   preloadCards([...myPool, ...rivalPool]);
 }
+// Perf: the audience is baked into two offscreen layers (even/odd seats), sized like
+// the field cache. Each frame we blit those TWO images with opposite vertical bob — a
+// lively crowd wave for ~2 drawImage/frame instead of ~80. Re-baked only when card art
+// finishes loading (audNeedsRebake) or the canvas resizes.
+let audLayers = null, audNeedsRebake = false;
+function bakeAudience() {
+  const W = bgCanvas.width, H = bgCanvas.height;
+  audLayers = [document.createElement('canvas'), document.createElement('canvas')];
+  const gx = audLayers.map((c) => { c.width = W; c.height = H; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; return g; });
+  const sw = Math.ceil(ws_(AUD.seatW)), sh = Math.ceil(ws_(AUD.seatH));
+  for (let i = 0; i < audSeats.length; i++) {
+    const s = audSeats[i]; if (!s.r) continue;
+    const g = gx[i & 1];
+    const px = Math.round((s.x + NET) * scale), py = Math.round((s.y + BAND) * scale); // bg-cache coords
+    const img = cardImage(s.r, s.n);
+    if (img.ready) g.drawImage(img, px, py, sw, sh);
+    else { g.fillStyle = RARITY_GLOW[s.r] || '#8a97a8'; g.fillRect(px, py, sw, sh); }
+    g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 1; g.strokeRect(px + 0.5, py + 0.5, sw - 1, sh - 1);
+  }
+}
 function drawAudience() {
   if (me.team == null) return;
-  if (!audienceReady) { buildAudienceSeats(); audienceReady = true; }
-  const t = performance.now(), w = Math.ceil(ws_(AUD.seatW)), h = Math.ceil(ws_(AUD.seatH)), amp = ws_(AUD.bob), flip = flipView();
-  for (const s of audSeats) {
-    if (!s.r) continue; // empty seat — cobble shows through
-    const px = Math.round(wx(s.x)), py = Math.round(wy(s.y) + Math.sin(t * 0.004 + s.seed) * amp);
-    if (px + w < -4 || px > wbW + 4 || py + h < -4 || py > wbH + 4) continue; // cull off-screen
-    const img = cardImage(s.r, s.n);
-    if (img.ready) {
-      if (flip) { ctx.save(); ctx.translate(px + w, py); ctx.scale(-1, 1); ctx.drawImage(img, 0, 0, w, h); ctx.restore(); }
-      else ctx.drawImage(img, px, py, w, h);
-    } else {
-      ctx.fillStyle = RARITY_GLOW[s.r] || '#8a97a8'; ctx.fillRect(px, py, w, h);
-    }
-    ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 1;
-    ctx.strokeRect(px + 0.5, py + 0.5, w - 1, h - 1);
-  }
+  if (!audienceReady) { buildAudienceSeats(); audienceReady = true; audNeedsRebake = true; }
+  if (audNeedsRebake || !audLayers || audLayers[0].width !== bgCanvas.width) { bakeAudience(); audNeedsRebake = false; }
+  const b = Math.sin(performance.now() * 0.004) * ws_(AUD.bob);
+  const ox = -(camX + NET * scale), oy = -(camY + BAND * scale);
+  ctx.drawImage(audLayers[0], ox, oy + b);   // even seats bob up
+  ctx.drawImage(audLayers[1], ox, oy - b);   // odd seats bob down — crowd wave
 }
 
 // Quartz-white line palette for all pitch markings.
