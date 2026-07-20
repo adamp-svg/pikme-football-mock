@@ -336,13 +336,50 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
   carouselEl.addEventListener('pointercancel', end);
 })();
 
-// Title -> connect + show home menu.
-document.getElementById('play').addEventListener('click', () => {
-  unlockAudio();
-  renderHomeCharacter();
-  showScreen('home');
-  connect(MY_NAME, MY_AVATAR);
-});
+// ---- Home dancing character -------------------------------------------------
+const homeCharCanvas = document.getElementById('home-char');
+const homeCharCtx = homeCharCanvas ? homeCharCanvas.getContext('2d') : null;
+let homeDanceRAF = null;
+// A blocky footballer doing a little dance (bob + arm pumps + sway) on the home screen.
+function drawDancer(g, W, H, t) {
+  g.clearRect(0, 0, W, H);
+  g.imageSmoothingEnabled = false;
+  const sf = H / 46, ox = W / 2, feetY = H - sf * 4;
+  const P = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
+  const S = (u) => u * sf;
+  const beat = t * 0.005;
+  const bounce = Math.abs(Math.sin(beat * 2)) * 3, sway = Math.sin(beat) * 3;
+  const armL = Math.sin(beat * 2) * 6, armR = -armL, legL = Math.sin(beat * 2) * 2;
+  const topY = -30 - bounce;
+  const X = (u) => ox + sway + S(u), Y = (u) => feetY + S(topY + u);
+  const sk = '#e7b072', skS = '#c8925a', hair = '#3a2a17', J = '#3f7bd6', JS = '#2c5aa6', wht = '#f2efe4', sh = '#eef0f2', boot = '#20232a';
+  P(ox - S(8), feetY + S(-1), S(16), S(3), 'rgba(0,0,0,.28)');                 // ground shadow
+  P(X(-4), Y(20), S(3), S(6 + legL), sk); P(X(-4), Y(26 + legL), S(4), S(2), boot);
+  P(X(1), Y(20), S(3), S(6 - legL), sk); P(X(1), Y(26 - legL), S(4), S(2), boot);
+  P(X(-5), Y(17), S(10), S(4), sh);                                            // shorts
+  P(X(-5), Y(9), S(10), S(9), J); P(X(-5), Y(9), S(2), S(9), JS); P(X(3), Y(9), S(2), S(9), JS); P(X(-1), Y(11), S(2), S(5), wht); // torso
+  P(X(-8), Y(9 + armL), S(3), S(6), J); P(X(-8), Y(15 + armL), S(3), S(2), sk); // arms pumping
+  P(X(5), Y(9 + armR), S(3), S(6), J); P(X(5), Y(15 + armR), S(3), S(2), sk);
+  P(X(-5), Y(0), S(10), S(9), sk); P(X(-5), Y(0), S(10), S(3), hair);          // head + hair
+  P(X(-3), Y(4), S(2), S(2), wht); P(X(1), Y(4), S(2), S(2), wht);
+  P(X(-2), Y(4), S(1), S(2), '#20242b'); P(X(2), Y(4), S(1), S(2), '#20242b');
+  P(X(-1), Y(7), S(3), S(1), skS);
+}
+function startHomeDance() {
+  if (!homeCharCtx || homeDanceRAF) return;
+  const loop = () => {
+    if (!homeEl.classList.contains('hidden')) drawDancer(homeCharCtx, homeCharCanvas.width, homeCharCanvas.height, performance.now());
+    homeDanceRAF = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+// The user/home screen is shown first (no title gate): render identity + card
+// carousel, start the character dance, and connect straight away.
+renderHomeCharacter();
+showScreen('home');
+startHomeDance();
+connect(MY_NAME, MY_AVATAR);
 
 // Home actions.
 document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
@@ -412,16 +449,18 @@ function connect(name, avatar) {
     } else if (msg.type === 'roomJoined') {
       roomMode = msg.mode; roomCode = msg.code || null;
       clearLobbyLists(); resetPlayNow();
-      showScreen('lobby');
+      if (msg.mode === 'quick') { quickVs = true; showScreen('home'); } // VS + countdown overlay drives the wait
+      else { quickVs = false; hideVs(); showScreen('lobby'); }
     } else if (msg.type === 'toHome') {
       if (msg.online != null) homeOnlineEl.textContent = msg.online;
       me = { playerId: null, team: null, char: chosenChar };
-      showScreen('home');
+      quickVs = false; hideVs(); showScreen('home');
     } else if (msg.type === 'roomError') {
+      quickVs = false; hideVs();
       showRoomError(msg.msg || 'Could not join room');
       showScreen('friends');
     } else if (msg.type === 'lobby') {
-      updateLobbyUI(msg);
+      if (quickVs) updateVsCountdown(msg); else updateLobbyUI(msg);
     } else if (msg.type === 'matchStart') {
       enterMatch(msg);
     } else if (msg.type === 'toLobby') {
@@ -457,7 +496,8 @@ function enterMatch(msg) {
   showScreen('game');
   resize();
   renderBackground(); // re-cache the field/stands in our team colours
-  showTeamIntro(msg.players);
+  if (quickVs) { quickVs = false; hideTeamIntro(); } // the VS countdown already served as the intro
+  else showTeamIntro(msg.players);                    // private room: brief VS intro overlay
   resetPlayNow();
 }
 
@@ -473,7 +513,24 @@ function exitToLobby() {
 let matchRoster = [];        // [{id,name,avatar,team,cards}] from matchStart (humans)
 let audienceReady = false;   // seat layout rebuilt per match (see drawAudience)
 const teamIntroEl = document.getElementById('team-intro');
+const tiCountEl = document.getElementById('ti-count');
 let introTimer = null;
+let quickVs = false; // true while the quick-match VS + countdown overlay drives the pre-match wait
+function hideVs() { if (tiCountEl) tiCountEl.classList.add('hidden'); hideTeamIntro(); }
+// Quick-match VS screen: HOME (my team) vs RIVALS from lobby members (bots fill empty
+// slots), with the big 5..0 countdown. Refreshed on every lobby payload.
+function updateVsCountdown(msg) {
+  if (!teamIntroEl) return;
+  const mine = (msg.members.find((m) => m.id === myMemberId) || {}).team || 'A';
+  const cols = teamIntroEl.querySelectorAll('.ti-col');
+  fillIntroCol(cols[0], msg.members, mine);
+  fillIntroCol(cols[1], msg.members, mine === 'A' ? 'B' : 'A');
+  preloadCards(msg.members.flatMap((m) => m.cards || []));
+  if (msg.phase === 'countdown' && msg.countdown > 0) { tiCountEl.textContent = msg.countdown; tiCountEl.classList.remove('hidden'); }
+  else tiCountEl.classList.add('hidden');
+  teamIntroEl.classList.remove('hidden');
+  requestAnimationFrame(() => teamIntroEl.classList.add('show'));
+}
 function introCardEl(c) {
   const el = document.createElement('div');
   el.className = 'ti-card rarity-' + c.r; el.dataset.n = c.n;
@@ -517,10 +574,12 @@ function showTeamIntro(players) {
 function hideTeamIntro() {
   clearTimeout(introTimer);
   if (!teamIntroEl) return;
+  if (tiCountEl) tiCountEl.classList.add('hidden');
   teamIntroEl.classList.remove('show');
   setTimeout(() => teamIntroEl.classList.add('hidden'), 340);
 }
-if (teamIntroEl) teamIntroEl.addEventListener('click', hideTeamIntro);
+// Tap-to-skip only applies to the brief match-start intro, not the quick-match countdown.
+if (teamIntroEl) teamIntroEl.addEventListener('click', () => { if (!quickVs) hideTeamIntro(); });
 
 // Keyed reconcile of the two team lists (avoids reloading avatar <img>s every tick).
 const memberRows = new Map(); // id -> row element
@@ -1621,18 +1680,19 @@ function drawHUD() {
     const txt = myScore === opScore ? 'DRAW' : (myScore > opScore ? 'BLUE WINS' : 'RED WINS');
     banner.textContent = txt;
     banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
-    banner.classList.remove('hidden');
+    banner.classList.remove('count'); banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
     // "GOAL!" during the freeze that shows the scoring positions, then 3-2-1.
     const showing = latest.resetTimer > GOAL_RESET - GOAL_FREEZE_HOLD;
-    banner.textContent = showing ? 'GOAL!' : String(Math.ceil(latest.resetTimer));
-    banner.style.color = teamColor(latest.lastGoal); // blue if I scored, red if conceded
+    if (showing) { banner.textContent = 'GOAL!'; banner.style.color = teamColor(latest.lastGoal); banner.classList.remove('count'); }
+    else { banner.textContent = String(Math.ceil(latest.resetTimer)); banner.style.color = ''; banner.classList.add('count'); } // main-menu countdown look
     banner.classList.remove('hidden');
   } else if (latest.resetTimer > 0) {
-    banner.textContent = Math.ceil(latest.resetTimer).toString(); banner.style.color = '#fff';
+    banner.textContent = Math.ceil(latest.resetTimer).toString();
+    banner.style.color = ''; banner.classList.add('count');
     banner.classList.remove('hidden');
   } else {
-    banner.classList.add('hidden');
+    banner.classList.remove('count'); banner.classList.add('hidden');
   }
 }
 

@@ -385,7 +385,7 @@ html, body {
 
 /* ---- Team intro overlay (match start) ---- */
 .team-intro {
-  position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column;
+  position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 16px;
   background: radial-gradient(circle at 50% 40%, rgba(14,22,40,.93), rgba(6,10,20,.97));
   opacity: 0; transition: opacity .34s; pointer-events: none;
@@ -425,17 +425,41 @@ html, body {
 .ti-card.cf-noart.rarity-rare { background: linear-gradient(160deg, #7fbcff, #4ea0ff); }
 .ti-card.cf-noart.rarity-common { background: linear-gradient(160deg, #c4d3e0, #9ab0c5); }
 .ti-tap { color: #9fb0d0; font: 700 11px sans-serif; letter-spacing: 1px; }
+/* Big 5..0 countdown over the VS screen — same look as the main-menu countdown. */
+.ti-count {
+  font: 900 clamp(58px, 15vw, 128px)/1 "Arial Black", Impact, sans-serif;
+  color: #fff4ca; text-shadow: 0 6px 0 #a56a16, 0 11px 0 #252a21; margin-bottom: 2px;
+}
+.ti-count.hidden { display: none; }
+
+/* Home user screen: dancing character + small avatar/name row. */
+.home-char { display: block; width: 150px; height: 158px; image-rendering: pixelated; margin: 0 0 -4px; }
+.char-id { display: flex; align-items: center; gap: 10px; }
+.home-avatar {
+  width: 40px; height: 40px; border-radius: 10px; border: 3px solid #ffe49a; flex: none;
+  background: #26332a center/cover no-repeat;
+  display: flex; align-items: center; justify-content: center;
+  color: #e7dcae; font: 900 15px "Arial Black", sans-serif;
+}
+
+/* Post-goal countdown number: match the main-menu countdown treatment. */
+.banner.count {
+  color: #fff4ca !important;
+  font: 900 clamp(90px, 22vw, 200px)/1 "Arial Black", Impact, sans-serif;
+  letter-spacing: 0; text-shadow: 0 8px 0 #a56a16, 0 14px 0 #252a21;
+}
 
 /* Short landscape (phones): compact the home menu so the carousel + both buttons
    fit without clipping. (The wrap also scrolls as a fallback.) */
 @media (max-height: 480px) {
-  .home-wrap { gap: 8px; padding: 12px; }
-  .char-face { width: 68px; height: 68px; font-size: 24px; }
-  .char-sub { display: none; }
-  .carousel { height: 80px; }
-  .cf-card { width: 58px; height: 80px; margin: -40px 0 0 -29px; }
-  .home-wrap .play { padding: 10px 18px; font-size: 16px; }
-  .home-wrap .play b { font-size: 24px; top: 2px; }
+  .home-wrap { gap: 5px; padding: 9px; }
+  .home-char { width: 90px; height: 95px; margin: 0; }
+  .home-avatar { width: 30px; height: 30px; font-size: 13px; }
+  .char-name-big { font-size: 17px; }
+  .carousel { height: 70px; }
+  .cf-card { width: 50px; height: 70px; margin: -35px 0 0 -25px; }
+  .home-wrap .play { padding: 8px 18px; font-size: 15px; }
+  .home-wrap .play b { font-size: 22px; top: 2px; }
 }
 .room-error { color: #ff7a6e; font-size: 12px; font-weight: 800; }
 

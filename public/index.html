@@ -7,34 +7,19 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <!-- Start / character-select screen -->
-  <div id="start" class="screen">
-    <div class="start-shade"></div>
-    <div class="panel block-panel">
-      <div class="eyebrow"><span></span> PIKME ARENA <span></span></div>
-      <h1><span>BLOCK</span><br/>FOOTBALL</h1>
-      <p class="sub">BUILD YOUR ATTACK. BREAK THEIR DEFENCE.</p>
+  <!-- Start screen retired: the user/home screen is shown first. Kept (empty, hidden)
+       so existing references (startEl) stay valid. -->
+  <div id="start" class="screen hidden"></div>
 
-      <div class="match-card">
-        <div class="team-chip blue"><i></i> BLUE</div>
-        <div class="mode"><strong>2 v 2</strong><small>QUICK MATCH</small></div>
-        <div class="team-chip red">RED <i></i></div>
-      </div>
-
-      <button id="play" class="play"><span>PLAY</span><b>›</b></button>
-      <p class="hint"><b>MOVE</b> WASD / LEFT STICK &nbsp;·&nbsp; <b>SHOOT</b> CLICK / RIGHT STICK &nbsp;·&nbsp; <b>BOMB</b> E &nbsp;·&nbsp; <b>WALL</b> Q / DRAG 🧱</p>
-    </div>
-  </div>
-
-  <!-- Home / main menu (shows your character) -->
-  <div id="home" class="screen hidden">
+  <!-- Home / user screen — shown first: your dancing character, name, pfp, cards -->
+  <div id="home" class="screen">
     <div class="start-shade"></div>
     <div class="home-wrap">
       <div class="eyebrow"><span></span> <span id="home-online">0</span> ONLINE <span></span></div>
-      <div class="char-card">
-        <div id="home-face" class="char-face"></div>
+      <canvas id="home-char" class="home-char" width="200" height="210"></canvas>
+      <div class="char-id">
+        <div id="home-face" class="home-avatar"></div>
         <div id="home-name" class="char-name-big">Player</div>
-        <div class="char-sub">BLOCK FOOTBALLER</div>
       </div>
       <div id="home-carousel" class="carousel hidden"></div>
       <button id="quick-match-btn" class="play"><span>QUICK MATCH</span><b>›</b></button>
@@ -88,6 +73,17 @@
     <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
   </div>
 
+  <!-- Team intro / quick-match VS + countdown screen (top-level overlay) -->
+  <div id="team-intro" class="team-intro hidden">
+    <div id="ti-count" class="ti-count hidden">5</div>
+    <div class="ti-inner">
+      <div class="ti-col ti-home"><div class="ti-team-title">HOME</div><div class="ti-rows"></div></div>
+      <div class="ti-vs">VS</div>
+      <div class="ti-col ti-away"><div class="ti-team-title">RIVALS</div><div class="ti-rows"></div></div>
+    </div>
+    <div class="ti-tap">tap to skip</div>
+  </div>
+
   <!-- Game -->
   <div id="game" class="screen hidden">
     <canvas id="canvas"></canvas>
@@ -103,16 +99,6 @@
     </div>
 
     <div id="banner" class="banner hidden"></div>
-
-    <!-- Team intro shown briefly at match start (roster from matchStart.players). -->
-    <div id="team-intro" class="team-intro hidden">
-      <div class="ti-inner">
-        <div class="ti-col ti-home"><div class="ti-team-title">HOME</div><div class="ti-rows"></div></div>
-        <div class="ti-vs">VS</div>
-        <div class="ti-col ti-away"><div class="ti-team-title">RIVALS</div><div class="ti-rows"></div></div>
-      </div>
-      <div class="ti-tap">tap to skip</div>
-    </div>
 
     <!-- On-screen joysticks (touch). Hidden until first touch. -->
     <div id="stickL" class="stick hidden"><div class="knob"></div></div>
