@@ -35,7 +35,7 @@ const ownGoalX = (team) => (team === 'A' ? 0 : FIELD.W);
 // ---- difficulty skill vectors (Normal ships; presets wired for later scaling) ----
 export const BOT_SKILL = {
   easy:   { react: 0.30, aimSigma: 0.17, aimTau: 0.60, turnRate: 6.0,  leadGain: 0.70, decisionHz: 7,  toolSkill: 0.45, evade: 0.55, aggro: 0.75 },
-  normal: { react: 0.15, aimSigma: 0.075, aimTau: 0.38, turnRate: 9.5, leadGain: 0.94, decisionHz: 12, toolSkill: 0.80, evade: 0.85, aggro: 0.92 },
+  normal: { react: 0.09, aimSigma: 0.05, aimTau: 0.30, turnRate: 15.0, leadGain: 0.96, decisionHz: 15, toolSkill: 0.85, evade: 0.85, aggro: 0.95 },
   hard:   { react: 0.06, aimSigma: 0.028, aimTau: 0.26, turnRate: 14.0, leadGain: 1.0, decisionHz: 20, toolSkill: 0.96, evade: 0.96, aggro: 1.0 },
 };
 export const DEFAULT_SKILL = 'normal';
@@ -273,7 +273,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     let nearFoe = null, nfd = 1e9;
     for (const e of visibleEnemies) { const d = hyp(e.x - p.x, e.y - p.y); if (d < nfd) { nfd = d; nearFoe = e; } }
     const linedUp = Math.abs(p.y - GY) < GOAL.width / 2 + 220;
-    const shotLane = laneClear(p.x, p.y, egX, GY, state, team, { margin: 6 });
+    const shotLane = laneClear(p.x, p.y, egX, GY, state, team, { enemies: false }); // power shot plows through a defender
     // 1) open shot on goal -> RELEASE full power (can't dribble a goal in)
     if (distGoal < 820 && linedUp && shotLane) {
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1;
@@ -336,7 +336,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     } else {
       // cover: sit on the carrier->own-goal shadow, mark the SECOND enemy if any
       const other = enemies.find((e) => e.id !== c.id);
-      const shadowX = c.x + (ogX - c.x) * 0.42, shadowY = c.y + (GY - c.y) * 0.42;
+      const shadowX = c.x + (ogX - c.x) * 0.58, shadowY = c.y + (GY - c.y) * 0.58;
       if (other && botCanSee(p, other, state)) {
         // mark: stand goal-side of the second enemy
         tgt = { x: (other.x + ogX) / 2, y: (other.y + GY) / 2 };
@@ -390,9 +390,9 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt) {
   const th = bm.aimTheta + noise;
   const ax = Math.cos(th), ay = Math.sin(th);
 
-  // don't fire before the aim has converged (prevents wild misses / ammo dump)
+  // don't fire before the aim has roughly converged (prevents wild misses / ammo dump)
   let { shoot, charge, special, build } = btn;
-  if (shoot && Math.abs(dTheta) > 0.22) { shoot = false; }
+  if (shoot && Math.abs(dTheta) > 0.45) { shoot = false; }
   // ammo discipline: never try to shoot bullets with an empty/reloading mag
   if (shoot && charge < 0.99 && p.ammo <= 0) shoot = false;
 

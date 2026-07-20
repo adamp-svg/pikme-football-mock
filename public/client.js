@@ -997,7 +997,7 @@ let ctx = wbCtx;            // active draw target (world draws target the low-re
 let scale = 1, dpr = 1;     // scale = ART pixels per world unit
 let camX = 0, camY = 0;     // camera offset in ART px (subtracted in wx/wy)
 const NET = GOAL.depth;     // net depth behind each goal line
-const BAND = 240;           // depth (world units) of the top/bottom touchline terraces (~3 audience rows)
+const BAND = 380;           // depth (world units) of the top/bottom touchline terraces (~4 audience rows, packed pitch->edge)
 
 function resize() {
   dpr = Math.min(devicePixelRatio || 1, 2);
