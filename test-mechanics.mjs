@@ -114,21 +114,22 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   ok(!pointInBush(5, 5), 'a corner of the pitch is not in a bush');
 }
 
-// 12) A wall cannot be built inside a bush or a penalty area (the charge is kept).
+// 12) A wall built inside a bush or a penalty area is allowed but FRAGILE (hp 1).
 {
   const s = fresh();
   const p = s.players.p1;
   const bush = ARENA.bushes[0];
-  p.x = bush.x + bush.w / 2; p.y = bush.y + bush.h / 2; p.aimX = 1; p.aimY = 0;
+  p.x = bush.x + bush.w / 2 - 90; p.y = bush.y + bush.h / 2; p.aimX = 1; p.aimY = 0; // build into the bush
   step(s, { p1: inp({ build: true }), p2: inp() }, DT);
-  ok(s.builtWalls.length === 0 && p.buildAmmo === BUILD_MAG, `no build inside a bush (charge kept: ${p.buildAmmo})`);
+  const w = s.builtWalls[0];
+  ok(w && w.fragile === true && w.hp === 1, `wall built in a bush is FRAGILE hp1 (${w ? w.fragile + '/' + w.hp : 'none'})`);
 }
 {
   const s = fresh();
   const p = s.players.p1;
   p.x = 120; p.y = FIELD.H / 2; p.aimX = -1; p.aimY = 0; // inside team A's own penalty area
   step(s, { p1: inp({ build: true }), p2: inp() }, DT);
-  ok(s.builtWalls.length === 0, `no build inside the penalty area (${s.builtWalls.length})`);
+  ok(s.builtWalls[0] && s.builtWalls[0].fragile === true, `wall built in the penalty area is FRAGILE (${s.builtWalls[0] ? s.builtWalls[0].fragile : 'none'})`);
 }
 
 // 13) A fast (knockback) player cannot tunnel through a thin built wall in one tick.
