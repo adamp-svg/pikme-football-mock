@@ -574,7 +574,14 @@ html, body {
   font: 900 11px "Arial Black", sans-serif; color: #2a1c06;
   background: linear-gradient(180deg, #ffe27a, #e0a92a); padding: 2px 9px; box-shadow: 2px 2px 0 #050705;
 }
-.hub-xp { flex: 1; min-width: 40px; }                 /* reserved slot; hidden until the XP agent fills it */
+/* football XP bar — experience agent owns the numbers (window.SALTIZ_XP); hub renders it */
+.hub-xp { flex: 1; min-width: 40px; max-width: 320px; }
+.hub-xp.hidden { display: none !important; }
+.hub-xp-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 900 11px "Arial Black", sans-serif; color: #c8d4bf; }
+.hub-xp-lvl b { color: var(--gold); font-size: 13px; }
+.hub-xp-amt { color: #8aa08c; font-variant-numeric: tabular-nums; letter-spacing: .3px; direction: ltr; unicode-bidi: isolate; }
+.hub-xp-bar { height: 9px; margin-top: 5px; background: rgba(0,0,0,.45); border: 2px solid #39463b; overflow: hidden; }
+.hub-xp-bar b { display: block; height: 100%; background: linear-gradient(90deg, #4ea0ff, #7b3ad0); box-shadow: 0 0 10px rgba(78,160,255,.7); }
 .hub-online {
   margin-right: auto; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
   font: 900 11px "Arial Black", sans-serif; letter-spacing: 1px; color: #c8d4bf;
@@ -588,7 +595,14 @@ html, body {
   appearance: none; background: none; border: none; cursor: pointer; padding: 0;
   position: relative; display: flex; align-items: center; justify-content: center;
 }
+/* soft translucent disc behind the character so it reads against the busy stadium */
+.hub-hero::before {
+  content: ''; position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%);
+  width: 230px; height: 200px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(5,10,7,.72), rgba(5,10,7,.4) 55%, transparent 74%);
+}
 .hub-char {
+  position: relative;                                  /* paint above the backing disc */
   height: clamp(96px, 26vh, 172px); width: auto; image-rendering: pixelated;
   filter: drop-shadow(0 14px 10px rgba(0,0,0,.5));
 }

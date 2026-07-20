@@ -272,7 +272,19 @@ const MY_AVATAR = _params.get('avatar') || null;
 const CARD_ART_BASE = 'https://pxsjmychuxwufcvqixgu.supabase.co/storage/v1/object/public/cards';
 const RARITY_GLOW = { common: '#9ab0c5', rare: '#4ea0ff', epic: '#b46bff', legendary: '#ffb800' };
 const RARITY_RANK = { legendary: 3, epic: 2, rare: 1, common: 0 };
-function myCards() { return Array.isArray(window.SALTIZ_CARDS) ? window.SALTIZ_CARDS.slice(0, 256) : []; }
+// Local-dev only: without the app there's no injected album, so the hub/carousel
+// look empty. On localhost we preview a small sample; on any real host (device or
+// Render) we NEVER fake it — return the injected cards or nothing.
+const DEV_LOCAL = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname);
+const DEV_SAMPLE_CARDS = [
+  { r: 'legendary', n: 12, c: 1, w: 640000 }, { r: 'epic', n: 7, c: 3, w: 210000 },
+  { r: 'rare', n: 22, c: 1, w: 95000 }, { r: 'common', n: 3, c: 5, w: 30000 },
+  { r: 'rare', n: 31, c: 2, w: 88000 }, { r: 'legendary', n: 5, c: 1, w: 300000 },
+];
+function myCards() {
+  if (Array.isArray(window.SALTIZ_CARDS)) return window.SALTIZ_CARDS.slice(0, 256);
+  return DEV_LOCAL ? DEV_SAMPLE_CARDS : [];
+}
 // Best-first: worth, then rarity, then copies. Drives the carousel + the top-3 intro.
 function rankCards(cards) {
   return [...(cards || [])].sort((a, b) =>
@@ -309,6 +321,7 @@ function renderHomeCharacter() {
   else { homeFaceEl.style.backgroundImage = 'none'; homeFaceEl.textContent = memberInitials(MY_NAME); }
   renderCarousel();
   renderHubStats();
+  renderHubXp();
   _cardsSig = cardsSig();
 }
 
@@ -331,7 +344,10 @@ function fmtCompact(n) {
   return String(n);
 }
 function setTxt(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
-function cardsSig() { const c = myCards(); return c.length + ':' + (c[0] ? c[0].r + c[0].n + c[0].w : ''); }
+function cardsSig() {
+  const c = myCards(); const x = window.SALTIZ_XP;
+  return c.length + ':' + (c[0] ? c[0].r + c[0].n + c[0].w : '') + ':' + (x ? (x.xp ?? x.level ?? '') : '');
+}
 function renderHubStats() {
   const cards = myCards();
   const videos = new Set(cards.map((c) => c.n)).size;              // distinct card moments owned (of 50)
@@ -349,6 +365,24 @@ function renderHubStats() {
       rankEl.classList.remove('hidden');
     } else rankEl.classList.add('hidden');
   }
+}
+
+// Football XP bar in the hub top slot. CONTRACT with the experience agent: they
+// own the numbers via window.SALTIZ_XP = { xp } (source of truth; the app injects
+// it into the WebView like SALTIZ_CARDS); I own the bar's render here. level/next
+// follow their spec: level = floor((1+sqrt(1+xp/12.5))/2), xp-to-next = 100*level.
+function levelFromXp(xp) { return Math.max(1, Math.floor((1 + Math.sqrt(1 + Math.max(0, xp) / 12.5)) / 2)); }
+function renderHubXp() {
+  const el = document.getElementById('hub-xp'); if (!el) return;
+  const src = window.SALTIZ_XP;
+  const xp = src && Number.isFinite(+src.xp) ? +src.xp : (DEV_LOCAL ? 1240 : 0); // honest level-1 default until the app injects XP
+  const level = src && +src.level ? +src.level : levelFromXp(xp);
+  const base = 50 * level * (level - 1), span = 100 * level;
+  const into = Math.max(0, xp - base), pct = span ? Math.max(0, Math.min(1, into / span)) : 0;
+  el.innerHTML = '<div class="hub-xp-top"><span class="hub-xp-lvl">רמה <b>' + level + '</b></span>'
+    + '<span class="hub-xp-amt">' + fmtCompact(into) + ' / ' + fmtCompact(span) + ' XP</span></div>'
+    + '<div class="hub-xp-bar"><b style="width:' + (pct * 100).toFixed(1) + '%"></b></div>';
+  el.classList.remove('hidden');
 }
 
 // Coverflow carousel of the player's cards on the home screen: best card centered,
