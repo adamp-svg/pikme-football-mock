@@ -18,6 +18,8 @@ import {
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
+import { encodeKeyframe } from './shared/wire.js';
+const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -85,6 +87,7 @@ function makeRoom(id, isPrivate) {
     botMem: createBotMemory(), // persistent bot-AI memory (roles, aim, beliefs)
     botCounter: 0,
     members: new Set(),      // member objects
+    slotIds: null, slotTeam: null, rosterVersion: 0, // binary-snapshot slot->id/team mapping
   };
 }
 
@@ -205,6 +208,7 @@ function leaveCurrentRoom(member) {
     if (room.state.players[member.id]) { removePlayer(room.state, member.id); room.inputs.delete(member.id); }
     fillBots(room);
     if (humansInRoom(room) === 0) endRoom(room);
+    else if (room.phase === 'match') { room.rosterVersion++; broadcastRoster(room); } // a bot backfilled a slot
   }
   if (room.members.size === 0) destroyRoom(room);
   else broadcastLobby(room);
@@ -256,6 +260,7 @@ function startMatch(room) {
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0;
   room.phase = 'match';
+  room.rosterVersion++; broadcastRoster(room); // slot->id map for binary snapshots — sent before any snapshot
   if (publicRoom === room) publicRoom = null; // next quick-matchers form a fresh room
   broadcastLobby(room);
 }
@@ -354,13 +359,26 @@ function snapshot(room) {
   };
 }
 
+// Roster: the slot->id/team mapping for the compact binary snapshots, sent as a JSON
+// control frame whenever the player set changes (match start + mid-match bot backfill).
+// TCP ordering guarantees it precedes the snapshots that reference its rosterVersion.
+function broadcastRoster(room) {
+  const ps = Object.values(room.state.players);
+  room.slotIds = ps.map((p) => p.id);
+  room.slotTeam = ps.map((p) => p.team);
+  const payload = { type: 'roster', v: room.rosterVersion, slots: ps.map((p, i) => ({ i, id: p.id, team: p.team })) };
+  for (const m of room.members) if (m.inMatch && m.ws.readyState === m.ws.OPEN) send(m.ws, payload);
+}
+
 function broadcastSnapshots() {
   try {
     for (const room of rooms.values()) {
-      if (room.phase !== 'match') continue;
-      const msg = JSON.stringify(snapshot(room));
+      if (room.phase !== 'match' || !room.slotIds) continue;
+      const buf = encodeKeyframe(snapshot(room), room.slotIds, room.rosterVersion); // compact binary, encoded once per room
       for (const m of room.members) {
-        if (m.inMatch && m.ws.readyState === m.ws.OPEN) { try { m.ws.send(msg); } catch { /* dead socket */ } }
+        if (!m.inMatch || m.ws.readyState !== m.ws.OPEN) continue;
+        if (m.ws.bufferedAmount > BACKPRESSURE_LIMIT) continue; // backpressure: drop a stale frame for a backed-up client
+        try { m.ws.send(buf); } catch { /* dead socket */ }
       }
     }
   } catch (e) { if (bcErrCount++ < 5) console.error('BROADCAST ERROR:', (e && e.stack) || e); }
@@ -423,8 +441,9 @@ function sanitizeCards(raw) {
 // ---------------------------------------------------------------------------
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   let member = null;
+  try { req.socket.setNoDelay(true); } catch { /* disable Nagle so tiny 60Hz frames aren't batched */ }
 
   ws.on('message', (raw) => {
     let msg;

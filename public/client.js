@@ -7,11 +7,13 @@ import {
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
+import { decodeSnapshot } from '/shared/wire.js';
+let slotIds = [], slotTeam = [], rosterVersion = -1; // binary-snapshot slot->id/team (from the 'roster' control msg)
 
 const PENALTY_TOP = (FIELD.H - PENALTY.width) / 2;
 const PENALTY_BOTTOM = (FIELD.H + PENALTY.width) / 2;
 
-const INPUT_RATE = 30;         // inputs sent per second (matches server tick)
+const INPUT_RATE = 60;         // inputs sent per second (matches server tick)
 const INPUT_DT = 1 / INPUT_RATE;
 const INTERP_DELAY = 100;      // ms we render remote entities in the past
 const GOAL_TOP = (FIELD.H - GOAL.width) / 2;
@@ -423,6 +425,7 @@ function connect(name, avatar) {
   // wss when the page is served over https (Render), ws for local dev.
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}`);
+  ws.binaryType = 'arraybuffer'; // snapshots arrive as compact binary frames
   ws.onopen = () => {
     setNet('connected');
     ws.send(JSON.stringify({ type: 'join', name, avatar, cards: myCards() }));
@@ -436,15 +439,33 @@ function connect(name, avatar) {
     if (pingIv) { clearInterval(pingIv); pingIv = null; }
     me = { playerId: null, team: null, char: chosenChar };
     latest = null; snaps = []; predicted = null; rendered = null;
+    slotIds = []; slotTeam = []; rosterVersion = -1; // reset the binary-snapshot roster baseline
     if (!startEl.classList.contains('hidden')) return; // still on the title screen
     showScreen('home');
     resetPlayNow();
     if (!reconnectT) reconnectT = setTimeout(() => { reconnectT = null; connect(name, avatar); }, 1500);
   };
   ws.onmessage = (e) => {
+    if (typeof e.data !== 'string') { // compact binary snapshot
+      if (!me.playerId) return; // ignore stray snapshots while in the lobby
+      const snap = decodeSnapshot(new DataView(e.data), slotIds, slotTeam, rosterVersion);
+      if (!snap) return; // roster seam / stale rosterVersion — wait for the matching roster
+      processSnapshotSounds(snap);
+      latest = snap;
+      snapCount++;
+      holdingBall = snap.ball.owner === me.playerId;
+      snaps.push({ tRecv: performance.now(), snap });
+      if (snaps.length > 60) snaps.shift();
+      reconcile(snap);
+      return;
+    }
     const msg = JSON.parse(e.data);
     if (msg.type === 'welcome') {
       myMemberId = msg.id; // our lobby identity; playerId + team arrive with matchStart
+    } else if (msg.type === 'roster') {
+      rosterVersion = msg.v; // slot->id/team map for the binary snapshots that follow
+      slotIds = msg.slots.map((s) => s.id);
+      slotTeam = msg.slots.map((s) => s.team);
     } else if (msg.type === 'home') {
       homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
     } else if (msg.type === 'roomJoined') {
@@ -466,15 +487,6 @@ function connect(name, avatar) {
       enterMatch(msg);
     } else if (msg.type === 'toLobby') {
       exitToLobby();
-    } else if (msg.type === 'snapshot') {
-      if (!me.playerId) return; // ignore stray snapshots while in the lobby
-      processSnapshotSounds(msg);
-      latest = msg;
-      snapCount++;
-      holdingBall = msg.ball.owner === me.playerId;
-      snaps.push({ tRecv: performance.now(), snap: msg });
-      if (snaps.length > 60) snaps.shift();
-      reconcile(msg);
     } else if (msg.type === 'pong') {
       ping = Math.round(performance.now() - msg.t);
     }

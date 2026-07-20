@@ -15,13 +15,14 @@ export const PENALTY = { width: 620, depth: 360 };
 // A player attacking inside the enemy penalty area takes far less knockback.
 export const PENALTY_KNOCKBACK_MUL = 0.3;
 
-// 30Hz network rate (rendering stays smooth via rAF + interpolation; 60Hz
-// overloaded the mobile WebView). Physics are per-SECOND, converted with DT,
-// so feel is identical at any TICK_RATE.
-export const TICK_RATE = 30;
+// 60Hz network rate. (60Hz previously overloaded the mobile WebView because each
+// snapshot was ~1.4KB JSON to parse; the compact BINARY wire — see shared/wire.js —
+// removes that parse cost, making 60Hz affordable again.) Physics are per-SECOND,
+// converted with DT, so feel is identical at any TICK_RATE.
+export const TICK_RATE = 60;
 export const DT = 1 / TICK_RATE;
 
-export const SNAPSHOT_RATE = 30; // server -> client state broadcasts per second
+export const SNAPSHOT_RATE = 60; // server -> client state broadcasts per second
 
 export const BALL_RADIUS = 16;
 // "fraction of speed kept per second" -> per-tick factor (frame-independent).
