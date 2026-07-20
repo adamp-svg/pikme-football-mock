@@ -1150,7 +1150,7 @@ function drawFanWall(x0, y0, x1, y1, color) {
 // cards on their side (home), the opposing team's cards pooled on the far side.
 // Seats are laid out once per match (buildAudienceSeats) then drawn per-frame with
 // a bob, inside the mirrored-world transform so home stays on the player's own side.
-const AUD = { seatW: 42, seatH: 56, gapX: 5, gapY: 7, bob: 6, capPerCard: 12, capTotal: 220, fillMult: 1.6 };
+const AUD = { seatW: 64, seatH: 86, gapX: 6, gapY: 9, bob: 8, capPerCard: 12, capTotal: 220, fillMult: 1.6 };
 let audSeats = [];
 // Expand a ranked card list into one entry per copy (capped), best-worth first.
 function expandPool(cards) {
@@ -1191,7 +1191,7 @@ function buildAudienceSeats() {
     const rows = Math.max(1, Math.floor(rh / (AUD.seatH + AUD.gapY)));
     const usedW = cols * AUD.seatW + (cols - 1) * AUD.gapX;
     const usedH = rows * AUD.seatH + (rows - 1) * AUD.gapY;
-    const gap = 8; // small gap between the front row and the pitch
+    const gap = 2; // front row hugs the pitch (cards right up to the touchline)
     // Anchor to the FIELD-facing edge so the front row hugs the pitch (not centred far out).
     const ox = x1 <= 0 ? x1 - usedW - gap
       : x0 >= FIELD.W ? x0 + gap
