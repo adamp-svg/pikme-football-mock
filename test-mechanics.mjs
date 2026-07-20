@@ -1,7 +1,7 @@
 // Sim unit tests for the arena mechanics (walls, bushes, trampolines, build).
 // Run: node test-mechanics.mjs   (exits non-zero on any failure)
 import { createState, addPlayer, attachBall, step } from './shared/sim.js';
-import { DT, BUILD_MAG, BUILD_RELOAD, BUILT_WALL } from './shared/constants.js';
+import { DT, BUILD_MAG, BUILD_RELOAD, BUILT_WALL, FIELD } from './shared/constants.js';
 import { ARENA, pointInBush } from './shared/arena.js';
 
 let fails = 0;
@@ -55,7 +55,7 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
 {
   const s = fresh();
   const p = s.players.p1;
-  p.x = 1000; p.y = 550; p.aimX = 1; p.aimY = 0;
+  p.x = 1000; p.y = 200; p.aimX = 1; p.aimY = 0; // clear of the centre bush + penalty areas
   step(s, { p1: inp({ build: true }), p2: inp() }, DT);
   ok(s.builtWalls.length === 1, `build placed a wall (${s.builtWalls.length})`);
   ok(p.buildAmmo === BUILD_MAG - 1, `one build charge spent (${p.buildAmmo}/${BUILD_MAG})`);
@@ -112,6 +112,34 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   const g = ARENA.bushes[0];
   ok(pointInBush(g.x + g.w / 2, g.y + g.h / 2), 'centre of a bush reads as in-bush');
   ok(!pointInBush(5, 5), 'a corner of the pitch is not in a bush');
+}
+
+// 12) A wall cannot be built inside a bush or a penalty area (the charge is kept).
+{
+  const s = fresh();
+  const p = s.players.p1;
+  const bush = ARENA.bushes[0];
+  p.x = bush.x + bush.w / 2; p.y = bush.y + bush.h / 2; p.aimX = 1; p.aimY = 0;
+  step(s, { p1: inp({ build: true }), p2: inp() }, DT);
+  ok(s.builtWalls.length === 0 && p.buildAmmo === BUILD_MAG, `no build inside a bush (charge kept: ${p.buildAmmo})`);
+}
+{
+  const s = fresh();
+  const p = s.players.p1;
+  p.x = 120; p.y = FIELD.H / 2; p.aimX = -1; p.aimY = 0; // inside team A's own penalty area
+  step(s, { p1: inp({ build: true }), p2: inp() }, DT);
+  ok(s.builtWalls.length === 0, `no build inside the penalty area (${s.builtWalls.length})`);
+}
+
+// 13) A fast (knockback) player cannot tunnel through a thin built wall in one tick.
+{
+  const s = fresh();
+  const p = s.players.p1;
+  const wallX = 1000;
+  s.builtWalls.push({ id: 7, x: wallX, y: FIELD.H / 2 - 88, w: 32, h: 176, hp: 3, maxHp: 3, team: 'B' });
+  p.x = wallX - 60; p.y = FIELD.H / 2; p.kvx = 8000; p.kvy = 0; // huge knockback into the wall
+  step(s, { p1: inp(), p2: inp() }, DT);
+  ok(p.x <= wallX + 0.5, `fast player stopped by a thin wall (x=${p.x.toFixed(1)} <= ${wallX})`);
 }
 
 console.log(`\n${fails === 0 ? '✅ ALL PASS' : '❌ ' + fails + ' FAILED'}`);

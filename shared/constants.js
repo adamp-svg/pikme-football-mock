@@ -148,7 +148,7 @@ export const TRAMPOLINE = {
 };
 // Stealth: an enemy in a bush is hidden UNLESS you are within BUSH_REVEAL_DIST,
 // they fired within SHOT_REVEAL_TIME, or they are carrying the ball.
-export const BUSH_REVEAL_DIST = 220;
+export const BUSH_REVEAL_DIST = 110;
 export const SHOT_REVEAL_TIME = 0.45;
 // Player-built destructible wall (SPECIAL-style pull-to-build).
 export const BUILT_WALL = {

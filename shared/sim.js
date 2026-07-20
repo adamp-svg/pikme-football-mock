@@ -274,14 +274,17 @@ export function step(state, inputs, dt) {
     const tvx = mx * spd, tvy = my * spd;
     p.vx += (tvx - p.vx) * MOVE_ACCEL;
     p.vy += (tvy - p.vy) * MOVE_ACCEL;
-    // Position = movement + decaying knockback.
+    // Position = movement + decaying knockback. Substep the move + wall-resolve so a
+    // fast (knockback) player can't tunnel through a thin wall in a single tick.
     const rad = radiusOf(p, state);
-    p.x = clamp(p.x + (p.vx + p.kvx) * dt, rad, FIELD.W - rad);
-    p.y = clamp(p.y + (p.vy + p.kvy) * dt, rad, FIELD.H - rad);
+    const pSteps = Math.max(1, Math.ceil(Math.hypot((p.vx + p.kvx) * dt, (p.vy + p.kvy) * dt) / (BUILT_WALL.thick * 0.5)));
+    for (let s = 0; s < pSteps; s++) {
+      p.x = clamp(p.x + (p.vx + p.kvx) * dt / pSteps, rad, FIELD.W - rad);
+      p.y = clamp(p.y + (p.vy + p.kvy) * dt / pSteps, rad, FIELD.H - rad);
+      resolveWalls(p, rad, state.builtWalls); // slide along static + built walls each substep
+    }
     p.kvx *= KNOCKBACK_DECAY; p.kvy *= KNOCKBACK_DECAY;
     if (Math.hypot(p.kvx, p.kvy) < KNOCKBACK_MIN) { p.kvx = 0; p.kvy = 0; }
-    // Push out of walls (static + built) — players slide along them.
-    resolveWalls(p, rad, state.builtWalls);
     // Trampolines fling you the way you're moving (or aim, if standing still).
     p.trampCd = Math.max(0, p.trampCd - dt);
     if (p.trampCd <= 0) {
@@ -370,14 +373,17 @@ export function step(state, inputs, dt) {
     b.vx = 0; b.vy = 0;
   } else {
     b.owner = null;
-    b.x += b.vx * dt;
-    b.y += b.vy * dt;
+    const ballR = ballRadius(state);
+    // Substep so a fast ball can't tunnel through a thin wall in one tick.
+    const bSteps = Math.max(1, Math.ceil(Math.hypot(b.vx * dt, b.vy * dt) / (BUILT_WALL.thick * 0.5)));
+    for (let s = 0; s < bSteps; s++) {
+      b.x += b.vx * dt / bSteps;
+      b.y += b.vy * dt / bSteps;
+      for (const w of ARENA.walls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE });     // ricochet off static
+      for (const w of state.builtWalls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE }); // and built walls
+    }
     b.vx *= BALL_FRICTION;
     b.vy *= BALL_FRICTION;
-    const ballR = ballRadius(state);
-    // Ricochet off every wall (static + built).
-    for (const w of ARENA.walls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE });
-    for (const w of state.builtWalls) resolveCircleBox(b, w, ballR, { bounce: WALL_BOUNCE });
     const bspeed = Math.hypot(b.vx, b.vy);
     if (bspeed < BALL_MIN_SPEED) { b.vx = 0; b.vy = 0; }
     if (b.pickupCd > 0) b.pickupCd -= dt;
@@ -441,6 +447,18 @@ function useSpecial(state, p, ch) {
 // BUILD skill — spawn a small destructible wall in front of the player, oriented
 // perpendicular to their aim (so it shields the direction they're facing). Costs
 // one build charge (regenerates one every BUILD_RELOAD seconds).
+function boxOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+function boxInBush(x, y, w, h) {
+  for (const g of ARENA.bushes) if (boxOverlap(x, y, w, h, g.x, g.y, g.w, g.h)) return true;
+  return false;
+}
+function boxInPenalty(x, y, w, h) {
+  const d = PENALTY.depth;
+  return boxOverlap(x, y, w, h, 0, PENALTY_TOP, d, PENALTY.width) ||
+         boxOverlap(x, y, w, h, FIELD.W - d, PENALTY_TOP, d, PENALTY.width);
+}
 function buildWall(state, p) {
   const al = Math.hypot(p.aimX, p.aimY) || 1;
   const ax = p.aimX / al, ay = p.aimY / al;
@@ -451,6 +469,8 @@ function buildWall(state, p) {
   let cy = p.y + ay * BUILT_WALL.offset;
   let x = clamp(cx - w / 2, 2, FIELD.W - w - 2);
   let y = clamp(cy - h / 2, 2, FIELD.H - h - 2);
+  // No building inside a bush or a penalty area — reject without spending a charge.
+  if (boxInBush(x, y, w, h) || boxInPenalty(x, y, w, h)) return;
   state.builtWalls.push({
     id: state._nid++, x, y, w, h, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp,
     team: p.team, ttl: BUILT_WALL.ttl,
