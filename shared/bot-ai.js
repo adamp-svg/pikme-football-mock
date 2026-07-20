@@ -17,17 +17,14 @@
 //   - live tuning (bulletSpeed/bombPower/shotPower) comes from state.settings.
 
 import {
-  FIELD, GOAL, PENALTY, PENALTY_KNOCKBACK_MUL, BOMB, PROJECTILE, MAG_SIZE, FULL_CHARGE,
-  BOMB_CENTER_R, BUILT_WALL, RELEASE_PICKUP_CD, BUSH_REVEAL_DIST, CHARACTERS, DEFAULT_CHAR, clamp,
+  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BUILT_WALL, BUSH_REVEAL_DIST,
+  CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
 import { ARENA, pointInBox, pointInBush } from './arena.js';
 
 const GY = FIELD.H / 2;
-const GOAL_TOP = (FIELD.H - GOAL.width) / 2;
-const GOAL_BOTTOM = (FIELD.H + GOAL.width) / 2;
 const PEN_TOP = (FIELD.H - PENALTY.width) / 2;
 const PEN_BOT = (FIELD.H + PENALTY.width) / 2;
-const BOT_R = (CHARACTERS[DEFAULT_CHAR].radius) * 1.25; // matches default sizeMul; refined per-state below
 
 const enemyGoalX = (team) => (team === 'A' ? FIELD.W : 0);
 const ownGoalX = (team) => (team === 'A' ? 0 : FIELD.W);
@@ -59,7 +56,6 @@ function nearestBushCenter(x, y, maxD = 520) {
 
 // A player's effective radius given live settings.
 function radOf(state) { return CHARACTERS[DEFAULT_CHAR].radius * (state.settings.sizeMul || 1); }
-function ballRad(state) { return 16 * (state.settings.ballSizeMul || 1); }
 
 // Is `p` inside the penalty box it is ATTACKING (knockback cut to 0.3× there)?
 export function inEnemyBox(p) {
@@ -301,7 +297,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     // 3) genuine finish only: bomb rocket-jump toward goal (HOLD after planting). Close
     // to goal + clear lane + no teammate in the blast — else the stationary fuse is easy to strip.
     const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
-    if (!shoot && bombReady && nfd < 150 && distGoal < 560 && shotLane && mateSafe && Math.random() < sk.aggro) {
+    if (!shoot && bombReady && nfd < 150 && distGoal < 560 && shotLane && mateSafe && Math.random() < sk.aggro * 0.55) {
       special = true; aim = { x: egX - p.x, y: GY - p.y };
       bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY };
     }
@@ -348,7 +344,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       const pcx = c.x + (c.vx || 0) * BOMB.fuse, pcy = c.y + (c.vy || 0) * BOMB.fuse;
       const willReach = hyp(pcx - p.x, pcy - p.y) < BOMB_CENTER_R + BOMB.radius * 0.6;
       const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
-      if (bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && !carrierDeepInBox && Math.random() < sk.aggro * 0.6) {
+      if (bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && !carrierDeepInBox && Math.random() < sk.aggro * 0.28) {
         special = true; shoot = false; aim = { x: c.x - p.x, y: c.y - p.y };
         bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
       }
@@ -368,9 +364,13 @@ function decideBot(p, role, state, mem, sk, dt) {
       // own penalty box (the sim silently rejects a wall overlapping it).
       const carrierLiningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 240 && Math.abs(c.x - ogX) < FIELD.W * 0.4;
       const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
-      const outOfBox = Math.abs(p.x - ogX) > PENALTY.depth + BUILT_WALL.offset + 30;
-      if (buildReady && carrierLiningUp && goalSide && outOfBox && distC > 140 && Math.random() < 0.5) {
-        build = true; aim = { x: c.x - p.x, y: c.y - p.y }; shoot = false; special = false;
+      // the wall spawns at p + aim*offset (aimed at the carrier, i.e. fieldward). The sim
+      // rejects a wall overlapping our own box, so require the PLACEMENT to clear it.
+      const [bux, buy] = unit(c.x - p.x, c.y - p.y);
+      const wcx = p.x + bux * BUILT_WALL.offset;
+      const wallClearsBox = team === 'A' ? wcx > PENALTY.depth + 12 : wcx < FIELD.W - PENALTY.depth - 12;
+      if (buildReady && carrierLiningUp && goalSide && wallClearsBox && distC > 140 && Math.random() < 0.14) {
+        build = true; aim = { x: bux, y: buy }; shoot = false; special = false;
       } else if (canShoot && seeC && lane && distC < 320) {
         shoot = true; charge = 1; // opportunistic strip if a clean full-charge is there
       }
@@ -394,17 +394,19 @@ function decideBot(p, role, state, mem, sk, dt) {
   // focus (carrier/ball), preserving its bearing (ahead when attacking, back when
   // defending). This is what actually kills the "both bots chase the ball".
   if (!isOnBall) {
-    const f = carrier || b;
-    // Contest a nearby LOOSE ball as the second man (wins 50/50s); otherwise keep
-    // real spacing so we don't both crowd a carried ball.
-    const looseNear = !carrier && hyp(b.x - p.x, b.y - p.y) < 440;
-    if (looseNear) {
-      const [bx, by] = predictBall(b, clamp(hyp(b.x - p.x, b.y - p.y) / 900, 0.05, 0.4));
-      tgt = { x: bx, y: by };
+    if (carrier) {
+      // CARRIED ball: keep real spacing so we don't both crowd the carrier.
+      const dx = tgt.x - carrier.x, dy = tgt.y - carrier.y, d = hyp(dx, dy), MIN_SEP = 320;
+      if (d < MIN_SEP) { const [ux, uy] = unit(dx || (ogX - carrier.x), dy || (GY - carrier.y)); tgt = { x: carrier.x + ux * MIN_SEP, y: carrier.y + uy * MIN_SEP }; }
     } else {
-      const dx = tgt.x - f.x, dy = tgt.y - f.y, d = hyp(dx, dy);
-      const MIN_SEP = 330;
-      if (d < MIN_SEP) { const [ux, uy] = unit(dx || (ogX - f.x), dy || (GY - f.y)); tgt = { x: f.x + ux * MIN_SEP, y: f.y + uy * MIN_SEP }; }
+      // LOOSE ball. Contest a 50/50 when close — UNLESS the ball is breaking fast toward
+      // our goal (then stay home and defend, don't both chase). Otherwise lurk in a bush.
+      const [bx, by] = predictBall(b, clamp(hyp(b.x - p.x, b.y - p.y) / 900, 0.05, 0.4));
+      const myD = hyp(bx - p.x, by - p.y);
+      const fastBreak = hyp(b.vx, b.vy) > 260 && (ogX - b.x) * b.vx > 0 && Math.abs(b.x - ogX) < FIELD.W * 0.5;
+      if (fastBreak) tgt = { x: (b.x + ogX * 1.2) / 2.2, y: (b.y + GY) / 2 };  // stay home on a break
+      else if (myD < 440) tgt = { x: bx, y: by };                              // contest the 50/50
+      else { const bush = nearestBushCenter(tgt.x, tgt.y); if (bush) tgt = bush; } // lurk/ambush
     }
   }
 
@@ -412,9 +414,11 @@ function decideBot(p, role, state, mem, sk, dt) {
 }
 
 // Apply steering + skill (reaction latency + smoothed noisy aim), emit the input.
-function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt) {
-  bm.wantMove = 1;
-  const [mvx, mvy] = steer(p, tgt.x, tgt.y, state, bm, sk);
+function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
+  bm.wantMove = opts.hold ? 0 : 1;
+  let mvx = 0, mvy = 0;
+  if (opts.hold) { bm.mvx = 0; bm.mvy = 0; bm.lastX = p.x; bm.lastY = p.y; bm.stuck = 0; } // stand ON the bomb plant
+  else { const s = steer(p, tgt.x, tgt.y, state, bm, sk); mvx = s[0]; mvy = s[1]; }
 
   // desired aim angle
   const [dax, day] = unit(aimVec.x, aimVec.y);
@@ -426,15 +430,16 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt) {
   bm.aimTheta += clamp(dTheta, -slew, slew);
   // smoothed aim noise that shrinks the longer the aim is settled (time-on-target)
   bm.onTgt = Math.abs(dTheta) < 0.12 ? (bm.onTgt || 0) + dt : 0;
-  const noise = sk.aimSigma * Math.exp(-(bm.onTgt || 0) / sk.aimTau) * seededNoise(mem.t * 9.3 + p.id.length);
+  const noise = sk.aimSigma * Math.exp(-(bm.onTgt || 0) / sk.aimTau) * seededNoise(mem.t * 9.3 + idHash(p.id) * 0.017);
   const th = bm.aimTheta + noise;
   const ax = Math.cos(th), ay = Math.sin(th);
 
   // don't fire before the aim has roughly converged (prevents wild misses / ammo dump)
   let { shoot, charge, special, build } = btn;
   if (shoot && Math.abs(dTheta) > 0.45) { shoot = false; }
-  // ammo discipline: never try to shoot bullets with an empty/reloading mag
-  if (shoot && charge < 0.99 && p.ammo <= 0) shoot = false;
+  // ammo discipline: never fire a BULLET with an empty mag — but a ball RELEASE/pass
+  // (charge < 0.99, owner === me) costs no ammo, so must not be cancelled.
+  if (shoot && charge < 0.99 && p.ammo <= 0 && state.ball.owner !== p.id) shoot = false;
 
   return {
     seq: (bm.seq = (bm.seq || 0) + 1),
