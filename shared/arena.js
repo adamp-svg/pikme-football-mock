@@ -41,10 +41,47 @@ export function pointInBush(x, y) {
   return false;
 }
 
-// Resolve a moving circle (player/ball) out of one axis-aligned box.
+// Nearest point on a wall to (px,py). An ANGLED built wall is a CAPSULE (thick line
+// segment): nearest point on its centre segment, plus `rad` = the capsule's thickness
+// radius. A plain AABB wall clamps into the box (rad 0). One primitive backs every query.
+export function nearestOnWall(w, px, py) {
+  if (w.angle != null) {
+    const ca = Math.cos(w.angle), sa = Math.sin(w.angle);
+    const ax = w.cx - ca * w.hl, ay = w.cy - sa * w.hl;
+    const bx = w.cx + ca * w.hl, by = w.cy + sa * w.hl;
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+    const t = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1);
+    return { x: ax + dx * t, y: ay + dy * t, rad: w.ht };
+  }
+  return { x: clamp(px, w.x, w.x + w.w), y: clamp(py, w.y, w.y + w.h), rad: 0 };
+}
+
+// Resolve a moving circle out of an ANGLED (capsule) wall — nearest-point-on-segment +
+// push out along the world-space normal. No interior special case (unlike the box).
+function resolveCircleCapsule(e, w, r, opts = {}) {
+  const bounce = opts.bounce || 0;
+  const np = nearestOnWall(w, e.x, e.y);
+  let dx = e.x - np.x, dy = e.y - np.y;
+  let d = Math.hypot(dx, dy);
+  const min = r + np.rad;
+  if (d >= min) return false;
+  let ux, uy;
+  if (d > 0.0001) { ux = dx / d; uy = dy / d; }
+  else { ux = -Math.sin(w.angle); uy = Math.cos(w.angle); } // centre on the axis: push perpendicular
+  const push = min - d;
+  e.x += ux * push; e.y += uy * push;
+  const vn = (e.vx || 0) * ux + (e.vy || 0) * uy;
+  if (vn < 0) { const k = bounce ? (1 + bounce) : 1; e.vx -= k * vn * ux; e.vy -= k * vn * uy; }
+  if (e.kvx !== undefined) { const kn = e.kvx * ux + e.kvy * uy; if (kn < 0) { e.kvx -= kn * ux; e.kvy -= kn * uy; } }
+  return true;
+}
+
+// Resolve a moving circle (player/ball) out of one wall. Angled built walls dispatch to
+// the capsule resolver; static/axis-aligned walls use the box path below.
 // `opts.bounce` (0..1) reflects velocity for the ball; players just slide.
 // Mutates e.{x,y,vx,vy} (and e.kvx/e.kvy if present). Returns true on contact.
 export function resolveCircleBox(e, box, r, opts = {}) {
+  if (box.angle != null) return resolveCircleCapsule(e, box, r, opts);
   const bounce = opts.bounce || 0;
   const nx = clamp(e.x, box.x, box.x + box.w);
   const ny = clamp(e.y, box.y, box.y + box.h);
@@ -86,14 +123,25 @@ export function resolveWalls(e, r, built, opts, staticWalls = ARENA.walls) {
   if (built) for (const w of built) resolveCircleBox(e, w, r, opts);
 }
 
-// Point-in-box (bullets are treated as points for wall hits).
+// Point-in-wall (bullets are treated as points for wall hits). Angled walls test the
+// point against the capsule (within its thickness); boxes use the plain inside test.
 export function pointInBox(x, y, box) {
+  if (box.angle != null) {
+    const np = nearestOnWall(box, x, y);
+    const dx = x - np.x, dy = y - np.y;
+    return dx * dx + dy * dy < np.rad * np.rad;
+  }
   return x > box.x && x < box.x + box.w && y > box.y && y < box.y + box.h;
 }
 
-// Does a circle (cx,cy,r) overlap an axis-aligned box? (no mutation — used to detect a
-// power kick smashing a fragile wall without bouncing it.)
+// Does a circle (cx,cy,r) overlap a wall? (no mutation — used to detect a power kick
+// smashing a fragile wall without bouncing it.) Angled walls use the capsule test.
 export function circleHitsBox(cx, cy, r, box) {
+  if (box.angle != null) {
+    const np = nearestOnWall(box, cx, cy);
+    const dx = cx - np.x, dy = cy - np.y, rr = r + np.rad;
+    return dx * dx + dy * dy < rr * rr;
+  }
   const nx = clamp(cx, box.x, box.x + box.w), ny = clamp(cy, box.y, box.y + box.h);
   return (cx - nx) * (cx - nx) + (cy - ny) * (cy - ny) < r * r;
 }

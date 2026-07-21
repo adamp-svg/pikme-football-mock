@@ -6,7 +6,7 @@
 //  5. custom field: the steel wall blocks the player; the top-left bush makes builds fragile.
 // Run: node test-training.mjs
 import { createState, addPlayer, attachBall, step } from './shared/sim.js';
-import { DT, FIELD, MATCH_DURATION } from './shared/constants.js';
+import { DT, FIELD, MATCH_DURATION, FULL_CHARGE } from './shared/constants.js';
 import {
   PEN, CENTER, SENTRY_LEASH, TRAIN_ARENA, TRAIN_WALLS, TRAIN_BUSHES,
   penDummy, trainingDummyInput, createSentryMem, trainingSentryInput, leashSentry,
@@ -137,6 +137,51 @@ console.log('5) custom field — steel wall blocks the player, bush makes builds
     for (let t = 0; t < Math.round(5 / DT); t++) tick(s);
     check(s.arena === TRAIN_ARENA && s.arena.walls.length === 1 && s.arena.bushes.length === 1,
       `training arena stayed custom (${s.arena.walls.length} wall, ${s.arena.bushes.length} bush)`);
+  }
+}
+
+console.log('6) difficulty — hard is faster, leads, and lands full-power shots; easy is gentle');
+{
+  // Run the sentry vs a target that strafes up/down (so lead-aim matters). Returns stats.
+  function run(skill) {
+    const s = makeTraining();
+    const me = s.players.me; me.x = 500; me.y = 550; // to the left, in clear line (no wall)
+    const mem = createSentryMem();
+    let fire = 0, hold = 0, maxCharge = 0;
+    for (let t = 0; t < Math.round(30 / DT); t++) {
+      me.vy = Math.sin(t / 12) * 180; me.y += me.vy * DT; me.y = Math.max(120, Math.min(980, me.y)); // strafe
+      const inp = trainingSentryInput(s, 'sentry', mem, DT, skill);
+      step(s, { me: { seq: 0, moveX: 0, moveY: 0, aimX: 1, aimY: 0 }, dummy: trainingDummyInput(s, 'dummy'), sentry: inp }, DT);
+      penDummy(s, 'dummy'); leashSentry(s, 'sentry');
+      if (s.resetTimer > 0) continue;
+      if (inp.fire) fire++;
+      if (inp.hold) hold++;
+      for (const pr of s.projectiles) maxCharge = Math.max(maxCharge, pr.charge || 0);
+    }
+    return { fire, hold, maxCharge };
+  }
+  const easy = run('easy'), hard = run('hard');
+  console.log(`   easy: fire=${easy.fire} hold=${easy.hold} maxCharge=${easy.maxCharge.toFixed(2)}`);
+  console.log(`   hard: fire=${hard.fire} hold=${hard.hold} maxCharge=${hard.maxCharge.toFixed(2)}`);
+  check(hard.fire > easy.fire, `hard fires more than easy (${hard.fire} > ${easy.fire})`);
+  check(hard.hold > 0, `hard winds up charged power shots (${hard.hold} charge ticks)`);
+  check(hard.maxCharge >= FULL_CHARGE - 0.01, `hard lands a FULL-power shot (maxCharge ${hard.maxCharge.toFixed(2)} ≥ ${FULL_CHARGE})`);
+  check(easy.maxCharge < FULL_CHARGE, `easy never reaches full power (maxCharge ${easy.maxCharge.toFixed(2)} < ${FULL_CHARGE})`);
+
+  // Fire discipline: with the player parked BEHIND the steel wall, hard holds fire.
+  {
+    const s = makeTraining();
+    const wall = s.arena.walls[0];
+    const me = s.players.me; me.x = wall.x + wall.w + 40; me.y = wall.y + wall.h / 2; // opposite side of the wall from centre
+    const mem = createSentryMem();
+    let fired = 0;
+    for (let t = 0; t < Math.round(6 / DT); t++) {
+      const inp = trainingSentryInput(s, 'sentry', mem, DT, 'hard');
+      step(s, { me: { seq: 0, moveX: 0, moveY: 0, aimX: 1, aimY: 0 }, dummy: trainingDummyInput(s, 'dummy'), sentry: inp }, DT);
+      penDummy(s, 'dummy'); leashSentry(s, 'sentry');
+      if (inp.fire) fired++;
+    }
+    check(fired === 0, `hard holds fire when the steel wall blocks the shot (${fired} shots)`);
   }
 }
 

@@ -2343,46 +2343,51 @@ function drawWallBlock(w) {
   });
 }
 
-// Fragile wall (built in a bush/penalty): glassy, translucent, always cracked — reads as
-// breakable (any bullet shatters it, a power kick smashes through).
+// Built walls are CAPSULES with an `angle` (any orientation). Render as a rotated slab
+// (len x thick) centred at (cx,cy). Runs inside the team-B mirror, so a world-space
+// ctx.rotate(angle) auto-mirrors correctly — no manual negation. Helper falls back to the
+// AABB box for anything without capsule params (defensive).
+function wallSlab(w) {
+  const hasCap = w.angle != null && w.cx != null;
+  const cx = wx(hasCap ? w.cx : w.x + w.w / 2), cy = wy(hasCap ? w.cy : w.y + w.h / 2);
+  const L = ws_(hasCap ? w.hl * 2 : Math.max(w.w, w.h)), T = ws_(hasCap ? w.ht * 2 : Math.min(w.w, w.h));
+  return { cx, cy, L, T, angle: hasCap ? w.angle : (w.w >= w.h ? 0 : Math.PI / 2) };
+}
+// Fragile wall (built in a bush/penalty): glassy, translucent, always cracked.
 function drawFragileWall(w) {
-  const ax = wx(w.x), ay = wy(w.y), aw = ws_(w.w), ah = ws_(w.h);
+  const s = wallSlab(w);
   ctx.save();
+  ctx.translate(s.cx, s.cy); ctx.rotate(s.angle);
   ctx.globalAlpha = 0.5;
-  pxi(ax, ay, aw, ah, '#8fb8c8');
-  pxi(ax, ay, aw, Math.max(2, ws_(4)), '#dbeef7');
+  ctx.fillStyle = '#8fb8c8'; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T);
+  ctx.fillStyle = '#dbeef7'; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, Math.max(2, ws_(4)));
   ctx.globalAlpha = 1;
   ctx.strokeStyle = 'rgba(18,38,52,.7)'; ctx.lineWidth = Math.max(1, ws_(2));
-  const cx = ax + aw / 2, cy = ay + ah / 2;
-  for (let i = 0; i < 3; i++) { const a = i * 2.1 + w.id; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * aw * 0.4, cy + Math.sin(a) * ah * 0.4); ctx.stroke(); }
+  for (let i = 0; i < 3; i++) { const a = i * 2.1 + w.id; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * s.L * 0.4, Math.sin(a) * s.T * 0.4); ctx.stroke(); }
   ctx.setLineDash([Math.max(2, ws_(6)), Math.max(2, ws_(5))]);
-  ctx.strokeStyle = 'rgba(219,238,247,.85)'; ctx.strokeRect(ax, ay, aw, ah); ctx.setLineDash([]);
+  ctx.strokeStyle = 'rgba(219,238,247,.85)'; ctx.strokeRect(-s.L / 2, -s.T / 2, s.L, s.T); ctx.setLineDash([]);
   ctx.restore();
 }
 function drawBuiltWall(w) {
   if (w.fragile) return drawFragileWall(w);
   const f = (w.hp || 1) / (w.maxHp || 1);
   const g = Math.round(60 + 46 * f);
-  const pal = { top: `rgb(190,${g + 26},72)`, face: `rgb(120,${Math.round(52 * f) + 26},36)`, hi: 'rgba(255,224,170,.30)', shadow: '#4a2c12' };
-  drawBlockBox(w, pal, {
-    texture: (ax, ay, aw, ah) => {
-      const along = w.w >= w.h;                // plank lines
-      ctx.fillStyle = 'rgba(30,14,0,.35)';
-      if (along) for (let x = ax + Math.round(ws_(26)); x < ax + aw; x += Math.max(4, ws_(26))) ctx.fillRect(Math.round(x), ay, 1, ah);
-      else for (let y = ay + Math.round(ws_(26)); y < ay + ah; y += Math.max(4, ws_(26))) ctx.fillRect(ax, Math.round(y), aw, 1);
-    },
-  });
-  // Damage cracks + HP pips grow as it's chipped.
-  if (f < 0.99) {
-    const cx = wx(w.x + w.w / 2), cy = wy(w.y + w.h / 2 - 16);
-    ctx.strokeStyle = 'rgba(20,8,0,.7)'; ctx.lineWidth = Math.max(1, ws_(2));
-    const n = f < 0.34 ? 4 : 2;
-    for (let i = 0; i < n; i++) { const a = i * 2.2 + w.id; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * ws_(w.w * .35), cy + Math.sin(a) * ws_(w.h * .35)); ctx.stroke(); }
-  }
-  const pipY = wy(w.y) - ws_(16) - Math.max(2, ws_(7));
-  for (let i = 0; i < (w.maxHp || 1); i++) {
-    pxi(wx(w.x) + i * Math.max(3, ws_(11)) + 2, pipY, Math.max(2, ws_(8)), Math.max(2, ws_(5)), i < w.hp ? '#ffd27a' : 'rgba(0,0,0,.4)');
-  }
+  const top = `rgb(190,${g + 26},72)`, face = `rgb(120,${Math.round(52 * f) + 26},36)`, hi = 'rgba(255,224,170,.35)';
+  const s = wallSlab(w), lift = Math.max(2, ws_(5));
+  ctx.save();
+  ctx.translate(s.cx, s.cy); ctx.rotate(s.angle);
+  ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(-s.L / 2 + ws_(3), -s.T / 2 + ws_(4), s.L, s.T); // drop shadow
+  ctx.fillStyle = face; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T);                                 // body
+  ctx.fillStyle = top; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T - lift);                           // lit top
+  ctx.fillStyle = hi; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, Math.max(2, ws_(3)));                   // top highlight
+  ctx.fillStyle = 'rgba(30,14,0,.35)';                                                              // plank lines
+  for (let x = -s.L / 2 + ws_(26); x < s.L / 2; x += Math.max(4, ws_(26))) ctx.fillRect(Math.round(x), -s.T / 2, 1, s.T);
+  if (f < 0.99) { ctx.strokeStyle = 'rgba(20,8,0,.7)'; ctx.lineWidth = Math.max(1, ws_(2)); const n = f < 0.34 ? 4 : 2; for (let i = 0; i < n; i++) { const a = i * 2.2 + w.id; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * s.L * 0.35, Math.sin(a) * s.T * 0.5); ctx.stroke(); } }
+  ctx.restore();
+  // HP pips: screen-space above the centre (unrotated, easy to read).
+  const pipY = s.cy - s.T / 2 - Math.max(2, ws_(9));
+  const px0 = s.cx - ((w.maxHp || 1) * Math.max(3, ws_(11))) / 2;
+  for (let i = 0; i < (w.maxHp || 1); i++) pxi(px0 + i * Math.max(3, ws_(11)), pipY, Math.max(2, ws_(8)), Math.max(2, ws_(5)), i < w.hp ? '#ffd27a' : 'rgba(0,0,0,.4)');
 }
 
 function drawBush(g, t) {
@@ -2462,12 +2467,14 @@ function drawObstacles() {
     let ax, ay;
     if (l > 12) { ax = dx / l; ay = dy / l; }
     else { const meV = latest && latest.players.find((q) => q.id === me.playerId); ax = meV ? meV.aimX : 1; ay = meV ? meV.aimY : 0; }
-    const horiz = Math.abs(ax) >= Math.abs(ay);
-    const gw = horiz ? BUILT_WALL.thick : BUILT_WALL.len;
-    const gh = horiz ? BUILT_WALL.len : BUILT_WALL.thick;
+    // Ghost at the exact angle it'll build: perpendicular to aim, quantized like the sim.
+    let ang = Math.atan2(ay, ax) + Math.PI / 2;
+    ang = Math.round(ang / (Math.PI / 16)) * (Math.PI / 16);
     const cx = rendered.x + ax * BUILT_WALL.offset, cy = rendered.y + ay * BUILT_WALL.offset;
+    const L = ws_(BUILT_WALL.len), T = ws_(BUILT_WALL.thick);
     ctx.save(); ctx.globalAlpha = 0.4;
-    pxi(wx(cx - gw / 2), wy(cy - gh / 2), ws_(gw), ws_(gh), '#ffd27a');
+    ctx.translate(wx(cx), wy(cy)); ctx.rotate(ang);
+    ctx.fillStyle = '#ffd27a'; ctx.fillRect(-L / 2, -T / 2, L, T);
     ctx.globalAlpha = 1; ctx.restore();
   }
 }

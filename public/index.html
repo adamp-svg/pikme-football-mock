@@ -33,6 +33,9 @@
       </div>
 
       <div class="hub-stage">
+        <!-- Card powers: 3 equipped slots by the hero. Drag a card up from the carousel
+             into a slot to swap it; rarity sets the buff strength. Rendered by client.js. -->
+        <div id="power-slots" class="power-slots" aria-label="כוחות מצוידים"></div>
         <!-- tapping the hero opens the wardrobe: hero-picker.js binds open() to #pick-hero-btn -->
         <button id="pick-hero-btn" class="hub-hero" aria-label="הקש להחלפת מראה">
           <canvas id="home-char" class="hub-char" width="200" height="210"></canvas>
@@ -160,6 +163,8 @@
         <span class="team-b" id="scoreB">0</span>
       </div>
       <div class="timer" id="timer">2:00</div>
+      <!-- Card powers: read-only equipped-cards HUD next to the timer during play. -->
+      <div class="match-powers" id="match-powers"></div>
       <div class="net" id="net">מתחבר…</div>
     </div>
 

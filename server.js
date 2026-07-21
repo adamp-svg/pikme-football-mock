@@ -166,7 +166,7 @@ function updateBots(room) {
 function updateTrainingDummy(room) {
   const dummy = trainingDummyInput(room.state, room.dummyId);
   if (dummy) room.inputs.set(room.dummyId, dummy);
-  const sentry = trainingSentryInput(room.state, room.sentryId, room.sentryMem, DT);
+  const sentry = trainingSentryInput(room.state, room.sentryId, room.sentryMem, DT, room.botDifficulty || 'normal');
   if (sentry) room.inputs.set(room.sentryId, sentry);
 }
 
@@ -212,7 +212,7 @@ function startTraining(member) {
   room.botCounter = 0;
 
   // You are team A (spawn left, attack the right goal).
-  addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC });
+  addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(member.loadout) });
   room.inputs.set(member.id, emptyInput());
   member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
 
@@ -323,7 +323,7 @@ function startMatch(room) {
   const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [], cosmetic: m.cosmetic || DEFAULT_COSMETIC }));
   const introMs = Math.round(INTRO_PROMO * 1000);
   for (const [m, team, slot] of assigned) {
-    addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false, cosmetic: m.cosmetic || DEFAULT_COSMETIC });
+    addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false, cosmetic: m.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(m.loadout) });
     room.inputs.set(m.id, emptyInput());
     m.team = team; m.inMatch = true; m.afk = false; m.lastInputAt = nowMs();
     send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs });
@@ -438,7 +438,7 @@ function snapshot(room) {
     ball: { x: r1(state.ball.x), y: r1(state.ball.y), owner: state.ball.owner },
     players,
     projectiles: state.projectiles.map((p) => ({ id: p.id, x: r1(p.x), y: r1(p.y), team: p.team })),
-    walls: state.builtWalls.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, hp: w.hp, maxHp: w.maxHp, team: w.team })),
+    walls: state.builtWalls.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, hp: w.hp, maxHp: w.maxHp, team: w.team, fragile: w.fragile, angle: w.angle })),
     bombs: state.bombs.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), team: b.team, fuse: Math.round(b.fuse * 100) / 100 })),
     blasts: state.blasts.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), radius: b.radius, life: b.life, maxLife: b.maxLife })),
     impacts: state.impacts.map((i) => ({ id: i.id, type: i.type, target: i.target, team: i.team, x: r1(i.x), y: r1(i.y), dx: i.dx, dy: i.dy, life: i.life, maxLife: i.maxLife })),
@@ -528,11 +528,16 @@ function sanitizeCards(raw) {
 // slot; the server owns rarity->strength so a client can't send an arbitrary buff.
 function sanitizeLoadout(raw, memberCards) {
   const owned = Array.isArray(memberCards) ? memberCards : [];
+  const used = new Set(); // one card instance per loadout: first slot to claim a card wins
   const pick = (slot) => {
     if (!slot || !CARD_RARITIES.includes(slot.r)) return null;
     const n = Math.trunc(Number(slot.n));
     if (!Number.isFinite(n) || n < 1 || n > 200) return null;
-    return owned.some((c) => c.r === slot.r && c.n === n) ? { r: slot.r, n } : null;
+    const key = slot.r + '#' + n;
+    if (used.has(key)) return null; // already consumed by an earlier slot — no cross-slot duplicates
+    if (!owned.some((c) => c.r === slot.r && c.n === n)) return null;
+    used.add(key);
+    return { r: slot.r, n };
   };
   const arr = Array.isArray(raw) ? raw : [];
   return [pick(arr[0]), pick(arr[1]), pick(arr[2])];
@@ -615,7 +620,17 @@ wss.on('connection', (ws, req) => {
         const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.hold || !!msg.fire || !!msg.special || !!msg.build;
         if (active) {
           member.lastInputAt = nowMs();
-          if (member.afk) { member.afk = false; const p = room.state.players[member.id]; if (p) p.isBot = false; }
+          if (member.afk) {
+            member.afk = false;
+            const p = room.state.players[member.id];
+            if (p) {
+              p.isBot = false;
+              // bot-ai clobbered this human's card buffs with bot-difficulty values while AFK;
+              // restore them from the loadout (speedBuff is untouched by bot-ai, reassigned for consistency).
+              const bf = buffsFromLoadout(member.loadout);
+              p.chargeRate = bf.chargeRate; p.speedBuff = bf.speedBuff; p.cdMul = bf.cdMul;
+            }
+          }
         }
         const prev = room.inputs.get(member.id) || {};
         room.inputs.set(member.id, {

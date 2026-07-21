@@ -184,17 +184,24 @@ function panicLimbs(u, amp) { const j = u * 60; return {
   Lf: [-3 + Math.sin(j * 1.2) * 2 * amp, 29 + Math.cos(j) * 2.6 * amp], Rf: [3 + Math.sin(j + 2) * 2 * amp, 29 + Math.cos(j * 1.5) * 2.6 * amp],
   Lh: [-6 + Math.sin(j) * 2.6 * amp, 12 + Math.cos(j * 1.7) * 3.4 * amp], Rh: [6 + Math.sin(j + 3) * 2.6 * amp, 12 + Math.cos(j * 1.3) * 3.4 * amp] }; }
 
-function flyPose(u, strength, dir) {                  // Loose (short/normal) → Panic (full); upright, eased lean
+function flyPose(u, strength, dir) {                  // Loose (short/normal) → Panic (full)
   const panic = strength > 0.7, amp = 0.6 + strength * 0.65, trail = 1.8 + strength * 1.2, tilt = 0.14 + strength * 0.12;
   const n = Math.hypot(dir[0], dir[1]) || 1, ux = dir[0] / n, uy = dir[1] / n;
-  // The sim's knockback already slides the player across the pitch (p.x/p.y), so the
-  // pose must NOT translate along the pitch — only a vertical "airborne" hop that
-  // returns to 0, else he lands offset and snaps back. Tilt eases in/out so he
-  // starts upright, leans mid-flight, and ends upright.
-  const peak = 6 + strength * 9, ease = Math.sin(u * PI), H = ease * peak;
-  const lim = panic ? panicLimbs(u, amp) : looseLimbs(u, amp), bx = -ux, bv = -uy;
-  for (const k of ['Lf', 'Rf', 'Lh', 'Rh']) lim[k] = [lim[k][0] + bx * trail, lim[k][1] + bv * trail];
-  return { pt: lim, bob: 0, rot: ux * tilt * ease, dx: 0, dy: -H, shScale: 1 - (H / peak) * 0.7 };
+  // The sim's knockback slides him across the pitch (p.x/p.y) — the pose only adds a
+  // vertical hop. Time is EASE-OUT (fast off the blast, slowing to the landing); the
+  // hop is a cosine arc of that eased time, so height goes low → up (fast) → low
+  // (soft), peaking early. One envelope drives limbs+hop+lean and is 0 (upright,
+  // grounded) at both ends with zero slope at landing = no snap.
+  const peak = 6 + strength * 9;
+  const e = 1 - (1 - u) * (1 - u);                     // ease-out progress
+  const env = Math.sin(e * PI), H = env * peak;        // fast rise, slow settle; 0 at both ends
+  const raw = panic ? panicLimbs(e, amp) : looseLimbs(e, amp), bx = -ux, bv = -uy;
+  const rest = { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-6.5, 17], Rh: [6.5, 17] }, lim = {};
+  for (const k of ['Lf', 'Rf', 'Lh', 'Rh']) {
+    const tx = raw[k][0] + bx * trail, tv = raw[k][1] + bv * trail;    // full flail + trailing target
+    lim[k] = [lerp(rest[k][0], tx, env), lerp(rest[k][1], tv, env)];   // ease from/to a neutral standing pose
+  }
+  return { pt: lim, bob: 0, rot: ux * tilt * env, dx: 0, dy: -H, shScale: 1 - (H / peak) * 0.7 };
 }
 
 function hitPose(u, force, dir) {                     // subtle flinch (small) → stumble-back (big push)

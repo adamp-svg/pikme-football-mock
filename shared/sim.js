@@ -17,7 +17,12 @@ import {
   SHOOT_CHARGE_TIME,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
-import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox } from './arena.js';
+import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall } from './arena.js';
+
+// Built walls can be built at an ANGLE. Their orientation is quantized to WALL_ANGLE_STEPS
+// steps over a half-turn (a wall is 180°-symmetric) so it round-trips the wire exactly.
+const WALL_ANGLE_STEPS = 16;
+const WALL_ANGLE_QUANT = Math.PI / WALL_ANGLE_STEPS;
 
 // Obstacle layout for this state — training rooms override it with a custom
 // arena (state.arena); everything else uses the global mirror-symmetric ARENA.
@@ -536,19 +541,26 @@ function boxInPenalty(x, y, w, h) {
 function buildWall(state, p) {
   const al = Math.hypot(p.aimX, p.aimY) || 1;
   const ax = p.aimX / al, ay = p.aimY / al;
-  const horizAim = Math.abs(ax) >= Math.abs(ay);
-  const w = horizAim ? BUILT_WALL.thick : BUILT_WALL.len;
-  const h = horizAim ? BUILT_WALL.len : BUILT_WALL.thick;
-  let cx = p.x + ax * BUILT_WALL.offset;
-  let cy = p.y + ay * BUILT_WALL.offset;
-  let x = clamp(cx - w / 2, 2, FIELD.W - w - 2);
-  let y = clamp(cy - h / 2, 2, FIELD.H - h - 2);
+  // The wall spans PERPENDICULAR to the aim (shields the facing direction), at ANY
+  // angle — quantized to the wire's 16 steps so server & client agree exactly.
+  const hl = BUILT_WALL.len / 2, ht = BUILT_WALL.thick / 2;
+  let angle = Math.atan2(ay, ax) + Math.PI / 2;
+  angle = Math.round(angle / WALL_ANGLE_QUANT) * WALL_ANGLE_QUANT;
+  // Axis-aligned bounding box of the rotated capsule (for the wire w/h bytes, the
+  // fragile-zone test, and the in-field clamp).
+  const ca = Math.abs(Math.cos(angle)), sa = Math.abs(Math.sin(angle));
+  const halfW = ca * hl + sa * ht, halfH = sa * hl + ca * ht;
+  let cx = clamp(p.x + ax * BUILT_WALL.offset, halfW + 2, FIELD.W - halfW - 2);
+  let cy = clamp(p.y + ay * BUILT_WALL.offset, halfH + 2, FIELD.H - halfH - 2);
+  const w = Math.round(halfW * 2), h = Math.round(halfH * 2);
+  const x = cx - w / 2, y = cy - h / 2;
   // Building inside a bush or penalty area is allowed, but the wall is FRAGILE (hp 1):
   // any bullet breaks it and a power kick smashes through (see the ball/bullet handling).
   const fragile = boxInBush(state, x, y, w, h) || boxInPenalty(x, y, w, h);
   const hp = fragile ? FRAGILE_HP : BUILT_WALL.hp;
   state.builtWalls.push({
     id: state._nid++, x, y, w, h, hp, maxHp: hp, fragile,
+    cx, cy, angle, hl, ht, // capsule (thick segment) — the authoritative collision shape
     team: p.team, ttl: BUILT_WALL.ttl,
   });
   if (state.builtWalls.length > MAX_BUILT_WALLS) state.builtWalls.shift(); // drop oldest
@@ -713,8 +725,8 @@ function wallCannonMul(state, bx, by, dx, dy) {
   let mul = 1;
   const walls = arenaOf(state).walls.concat(state.builtWalls || []);
   for (const w of walls) {
-    const nx = clamp(bx, w.x, w.x + w.w), ny = clamp(by, w.y, w.y + w.h);
-    const vx = nx - bx, vy = ny - by, d = Math.hypot(vx, vy);
+    const np = nearestOnWall(w, bx, by);
+    const vx = np.x - bx, vy = np.y - by, d = Math.hypot(vx, vy);
     if (d < 1 || d > BOMB_WALL_DIST) continue;
     if ((vx / d) * (-dx) + (vy / d) * (-dy) > BOMB_WALL_COS) {
       const m = 1 + (1 - d / BOMB_WALL_DIST) * (BOMB_WALL_CANNON_MUL - 1); // closer wall = stronger cannon
@@ -771,8 +783,8 @@ function explode(state, bomb, stack = 1) {
 
   // A bomb blast destroys any built wall it reaches outright.
   for (const w of state.builtWalls) {
-    const nx = clamp(bomb.x, w.x, w.x + w.w), ny = clamp(bomb.y, w.y, w.y + w.h);
-    if (Math.hypot(bomb.x - nx, bomb.y - ny) < radius) w.hp = 0;
+    const np = nearestOnWall(w, bomb.x, bomb.y);
+    if (Math.hypot(bomb.x - np.x, bomb.y - np.y) < radius + np.rad) w.hp = 0;
   }
   state.builtWalls = state.builtWalls.filter((w) => w.hp > 0);
 

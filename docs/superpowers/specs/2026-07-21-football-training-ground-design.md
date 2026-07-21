@@ -43,6 +43,18 @@ A second team-B bot (`sentry`) spawned at `CENTER` (2nd team-B slot):
   allows, capped by `shootCd`/ammo/reload) and an idle window that is sometimes
   long — "sometimes many, sometimes none". Never plants, builds, or carries.
 
+### 1d. Smarter, difficulty-scaled sentry (added)
+The sentry reads the room's live difficulty (`room.botDifficulty`, from the pause
+menu) via a `SENTRY_SKILL` table (easy/normal/hard, deliberately wide spread):
+- **Lead aim** (`leadAim`, intercept solve on your velocity) blended by `lead`,
+  plus Gaussian `aimSigma` jitter and a `turn` slew — sloppy/sluggish on easy,
+  dead-on/snappy on hard.
+- **Charge/power shots**: the fire cycle is idle → (quick burst | charged power
+  shot). `powerChance`/`chargeHold` scale with difficulty; hard reaches
+  `≥FULL_CHARGE` (real knockback), easy stays sub-full.
+- **Fire discipline**: normal/hard hold fire when the steel wall blocks the lane
+  (segment-vs-box). Shooting only — no bombs. Still leashed to midfield.
+
 ### 2. Penned dummy bot ("roaming target")
 `trainingBotInputs(room)`:
 - **Pen zone**: rectangle in front of team B's (far) goal. Bot's target position
