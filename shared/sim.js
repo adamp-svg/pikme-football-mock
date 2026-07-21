@@ -99,6 +99,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic }
     slowTimer: 0, // seconds of quick-shot slow remaining
     bombLaunch: 0, // >0 => rocket-jumping off own bomb; can tackle an enemy
     trampCd: 0, // >0 => recently launched by a trampoline (no re-launch)
+    power: false, // power meter: charged by landing a hit; gates the FULL shot/kick
     buildAmmo: BUILD_MAG, // wall charges available
     buildAmmoT: 0,        // seconds accumulated toward the next wall charge
     buildCd: 0,           // min pacing between wall placements
@@ -120,7 +121,7 @@ function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
-    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0;
+    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null };
@@ -349,18 +350,26 @@ export function step(state, inputs, dt) {
     const p = state.players[id];
     const ch = CHARACTERS[p.char];
     if (p._shoot) {
+      // POWER meter: a FULL-power shot/kick requires a charged meter; uncharged is capped
+      // to a medium (chargeMul just below FULL_CHARGE). Using a genuine full action spends
+      // the meter — it recharges whenever ANY of your hits lands (see hitEnemy/explode/bump).
+      const eff = p.power ? p._charge : Math.min(p._charge, FULL_CHARGE - 0.02);
+      const wasFull = eff >= FULL_CHARGE; // only possible while charged
       if (b.owner === p.id) {
-        const cm = chargeMul(p._charge); // charged shot = further/faster
+        const cm = chargeMul(eff); // charged shot = further/faster
         b.owner = null;
         b.lastTouch = p.team;
+        b.lastKicker = p.id; // who launched it — refills power if this kick bumps an enemy
         b.vx = p.aimX * state.settings.shotPower * cm;
         b.vy = p.aimY * state.settings.shotPower * cm;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
+        if (wasFull) p.power = false; // power KICK spends the meter
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
-        fireBullet(state, p, ch, p._charge);
+        fireBullet(state, p, ch, eff);
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
+        if (wasFull) p.power = false; // power SHOT spends the meter
       }
     }
     if (p._special && p.specialCd <= 0) useSpecial(state, p, ch);
@@ -408,6 +417,7 @@ export function step(state, inputs, dt) {
         const kb = bspeed * BALL_BUMP_SCALE * knockMul(p);
         p.kvx += nx * kb; p.kvy += ny * kb;
         b.vx *= 0.35; b.vy *= 0.35; // comes forward only a bit after the hit
+        if (b.lastKicker && state.players[b.lastKicker]) state.players[b.lastKicker].power = true; // a kick that bumps an enemy charges you
         // keep lastTouch as the shooter's (goal credit unchanged)
         continue; // keep checking other players
       }
@@ -592,6 +602,8 @@ function addImpact(state, pr, type, x, y, target = null) {
 function hitEnemy(state, t, pr) {
   const l = Math.hypot(pr.vx, pr.vy) || 1;
   const nx = pr.vx / l, ny = pr.vy / l;
+  const shooter = state.players[pr.owner];
+  if (shooter) shooter.power = true; // ANY bullet landing on an enemy charges your power meter
 
   // A ball-carrier is protected: only a FULL-power shot (or a bomb, elsewhere)
   // can affect them. Medium/quick bullets are absorbed with no effect.
@@ -656,6 +668,7 @@ function explode(state, bomb) {
       const power = P * (1 - d / BOMB.radius) * enemyMul * knockMul(t);
       t.kvx += (dx / d) * power;
       t.kvy += (dy / d) * power;
+      if (bomber && t.team !== bomber.team) bomber.power = true; // catching an enemy in the blast charges you
     }
   }
 

@@ -157,6 +157,16 @@ html, body {
 }
 .stealth-cue.on { opacity: 1; }
 
+/* "Power charged" cue — full shot/kick is ready. */
+.power-cue {
+  position: fixed; left: 50%; bottom: 56px; transform: translateX(-50%);
+  background: rgba(70,48,8,.78); border: 1px solid rgba(255,209,64,.7);
+  color: #ffe49a; padding: 5px 14px; border-radius: 999px;
+  font-size: 12px; font-weight: 800; letter-spacing: .12em;
+  opacity: 0; transition: opacity .15s; pointer-events: none; z-index: 6;
+}
+.power-cue.on { opacity: 1; }
+
 /* Crash banner — shows any runtime error on-device */
 .fatal {
   position: fixed; top: 0; left: 0; right: 0; z-index: 100;

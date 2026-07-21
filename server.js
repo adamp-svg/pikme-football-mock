@@ -397,7 +397,7 @@ function snapshot(room) {
     x: r1(p.x), y: r1(p.y),
     vx: r1(p.vx + p.kvx), vy: r1(p.vy + p.kvy),
     aimX: Math.round(p.aimX * 100) / 100, aimY: Math.round(p.aimY * 100) / 100,
-    firing: p.firing, lastSeq: p.lastSeq,
+    firing: p.firing, lastSeq: p.lastSeq, power: p.power,
     ammo: p.ammo, reloading: p.reloadLock > 0,
     reloadFrac: Math.round(100 * (p.reloadLock > 0
       ? 1 - p.reloadLock / EMPTY_RELOAD

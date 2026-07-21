@@ -1659,6 +1659,11 @@ function drawPlayer(p) {
   const isMe = p.id === me.playerId;
   const x = wx(p.x), y = wy(p.y), r = ws_(ch.radius * settings.sizeMul);
   const team = teamColor(p.team);
+  if (p.power) { // CHARGED: a rotating gold spark-ring so you can read who can power-shot
+    const t = performance.now() / 1000;
+    ctx.save(); ctx.strokeStyle = 'rgba(255,209,64,.9)'; ctx.lineWidth = Math.max(1, ws_(3)); ctx.setLineDash([ws_(7), ws_(6)]);
+    ctx.beginPath(); ctx.arc(x, y, r + ws_(7), t * 2, t * 2 + Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  }
   const speed = Math.hypot(p.vx || 0, p.vy || 0);
   const moving = clamp(speed / Math.max(1, ch.speed * settings.speedMul), 0, 1);
   let idSeed = 0;
@@ -1956,6 +1961,8 @@ function drawHUD() {
   if (meP) updateBuildHud(meP);
   const hiddenCue = document.getElementById('stealth-cue');
   if (hiddenCue) hiddenCue.classList.toggle('on', !!(rendered && pointInBush(rendered.x, rendered.y) && latest.ball.owner !== me.playerId));
+  const powerCue = document.getElementById('power-cue');
+  if (powerCue) powerCue.classList.toggle('on', !!(meP && meP.power)); // charged -> full shot/kick available
 
   const banner = document.getElementById('banner');
   if (latest.phase === 'ended') {

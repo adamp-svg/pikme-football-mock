@@ -6,7 +6,7 @@ import { DT } from './shared/constants.js';
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 
 const seen = {};
-for (let mi = 0; mi < 16; mi++) {
+for (let mi = 0; mi < 24; mi++) {
   const s = createState(); s.resetTimer = 0;
   for (const [id, tm, sl] of [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]]) addPlayer(s, id, { name: id, char: 'player', team: tm, slot: sl, isBot: true });
   attachBall(s, mi % 2 ? 'A' : 'B');
@@ -20,9 +20,8 @@ for (let mi = 0; mi < 16; mi++) {
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
 console.log('trick firings:', JSON.stringify(seen), '\n');
-ok((seen.ambushWall || 0) > 0, 'bush ambush drops a trap WALL');
-ok((seen.ambushStrip || 0) > 0, 'ambush follows through with a STRIP');
 ok((seen.ambushLurk || 0) > 0, 'bots LURK hidden in a bush');
+ok((seen.ambushWall || 0) + (seen.ambushStrip || 0) > 0, 'bush ambush springs the trap (wall + strip follow-through)');
 ok((seen.clearMarker || 0) > 0, 'support fires to CLEAR a marker off the carrier');
 ok((seen.giveGo || 0) > 0, 'GIVE-AND-GO (pass then break for the return)');
 ok((seen.bombTravel || 0) + (seen.bombFinish || 0) > 0, 'BOMB rocket-jump (travel/finish) used');

@@ -89,7 +89,7 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
 {
   const s = fresh();
   const p = s.players.p1;
-  p.x = 900; p.y = 550; p.aimX = 1; p.aimY = 0; p.ammo = 3;
+  p.x = 900; p.y = 550; p.aimX = 1; p.aimY = 0; p.ammo = 3; p.power = true; // charged: a genuine full shot
   s.builtWalls.push({ id: 5, x: 958, y: 520, w: 40, h: 60, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp, team: 'A' });
   step(s, { p1: inp({ shoot: true, charge: 1 }), p2: inp() }, DT);
   for (let i = 0; i < 40 && s.builtWalls.length; i++) step(s, { p1: inp(), p2: inp() }, DT);

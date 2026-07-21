@@ -18,7 +18,7 @@ const u8c = (v) => (v < 0 ? 0 : v > 255 ? 255 : v);
 const fadeProg = (e) => u8c(Math.round((1 - e.life / e.maxLife) * 100));
 
 const teamBit = (t) => (t === 'B' ? 1 : 0);
-const packFlags = (p) => (p.firing ? 1 : 0) | (p.reloading ? 2 : 0) | ((p.ammo & 3) << 2) | ((p.buildAmmo & 3) << 4);
+const packFlags = (p) => (p.firing ? 1 : 0) | (p.reloading ? 2 : 0) | ((p.ammo & 3) << 2) | ((p.buildAmmo & 3) << 4) | (p.power ? 64 : 0);
 
 // Reused scratch buffer (server-side, single-threaded). Encode returns a fresh slice.
 const SCRATCH = new ArrayBuffer(8192);
@@ -93,7 +93,7 @@ export function decodeSnapshot(dv, slotId, slotTeam, rosterVersion) {
     players.push({
       id: slotId[k], char: 'player', team: slotTeam[k],
       x, y, vx, vy, aimX, aimY,
-      firing: !!(flags & 1), reloading: !!(flags & 2), ammo: (flags >> 2) & 3, buildAmmo: (flags >> 4) & 3,
+      firing: !!(flags & 1), reloading: !!(flags & 2), ammo: (flags >> 2) & 3, buildAmmo: (flags >> 4) & 3, power: !!(flags & 64),
       reloadFrac, buildFrac,
     });
   }
