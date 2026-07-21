@@ -111,7 +111,7 @@ export function defaultSettings() {
     shotPower: 1850,       // full-power ball shot reaches ~80% of half-court (scales with charge)
     bulletSpeed: 720,      // full-charge bullet ~5.7x move speed (Colt is 5.5x)
     bulletKnockback: 1500, // full-power bullet knockback (quick shot = 0 push + slow)
-    bombPower: 3400,       // bomb launch impulse at the center (~full-shot travel ~800px)
+    bombPower: 2000,       // base bomb launch — kept modest on purpose; a wall behind and/or STACKING bombs amplify it (see explode)
   };
 }
 
@@ -145,15 +145,23 @@ export const KEEPER_DEFLECT = 0.30;
 export const BOMB_CENTER_R = 95;
 export const BOMB_ENEMY_MUL = 1.25; // enemies of the bomber fly this much harder
 export const BOMB_LAUNCH_TTL = 0.5; // seconds the launched planter can "tackle" an enemy
-export const BOMB_TACKLE_KB = 1800; // shove given to an enemy the flying planter hits
+export const BOMB_TACKLE_KB = 1800; // shove given to an enemy a bomb-LAUNCHED planter tackles
+// Any player flung fast (by a blast or knockback) body-checks an enemy it flies into.
+export const FLY_HIT_SPEED = 460;   // knockback speed above which a flying body collides with enemies
+export const FLY_HIT_SCALE = 0.55;  // enemy knockback = flyer speed * this (a plain fling; a bomb tackle uses BOMB_TACKLE_KB)
 // Rocket-jump scaling: on-centre you fly FURTHER; reduced if you're carrying the ball.
-export const BOMB_CENTER_LAUNCH_MUL = 1.35; // on-centre launch is this much stronger than a flung-away hit
+export const BOMB_CENTER_LAUNCH_MUL = 1.15; // on-centre launch is a touch stronger than a flung-away hit
 export const BOMB_CARRY_LAUNCH_MUL = 0.6;   // ...but reduced this much if the bomber owns the ball
 // Wall cannon: a wall collinear BEHIND the bomb (player -> bomb -> wall) boosts the
-// launch in that direction. Any wall qualifies (static, built, even your own).
-export const BOMB_WALL_CANNON_MUL = 1.5; // launch multiplier when backed by a wall
-export const BOMB_WALL_DIST = 140;       // wall must be within this of the bomb to back it
+// launch in that direction, SCALED BY PROXIMITY (closer wall = more). Any wall qualifies.
+export const BOMB_WALL_CANNON_MUL = 2.0; // MAX launch multiplier at point-blank against the wall (ramps 1 -> this as the wall nears)
+export const BOMB_WALL_DIST = 150;       // wall must be within this of the bomb to back it
 export const BOMB_WALL_COS = 0.82;       // collinearity: cos(~35°) cone opposite the launch dir
+// Multi-bomb: bombs detonating close together COMBINE into one bigger blast — the launch
+// (and blast radius) scales with how many stacked. Two players bombing the same spot = big.
+export const BOMB_COMBINE_RADIUS = 210;  // bombs within this of the first-to-blow detonate together
+export const BOMB_STACK_PER = 1.0;       // each EXTRA bomb adds this to the power multiplier (2 bombs = x2, 3 = x3)
+export const BOMB_STACK_RADIUS = 0.30;   // each extra bomb grows the blast radius by this fraction
 
 // --- Arena obstacles -------------------------------------------------------
 // Ball restitution off any wall (static or built) — a touch bouncier than the
@@ -170,6 +178,10 @@ export const TRAMPOLINE = {
 // they fired within SHOT_REVEAL_TIME, or they are carrying the ball.
 export const BUSH_REVEAL_DIST = 110;
 export const SHOT_REVEAL_TIME = 0.45;
+// Bot VISION: a bot only PERCEIVES an enemy player within roughly its on-screen view
+// (~half the visible width) — no seeing/tracking a foe across the whole pitch. The ball
+// itself is always known (shared objective); this gates enemy-PLAYER awareness only.
+export const VISION_RANGE = 620;
 // Player-built destructible wall (SPECIAL-style pull-to-build).
 export const BUILT_WALL = {
   len: 176,         // long side of the placed segment

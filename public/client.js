@@ -4,7 +4,7 @@
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
-  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, clamp,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, FULL_CHARGE, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
@@ -49,6 +49,12 @@ const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' }; // home/picker preview kit 
 function loadCosmetic() { try { return normalizeCosmetic(localStorage.getItem('pikme_cosmetic')); } catch { return DEFAULT_COSMETIC; } }
 function saveCosmetic(c) { try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } }
 let myCosmetic = loadCosmetic();          // this player's chosen "hero:skin"
+// Card powers: 3 equipped slots (0 Shot / 1 Speed / 2 Utility), each an owned card
+// {r,n} whose RARITY sets the buff strength. Persisted like myCosmetic. null => the
+// slot auto-fills from the album's top-3; the server derives the actual buff %.
+function loadLoadout() { try { const s = localStorage.getItem('pikme-loadout'); const a = s && JSON.parse(s); return Array.isArray(a) ? a : null; } catch { return null; } }
+function saveLoadout(a) { try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } }
+let myLoadout = loadLoadout();            // null => auto-fill top-3; else a saved [{r,n}|null] x3
 let cosmeticById = {};                    // playerId -> "hero:skin", from the roster control frame
 let holdingBall = false;     // am I currently carrying the ball?
 
@@ -372,6 +378,7 @@ function renderHomeCharacter() {
   if (MY_AVATAR) { homeFaceEl.style.backgroundImage = `url("${MY_AVATAR}")`; homeFaceEl.textContent = ''; }
   else { homeFaceEl.style.backgroundImage = 'none'; homeFaceEl.textContent = memberInitials(MY_NAME); }
   renderCarousel();
+  renderPowerSlots();
   renderHubStats();
   renderHubXp();
   _cardsSig = cardsSig();
@@ -455,6 +462,7 @@ function renderCarousel() {
     const el = document.createElement('div');
     el.className = 'cf-card rarity-' + c.r;
     el.dataset.n = c.n;
+    el.dataset.idx = i; // card-powers drag: identify which card was grabbed
     const img = document.createElement('img');
     img.alt = '';
     img.onerror = () => el.classList.add('cf-noart');
@@ -493,17 +501,129 @@ function setCarousel(i) {
 function startCarouselAuto() { stopCarouselAuto(); if (cfCards.length > 1) cfTimer = setInterval(() => setCarousel(cfIndex + 1), 2600); }
 function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = null; } }
 (function bindCarouselSwipe() {
-  let sx = null;
-  carouselEl.addEventListener('pointerdown', (e) => { sx = e.clientX; stopCarouselAuto(); try { carouselEl.setPointerCapture(e.pointerId); } catch { /* older webviews */ } });
+  // One gesture, two intents: a mostly-HORIZONTAL drag spins the coverflow (as before);
+  // a mostly-UPWARD drag lifts the grabbed card onto a power slot (card-powers). We lock
+  // the intent on first meaningful movement so neither mode fights the other.
+  let sx = null, sy = null, mode = null, dragCard = null, ghost = null;
+  const clearGhost = () => {
+    if (ghost) { ghost.remove(); ghost = null; }
+    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+  };
+  const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
+  carouselEl.addEventListener('pointerdown', (e) => {
+    sx = e.clientX; sy = e.clientY; mode = null; dragCard = null;
+    const cardEl = e.target && e.target.closest ? e.target.closest('.cf-card') : null;
+    if (cardEl && cardEl.dataset.idx != null) dragCard = cfCards[+cardEl.dataset.idx] || null;
+    stopCarouselAuto();
+    try { carouselEl.setPointerCapture(e.pointerId); } catch { /* older webviews */ }
+  });
   carouselEl.addEventListener('pointermove', (e) => {
     if (sx == null) return;
-    const dx = e.clientX - sx;
-    if (Math.abs(dx) > 34) { setCarousel(cfIndex + (dx < 0 ? 1 : -1)); sx = e.clientX; } // spin as the finger drags
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!mode) {
+      if (dragCard && dy < -14 && Math.abs(dy) > Math.abs(dx)) mode = 'drag';
+      else if (Math.abs(dx) > 34) mode = 'swipe';
+    }
+    if (mode === 'swipe') {
+      if (Math.abs(dx) > 34) { setCarousel(cfIndex + (dx < 0 ? 1 : -1)); sx = e.clientX; } // spin as the finger drags
+    } else if (mode === 'drag') {
+      if (!ghost) {
+        ghost = document.createElement('div');
+        ghost.className = 'pslot-ghost rarity-' + dragCard.r;
+        const gi = document.createElement('img'); gi.alt = '';
+        gi.src = `${CARD_ART_BASE}/${dragCard.r}/${dragCard.n}.webp`;
+        ghost.appendChild(gi); document.body.appendChild(ghost);
+      }
+      ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+      const slot = slotUnder(e.clientX, e.clientY);
+      document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+      if (slot) slot.classList.add('pslot-over');
+    }
   });
-  const end = () => { if (sx != null) { sx = null; startCarouselAuto(); } };
+  const end = (e) => {
+    if (sx == null) return;
+    if (mode === 'drag' && dragCard) {
+      const slot = slotUnder(e.clientX, e.clientY);
+      if (slot && slot.dataset.slot != null) setSlotCard(+slot.dataset.slot, dragCard);
+    }
+    clearGhost();
+    sx = sy = null; mode = null; dragCard = null;
+    startCarouselAuto();
+  };
   carouselEl.addEventListener('pointerup', end);
   carouselEl.addEventListener('pointercancel', end);
 })();
+
+// ---- Card powers: equipped-loadout slots -----------------------------------
+// 3 fixed slots by the hero. Slot index = power; the RARITY of the card in it sets
+// the strength. The server owns the actual buff math — here we only mirror the % for
+// display and tell the server which card sits in which slot.
+const RARITY_PCT = { legendary: 20, epic: 12, rare: 7, common: 3 };
+const SLOT_META = [
+  { icon: '⚡', label: 'בעיטה' },   // Shot: faster charge
+  { icon: '🏃', label: 'מהירות' },  // Speed: faster move
+  { icon: '🛡️', label: 'הגנה' },   // Utility: faster cooldowns / wall reload
+];
+function cardOwned(r, n) { return myCards().some((c) => c.r === r && +c.n === +n); }
+function validSlot(s) { return s && s.r && s.n != null && cardOwned(s.r, s.n) ? { r: s.r, n: +s.n } : null; }
+// The 3-slot loadout used for rendering + sending: a saved loadout (validated against
+// the current album) wins; otherwise auto-fill the album's top-3 into slots 0,1,2.
+function effectiveLoadout() {
+  if (Array.isArray(myLoadout)) return [0, 1, 2].map((i) => validSlot(myLoadout[i]));
+  const top = rankCards(myCards()).slice(0, 3);
+  return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
+}
+// Drop `card` into `slotIdx` (evict any prior occupant + any other slot holding the same
+// card — one instance per card), persist, re-render, and tell the server live.
+function setSlotCard(slotIdx, card) {
+  const eff = effectiveLoadout();
+  if (card) for (let i = 0; i < 3; i++) if (eff[i] && eff[i].r === card.r && +eff[i].n === +card.n) eff[i] = null;
+  eff[slotIdx] = card ? { r: card.r, n: +card.n } : null;
+  myLoadout = eff; saveLoadout(myLoadout);
+  renderPowerSlots();
+  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+}
+function slotCardEl(card, cls) {
+  const img = document.createElement('img');
+  img.className = cls; img.alt = '';
+  img.onerror = () => { img.style.display = 'none'; };
+  img.src = `${CARD_ART_BASE}/${card.r}/${card.n}.webp`;
+  return img;
+}
+const powerSlotsEl = document.getElementById('power-slots');
+function renderPowerSlots() {
+  if (!powerSlotsEl) return;
+  const eff = effectiveLoadout();
+  powerSlotsEl.innerHTML = '';
+  eff.forEach((card, i) => {
+    const meta = SLOT_META[i];
+    const el = document.createElement('div');
+    el.className = 'pslot' + (card ? ' rarity-' + card.r : ' pslot-empty');
+    el.dataset.slot = i;
+    if (card) el.appendChild(slotCardEl(card, 'pslot-art'));
+    const icon = document.createElement('span'); icon.className = 'pslot-icon'; icon.textContent = meta.icon;
+    const buff = document.createElement('span'); buff.className = 'pslot-buff';
+    buff.textContent = card ? '+' + (RARITY_PCT[card.r] || 0) + '%' : '—';
+    el.appendChild(icon); el.appendChild(buff);
+    // Tap a filled slot to clear it (optional per spec).
+    if (card) el.addEventListener('click', () => setSlotCard(i, null));
+    powerSlotsEl.appendChild(el);
+  });
+}
+// In-match HUD: the 3 equipped cards next to the timer (read-only).
+const matchPowersEl = document.getElementById('match-powers');
+function renderMatchPowers() {
+  if (!matchPowersEl) return;
+  const eff = effectiveLoadout();
+  matchPowersEl.innerHTML = '';
+  eff.forEach((card, i) => {
+    const el = document.createElement('div');
+    el.className = 'mpwr' + (card ? ' rarity-' + card.r : ' mpwr-empty');
+    if (card) el.appendChild(slotCardEl(card, 'mpwr-art'));
+    else { const s = document.createElement('span'); s.textContent = SLOT_META[i].icon; el.appendChild(s); }
+    matchPowersEl.appendChild(el);
+  });
+}
 
 // ---- Home dancing character -------------------------------------------------
 const homeCharCanvas = document.getElementById('home-char');
@@ -676,7 +796,7 @@ function connect(name, avatar) {
   ws.binaryType = 'arraybuffer'; // snapshots arrive as compact binary frames
   ws.onopen = () => {
     setNet('connected');
-    ws.send(JSON.stringify({ type: 'join', name, avatar, cards: myCards(), cosmetic: myCosmetic }));
+    ws.send(JSON.stringify({ type: 'join', name, avatar, cards: myCards(), cosmetic: myCosmetic, loadout: effectiveLoadout() }));
     if (pingIv) clearInterval(pingIv);
     pingIv = setInterval(sendPing, 1500);
   };
@@ -762,6 +882,7 @@ function enterMatch(msg) {
   training = msg.mode === 'training';
   document.getElementById('train-tag').classList.toggle('hidden', !training);
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
+  renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
   showScreen('game');
   resize();
   renderBackground(); // re-cache the field/stands in our team colours
@@ -1829,10 +1950,22 @@ function drawPlayer(p) {
   const isMe = p.id === me.playerId;
   const x = wx(p.x), y = wy(p.y), r = ws_(ch.radius * settings.sizeMul);
   const team = teamColor(p.team);
-  if (p.power) { // CHARGED: a rotating gold spark-ring so you can read who can power-shot
+  if (p.power) { // OVERCHARGE available: a pulsing RED ring (matches the red aim line = overcharge)
     const t = performance.now() / 1000;
-    ctx.save(); ctx.strokeStyle = 'rgba(255,209,64,.9)'; ctx.lineWidth = Math.max(1, ws_(3)); ctx.setLineDash([ws_(7), ws_(6)]);
+    const pulse = 0.55 + 0.45 * Math.sin(t * 6);
+    ctx.save(); ctx.strokeStyle = `rgba(255,64,64,${pulse.toFixed(2)})`; ctx.lineWidth = Math.max(1, ws_(3.5)); ctx.setLineDash([ws_(7), ws_(6)]);
     ctx.beginPath(); ctx.arc(x, y, r + ws_(7), t * 2, t * 2 + Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  }
+  if (isMe) { // LOCAL charge meter: an arc that FILLS as you hold — amber -> GOLD at full power
+    const c = currentCharge();
+    if (c > 0.02) {
+      const full = c >= FULL_CHARGE;
+      ctx.save();
+      ctx.strokeStyle = full ? 'rgba(255,214,64,0.95)' : 'rgba(255,166,54,0.9)';
+      ctx.lineWidth = Math.max(2, ws_(4)); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(x, y, r + ws_(11), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, c)); ctx.stroke();
+      ctx.restore();
+    }
   }
   const speed = Math.hypot(p.vx || 0, p.vy || 0);
   const moving = clamp(speed / Math.max(1, ch.speed * settings.speedMul), 0, 1);
@@ -1961,24 +2094,15 @@ function currentAim() {
   return { aiming: true, ax: ax / l, ay: ay / l };
 }
 
-// Ray vs an AABB (true-world). Returns the nearest positive hit distance, or null.
-function rayBox(x0, y0, ax, ay, w) {
-  let tmin = -Infinity, tmax = Infinity;
-  if (Math.abs(ax) < 1e-9) { if (x0 < w.x || x0 > w.x + w.w) return null; }
-  else { let t1 = (w.x - x0) / ax, t2 = (w.x + w.w - x0) / ax; if (t1 > t2) { const t = t1; t1 = t2; t2 = t; } tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2); }
-  if (Math.abs(ay) < 1e-9) { if (y0 < w.y || y0 > w.y + w.h) return null; }
-  else { let t1 = (w.y - y0) / ay, t2 = (w.y + w.h - y0) / ay; if (t1 > t2) { const t = t1; t1 = t2; t2 = t; } tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2); }
-  if (tmax < tmin || tmax < 0) return null;
-  return tmin > 0 ? tmin : (tmax > 0 ? tmax : null);
-}
-// Cast the aim from (x0,y0) along (ax,ay) to the first WALL or FIELD EDGE. Never
-// stops on a player body — so an aiming player can't out a hidden (bushed) enemy.
+// Cast the aim from (x0,y0) along (ax,ay) to the FIELD EDGE. Never stops on a player
+// body — so an aiming player can't out a hidden (bushed) enemy.
 function raycastAim(x0, y0, ax, ay) {
+  // Aim line is a full-length DIRECTION indicator: it runs to the FIELD EDGE (feels
+  // "infinite"), not stopping at the small cover walls (which read as a glitchy short
+  // line). It never terminates on a player, so it can't out a hidden (bushed) enemy.
   let t = Infinity;
   if (ax > 1e-6) t = Math.min(t, (FIELD.W - x0) / ax); else if (ax < -1e-6) t = Math.min(t, (0 - x0) / ax);
   if (ay > 1e-6) t = Math.min(t, (FIELD.H - y0) / ay); else if (ay < -1e-6) t = Math.min(t, (0 - y0) / ay);
-  const walls = fieldArena().walls.concat((latest && latest.walls) || []); // mode-aware (TRAIN_ARENA in training) — matches the sim's collision walls
-  for (const w of walls) { const th = rayBox(x0, y0, ax, ay, w); if (th != null && th < t) t = th; }
   if (!isFinite(t) || t < 0) t = 0;
   return { x: x0 + ax * t, y: y0 + ay * t };
 }
@@ -2299,16 +2423,6 @@ function drawTramp(tr, t) {
   ctx.restore();
 }
 
-// A hidden enemy in a bush — only a faint grass rustle betrays them.
-function drawRustle(p, t) {
-  ctx.save(); ctx.globalAlpha = 0.5;
-  for (let i = 0; i < 4; i++) {
-    const a = t * 3 + i * 1.6;
-    pxi(wx(p.x) + Math.cos(a) * ws_(12) - ws_(2), wy(p.y) + Math.sin(a * 1.3) * ws_(8), Math.max(2, ws_(4)), Math.max(2, ws_(9)), 'rgba(130,205,95,.9)');
-  }
-  ctx.globalAlpha = 1; ctx.restore();
-}
-
 // Client-side stealth: can the local player SEE `p`? Teammates always; an enemy in
 // a bush is hidden unless close, carrying the ball, or they FIRED from inside the
 // bush (which reveals them for BUSH_FIRE_REVEAL).
@@ -2426,7 +2540,7 @@ function renderFrame() {
     for (const p of view.players) {
       const isMe = p.id === me.playerId && rendered;
       const dp = isMe ? { ...p, x: rendered.x, y: rendered.y, vx: predVel.x, vy: predVel.y } : p;
-      if (!isMe && !canSeePlayer(p)) { drawRustle(p, performance.now() / 1000); continue; } // hidden enemy
+      if (!isMe && !canSeePlayer(p)) continue; // hidden enemy — fully concealed (no position tell)
       // You + teammates hidden in a bush render translucent, so you can tell you're concealed.
       if (dp.team === me.team && inBushAt(dp.x, dp.y)) {
         ctx.save(); ctx.globalAlpha = 0.5; drawPlayer(dp); ctx.restore();

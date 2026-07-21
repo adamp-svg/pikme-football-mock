@@ -4,7 +4,7 @@
 import { createState, addPlayer } from './shared/sim.js';
 import { botCanSee, laneClear } from './shared/bot-ai.js';
 import { ARENA, pointInBush } from './shared/arena.js';
-import { BUSH_REVEAL_DIST } from './shared/constants.js';
+import { BUSH_REVEAL_DIST, VISION_RANGE } from './shared/constants.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
@@ -31,9 +31,17 @@ ok(botCanSee(A, B, s), 'a bushed enemy within the reveal radius becomes visible'
 ok(!laneClear(A.x, A.y, 2000, by, s, 'A', { enemies: true, viewer: A }),
   'a now-visible enemy blocks the lane');
 
-// Carrying reveals even from far.
-A.x = bx - (BUSH_REVEAL_DIST + 200); s.ball.owner = 'B';
-ok(botCanSee(A, B, s), 'carrying the ball reveals a bushed enemy');
+// Carrying reveals a bushed enemy — but only WITHIN view range.
+A.x = bx - (BUSH_REVEAL_DIST + 120); s.ball.owner = 'B'; // ~230px, within VISION_RANGE
+ok(botCanSee(A, B, s), 'carrying the ball reveals a bushed enemy (in view)');
+s.ball.owner = null;
+
+// LIMITED VISION: an enemy in the OPEN (no bush) is only seen within view range.
+B.x = 200; B.y = 200; // open field
+A.x = B.x + VISION_RANGE + 150; A.y = B.y; // beyond view
+ok(!botCanSee(A, B, s), 'an open-field enemy BEYOND view range is unseen (no seeing across the pitch)');
+A.x = B.x + VISION_RANGE - 150; // within view
+ok(botCanSee(A, B, s), 'an open-field enemy WITHIN view range is seen');
 
 console.log(`\n${fails === 0 ? '✅ FOG PASS' : '❌ ' + fails + ' FAILED'}`);
 process.exit(fails === 0 ? 0 : 1);

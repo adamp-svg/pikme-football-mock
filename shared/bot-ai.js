@@ -17,7 +17,7 @@
 //   - live tuning (bulletSpeed/bombPower/shotPower) comes from state.settings.
 
 import {
-  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BUILT_WALL, BUSH_REVEAL_DIST,
+  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
@@ -200,12 +200,17 @@ function bankAim(sx, sy, tx, ty, state, team, { goal = false, maxPath = 780, vie
 }
 
 // ---- fog of war: can `viewer` (a bot) actually see `target`? mirrors client stealth ----
+// A bot only perceives an enemy within its VIEW (~on-screen); it can't track a foe
+// across the whole pitch. Within view, bush stealth then applies. (The BALL itself is
+// always known — the shared objective — this gates enemy-PLAYER awareness only.)
 export function botCanSee(viewer, target, state) {
-  if (viewer.team === target.team) return true;
+  if (viewer.team === target.team) return true;          // teammates always
+  const dist = hyp(viewer.x - target.x, viewer.y - target.y);
+  if (dist > VISION_RANGE) return false;                 // out of view — no seeing across the field
   if (!pointInBush(target.x, target.y)) return true;
   if (state.ball.owner === target.id) return true;      // carrying reveals
   if (target.firing) return true;                        // muzzle reveals
-  if (hyp(viewer.x - target.x, viewer.y - target.y) < BUSH_REVEAL_DIST) return true; // real stealth radius
+  if (dist < BUSH_REVEAL_DIST) return true;              // real stealth radius
   return false;
 }
 

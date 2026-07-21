@@ -9,6 +9,7 @@ import {
   OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KEEPER_DEFLECT,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_DIST, BOMB_WALL_COS,
+  BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
@@ -369,7 +370,7 @@ export function step(state, inputs, dt) {
     p.lastSeq = inp.seq != null ? inp.seq : p.lastSeq;
   }
 
-  resolveBombTackles(state); // flying planter plows into / steals from an enemy
+  resolveFlyingHits(state); // any fast-flying player body-checks an enemy; a bomb-launch tackle can steal
   separatePlayers(state);
   // Separation can nudge a body into a wall — push everyone back out once more.
   for (const id in state.players) { const p = state.players[id]; resolveWalls(p, radiusOf(p, state), state.builtWalls, undefined, arenaOf(state).walls); }
@@ -687,47 +688,63 @@ function hitEnemy(state, t, pr) {
 }
 
 function updateBombs(state, dt) {
-  const keep = [];
+  for (const bomb of state.bombs) bomb.fuse -= dt;
+  // Bombs that blow this tick COMBINE with any live bomb nearby (chain-detonate) into
+  // one bigger blast — two players bombing the same spot flings much harder.
+  const detonated = new Set();
   for (const bomb of state.bombs) {
-    bomb.fuse -= dt;
-    if (bomb.fuse > 0) { keep.push(bomb); continue; }
-    explode(state, bomb);
+    if (bomb.fuse > 0 || detonated.has(bomb.id)) continue;
+    let stack = 1;
+    for (const other of state.bombs) {
+      if (other.id === bomb.id || detonated.has(other.id)) continue;
+      if (Math.hypot(other.x - bomb.x, other.y - bomb.y) <= BOMB_COMBINE_RADIUS) { stack++; detonated.add(other.id); }
+    }
+    detonated.add(bomb.id);
+    explode(state, bomb, stack);
   }
-  state.bombs = keep;
+  state.bombs = state.bombs.filter((b) => b.fuse > 0 && !detonated.has(b.id));
 }
 
-// Wall cannon: is there a wall collinear BEHIND the bomb relative to a launch in
-// (dx,dy)? i.e. the wall sits on the OPPOSITE side of the bomb from the launch
-// (player -> bomb -> wall). Nearest-point-on-box + dot-with-(-dir) cone test. Any
-// wall qualifies — static, built, even your own (the user chose the launchpad combo).
-function wallCannonBoost(state, bx, by, dx, dy) {
+// Wall cannon: how much does a wall collinear BEHIND the bomb (player->bomb->wall)
+// boost a launch in (dx,dy)? Returns a multiplier 1..BOMB_WALL_CANNON_MUL scaled by
+// PROXIMITY (closer wall = more). 1 if none. Nearest-point-on-box + dot-with-(-dir)
+// cone test. Any wall qualifies — static, built, even your own.
+function wallCannonMul(state, bx, by, dx, dy) {
+  let mul = 1;
   const walls = arenaOf(state).walls.concat(state.builtWalls || []);
   for (const w of walls) {
     const nx = clamp(bx, w.x, w.x + w.w), ny = clamp(by, w.y, w.y + w.h);
     const vx = nx - bx, vy = ny - by, d = Math.hypot(vx, vy);
     if (d < 1 || d > BOMB_WALL_DIST) continue;
-    if ((vx / d) * (-dx) + (vy / d) * (-dy) > BOMB_WALL_COS) return true; // wall opposite the launch
+    if ((vx / d) * (-dx) + (vy / d) * (-dy) > BOMB_WALL_COS) {
+      const m = 1 + (1 - d / BOMB_WALL_DIST) * (BOMB_WALL_CANNON_MUL - 1); // closer wall = stronger cannon
+      if (m > mul) mul = m;
+    }
   }
-  return false;
+  return mul;
 }
 
-function explode(state, bomb) {
+function explode(state, bomb, stack = 1) {
   const bomber = state.players[bomb.owner];
   const bomberOnCenter = bomber && Math.hypot(bomber.x - bomb.x, bomber.y - bomb.y) < BOMB_CENTER_R;
-  const P = state.settings.bombPower;
+  // Stacked bombs (detonating together) make a bigger, farther-reaching blast.
+  const P = state.settings.bombPower * (1 + (stack - 1) * BOMB_STACK_PER);
+  const radius = BOMB.radius * (1 + (stack - 1) * BOMB_STACK_RADIUS);
 
-  // The planter, if standing on their own bomb, is LAUNCHED in the direction they
-  // are FACING (a "rocket jump") rather than flung away — this is the ONLY case that
-  // uses the look direction; everyone else (incl. an off-centre bomber) flies away
-  // from the blast. On centre you fly FURTHER (reduced if carrying the ball), and a
+  // The planter near their own bomb gets the stronger "rocket-jump" launch, but it
+  // fires AWAY FROM THE BOMB (radially), like everyone else — only when standing
+  // essentially ON the bomb (no radial direction to use) does it fall back to the
+  // look direction. On centre you fly FURTHER (reduced if carrying the ball), and a
   // wall behind you cannons you even harder. Short window to tackle an enemy (see
   // resolveBombTackles).
   if (bomberOnCenter) {
-    const al = Math.hypot(bomber.aimX, bomber.aimY) || 1;
-    const dx = bomber.aimX / al, dy = bomber.aimY / al;
+    const rdx = bomber.x - bomb.x, rdy = bomber.y - bomb.y, rd = Math.hypot(rdx, rdy);
+    let dx, dy;
+    if (rd > 6) { dx = rdx / rd; dy = rdy / rd; }            // fly away from the bomb
+    else { const al = Math.hypot(bomber.aimX, bomber.aimY) || 1; dx = bomber.aimX / al; dy = bomber.aimY / al; } // dead-centre: use the look dir
     let launch = P * BOMB_CENTER_LAUNCH_MUL;
     if (state.ball.owner === bomber.id) launch *= BOMB_CARRY_LAUNCH_MUL; // heavier with the ball
-    if (wallCannonBoost(state, bomb.x, bomb.y, dx, dy)) launch *= BOMB_WALL_CANNON_MUL;
+    launch *= wallCannonMul(state, bomb.x, bomb.y, dx, dy); // wall behind you cannons harder the closer it is
     bomber.kvx += dx * launch;
     bomber.kvy += dy * launch;
     bomber.bombLaunch = BOMB_LAUNCH_TTL;
@@ -741,11 +758,11 @@ function explode(state, bomb) {
     const t = state.players[id];
     const dx = t.x - bomb.x, dy = t.y - bomb.y;
     const d = Math.hypot(dx, dy) || 0.0001;
-    if (d < BOMB.radius) {
+    if (d < radius) {
       const ux = dx / d, uy = dy / d;
       const enemyMul = bomber && t.team !== bomber.team ? BOMB_ENEMY_MUL : 1;
-      let power = P * (1 - d / BOMB.radius) * enemyMul * knockMul(t);
-      if (wallCannonBoost(state, bomb.x, bomb.y, ux, uy)) power *= BOMB_WALL_CANNON_MUL;
+      let power = P * (1 - d / radius) * enemyMul * knockMul(t);
+      power *= wallCannonMul(state, bomb.x, bomb.y, ux, uy);
       t.kvx += ux * power;
       t.kvy += uy * power;
       if (bomber && t.team !== bomber.team) { bomber.power = true; bomber.powerT = OVERCHARGE_TTL; } // catching an enemy in the blast earns overcharge
@@ -755,7 +772,7 @@ function explode(state, bomb) {
   // A bomb blast destroys any built wall it reaches outright.
   for (const w of state.builtWalls) {
     const nx = clamp(bomb.x, w.x, w.x + w.w), ny = clamp(bomb.y, w.y, w.y + w.h);
-    if (Math.hypot(bomb.x - nx, bomb.y - ny) < BOMB.radius) w.hp = 0;
+    if (Math.hypot(bomb.x - nx, bomb.y - ny) < radius) w.hp = 0;
   }
   state.builtWalls = state.builtWalls.filter((w) => w.hp > 0);
 
@@ -765,7 +782,7 @@ function explode(state, bomb) {
   const b = state.ball;
   const bx = b.x - bomb.x, by = b.y - bomb.y;
   const bd = Math.hypot(bx, by) || 0.0001;
-  if (bd < BOMB.radius && !(bomberOnCenter && b.owner)) {
+  if (bd < radius && !(bomberOnCenter && b.owner)) {
     const wasCarried = !!b.owner;
     if (b.owner) { b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; }
     b.lastTouch = bomb.team; clearKick(b); // bomb-flung, not a kick
@@ -777,36 +794,40 @@ function explode(state, bomb) {
       b.vx = Math.cos(ang) * speed;
       b.vy = Math.sin(ang) * speed;
     } else {
-      const power = P * (1 - bd / BOMB.radius) * BOMB.ballPush;
+      const power = P * (1 - bd / radius) * BOMB.ballPush;
       b.vx += (bx / bd) * power;
       b.vy += (by / bd) * power;
     }
   }
-  state.blasts.push({ id: state._nid++, x: bomb.x, y: bomb.y, radius: BOMB.radius, life: BOMB.blastLife, maxLife: BOMB.blastLife });
+  state.blasts.push({ id: state._nid++, x: bomb.x, y: bomb.y, radius, life: BOMB.blastLife, maxLife: BOMB.blastLife });
 }
 
-// A planter rocket-jumping off their own bomb plows into the first enemy in their
-// path: shoves them back, and if that enemy had the ball, steals it.
-function resolveBombTackles(state) {
+// A FLYING player (rocket-jumping off a bomb, OR flung fast by any blast/knockback)
+// body-checks the first enemy in its path: shoves them along its travel. A deliberate
+// bomb-launch tackle hits harder (BOMB_TACKLE_KB) and can STEAL the ball; a plain fast
+// fling shoves proportional to its speed. The flyer loses momentum on impact.
+function resolveFlyingHits(state) {
   const b = state.ball;
   for (const id in state.players) {
     const p = state.players[id];
-    if (!p.bombLaunch || p.bombLaunch <= 0) continue;
     const speed = Math.hypot(p.kvx, p.kvy);
-    if (speed < 200) { p.bombLaunch = 0; continue; } // launch spent
+    const launched = p.bombLaunch > 0;
+    if (!launched && speed < FLY_HIT_SPEED) continue; // only a genuinely flying body checks
+    if (speed < 120) { if (launched) p.bombLaunch = 0; continue; }
     const dirx = p.kvx / speed, diry = p.kvy / speed;
     for (const oid in state.players) {
       if (oid === id) continue;
       const t = state.players[oid];
-      if (t.team === p.team) continue; // only tackle enemies
-      const reach = radiusOf(p, state) + radiusOf(t, state) + 16;
+      if (t.team === p.team) continue; // only hit enemies
+      const reach = radiusOf(p, state) + radiusOf(t, state) + 12;
       if (Math.hypot(t.x - p.x, t.y - p.y) < reach) {
-        t.kvx += dirx * BOMB_TACKLE_KB * knockMul(t);
-        t.kvy += diry * BOMB_TACKLE_KB * knockMul(t);
-        if (b.owner === t.id) { // steal the ball onto the flying planter
-          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; b.pickupCd = 0;
+        const kb = (launched ? BOMB_TACKLE_KB : speed * FLY_HIT_SCALE) * knockMul(t);
+        t.kvx += dirx * kb; t.kvy += diry * kb;
+        p.kvx *= 0.5; p.kvy *= 0.5; // the flyer loses momentum on the hit
+        if (launched && b.owner === t.id) { // a bomb-launch tackle steals the ball
+          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; b.pickupCd = 0; clearKick(b);
         }
-        p.bombLaunch = 0; // one tackle per jump
+        if (launched) p.bombLaunch = 0; // one tackle per jump
         break;
       }
     }

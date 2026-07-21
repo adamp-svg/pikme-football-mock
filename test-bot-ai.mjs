@@ -40,15 +40,20 @@ const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail
   addPlayer(s, 'A0', { name: 'a', char: 'player', team: 'A', slot: 0, isBot: true });
   addPlayer(s, 'B0', { name: 'b', char: 'player', team: 'B', slot: 0, isBot: true });
   const viewer = s.players.A0, target = s.players.B0;
-  viewer.x = 300; viewer.y = 300;
-  const bush = ARENA.bushes[0]; target.x = bush.x + bush.w / 2; target.y = bush.y + bush.h / 2; // central bush
+  const bush = ARENA.bushes[0]; target.x = bush.x + bush.w / 2; target.y = bush.y + bush.h / 2; // central bush (1000,550)
+  viewer.x = 600; viewer.y = 550; // ~400px away — WITHIN the bot's view range, but > BUSH_REVEAL_DIST
   target.firing = false; s.ball.owner = null;
-  ok(!botCanSee(viewer, target, s), 'fog: distant enemy hidden in a bush is unseen');
+  ok(!botCanSee(viewer, target, s), 'fog: in-view idle enemy hidden in a bush is unseen');
   target.firing = true;
-  ok(botCanSee(viewer, target, s), 'fog: a firing enemy in a bush is revealed');
+  ok(botCanSee(viewer, target, s), 'fog: an in-view firing enemy in a bush is revealed');
   target.firing = false; s.ball.owner = target.id;
-  ok(botCanSee(viewer, target, s), 'fog: a ball-carrier in a bush is revealed');
-  s.ball.owner = null; s.players.B0.team = 'A';
+  ok(botCanSee(viewer, target, s), 'fog: an in-view ball-carrier in a bush is revealed');
+  // OUT OF VIEW: a bot can't perceive an enemy across the pitch even if firing/carrying.
+  viewer.x = 100; viewer.y = 100; // >VISION_RANGE from the bush
+  ok(!botCanSee(viewer, target, s), 'fog: an out-of-view carrier is unseen (limited vision)');
+  s.ball.owner = null; target.firing = true;
+  ok(!botCanSee(viewer, target, s), 'fog: an out-of-view firing enemy is unseen (limited vision)');
+  target.firing = false; s.players.B0.team = 'A';
   ok(botCanSee(viewer, target, s), 'fog: teammates are always visible');
 }
 
