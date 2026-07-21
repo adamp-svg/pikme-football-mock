@@ -74,12 +74,22 @@ const settings = {
 // --------------------------------------------------------------------------
 // Sound — short CC0 cues, mixed locally in the browser/WKWebView
 // --------------------------------------------------------------------------
+// Each slot maps to one OR MORE files; a slot with several files picks one at
+// random per play (variety). Custom cues live under /audio (SFX) — see mapping
+// in ../../football assets/current-game-sounds/README.md.
 const SOUND_FILES = {
-  step1: '/audio/step-grass-1.mp3', step2: '/audio/step-grass-2.mp3',
-  kick: '/audio/kick.mp3', hit: '/audio/hit.mp3', pickup: '/audio/pickup.mp3',
-  shot: '/audio/shot.mp3', ui: '/audio/ui-click.mp3',
-  explosion: '/audio/explosion.mp3',
-  goalHappy: '/audio/goal-happy.mp3', goalConceded: '/audio/goal.mp3',
+  step1: ['/audio/step-grass-1.mp3'], step2: ['/audio/step-grass-2.mp3'],
+  kick: ['/audio/kick.mp3'],                                               // kicking the held ball
+  powerShot: ['/audio/kick-power-shoot.mp3'],                              // a fully-charged bullet (your "power shoot")
+  hit: ['/audio/hit.mp3'], pickup: ['/audio/pickup.mp3'],
+  shot: ['/audio/shot-gun-blop.mp3', '/audio/shot-shoot.mp3'],             // firing a normal bullet
+  ui: ['/audio/ui-click.mp3'],
+  explosion: ['/audio/explosion-bomb.mp3', '/audio/explosion-bomb-large.mp3'], // bomb blast
+  wallBreak: ['/audio/wall-break.mp3'],                                    // a built wall is destroyed
+  wallBreakStrong: ['/audio/wall-break-strong.mp3'],                       // ...by a FULL-power shot (or bomb)
+  wallHit: ['/audio/wall-krack.mp3'],                                      // bullet/ball smacks a wall (no break)
+  goalHappy: ['/audio/goal-happy.mp3'], goalConceded: ['/audio/loss.mp3'], // scored for us / against us
+  win: ['/audio/win-victory.mp3'], loss: ['/audio/loss.mp3'],             // match-end stings
 };
 let audioCtx = null;
 let masterGain = null;
@@ -96,7 +106,8 @@ let knownImpacts = new Set();
 // The wire only carries velocity/firing/power + the bombs/walls/blasts/impacts
 // lists, so we infer each action from those events; see getAnim/triggerAnim.
 const animState = {};                 // playerId -> { action, t0, dur, prio, ...params }
-let knownBombs = new Set(), knownWalls = new Set();
+let knownBombs = new Set();
+let knownWalls = new Map(); // wall id -> { cx, cy, hp, fragile, maxHp } (last snapshot it was seen)
 const firingPrev = {};                // playerId -> firing flag last snapshot
 const ANIM_PRIO = { shoot: 2, kick: 2, bomb: 3, wall: 4, hit: 5, fly: 6 };
 function nearestPlayer(players, x, y, maxD, team) {
@@ -135,6 +146,7 @@ function updateSoundButton() {
   btn.setAttribute('aria-label', soundEnabled ? 'השתקה' : 'הפעלת סאונד');
   btn.title = soundEnabled ? 'השתקה' : 'הפעלת סאונד';
   if (masterGain) masterGain.gain.value = soundEnabled ? 0.72 : 0;
+  if (musicEl) musicEl.volume = soundEnabled ? musicVol : 0;
 }
 
 function unlockAudio() {
@@ -148,19 +160,25 @@ function unlockAudio() {
   }
   if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
   if (!soundLoading) {
-    soundLoading = Promise.allSettled(Object.entries(SOUND_FILES).map(async ([name, url]) => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`sound ${response.status}: ${url}`);
-      const buffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
-      soundBuffers.set(name, buffer);
-    }));
+    // soundBuffers: slot name -> AudioBuffer[] (one entry per variant file).
+    soundLoading = Promise.allSettled(Object.entries(SOUND_FILES).flatMap(([name, urls]) =>
+      urls.map(async (url, i) => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`sound ${response.status}: ${url}`);
+        const buffer = await audioCtx.decodeAudioData(await response.arrayBuffer());
+        const arr = soundBuffers.get(name) || [];
+        arr[i] = buffer;
+        soundBuffers.set(name, arr);
+      })));
   }
 }
 
 function playSound(name, volume = 1, rate = 1) {
   if (!soundEnabled || !audioCtx || !masterGain) return;
   if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
-  const buffer = soundBuffers.get(name);
+  const variants = soundBuffers.get(name);
+  if (!variants || !variants.length) return;
+  const buffer = variants.length === 1 ? variants[0] : variants[Math.floor(Math.random() * variants.length)];
   if (!buffer) return;
   const source = audioCtx.createBufferSource();
   const gain = audioCtx.createGain();
@@ -169,6 +187,63 @@ function playSound(name, volume = 1, rate = 1) {
   gain.gain.value = volume;
   source.connect(gain).connect(masterGain);
   source.start();
+}
+
+// Positional SFX get quieter the further the event is from the local player's view:
+// a shot smacking a wall across the pitch is faint, and cross-field events fade to
+// silence. Returns a 0..1 volume multiplier (squared for a punchy near / faint far
+// curve). Non-positional cues (goals, win/loss, UI, music) skip this.
+const SFX_FALLOFF = 900; // world units: ~one screen width; beyond it ≈ inaudible
+function proximity(x, y) {
+  if (!rendered) return 1;
+  const d = Math.hypot(x - rendered.x, y - rendered.y);
+  const p = clamp(1 - d / SFX_FALLOFF, 0, 1);
+  return p * p;
+}
+
+// --------------------------------------------------------------------------
+// Background music — long tracks streamed via <audio> (not decoded into WebAudio
+// buffers). One random song loops through a match; a 5s trimmed track plays over
+// the pre-match lobby countdown. Muting the SFX button mutes music too.
+// --------------------------------------------------------------------------
+const MUSIC_TRACKS = [   // real matches: one of these picked at random and looped
+  '/audio/music/pixel-kickoff.mp3',
+  '/audio/music/pixel-rush.mp3', '/audio/music/stadium-pulse.mp3',
+];
+const TRAINING_MUSIC = '/audio/music/goooaaall-good.mp3'; // the training ground's own theme
+const LOBBY_MUSIC = '/audio/music/lobby-countdown-5s.mp3';
+let musicEl = null;      // current HTMLAudioElement (match song or lobby countdown)
+let musicKind = null;    // 'match' | 'training' | 'lobby' | null — dedupes repeat start calls
+let musicVol = 0;        // base volume of the current track (before mute)
+
+function stopMusic() {
+  if (musicEl) { try { musicEl.pause(); } catch { /* already gone */ } }
+  musicEl = null; musicKind = null;
+}
+function playMusic(src, loop, volume) {
+  stopMusic();
+  musicVol = volume;
+  try {
+    musicEl = new Audio(src);
+    musicEl.loop = !!loop;
+    musicEl.volume = soundEnabled ? volume : 0;
+    const p = musicEl.play();
+    if (p && p.catch) p.catch(() => { /* autoplay blocked until a gesture */ });
+  } catch { /* no audio support */ }
+}
+function startMatchMusic() {
+  const src = MUSIC_TRACKS[Math.floor(Math.random() * MUSIC_TRACKS.length)];
+  musicKind = 'match';
+  playMusic(src, true, 0.32);
+}
+function startTrainingMusic() {
+  musicKind = 'training';
+  playMusic(TRAINING_MUSIC, true, 0.32);
+}
+function startLobbyCountdownMusic() {
+  if (musicKind === 'lobby') return; // countdown payloads repeat every tick; start once
+  musicKind = 'lobby';
+  playMusic(LOBBY_MUSIC, false, 0.5);
 }
 
 // Haptics. The web Vibration API covers Android/desktop; iOS WKWebView ignores
@@ -217,20 +292,43 @@ function processSnapshotSounds(snap) {
     if (previousBallOwner === null && snap.ball.owner !== null) {
       playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
     }
-    for (const blast of snap.blasts || []) {
-      if (!knownBlasts.has(blast.id)) {
-        playSound('explosion', 0.8, 0.92 + Math.random() * 0.12);
-        const distance = rendered ? Math.hypot(blast.x - rendered.x, blast.y - rendered.y) : 0;
-        screenShakeStrength = Math.max(screenShakeStrength, clamp(12 - distance / 65, 2, 12));
-        screenShakeUntil = performance.now() + 260;
-        haptic('bomb'); // bigger vibration for the blast
-      }
+    const newBlasts = (snap.blasts || []).filter((b) => !knownBlasts.has(b.id));
+    for (const blast of newBlasts) {
+      playSound('explosion', 0.85 * proximity(blast.x, blast.y), 0.92 + Math.random() * 0.12);
+      const distance = rendered ? Math.hypot(blast.x - rendered.x, blast.y - rendered.y) : 0;
+      screenShakeStrength = Math.max(screenShakeStrength, clamp(12 - distance / 65, 2, 12));
+      screenShakeUntil = performance.now() + 260;
+      haptic('bomb'); // bigger vibration for the blast
     }
+    // Walls gone since last snapshot were destroyed this frame. A built wall only ever
+    // vanishes AT full hp from a one-shot: a FULL-power bullet or a bomb (weaker hits chip
+    // its hp down over earlier snapshots). Bombs sound their own blast, so the "strong"
+    // break sting is reserved for a full-hp break with no blast landing on it.
+    const curWallIds = new Set((snap.walls || []).map((w) => w.id));
+    let brokeAny = false, brokeStrong = false, breakProx = 0;
+    const brokenAt = [];
+    for (const [id, info] of knownWalls) {
+      if (curWallIds.has(id)) continue;
+      brokeAny = true;
+      brokenAt.push(info);
+      breakProx = Math.max(breakProx, proximity(info.cx, info.cy));
+      const byBomb = newBlasts.some((b) => Math.hypot(b.x - info.cx, b.y - info.cy) < BOMB.radius);
+      if (!info.fragile && info.hp >= info.maxHp && !byBomb) brokeStrong = true;
+    }
+    if (brokeAny) playSound(brokeStrong ? 'wallBreakStrong' : 'wallBreak', 0.85 * breakProx, 0.94 + Math.random() * 0.12);
+
     for (const impact of snap.impacts || []) {
       if (knownImpacts.has(impact.id)) continue;
-      const volume = impact.type === 'player' ? 0.5 : (impact.type === 'ball' ? 0.34 : 0.18);
-      const rate = impact.type === 'wall' ? 1.3 : (impact.type === 'ball' ? 1.12 : 0.96);
-      playSound('hit', volume, rate + Math.random() * 0.06);
+      if (impact.type === 'wall') {
+        // The hit that DESTROYED a wall is already covered by the break sting above —
+        // don't double it with a krack. Otherwise it's a non-breaking smack.
+        const destroyed = brokenAt.some((info) => Math.hypot(info.cx - impact.x, info.cy - impact.y) < 100);
+        if (!destroyed) playSound('wallHit', 0.4 * proximity(impact.x, impact.y), 0.98 + Math.random() * 0.06);
+      } else {
+        const volume = impact.type === 'player' ? 0.5 : 0.34;   // player | ball
+        const rate = (impact.type === 'ball' ? 1.12 : 0.96) + Math.random() * 0.06;
+        playSound('hit', volume * proximity(impact.x, impact.y), rate);
+      }
       haptic(impact.type === 'player' ? 'playerHit' : 'hit'); // buzz on each hit
     }
 
@@ -260,7 +358,7 @@ function processSnapshotSounds(snap) {
   knownBlasts = blastIds;
   knownImpacts = impactIds;
   knownBombs = new Set((snap.bombs || []).map((b) => b.id));
-  knownWalls = new Set((snap.walls || []).map((w) => w.id));
+  knownWalls = new Map((snap.walls || []).map((w) => [w.id, { cx: w.cx, cy: w.cy, hp: w.hp, fragile: w.fragile, maxHp: w.maxHp }]));
   for (const p of (snap.players || [])) firingPrev[p.id] = !!p.firing;
   soundEventsReady = true;
 }
@@ -291,7 +389,11 @@ const friendsEl = document.getElementById('friends');
 const lobbyEl = document.getElementById('lobby');
 const gameEl = document.getElementById('game');
 const screens = { start: startEl, home: homeEl, friends: friendsEl, lobby: lobbyEl, game: gameEl };
-function showScreen(name) { for (const k in screens) screens[k].classList.toggle('hidden', k !== name); }
+function showScreen(name) {
+  // Leaving both the pitch and the lobby/countdown kills any music (home/start/friends are silent).
+  if (name !== 'game' && name !== 'lobby') stopMusic();
+  for (const k in screens) screens[k].classList.toggle('hidden', k !== name);
+}
 
 // Home + friends refs.
 const homeOnlineEl = document.getElementById('home-online');
@@ -935,7 +1037,7 @@ function enterMatch(msg) {
   // Reset all interpolation / prediction / sound state for the fresh match.
   latest = null; snaps = []; predicted = null; rendered = null; predVel = { x: 0, y: 0 };
   previousBallOwner = null; previousResetTimer = 0;
-  knownBlasts = new Set(); knownImpacts = new Set(); soundEventsReady = false;
+  knownBlasts = new Set(); knownImpacts = new Set(); knownWalls = new Map(); knownBombs = new Set(); soundEventsReady = false;
   specialBtn.textContent = specialIcon(me.char);
   matchRoster = Array.isArray(msg.players) ? msg.players : [];
   matchId = msg.matchId || null; // stable id for this match's app-bound result
@@ -953,12 +1055,15 @@ function enterMatch(msg) {
   else if (quickVs) { quickVs = false; hideTeamIntro(); } // the VS countdown already served as the intro
   else showTeamIntro(msg.players);                    // fallback: brief VS intro overlay
   resetPlayNow();
+  if (training) startTrainingMusic();                  // training ground gets its own theme
+  else startMatchMusic();                              // real match: random background song
 }
 
 // Match ended in a private room -> back to that room's lobby (rematch).
 function exitToLobby() {
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
+  stopMusic();
   showScreen('lobby');
   resetPlayNow();
 }
@@ -980,8 +1085,8 @@ function updateVsCountdown(msg) {
   fillIntroCol(cols[0], msg.members, mine);
   fillIntroCol(cols[1], msg.members, mine === 'A' ? 'B' : 'A');
   preloadCards(msg.members.flatMap((m) => m.cards || []));
-  if (msg.phase === 'countdown' && msg.countdown > 0) { tiCountEl.textContent = msg.countdown; tiCountEl.classList.remove('hidden'); }
-  else tiCountEl.classList.add('hidden');
+  if (msg.phase === 'countdown' && msg.countdown > 0) { tiCountEl.textContent = msg.countdown; tiCountEl.classList.remove('hidden'); startLobbyCountdownMusic(); }
+  else { tiCountEl.classList.add('hidden'); if (musicKind === 'lobby') stopMusic(); }
   teamIntroEl.classList.remove('hidden');
   requestAnimationFrame(() => teamIntroEl.classList.add('show'));
 }
@@ -1177,8 +1282,10 @@ function updateLobbyUI(msg) {
   if (msg.phase === 'countdown' && msg.countdown > 0) {
     countdownEl.textContent = msg.countdown;
     countdownEl.classList.remove('hidden');
+    startLobbyCountdownMusic();
   } else {
     countdownEl.classList.add('hidden');
+    if (musicKind === 'lobby') stopMusic();
   }
 
   const seen = new Set();
@@ -1285,7 +1392,10 @@ function releaseShot(aim) {
   if (!holding) return; // charge already consumed — a second trigger source must not re-fire
   if (aim) aimHold = aim;
   fireQueued = true;
-  playSound(holdingBall ? 'kick' : 'shot', holdingBall ? 0.85 : 0.38, 0.92 + currentCharge() * 0.16);
+  const c = currentCharge();
+  if (holdingBall) playSound('kick', 0.85, 0.92 + c * 0.16);        // kicking the held ball
+  else if (c >= FULL_CHARGE) playSound('powerShot', 0.7);           // fully-charged bullet — the "power shoot" cue
+  else playSound('shot', 0.38, 0.92 + c * 0.16);                    // a normal bullet (gun blop / shoot)
   holding = false; chargeStart = null;
 }
 // Cancel a charge: trigger returned to centre — no shot, no sound.
@@ -2357,7 +2467,12 @@ function drawHUD() {
     banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
     banner.classList.remove('count'); banner.classList.remove('hidden');
     // Report the final result to the app exactly once (PII-free, one-way bridge).
-    if (!matchResultSent) { matchResultSent = true; postMatchResult(myT, opT, myScore, opScore); }
+    if (!matchResultSent) {
+      matchResultSent = true;
+      postMatchResult(myT, opT, myScore, opScore);
+      stopMusic();                                                    // clear the pitch for the sting
+      if (myScore !== opScore) playSound(myScore > opScore ? 'win' : 'loss', 0.9);
+    }
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
     // "GOAL!" during the freeze that shows the scoring positions, then 3-2-1.
     const showing = latest.resetTimer > GOAL_RESET - GOAL_FREEZE_HOLD;
