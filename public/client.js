@@ -2571,14 +2571,18 @@ function renderFrame() {
 
     // Ball — if I'm carrying it, glue it to my predicted position (no lag).
     let ballDraw = view.ball;
-    if (view.ball.owner === me.playerId && rendered) {
+    const bOwner = view.ball.owner;
+    if (bOwner === me.playerId && rendered) {
       const meView = view.players.find((pp) => pp.id === me.playerId);
       const ax = meView ? meView.aimX : 1, ay = meView ? meView.aimY : 0;
       const al = Math.hypot(ax, ay) || 1;
       const off = ownRadius() + BALL_RADIUS * settings.ballSizeMul;
       ballDraw = { x: rendered.x + (ax / al) * off, y: rendered.y + (ay / al) * off };
     }
-    drawBall(ballDraw);
+    // Don't draw the ball if a HIDDEN enemy is carrying it — the ball would betray their spot.
+    const bCarrier = bOwner && bOwner !== me.playerId ? view.players.find((pp) => pp.id === bOwner) : null;
+    const ballHidden = bCarrier && bCarrier.team !== me.team && !canSeePlayer(bCarrier);
+    if (!ballHidden) drawBall(ballDraw);
 
     // Aim-to-shoot indicator for the local player: infinite line, grey normally,
     // RED when overcharged (the meter is up). Owner-only — never drawn for others.
