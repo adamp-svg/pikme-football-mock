@@ -98,7 +98,7 @@ export function attachBall(state, team) {
   state.ball.vx = 0; state.ball.vy = 0; clearKick(state.ball);
 }
 
-export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic }) {
+export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, buffs }) {
   const c = CHARACTERS[char] ? char : DEFAULT_CHAR;
   const p = {
     id, name, char: c, team, slot, isBot: !!isBot,
@@ -121,8 +121,14 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic }
     buildAmmo: BUILD_MAG, // wall charges available
     buildAmmoT: 0,        // seconds accumulated toward the next wall charge
     buildCd: 0,           // min pacing between wall placements
-    chargeRate: 1, // charge-ramp multiplier (bots on hard reach full sooner)
-    cdMul: 1,      // bomb/build cooldown multiplier (bots on hard act faster)
+    // charge-ramp multiplier: bots on hard reach full sooner; a HUMAN's Shot-slot
+    // card powers it (rarity -> chargeRate). Bots ignore `buffs` and set it via bot-ai.
+    chargeRate: (buffs && buffs.chargeRate) || 1,
+    // movement multiplier from a HUMAN's Speed-slot card (default 1 = no buff / bots).
+    speedBuff: (buffs && buffs.speedBuff) || 1,
+    // bomb/build cooldown multiplier: bots on hard act faster; a HUMAN's Utility-slot
+    // card powers it (rarity -> cdMul). Bots ignore `buffs` and set it via bot-ai.
+    cdMul: (buffs && buffs.cdMul) || 1,
     firing: false, // fired/released this tick (flash)
     lastSeq: 0, // last input seq applied (for client reconciliation)
     _fire: false, _special: false, _build: false, _charge: 0,
@@ -291,7 +297,7 @@ export function step(state, inputs, dt) {
     if (mlen > 1) { mx /= mlen; my /= mlen; }
 
     // Ease velocity toward the target (smoothing) instead of snapping.
-    let spd = ch.speed * state.settings.speedMul;
+    let spd = ch.speed * state.settings.speedMul * (p.speedBuff || 1); // Speed-slot card buff (human), 1 otherwise
     if (state.ball.owner === p.id) spd *= state.settings.carrySpeedMul; // slower while carrying
     if (p.slowTimer > 0) { spd *= SLOW_MUL; p.slowTimer -= dt; } // hit by a quick shot
     if (p.bombLaunch > 0) p.bombLaunch -= dt; // rocket-jump tackle window

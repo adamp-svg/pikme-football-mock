@@ -904,7 +904,7 @@ function meteorCard(zone, flashEl, c, k, kn) {
   el.style.setProperty('--glow', RARITY_GLOW[c.r] || '#fff');
   el.style.setProperty('--start-scale', (2.4 + power * 0.7).toFixed(2)); // bigger entry the stronger the card
   el.style.setProperty('--glow-px', (14 + power * 12).toFixed(0) + 'px');
-  el.style.setProperty('--land-x', ((k - (kn - 1) / 2) * 26) + 'px');   // fan the hero's cards
+  el.style.setProperty('--land-x', ((k - (kn - 1) / 2) * 42) + 'px');   // fan the hero's cards (wider spread)
   el.style.zIndex = String(10 + k);
   const fallMs = Math.round(460 + power * 55);                          // heavier cards fall a touch longer
   el.style.transitionDuration = (fallMs / 1000) + 's';
@@ -951,10 +951,10 @@ function playPromo(introMs) {
   }
   promoEl.classList.remove('hidden');
   requestAnimationFrame(() => promoEl.classList.add('show'));
-  const startDelay = 500;
-  const perCard = Math.max(300, Math.min(440, Math.floor(((introMs || 3800) - startDelay - 1000) / Math.max(1, queue.length))));
+  const startDelay = 620;
+  const perCard = Math.max(500, Math.min(680, Math.floor(((introMs || 4600) - 1700) / Math.max(1, queue.length)))); // longer gap between cards
   queue.forEach((j, idx) => setTimeout(() => meteorCard(j.zone, flashEl, j.card, j.k, j.kn), startDelay + idx * perCard));
-  const done = (introMs || 3800) - 320;                                // reveal the pitch as the server unfreezes
+  const done = (introMs || 4600) - 300;                                // linger on the landed cards, then reveal as the server unfreezes
   setTimeout(() => { promoActive = false; promoEl.classList.remove('show'); setTimeout(() => promoEl.classList.add('hidden'), 340); }, done);
 }
 

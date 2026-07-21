@@ -53,7 +53,7 @@ export const KICKOFF_FREEZE = 0.7; // brief reset pause at match start
 export const GOAL_RESET = 5;       // post-goal countdown before play resumes
 export const GOAL_FREEZE_HOLD = 2; // of GOAL_RESET, hold in the scoring positions this long before snapping to kickoff
 export const ENDED_HOLD = 6; // seconds the final score shows before returning to lobby
-export const INTRO_PROMO = 3.8; // pre-kickoff promo hold: server freezes stepping so the clock waits while the client plays the card-meteor intro
+export const INTRO_PROMO = 4.6; // pre-kickoff promo hold: server freezes stepping so the clock waits while the client plays the card-meteor intro
 
 // One player type. `speed`/`radius` are live-tunable via settings multipliers.
 //   Holding the ball: it sticks to you; SHOOT releases/passes it.

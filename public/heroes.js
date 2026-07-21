@@ -184,14 +184,17 @@ function panicLimbs(u, amp) { const j = u * 60; return {
   Lf: [-3 + Math.sin(j * 1.2) * 2 * amp, 29 + Math.cos(j) * 2.6 * amp], Rf: [3 + Math.sin(j + 2) * 2 * amp, 29 + Math.cos(j * 1.5) * 2.6 * amp],
   Lh: [-6 + Math.sin(j) * 2.6 * amp, 12 + Math.cos(j * 1.7) * 3.4 * amp], Rh: [6 + Math.sin(j + 3) * 2.6 * amp, 12 + Math.cos(j * 1.3) * 3.4 * amp] }; }
 
-function flyPose(u, strength, dir) {                  // Loose (short/normal) → Panic (full); upright + slight lean
+function flyPose(u, strength, dir) {                  // Loose (short/normal) → Panic (full); upright, eased lean
   const panic = strength > 0.7, amp = 0.6 + strength * 0.65, trail = 1.8 + strength * 1.2, tilt = 0.14 + strength * 0.12;
   const n = Math.hypot(dir[0], dir[1]) || 1, ux = dir[0] / n, uy = dir[1] / n;
-  const range = 12 + strength * 22, peak = 6 + strength * 11;
-  const travel = (1 - (1 - u) * (1 - u)) * range, H = Math.sin(u * PI) * peak;
+  // The sim's knockback already slides the player across the pitch (p.x/p.y), so the
+  // pose must NOT translate along the pitch — only a vertical "airborne" hop that
+  // returns to 0, else he lands offset and snaps back. Tilt eases in/out so he
+  // starts upright, leans mid-flight, and ends upright.
+  const peak = 6 + strength * 9, ease = Math.sin(u * PI), H = ease * peak;
   const lim = panic ? panicLimbs(u, amp) : looseLimbs(u, amp), bx = -ux, bv = -uy;
   for (const k of ['Lf', 'Rf', 'Lh', 'Rh']) lim[k] = [lim[k][0] + bx * trail, lim[k][1] + bv * trail];
-  return { pt: lim, bob: 0, rot: ux * tilt, dx: ux * travel, dy: uy * travel - H, shScale: 1 - (H / peak) * 0.7 };
+  return { pt: lim, bob: 0, rot: ux * tilt * ease, dx: 0, dy: -H, shScale: 1 - (H / peak) * 0.7 };
 }
 
 function hitPose(u, force, dir) {                     // subtle flinch (small) → stumble-back (big push)

@@ -522,6 +522,34 @@ function sanitizeCards(raw) {
   return out;
 }
 
+// Card-powers loadout: 3 slots, each holding one owned card {r,n} (or null). Slot 0 =
+// Shot, 1 = Speed, 2 = Utility. Validate every slotted card is actually IN the member's
+// sanitized album (drop anything not owned) — the client only says WHICH card in WHICH
+// slot; the server owns rarity->strength so a client can't send an arbitrary buff.
+function sanitizeLoadout(raw, memberCards) {
+  const owned = Array.isArray(memberCards) ? memberCards : [];
+  const pick = (slot) => {
+    if (!slot || !CARD_RARITIES.includes(slot.r)) return null;
+    const n = Math.trunc(Number(slot.n));
+    if (!Number.isFinite(n) || n < 1 || n > 200) return null;
+    return owned.some((c) => c.r === slot.r && c.n === n) ? { r: slot.r, n } : null;
+  };
+  const arr = Array.isArray(raw) ? raw : [];
+  return [pick(arr[0]), pick(arr[1]), pick(arr[2])];
+}
+
+// Rarity -> buff percentage ("album matters"). Server derives this from its OWN card
+// record — NEVER a client-sent %. Empty slot => neutral (0% => 1.0 multiplier).
+const RARITY_BUFF_PCT = { legendary: 0.20, epic: 0.12, rare: 0.07, common: 0.03 };
+const pctOf = (slot) => (slot ? (RARITY_BUFF_PCT[slot.r] || 0) : 0);
+// Turn a sanitized loadout into the sim multipliers addPlayer understands.
+// Shot: faster charge = 1/(1-p). Speed: +p. Utility: shorter cooldowns = (1-p).
+function buffsFromLoadout(loadout) {
+  const L = Array.isArray(loadout) ? loadout : [];
+  const shot = pctOf(L[0]), speed = pctOf(L[1]), util = pctOf(L[2]);
+  return { chargeRate: 1 / (1 - shot), speedBuff: 1 + speed, cdMul: 1 - util };
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket handling
 // ---------------------------------------------------------------------------
@@ -541,7 +569,8 @@ wss.on('connection', (ws, req) => {
         const name = (msg.name || 'Player').toString().slice(0, 16);
         let avatar = (msg.avatar || '').toString().slice(0, 400) || null;
         if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
-        member = { id, ws, name, avatar, cards: sanitizeCards(msg.cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null };
+        const cards = sanitizeCards(msg.cards);
+        member = { id, ws, name, avatar, cards, loadout: sanitizeLoadout(msg.loadout, cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null };
         members.set(ws, member);
         send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS });
         send(ws, { type: 'home', online: onlineCount() });
@@ -551,6 +580,9 @@ wss.on('connection', (ws, req) => {
 
       // Cosmetic (hero+skin) chosen on the home screen; applied at the next match start.
       if (msg.type === 'setCosmetic') { member.cosmetic = normalizeCosmetic(msg.cosmetic); return; }
+      // Card-powers loadout chosen on the home screen; validated vs the member's album,
+      // baked into buffs at the next match start.
+      if (msg.type === 'setLoadout') { member.loadout = sanitizeLoadout(msg.loadout, member.cards); return; }
       if (msg.type === 'quickMatch') { quickMatch(member); return; }
       if (msg.type === 'training') { startTraining(member); return; }
       if (msg.type === 'resetBall') { // training only: recenter the ball on demand
