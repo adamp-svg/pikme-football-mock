@@ -10,7 +10,7 @@ import {
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_DIST, BOMB_WALL_COS,
   BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE,
-  CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, MOVE_ACCEL,
+  CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, BOMB_LAUNCH_DECAY, BOMB_LAUNCH_GLIDE, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
   WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
@@ -121,6 +121,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     specialCd: 0, // bomb cooldown
     slowTimer: 0, // seconds of quick-shot slow remaining
     bombLaunch: 0, // >0 => rocket-jumping off own bomb; can tackle an enemy
+    launchGlide: 0, // >0 => recently bomb-launched; knockback decays gently (smooth arc)
     trampCd: 0, // >0 => recently launched by a trampoline (no re-launch)
     power: false, // OVERCHARGE meter: earned by a forceful hit; adds a bonus tier on top of a full charge
     powerT: 0,    // seconds of overcharge remaining (decays if unused)
@@ -153,7 +154,7 @@ function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
-    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false;
+    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.launchGlide = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
@@ -319,8 +320,10 @@ export function step(state, inputs, dt) {
       p.y = clamp(p.y + (p.vy + p.kvy) * dt / pSteps, rad, FIELD.H - rad);
       resolveWalls(p, rad, state.builtWalls, undefined, arenaOf(state).walls); // slide along static + built walls each substep
     }
-    p.kvx *= KNOCKBACK_DECAY; p.kvy *= KNOCKBACK_DECAY;
-    if (Math.hypot(p.kvx, p.kvy) < KNOCKBACK_MIN) { p.kvx = 0; p.kvy = 0; }
+    const kdec = p.launchGlide > 0 ? BOMB_LAUNCH_DECAY : KNOCKBACK_DECAY; // gentle glide while launched → smooth arc
+    p.kvx *= kdec; p.kvy *= kdec;
+    if (p.launchGlide > 0) p.launchGlide = Math.max(0, p.launchGlide - dt);
+    if (Math.hypot(p.kvx, p.kvy) < KNOCKBACK_MIN) { p.kvx = 0; p.kvy = 0; p.launchGlide = 0; }
     // Trampolines fling you the way you're moving (or aim, if standing still).
     p.trampCd = Math.max(0, p.trampCd - dt);
     if (p.trampCd <= 0) {
@@ -760,6 +763,7 @@ function explode(state, bomb, stack = 1) {
     bomber.kvx += dx * launch;
     bomber.kvy += dy * launch;
     bomber.bombLaunch = BOMB_LAUNCH_TTL;
+    bomber.launchGlide = BOMB_LAUNCH_GLIDE; // gentle decay → smooth launch arc
   }
 
   // Everyone else in the blast is flung away from the center (the BLAST direction,
@@ -777,6 +781,7 @@ function explode(state, bomb, stack = 1) {
       power *= wallCannonMul(state, bomb.x, bomb.y, ux, uy);
       t.kvx += ux * power;
       t.kvy += uy * power;
+      t.launchGlide = BOMB_LAUNCH_GLIDE * 0.75; // caught in the blast → smooth arc too (matches the fly anim)
       if (bomber && t.team !== bomber.team) { bomber.power = true; bomber.powerT = OVERCHARGE_TTL; } // catching an enemy in the blast earns overcharge
     }
   }

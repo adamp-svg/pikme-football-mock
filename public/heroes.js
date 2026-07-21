@@ -125,7 +125,7 @@ const FINISHES = { base: {}, gold: { jersey: '#f4c752', jerseyShade: '#b8892b', 
 //  sprite units) + body transforms (bob up-positive, rot, dx/dy, shScale).
 //  Directional actions are authored aim-RIGHT; the caller flips for aim-left.
 // ======================================================================
-export const ACTION_DUR = { kick: 0.5, shoot: 0.5, bomb: 0.42, wall: 0.6, fly: 1.25, hit: 0.6 };
+export const ACTION_DUR = { kick: 0.5, shoot: 0.5, bomb: 0.42, wall: 0.6, fly: 0.85, hit: 0.6 };
 
 function idlePose(time) { const b = Math.sin(time * 2.2);
   return { bob: (b * 0.5 + 0.5) * 0.8, pt: { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-6.5, 17 + b * 0.5], Rh: [6.5, 17 - b * 0.5] } }; }
@@ -187,15 +187,13 @@ function panicLimbs(u, amp) { const j = u * 60; return {
 function flyPose(u, strength, dir) {                  // Loose (short/normal) → Panic (full)
   const panic = strength > 0.7, amp = 0.6 + strength * 0.65, trail = 1.8 + strength * 1.2, tilt = 0.14 + strength * 0.12;
   const n = Math.hypot(dir[0], dir[1]) || 1, ux = dir[0] / n, uy = dir[1] / n;
-  // The sim's knockback slides him across the pitch (p.x/p.y) — the pose only adds a
-  // vertical hop. Time is EASE-OUT (fast off the blast, slowing to the landing); the
-  // hop is a cosine arc of that eased time, so height goes low → up (fast) → low
-  // (soft), peaking early. One envelope drives limbs+hop+lean and is 0 (upright,
-  // grounded) at both ends with zero slope at landing = no snap.
-  const peak = 6 + strength * 9;
-  const e = 1 - (1 - u) * (1 - u);                     // ease-out progress
-  const env = Math.sin(e * PI), H = env * peak;        // fast rise, slow settle; 0 at both ends
-  const raw = panic ? panicLimbs(e, amp) : looseLimbs(e, amp), bx = -ux, bv = -uy;
+  // The sim's knockback slides him across the pitch (p.x/p.y); the pose only adds a
+  // vertical hop. One SYMMETRIC arc (sin) drives limbs + hop + lean — apex mid-flight
+  // (while he's still moving fast), landing as the glide fades — so it reads as a
+  // single fluid launch, not a pop then a ground slide. Upright at both ends.
+  const peak = 4 + strength * 6;
+  const env = Math.sin(u * PI), H = env * peak;        // symmetric arc: apex mid-flight, so the hop
+  const raw = panic ? panicLimbs(u, amp) : looseLimbs(u, amp), bx = -ux, bv = -uy; // tracks the glide as one fluid launch
   const rest = { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-6.5, 17], Rh: [6.5, 17] }, lim = {};
   for (const k of ['Lf', 'Rf', 'Lh', 'Rh']) {
     const tx = raw[k][0] + bx * trail, tv = raw[k][1] + bv * trail;    // full flail + trailing target

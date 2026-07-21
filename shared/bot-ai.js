@@ -207,11 +207,10 @@ export function botCanSee(viewer, target, state) {
   if (viewer.team === target.team) return true;          // teammates always
   const dist = hyp(viewer.x - target.x, viewer.y - target.y);
   if (dist > VISION_RANGE) return false;                 // out of view — no seeing across the field
-  if (!pointInBush(target.x, target.y)) return true;
-  if (state.ball.owner === target.id) return true;      // carrying reveals
-  if (target.firing) return true;                        // muzzle reveals
-  if (dist < BUSH_REVEAL_DIST) return true;              // real stealth radius
-  return false;
+  if (!pointInBush(target.x, target.y)) return true;     // in the open (and in view) = seen
+  if (target.firing) return true;                        // muzzle flash reveals (even carrying)
+  if (dist < BUSH_REVEAL_DIST) return true;              // close enough to spot in the bush
+  return false;                                          // bushed + not close + not firing = HIDDEN (even carrying the ball)
 }
 
 // ---- CONTEXT STEERING: pick a movement dir toward `tgt`, avoiding walls/bombs/bullets ----
@@ -299,18 +298,46 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
   return unit(bmem.mvx, bmem.mvy);
 }
 
+// ---- FOG-OF-WAR BELIEF: where does `team` THINK the ball is, and can it see it now? ----
+// Bots must not omnisciently track a hidden/out-of-view enemy. The ball itself (a big,
+// central objective) is "known" while loose in the open, but a CARRIED ball is only known
+// while the carrier is actually visible (in view + not bushed). When the team can't see it,
+// the belief position stays at where it was last seen — bots search there, they don't laser
+// onto the hidden player. Persisted on mem.belief[team].
+function updateBelief(state, team, mem) {
+  const b = state.ball;
+  const bots = Object.values(state.players).filter((p) => p.team === team && p.isBot);
+  let visible;
+  if (b.owner) {
+    const owner = state.players[b.owner];
+    if (!owner || owner.team === team) visible = true;             // we hold it (or stale owner)
+    else visible = bots.some((bt) => botCanSee(bt, owner, state));  // enemy carrier — only if in sight
+  } else if (!pointInBush(b.x, b.y)) {
+    visible = true;                                                 // loose ball in the open = known
+  } else {
+    visible = bots.some((bt) => hyp(bt.x - b.x, bt.y - b.y) < BUSH_REVEAL_DIST); // bushed loose ball — only up close
+  }
+  const store = mem.belief || (mem.belief = {});
+  const cur = store[team] || (store[team] = { x: b.x, y: b.y });
+  if (visible) { cur.x = b.x; cur.y = b.y; }
+  return { x: cur.x, y: cur.y, visible };
+}
+
 // ---- COORDINATOR: assign roles to a team's two bots, with hysteresis ----
 // Roles: 'onBall' (press the carrier / chase the loose ball / carry) and
 // 'support' (attack outlet when we attack, cover shadow when we defend).
 const SWITCH_MARGIN = 120, MIN_HOLD = 0.5;
 export function assignRoles(state, team, mem, dt) {
+  const belief = updateBelief(state, team, mem);
   const bots = Object.values(state.players).filter((p) => p.team === team);
   const prev = mem.teams[team];
   if (bots.length === 0) { mem.teams[team] = null; return null; }
-  if (bots.length === 1) { const r = { onBall: bots[0].id, support: null, mode: ballMode(state, team) }; mem.teams[team] = r; return r; }
+  if (bots.length === 1) { const r = { onBall: bots[0].id, support: null, mode: ballMode(state, team), belief }; mem.teams[team] = r; return r; }
 
   const b = state.ball;
-  const focus = b.owner && state.players[b.owner] ? state.players[b.owner] : b;
+  // Assign roles around what we can SEE — the real carrier/ball if visible, else the
+  // last-seen point (so bots don't pick roles off a hidden ball's true position).
+  const focus = belief.visible ? (b.owner && state.players[b.owner] ? state.players[b.owner] : b) : belief;
   const d0 = hyp(focus.x - bots[0].x, focus.y - bots[0].y);
   const d1 = hyp(focus.x - bots[1].x, focus.y - bots[1].y);
   // candidate: nearest to focus is onBall (deterministic slot tie-break).
@@ -327,7 +354,7 @@ export function assignRoles(state, team, mem, dt) {
   }
   const support = bots.find((p) => p.id !== onBall)?.id || null;
   const since = (prev && prev.onBall === onBall) ? (prev.since || mem.t) : mem.t;
-  const r = { onBall, support, mode: ballMode(state, team), since };
+  const r = { onBall, support, mode: ballMode(state, team), since, belief };
   mem.teams[team] = r;
   return r;
 }
@@ -412,6 +439,18 @@ function decideBot(p, role, state, mem, sk, dt) {
 
   const carrier = b.owner ? state.players[b.owner] : null;
   if (b.owner !== p.id) bm.carryT = 0; // reset carry stall timer when not holding
+
+  // --- FOG OF WAR: if the team can't SEE the ball/carrier (enemy hid in a bush or slipped
+  // out of view), converge on the LAST-SEEN spot and search — never laser-track a hidden
+  // or off-screen enemy. We re-acquire the instant a bot gets eyes on them again. ---
+  const belief = role.belief || { x: b.x, y: b.y, visible: true };
+  if (!belief.visible && b.owner !== p.id) {
+    bm.charging = null; // lost sight — abandon any pending shot wind-up
+    const gx = belief.x, gy = belief.y;
+    const tgt = isOnBall ? { x: gx, y: gy } : { x: (gx + ogX) / 2, y: (gy + GY) / 2 };
+    const aim = { x: gx - p.x, y: gy - p.y };
+    return finalize(p, tgt, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+  }
 
   if (b.owner === p.id) {
     // ===== I CARRY: attack =====

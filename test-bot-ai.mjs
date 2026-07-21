@@ -47,7 +47,10 @@ const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail
   target.firing = true;
   ok(botCanSee(viewer, target, s), 'fog: an in-view firing enemy in a bush is revealed');
   target.firing = false; s.ball.owner = target.id;
-  ok(botCanSee(viewer, target, s), 'fog: an in-view ball-carrier in a bush is revealed');
+  ok(!botCanSee(viewer, target, s), 'fog: carrying the ball does NOT reveal a bushed carrier (must get close)');
+  viewer.x = target.x - 70; viewer.y = target.y; // within BUSH_REVEAL_DIST
+  ok(botCanSee(viewer, target, s), 'fog: a bushed carrier IS spotted from close range');
+  viewer.x = 600; viewer.y = 550; s.ball.owner = null;
   // OUT OF VIEW: a bot can't perceive an enemy across the pitch even if firing/carrying.
   viewer.x = 100; viewer.y = 100; // >VISION_RANGE from the bush
   ok(!botCanSee(viewer, target, s), 'fog: an out-of-view carrier is unseen (limited vision)');

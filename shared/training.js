@@ -19,7 +19,10 @@ export const SENTRY_LEASH = 240; // it can be nudged this far from CENTER, no fu
 // global mirror-symmetric ARENA. The server sets state.arena = TRAIN_ARENA; the
 // client swaps to it whenever the `training` flag is on. Neither is sent over the wire.
 export const TRAIN_BUSHES = [{ x: 160, y: 120, w: 400, h: 260 }];  // top-left cover
-export const TRAIN_WALLS = [{ x: 1280, y: 720, w: 320, h: 250 }];  // bottom-right steel wall
+// Steel wall: a long, flat horizontal barrier across the bottom-half CENTRE,
+// directly below the midfield sentry — so standing behind it (toward the bottom
+// edge) shields you from its fire.
+export const TRAIN_WALLS = [{ x: 590, y: 780, w: 820, h: 80 }];
 export const TRAIN_ARENA = { walls: TRAIN_WALLS, bushes: TRAIN_BUSHES, trampolines: [] };
 
 const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));

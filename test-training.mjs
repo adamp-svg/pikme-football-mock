@@ -168,11 +168,12 @@ console.log('6) difficulty — hard is faster, leads, and lands full-power shots
   check(hard.maxCharge >= FULL_CHARGE - 0.01, `hard lands a FULL-power shot (maxCharge ${hard.maxCharge.toFixed(2)} ≥ ${FULL_CHARGE})`);
   check(easy.maxCharge < FULL_CHARGE, `easy never reaches full power (maxCharge ${easy.maxCharge.toFixed(2)} < ${FULL_CHARGE})`);
 
-  // Fire discipline: with the player parked BEHIND the steel wall, hard holds fire.
+  // Fire discipline: with the player taking cover BEHIND the wall (below it, away
+  // from the centre sentry), hard holds fire.
   {
     const s = makeTraining();
     const wall = s.arena.walls[0];
-    const me = s.players.me; me.x = wall.x + wall.w + 40; me.y = wall.y + wall.h / 2; // opposite side of the wall from centre
+    const me = s.players.me; me.x = wall.x + wall.w / 2; me.y = wall.y + wall.h + 60; // directly below the wall
     const mem = createSentryMem();
     let fired = 0;
     for (let t = 0; t < Math.round(6 / DT); t++) {

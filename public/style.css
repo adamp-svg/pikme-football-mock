@@ -726,8 +726,8 @@ html, body {
 /* Anchor the slot column to the stage so the hero stays centred. */
 .hub-stage { position: relative; }
 .power-slots {
-  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: 9px; z-index: 4; pointer-events: auto;
+  position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%);
+  display: flex; flex-direction: row; gap: 10px; z-index: 4; pointer-events: auto;
 }
 .pslot {
   position: relative; width: 52px; height: 66px; cursor: pointer;
@@ -735,7 +735,7 @@ html, body {
   display: flex; align-items: flex-end; justify-content: center;
   box-shadow: 0 4px 0 rgba(0,0,0,.4); transition: border-color .12s, box-shadow .12s, transform .12s;
 }
-.pslot-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pslot-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .pslot-icon {
   position: absolute; top: 2px; right: 2px; font-size: 13px; line-height: 1; z-index: 2;
   filter: drop-shadow(0 1px 1px #000);
@@ -758,7 +758,7 @@ html, body {
   pointer-events: none; border: 2px solid #667061; box-shadow: 0 10px 22px rgba(0,0,0,.6);
   overflow: hidden; opacity: .92; transform: rotate(-4deg);
 }
-.pslot-ghost img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pslot-ghost img { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: pixelated; }
 .pslot-ghost.rarity-legendary { border-color: #ffb800; }
 .pslot-ghost.rarity-epic { border-color: #b46bff; }
 .pslot-ghost.rarity-rare { border-color: #4ea0ff; }
@@ -770,11 +770,27 @@ html, body {
   background: rgba(11,16,12,.78); display: flex; align-items: center; justify-content: center;
   font-size: 13px; box-shadow: 0 3px 0 rgba(0,0,0,.4);
 }
-.mpwr-art { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mpwr-art { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: pixelated; }
 .mpwr.rarity-legendary { border-color: #ffb800; }
 .mpwr.rarity-epic { border-color: #b46bff; }
 .mpwr.rarity-rare { border-color: #4ea0ff; }
 .mpwr.rarity-common { border-color: #9ab0c5; }
+/* Power-slot info popup — tap a slot to see what the power does. */
+.pinfo { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; background: rgba(4,8,6,.72); }
+.pinfo.hidden { display: none !important; }
+.pinfo-card { position: relative; width: min(85vw, 340px); background: rgba(19,27,22,.98); border: 3px solid #4a5a4c; box-shadow: inset 0 0 0 3px #182018, 0 14px 40px rgba(0,0,0,.6); padding: 18px; }
+.pinfo-card.rarity-legendary { border-color: #ffb800; } .pinfo-card.rarity-epic { border-color: #b46bff; } .pinfo-card.rarity-rare { border-color: #4ea0ff; } .pinfo-card.rarity-common { border-color: #9ab0c5; }
+.pinfo-x { position: absolute; top: 8px; left: 8px; background: none; border: 0; color: #9fb0a2; font-size: 18px; line-height: 1; cursor: pointer; padding: 4px; }
+.pinfo-head { display: flex; align-items: center; gap: 8px; }
+.pinfo-icon { font-size: 24px; }
+.pinfo-head b { color: #fff4ca; font: 900 18px "Arial Black", sans-serif; letter-spacing: .5px; }
+.pinfo-desc { color: #d7e0d0; font-size: 13px; line-height: 1.6; margin: 10px 0 12px; }
+.pinfo-eq { color: #e7dcae; font-size: 13px; font-weight: 700; }
+.pinfo-eq .pinfo-pct { color: var(--gold); font-weight: 900; }
+.pinfo-empty { color: #8aa08c; font-size: 12px; line-height: 1.5; margin: 2px 0 8px; }
+.pinfo-tiers { margin-top: 10px; color: #9fb0a2; font-size: 10px; line-height: 1.6; border-top: 1px solid #2a352c; padding-top: 8px; }
+.pinfo-remove { margin-top: 12px; width: 100%; padding: 9px; background: #2c3a2e; color: #e7dcae; border: 2px solid #4a5a4c; font: 900 12px "Arial Black", sans-serif; cursor: pointer; }
+.pinfo-remove:active { transform: translateY(2px); }
 @media (max-width: 720px) {
   .pslot { width: 42px; height: 54px; }
   .power-slots { gap: 6px; }

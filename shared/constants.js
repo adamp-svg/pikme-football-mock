@@ -98,6 +98,11 @@ export const BOMB = {
 // retention -> per-tick, so it feels the same at any TICK_RATE.
 export const KNOCKBACK_DECAY = Math.pow(0.0108, DT);
 export const KNOCKBACK_MIN = 4;
+// A bomb launch decays MUCH gentler than a normal hit (~0.3s half-life vs ~0.15s)
+// so the flight reads as a smooth arc — fast off the blast, easing down — instead
+// of shooting out and stopping dead. Applied while p.launchGlide > 0.
+export const BOMB_LAUNCH_DECAY = Math.pow(0.1, DT);
+export const BOMB_LAUNCH_GLIDE = 0.9; // seconds a launched player keeps the gentle decay
 
 // Live-tunable settings (adjustable from the in-game pause menu). These override
 // the base numbers above at runtime. speedMul/sizeMul are multipliers on each

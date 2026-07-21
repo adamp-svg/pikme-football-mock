@@ -560,10 +560,11 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
 // display and tell the server which card sits in which slot.
 const RARITY_PCT = { legendary: 20, epic: 12, rare: 7, common: 3 };
 const SLOT_META = [
-  { icon: '⚡', label: 'בעיטה' },   // Shot: faster charge
-  { icon: '🏃', label: 'מהירות' },  // Speed: faster move
-  { icon: '🛡️', label: 'הגנה' },   // Utility: faster cooldowns / wall reload
+  { icon: '⚡', label: 'בעיטה', desc: 'הבעיטה נטענת מהר יותר — קל יותר לשחרר בעיטת עוצמה מלאה לעבר השער.' },   // Shot: faster charge
+  { icon: '🏃', label: 'מהירות', desc: 'רצים מהר יותר בלי הכדור — מגיעים ראשונים לכל כדור חופשי.' },            // Speed: faster move
+  { icon: '🛡️', label: 'הגנה', desc: 'זמני התאוששות וטעינת קיר קצרים יותר — הפצצה והחומה חוזרות מהר.' },       // Utility: faster cooldowns / wall reload
 ];
+const HEB_RAR = { common: 'נפוץ', rare: 'נדיר', epic: 'אדיר', legendary: 'אגדי' };
 function cardOwned(r, n) { return myCards().some((c) => c.r === r && +c.n === +n); }
 function validSlot(s) { return s && s.r && s.n != null && cardOwned(s.r, s.n) ? { r: s.r, n: +s.n } : null; }
 // The 3-slot loadout used for rendering + sending: a saved loadout (validated against
@@ -583,12 +584,26 @@ function setSlotCard(slotIdx, card) {
   renderPowerSlots();
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
 }
-function slotCardEl(card, cls) {
-  const img = document.createElement('img');
-  img.className = cls; img.alt = '';
-  img.onerror = () => { img.style.display = 'none'; };
+// Card thumbnail rendered PIXELATED like the stadium audience: the webp is blitted into a
+// device-res canvas with imageSmoothingEnabled=false (nearest-neighbor, cover-fit), matching the
+// crowd's crunchy card-art look instead of a smooth photo. w/h are the CSS box dims (for aspect + buffer).
+function slotCardEl(card, cls, w, h) {
+  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  const cv = document.createElement('canvas');
+  cv.className = cls;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+  const img = new Image();
+  img.onload = () => {
+    const s = Math.max(cv.width / img.naturalWidth, cv.height / img.naturalHeight); // cover
+    const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.drawImage(img, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
+  };
+  img.onerror = () => { cv.style.display = 'none'; };
   img.src = `${CARD_ART_BASE}/${card.r}/${card.n}.webp`;
-  return img;
+  return cv;
 }
 const powerSlotsEl = document.getElementById('power-slots');
 function renderPowerSlots() {
@@ -600,15 +615,43 @@ function renderPowerSlots() {
     const el = document.createElement('div');
     el.className = 'pslot' + (card ? ' rarity-' + card.r : ' pslot-empty');
     el.dataset.slot = i;
-    if (card) el.appendChild(slotCardEl(card, 'pslot-art'));
+    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 52, 66));
     const icon = document.createElement('span'); icon.className = 'pslot-icon'; icon.textContent = meta.icon;
     const buff = document.createElement('span'); buff.className = 'pslot-buff';
     buff.textContent = card ? '+' + (RARITY_PCT[card.r] || 0) + '%' : '—';
     el.appendChild(icon); el.appendChild(buff);
-    // Tap a filled slot to clear it (optional per spec).
-    if (card) el.addEventListener('click', () => setSlotCard(i, null));
+    // Tap a slot to see what its power does (and remove the card from there).
+    el.addEventListener('click', () => showSlotInfo(i));
     powerSlotsEl.appendChild(el);
   });
+}
+// Tap-a-slot info popup: what the power does + the equipped card's buff, with a remove action.
+let powerInfoEl = null;
+function hidePowerInfo() { if (powerInfoEl) powerInfoEl.classList.add('hidden'); }
+function showSlotInfo(i) {
+  const meta = SLOT_META[i]; const card = effectiveLoadout()[i];
+  if (!powerInfoEl) {
+    powerInfoEl = document.createElement('div');
+    powerInfoEl.className = 'pinfo hidden'; powerInfoEl.dir = 'rtl';
+    powerInfoEl.innerHTML = '<div class="pinfo-card"></div>';
+    powerInfoEl.addEventListener('click', (e) => { if (e.target === powerInfoEl) hidePowerInfo(); });
+    document.body.appendChild(powerInfoEl);
+  }
+  const box = powerInfoEl.querySelector('.pinfo-card');
+  box.className = 'pinfo-card' + (card ? ' rarity-' + card.r : '');
+  box.innerHTML =
+    '<button class="pinfo-x" aria-label="סגור">✕</button>'
+    + '<div class="pinfo-head"><span class="pinfo-icon">' + meta.icon + '</span><b>' + meta.label + '</b></div>'
+    + '<p class="pinfo-desc">' + meta.desc + '</p>'
+    + (card
+      ? '<div class="pinfo-eq">קלף מצויד: ' + (HEB_RAR[card.r] || '') + ' · <span class="pinfo-pct">+' + (RARITY_PCT[card.r] || 0) + '% חוזק</span></div>'
+      : '<p class="pinfo-empty">חריץ ריק — גררו קלף מהאוסף לכאן כדי לצייד את הכוח.</p>')
+    + '<div class="pinfo-tiers">נדירות הקלף קובעת את החוזק: נפוץ +3% · נדיר +7% · אדיר +12% · אגדי +20%</div>'
+    + (card ? '<button class="pinfo-remove">הסר קלף מהחריץ</button>' : '');
+  box.querySelector('.pinfo-x').addEventListener('click', hidePowerInfo);
+  const rm = box.querySelector('.pinfo-remove');
+  if (rm) rm.addEventListener('click', () => { setSlotCard(i, null); hidePowerInfo(); });
+  powerInfoEl.classList.remove('hidden');
 }
 // In-match HUD: the 3 equipped cards next to the timer (read-only).
 const matchPowersEl = document.getElementById('match-powers');
@@ -619,7 +662,7 @@ function renderMatchPowers() {
   eff.forEach((card, i) => {
     const el = document.createElement('div');
     el.className = 'mpwr' + (card ? ' rarity-' + card.r : ' mpwr-empty');
-    if (card) el.appendChild(slotCardEl(card, 'mpwr-art'));
+    if (card) el.appendChild(slotCardEl(card, 'mpwr-art', 26, 34));
     else { const s = document.createElement('span'); s.textContent = SLOT_META[i].icon; el.appendChild(s); }
     matchPowersEl.appendChild(el);
   });
@@ -2438,7 +2481,7 @@ function canSeePlayer(p) {
   const inBush = inBushAt(p.x, p.y);
   if (p.firing && inBush) firedReveal[p.id] = performance.now();
   if (!inBush) return true;
-  if (latest && latest.ball && latest.ball.owner === p.id) return true;
+  // Carrying the ball does NOT reveal a bushed enemy — you must get close or catch them firing.
   if (performance.now() - (firedReveal[p.id] || -1e9) < BUSH_FIRE_REVEAL) return true;
   if (rendered && Math.hypot(rendered.x - p.x, rendered.y - p.y) < BUSH_REVEAL_DIST) return true;
   return false;

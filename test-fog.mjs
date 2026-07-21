@@ -31,9 +31,11 @@ ok(botCanSee(A, B, s), 'a bushed enemy within the reveal radius becomes visible'
 ok(!laneClear(A.x, A.y, 2000, by, s, 'A', { enemies: true, viewer: A }),
   'a now-visible enemy blocks the lane');
 
-// Carrying reveals a bushed enemy — but only WITHIN view range.
-A.x = bx - (BUSH_REVEAL_DIST + 120); s.ball.owner = 'B'; // ~230px, within VISION_RANGE
-ok(botCanSee(A, B, s), 'carrying the ball reveals a bushed enemy (in view)');
+// Carrying the ball does NOT reveal a bushed enemy — you must get close (Brawl-Stars model).
+A.x = bx - (BUSH_REVEAL_DIST + 120); A.y = by; s.ball.owner = 'B'; // ~230px, in view, bushed, carrying
+ok(!botCanSee(A, B, s), 'a bushed carrier is HIDDEN by the bush even while carrying');
+A.x = bx - (BUSH_REVEAL_DIST - 40); // step close
+ok(botCanSee(A, B, s), 'a bushed carrier is spotted once you close in');
 s.ball.owner = null;
 
 // LIMITED VISION: an enemy in the OPEN (no bush) is only seen within view range.
