@@ -677,55 +677,45 @@ html, body {
   50% { transform: translate(var(--shake,6px), calc(var(--shake,6px) * -1)); }
   80% { transform: translate(calc(var(--shake,6px) * -.5), var(--shake,6px)); }
 }
-.promo-team { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: -6%; }
+.promo-team { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .promo-team-label { color: #ffe49a; font: 900 15px "Arial Black", sans-serif; letter-spacing: 3px; text-shadow: 0 3px 0 #0b0f0b; }
-.promo-heroes { display: flex; gap: 34px; }
+.promo-heroes { display: flex; gap: 44px; align-items: flex-start; }
 .promo-hero { display: flex; flex-direction: column; align-items: center; gap: 5px; animation: promoHeroIn .5s cubic-bezier(.2,.8,.3,1.3) both; }
 .promo-hero:nth-child(2) { animation-delay: .12s; }
 @keyframes promoHeroIn { from { opacity: 0; transform: translateY(34px) scale(.8); } to { opacity: 1; transform: none; } }
 .promo-hero-cv { width: 92px; height: 108px; image-rendering: pixelated; filter: drop-shadow(0 8px 8px rgba(0,0,0,.55)); }
 .promo-hero-name { color: #fff4ca; font: 900 12px "Arial Black", sans-serif; letter-spacing: .3px; background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: 3px 9px; }
-/* Landing baseline raised + cards anchored by their BOTTOM so the full card sits
-   on-screen (no bottom clipping). The wrapper carries the fall/scale; the inner
-   holds the art (clipped); flames sit behind it (wrapper overflow stays visible). */
-#promo-cards { position: absolute; left: 0; right: 0; bottom: 27%; height: 0; }
+/* Each hero's cards land in their OWN zone right under them (bottom-anchored, so the
+   full card stays on screen). Wrapper carries the fall/scale; inner holds the art
+   (clipped); the pixel-fire wall sits behind the wrapper (overflow visible). */
+.promo-hero-cards { position: relative; width: 132px; height: 100px; margin-top: 6px; }
 .promo-card {
-  position: absolute; left: 50%; bottom: 0; width: 96px; height: 132px; margin-left: -48px;
-  transform: translate(var(--land-x, 0px), -74vh) scale(var(--start-scale, 2.6)) rotate(-9deg);
+  position: absolute; left: 50%; bottom: 0; width: 66px; height: 92px; margin-left: -33px;
+  transform: translate(var(--land-x, 0px), -80vh) scale(var(--start-scale, 3)) rotate(-9deg);
   transition: transform .5s cubic-bezier(.55,0,.85,1); will-change: transform;
 }
 .promo-card.land { transform: translate(var(--land-x, 0px), 0) scale(1) rotate(0deg); }
 .promo-card-inner {
-  position: absolute; inset: 0; z-index: 1; border-radius: 10px; overflow: hidden;
-  border: 3px solid var(--glow, #fff); box-shadow: 0 0 var(--glow-px, 28px) var(--glow, #fff);
+  position: absolute; inset: 0; z-index: 1; border-radius: 8px; overflow: hidden;
+  border: 3px solid var(--glow, #fff); box-shadow: 0 0 var(--glow-px, 24px) var(--glow, #fff);
 }
-.promo-card.landed .promo-card-inner { box-shadow: 0 0 16px var(--glow, #fff), 0 12px 22px rgba(0,0,0,.55); }
+.promo-card.landed .promo-card-inner { box-shadow: 0 0 12px var(--glow, #fff), 0 10px 18px rgba(0,0,0,.55); }
 .promo-card-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .promo-card-inner.cf-noart img { display: none; }
-.promo-card-inner.cf-noart::after { content: attr(data-n); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 900 34px "Arial Black", sans-serif; color: rgba(9,14,24,.8); }
+.promo-card-inner.cf-noart::after { content: attr(data-n); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 900 26px "Arial Black", sans-serif; color: rgba(9,14,24,.8); }
 .promo-card-inner.cf-noart.rarity-legendary { background: linear-gradient(160deg,#ffd873,#ffb800); }
 .promo-card-inner.cf-noart.rarity-epic { background: linear-gradient(160deg,#d0a3ff,#b46bff); }
 .promo-card-inner.cf-noart.rarity-rare { background: linear-gradient(160deg,#7fbcff,#4ea0ff); }
 .promo-card-inner.cf-noart.rarity-common { background: linear-gradient(160deg,#c4d3e0,#9ab0c5); }
-/* Legendary fire: a living flame aura + two flickering side tongues, behind the card. */
-.promo-flames {
-  position: absolute; inset: -24% -18% -16%; z-index: 0; pointer-events: none; mix-blend-mode: screen;
-  background:
-    radial-gradient(52% 58% at 50% 86%, rgba(255,226,132,.95), transparent 70%),
-    radial-gradient(66% 78% at 50% 92%, rgba(255,142,32,.85), transparent 72%),
-    radial-gradient(82% 96% at 50% 99%, rgba(255,58,18,.55), transparent 78%);
-  filter: blur(3px) saturate(1.25); animation: promoFlames .22s infinite alternate;
+/* Legendary fire — our pixel-fire sprite sheet (fire-sheet.png: 32 frames, 94x88 each),
+   a wall of flickering flames around the card. Each tile plays the strip via steps(32). */
+.promo-flames { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.fire-tile {
+  position: absolute; bottom: 0;
+  background-image: url('/assets/fire-sheet.png'); background-repeat: no-repeat; background-size: var(--sw, 3200%) 100%;
+  image-rendering: pixelated; animation: fireSheet .8s steps(32) infinite;
 }
-.promo-flames::before, .promo-flames::after {
-  content: ''; position: absolute; bottom: -2%; width: 42%; height: 76%;
-  background: linear-gradient(to top, rgba(255,214,74,.95), rgba(255,92,20,.55) 55%, transparent);
-  border-radius: 50% 50% 46% 46% / 62% 62% 40% 40%; filter: blur(2px);
-  animation: promoLick .3s infinite alternate;
-}
-.promo-flames::before { left: 5%; animation-delay: .04s; }
-.promo-flames::after { right: 5%; animation-delay: .13s; }
-@keyframes promoFlames { from { transform: scaleY(1); opacity: .82; } to { transform: scaleY(1.14); opacity: 1; } }
-@keyframes promoLick { from { transform: translateY(0) scaleY(1); } to { transform: translateY(-16%) scaleY(1.3) skewX(-5deg); } }
+@keyframes fireSheet { to { background-position-x: calc(-1 * var(--sw, 3200%)); } }
 #promo-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
 #promo-flash.hit { animation: promoFlash .22s ease; }
 @keyframes promoFlash { 0% { opacity: .5; } 100% { opacity: 0; } }

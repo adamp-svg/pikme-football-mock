@@ -860,6 +860,7 @@ if (teamIntroEl) teamIntroEl.addEventListener('click', () => { if (!quickVs) hid
 // time is lost and nothing moves behind the overlay.
 const promoEl = document.getElementById('promo');
 let promoBoosters = [];       // the team's top-3 cards that landed this match (future power-ups)
+let promoActive = false;      // true while the promo plays — suppresses the frozen kickoff banner behind it
 function promoHeroCanvas(cosmetic) {
   const cv = document.createElement('canvas'); cv.width = 120; cv.height = 140; cv.className = 'promo-hero-cv';
   const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
@@ -875,24 +876,46 @@ function cardDrama(c) {
   const dupeBoost = Math.min(1, ((c.c || 1) - 1) / 5);                  // 0..1 over 1..6 copies
   return { rank, power: rank + worthBoost * 1.6 + dupeBoost * 1.1 };    // 0 .. ~5.7
 }
-function meteorCard(cardsEl, flashEl, c, i, n) {
+// Legendary fire: a wall of OUR pixel-fire sprite (fire-sheet.png, 32 frames) around
+// the card — each tile a sprite window with its own size/phase/speed/mirror.
+function buildFireWall(card, cardW) {
+  const wall = document.createElement('div'); wall.className = 'promo-flames';
+  const N = 7;
+  for (let i = 0; i < N; i++) {
+    const t = document.createElement('div'); t.className = 'fire-tile';
+    const w = 18 + Math.round(Math.random() * 16);
+    t.style.width = w + 'px';
+    t.style.height = Math.round(w / (94 / 88) * (1.5 + Math.random() * 0.9)) + 'px';
+    t.style.setProperty('--sw', (32 * w) + 'px');                       // sheet width = 32 frames
+    t.style.left = Math.round(-12 + (i / (N - 1)) * (cardW + 24) - w / 2) + 'px';
+    t.style.bottom = (-8 + Math.round(Math.random() * 12)) + 'px';
+    t.style.animationDuration = (0.55 + Math.random() * 0.5).toFixed(2) + 's';
+    t.style.animationDelay = '-' + (Math.random() * 0.9).toFixed(2) + 's'; // desync start frame
+    if (Math.random() < 0.5) t.style.transform = 'scaleX(-1)';          // mirror some
+    wall.appendChild(t);
+  }
+  card.appendChild(wall);
+}
+// One card's meteor entrance into its hero's landing zone. k/kn = fan slot within the hero.
+function meteorCard(zone, flashEl, c, k, kn) {
   const { rank, power } = cardDrama(c);
   const el = document.createElement('div');
   el.className = 'promo-card rarity-' + c.r;
   el.style.setProperty('--glow', RARITY_GLOW[c.r] || '#fff');
-  el.style.setProperty('--start-scale', (1.9 + power * 0.55).toFixed(2)); // bigger entry the stronger the card
-  el.style.setProperty('--glow-px', (16 + power * 12).toFixed(0) + 'px');
-  el.style.setProperty('--land-x', ((i - (n - 1) / 2) * 122) + 'px');    // spread the landed row
-  const fallMs = Math.round(470 + power * 55);                          // heavier cards fall a touch longer
+  el.style.setProperty('--start-scale', (2.4 + power * 0.7).toFixed(2)); // bigger entry the stronger the card
+  el.style.setProperty('--glow-px', (14 + power * 12).toFixed(0) + 'px');
+  el.style.setProperty('--land-x', ((k - (kn - 1) / 2) * 26) + 'px');   // fan the hero's cards
+  el.style.zIndex = String(10 + k);
+  const fallMs = Math.round(460 + power * 55);                          // heavier cards fall a touch longer
   el.style.transitionDuration = (fallMs / 1000) + 's';
-  if (rank === 3) el.appendChild(Object.assign(document.createElement('div'), { className: 'promo-flames' })); // legendary fire
+  if (rank === 3) buildFireWall(el, 66);                                // legendary fire (our sprite sheet)
   const inner = document.createElement('div');
   inner.className = 'promo-card-inner rarity-' + c.r; inner.dataset.n = c.n;
   const img = document.createElement('img'); img.alt = '';
   img.onerror = () => inner.classList.add('cf-noart');
   img.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`;
   inner.appendChild(img); el.appendChild(inner);
-  cardsEl.appendChild(el);
+  zone.appendChild(el);
   playSound('shot', Math.min(1, 0.4 + power * 0.12), Math.max(0.5, 0.82 - power * 0.06)); // whoosh (lower = heavier)
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('land')));
   setTimeout(() => {                                                    // impact
@@ -906,31 +929,33 @@ function meteorCard(cardsEl, flashEl, c, i, n) {
 }
 function playPromo(introMs) {
   if (!promoEl) return;
+  promoActive = true;
   const heroesEl = promoEl.querySelector('.promo-heroes');
-  const cardsEl = document.getElementById('promo-cards');
   const flashEl = document.getElementById('promo-flash');
-  heroesEl.innerHTML = ''; cardsEl.innerHTML = '';
-  // my team = my roster humans, padded to 2 slots (bot fill)
+  heroesEl.innerHTML = '';
+  // my team (2 slots; bot fill). Each hero gets its OWN top cards beneath it.
   const mates = matchRoster.filter((p) => p.team === me.team);
+  const queue = []; promoBoosters = [];
   for (let i = 0; i < 2; i++) {
     const p = mates[i] || null;
-    const wrap = document.createElement('div'); wrap.className = 'promo-hero';
-    wrap.appendChild(promoHeroCanvas(p ? p.cosmetic : DEFAULT_COSMETIC));
+    const col = document.createElement('div'); col.className = 'promo-hero';
+    col.appendChild(promoHeroCanvas(p ? p.cosmetic : DEFAULT_COSMETIC));
     const nm = document.createElement('div'); nm.className = 'promo-hero-name';
     nm.textContent = p ? (p.id === myMemberId ? `${p.name} (אני)` : p.name) : 'בוט';
-    wrap.appendChild(nm); heroesEl.appendChild(wrap);
+    col.appendChild(nm);
+    const zone = document.createElement('div'); zone.className = 'promo-hero-cards';
+    col.appendChild(zone); heroesEl.appendChild(col);
+    const cards = rankCards((p && p.cards) || []).slice(0, 3);          // this hero's top-3
+    promoBoosters.push(...cards); preloadCards(cards);
+    cards.forEach((c, k) => queue.push({ zone, card: c, k, kn: cards.length }));
   }
-  // the team's best 3 cards (across both mates) — future power boosters
-  const cards = rankCards(mates.flatMap((p) => (p && p.cards) || [])).slice(0, 3);
-  promoBoosters = cards.slice();
-  preloadCards(cards);
   promoEl.classList.remove('hidden');
   requestAnimationFrame(() => promoEl.classList.add('show'));
-  const startDelay = 620, perCard = 720, n = cards.length;
-  cards.forEach((c, i) => setTimeout(() => meteorCard(cardsEl, flashEl, c, i, n), startDelay + i * perCard));
-  // fade out + reveal the pitch (coupled to the server's introT freeze window)
-  const done = Math.max((introMs || 3800) - 360, startDelay + n * perCard + 260);
-  setTimeout(() => { promoEl.classList.remove('show'); setTimeout(() => promoEl.classList.add('hidden'), 340); }, done);
+  const startDelay = 500;
+  const perCard = Math.max(300, Math.min(440, Math.floor(((introMs || 3800) - startDelay - 1000) / Math.max(1, queue.length))));
+  queue.forEach((j, idx) => setTimeout(() => meteorCard(j.zone, flashEl, j.card, j.k, j.kn), startDelay + idx * perCard));
+  const done = (introMs || 3800) - 320;                                // reveal the pitch as the server unfreezes
+  setTimeout(() => { promoActive = false; promoEl.classList.remove('show'); setTimeout(() => promoEl.classList.add('hidden'), 340); }, done);
 }
 
 // Keyed reconcile of the two team lists (avoids reloading avatar <img>s every tick).
@@ -2135,7 +2160,8 @@ function drawHUD() {
   if (powerCue) powerCue.classList.toggle('on', !!(meP && meP.power)); // charged -> full shot/kick available
 
   const banner = document.getElementById('banner');
-  if (latest.phase === 'ended') {
+  if (promoActive) { banner.classList.add('hidden'); banner.classList.remove('count'); }
+  else if (latest.phase === 'ended') {
     const txt = myScore === opScore ? 'תיקו' : (myScore > opScore ? 'הכחולים ניצחו' : 'האדומים ניצחו');
     banner.textContent = txt;
     banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
