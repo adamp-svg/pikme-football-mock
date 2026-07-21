@@ -79,8 +79,10 @@ export function resolveCircleBox(e, box, r, opts = {}) {
 }
 
 // Resolve a circle against every wall (static + built). `built` is optional.
-export function resolveWalls(e, r, built, opts) {
-  for (const w of ARENA.walls) resolveCircleBox(e, w, r, opts);
+// `staticWalls` defaults to the global arena but can be overridden (training uses
+// its own custom wall set).
+export function resolveWalls(e, r, built, opts, staticWalls = ARENA.walls) {
+  for (const w of staticWalls) resolveCircleBox(e, w, r, opts);
   if (built) for (const w of built) resolveCircleBox(e, w, r, opts);
 }
 

@@ -30,11 +30,15 @@ const PEN_BOT = (FIELD.H + PENALTY.width) / 2;
 const enemyGoalX = (team) => (team === 'A' ? FIELD.W : 0);
 const ownGoalX = (team) => (team === 'A' ? 0 : FIELD.W);
 
-// ---- difficulty skill vectors (Normal ships; presets wired for later scaling) ----
+// ---- difficulty skill vectors ----
+// Bots have HUMAN-like attributes across all tiers (reaction latency + noisy aim
+// stay in a human band — no superhuman reflexes). Difficulty scales MECHANICAL
+// power instead: `chargeRate` (reach full power sooner) and `cdMul` (bomb/build
+// come back faster). Harder = stronger, not twitchier.
 export const BOT_SKILL = {
-  easy:   { react: 0.30, aimSigma: 0.17, aimTau: 0.60, turnRate: 6.0,  leadGain: 0.70, decisionHz: 7,  toolSkill: 0.45, evade: 0.55, aggro: 0.75 },
-  normal: { react: 0.06, aimSigma: 0.035, aimTau: 0.26, turnRate: 18.0, leadGain: 0.98, decisionHz: 18, toolSkill: 0.85, evade: 0.85, aggro: 0.95 },
-  hard:   { react: 0.04, aimSigma: 0.022, aimTau: 0.22, turnRate: 21.0, leadGain: 1.0, decisionHz: 22, toolSkill: 0.97, evade: 0.96, aggro: 1.0 },
+  easy:   { react: 0.30, aimSigma: 0.11,  aimTau: 0.55, turnRate: 8.0,  leadGain: 0.80, decisionHz: 8,  toolSkill: 0.50, evade: 0.60, aggro: 0.80, chargeRate: 0.88, cdMul: 1.20 },
+  normal: { react: 0.22, aimSigma: 0.05,  aimTau: 0.30, turnRate: 13.0, leadGain: 0.95, decisionHz: 12, toolSkill: 0.75, evade: 0.85, aggro: 0.92, chargeRate: 1.00, cdMul: 1.00 },
+  hard:   { react: 0.16, aimSigma: 0.03,  aimTau: 0.24, turnRate: 18.0, leadGain: 1.00, decisionHz: 18, toolSkill: 0.90, evade: 0.95, aggro: 1.00, chargeRate: 1.25, cdMul: 0.80 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -249,6 +253,21 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
       const align = Math.abs(dx * bvx + dy * bvy);
       danger = Math.max(danger, align * (1 - rel / 340) * sk.evade * 0.9);
     }
+    // incoming LUNGING enemy (rocket-jump tackle / fast knockback body): sidestep out of
+    // its path so a bomb-launched or wall-cannoned opponent can't flying-tackle-steal us.
+    for (const e of Object.values(state.players)) {
+      if (e.team === bot.team) continue;
+      const espd = hyp(e.kvx || 0, e.kvy || 0);
+      const lunging = (e.bombLaunch || 0) > 0 || espd > 700;
+      if (!lunging) continue;
+      const rel = hyp(e.x - bot.x, e.y - bot.y);
+      if (rel > 300) continue;
+      const [evx, evy] = unit((e.kvx || 0) || (bot.x - e.x), (e.kvy || 0) || (bot.y - e.y));
+      const toMe = unit(bot.x - e.x, bot.y - e.y);
+      if (evx * toMe[0] + evy * toMe[1] < 0.6) continue; // not lunging at us
+      const along = Math.abs(dx * evx + dy * evy);        // flee perpendicular, not along its line
+      danger = Math.max(danger, along * (1 - rel / 300) * sk.evade);
+    }
     const score = interest - danger * 2.2;
     if (score > bestScore) { bestScore = score; best = [dx, dy]; }
     if (danger < safeD) { safeD = danger; safest = [dx, dy]; } // most-open dir (escape route)
@@ -340,6 +359,9 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
     if (!role) continue;
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
+      // difficulty as mechanical power: harder bots charge full sooner + cool down faster
+      p.chargeRate = sk.chargeRate != null ? sk.chargeRate : 1;
+      p.cdMul = sk.cdMul != null ? sk.cdMul : 1;
       out[p.id] = decideBot(p, role, state, mem, sk, dt);
     }
   }
@@ -407,10 +429,10 @@ function decideBot(p, role, state, mem, sk, dt) {
     // 1) SHOOT on goal: open lane, or BUMP-THROUGH a close blocker, or BANK around one near goal.
     if (distGoal < 720 && linedUp && laneOpen) {
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1;
-    } else if (distGoal < 720 && linedUp && laneWalls && blocker && blockerDL < 260
-               && (0.35 * Math.max(0, (settings.shotPower || 1850) - 2.1768 * (distGoal - blockerDL)) - 2.1768 * blockerDL) >= 200) {
-      // BUMP-THROUGH: the fast ball shoves the blocker aside and (post-bump energy checked
-      // above) still carries into the net. If it wouldn't reach, fall through and drive closer.
+    } else if (p.power && distGoal < 720 && linedUp && laneWalls && blocker && blockerDL < 260
+               && (0.30 * Math.max(0, (settings.shotPower || 1850) - 2.1768 * (distGoal - blockerDL)) - 2.1768 * blockerDL) >= 200) {
+      // BUMP-THROUGH: only an OVERCHARGE kick (p.power) rolls THROUGH a blocker now — a plain
+      // full kick STOPS dead and would gift possession. Energy uses the overcharge roll (0.30).
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'boxFinish';
     } else if (trick > 0.6 && distGoal < 900 && linedUp && !laneOpen && blocker && blockerDL >= 260 && blockerDL < 720) {
       // blocker too far up the lane to bump through -> BANK the ball off a wall/touchline around them
@@ -434,24 +456,20 @@ function decideBot(p, role, state, mem, sk, dt) {
       }
     }
 
-    // 3) BOMB: cornered finish, or a rare long TRAVERSAL ("fly further") — plant + HOLD.
-    // Travel freezes the carrier ~1.25s, so only HARD bots, only with a deep defender to
-    // beat AND no enemy close enough to punish the freeze (else it reads as idling / gets stripped).
+    // 3) BOMB: cornered finish only — plant + HOLD. (A carry-TRAVERSAL is no longer worth it:
+    // point 8 REDUCES the on-centre launch while carrying, so it'd be a frozen short-hop that
+    // just gets the carrier stripped.)
     if (!shoot && !special && bombReady && mateSafe && distGoal < 1200 && laneWalls) {
       const cornered = nfd < 150 && distGoal < 560;
-      const deepDefender = visibleEnemies.some((e) => (egX - p.x) * (e.x - p.x) > 0 && hyp(e.x - p.x, e.y - p.y) > 320 && hyp(e.x - p.x, e.y - p.y) < 720);
-      const travel = sk.toolSkill >= 0.95 && distGoal > 560 && distGoal < 950 && deepDefender && nfd > 260;
       if (cornered && Math.random() < sk.aggro * 0.5) {
         special = true; aim = { x: egX - p.x, y: GY - p.y };
         bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY }; bm.lastTrick = 'bombFinish';
-      } else if (travel && Math.random() < 0.25) {
-        special = true; aim = { x: egX - p.x, y: GY - p.y };
-        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY }; bm.lastTrick = 'bombTravel';
       }
     }
 
-    // Anti-idle: blast goalward if we've dithered — blocker-aware so we don't fling into a bump that dies short.
-    if (!shoot && !special && bm.carryT > 1.0 && laneWalls && distGoal < (blocker ? 520 : 1150)) {
+    // Anti-idle: blast goalward if we've dithered. Only blast INTO a blocker when OVERCHARGED
+    // (a plain full kick would STOP dead on them and gift possession) — otherwise keep driving.
+    if (!shoot && !special && bm.carryT > 1.0 && laneWalls && distGoal < (blocker ? 520 : 1150) && (!blocker || p.power)) {
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.carryT = 0;
     }
     // Drive at goal; if marked, JUKE decisively to the more-open side.
@@ -622,16 +640,41 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   const th = bm.aimTheta + noise;
   const ax = Math.cos(th), ay = Math.sin(th);
 
-  // don't fire before the aim has roughly converged (prevents wild misses / ammo dump)
   let { shoot, charge, special, build } = btn;
-  if (shoot && Math.abs(dTheta) > 0.45) { shoot = false; }
-  // ammo discipline: never fire a BULLET with an empty mag — but a ball RELEASE/pass
-  // (charge < 0.99, owner === me) costs no ammo, so must not be cancelled.
-  if (shoot && charge < 0.99 && p.ammo <= 0 && state.ball.owner !== p.id) shoot = false;
+  if (opts.hold) bm.charging = null; // standing on a bomb plant — never charge a shot
+  const aimConverged = Math.abs(dTheta) <= 0.45; // aim has roughly settled
+  const isBallRelease = state.ball.owner === p.id;
+
+  // ---- SIM-OWNED CHARGE RAMP: the bot must HOLD the trigger to build power,
+  // exactly like a human. It commits to a wind-up when it wants to shoot, keeps
+  // aiming while charging, and RELEASES (fire) once the sim-accumulated charge
+  // reaches the target AND the aim has converged. Losing the ball / running the
+  // mag dry / timing out cancels the wind-up (a real cancel, no shot). ----
+  let hold = false, fire = false;
+  if (shoot && !bm.charging) {
+    // don't start a BULLET wind-up we can't finish (empty mag, not carrying)
+    if (isBallRelease || p.ammo > 0) {
+      bm.charging = { target: clamp(charge || 1, 0, 1), ball: isBallRelease, until: mem.t + 2.2 };
+    }
+  } else if (shoot && bm.charging) {
+    bm.charging.target = clamp(charge || 1, 0, 1); // keep the freshest target while winding up
+  }
+  if (bm.charging) {
+    const c = bm.charging;
+    const lostBall = c.ball && state.ball.owner !== p.id;
+    const dryBullet = !c.ball && p.ammo <= 0;
+    if (lostBall || dryBullet || mem.t > c.until) {
+      bm.charging = null; // cancel: release trigger without firing
+    } else if ((p._charge || 0) >= Math.min(c.target, 1) - 0.02 && aimConverged) {
+      fire = true; bm.charging = null; // wound up + on target -> release
+    } else {
+      hold = true; // keep charging
+    }
+  }
 
   return {
     seq: (bm.seq = (bm.seq || 0) + 1),
     moveX: mvx, moveY: mvy, aimX: ax, aimY: ay,
-    shoot, special, build, charge,
+    hold, fire, special, build,
   };
 }

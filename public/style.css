@@ -661,3 +661,46 @@ html, body {
 .hub-mode.soon { opacity: .55; cursor: default; }
 .hub-mode.soon:active { transform: none; }
 .hub-badge { margin-right: auto; font: 900 9px "Arial Black", sans-serif; letter-spacing: .5px; color: #8aa08c; background: rgba(0,0,0,.3); padding: 4px 8px; }
+
+/* ================= Match-start promo cinematic ================= */
+.promo {
+  position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+  background: radial-gradient(circle at 50% 40%, rgba(10,18,28,.7), rgba(4,8,14,.93));
+  opacity: 0; transition: opacity .3s; pointer-events: none; overflow: hidden;
+}
+.promo.show { opacity: 1; }
+.promo.shake { animation: promoShake .26s ease; }
+@keyframes promoShake {
+  0%,100% { transform: translate(0,0); }
+  20% { transform: translate(calc(var(--shake,6px) * -1), var(--shake,6px)); }
+  50% { transform: translate(var(--shake,6px), calc(var(--shake,6px) * -1)); }
+  80% { transform: translate(calc(var(--shake,6px) * -.5), var(--shake,6px)); }
+}
+.promo-team { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: -6%; }
+.promo-team-label { color: #ffe49a; font: 900 15px "Arial Black", sans-serif; letter-spacing: 3px; text-shadow: 0 3px 0 #0b0f0b; }
+.promo-heroes { display: flex; gap: 34px; }
+.promo-hero { display: flex; flex-direction: column; align-items: center; gap: 5px; animation: promoHeroIn .5s cubic-bezier(.2,.8,.3,1.3) both; }
+.promo-hero:nth-child(2) { animation-delay: .12s; }
+@keyframes promoHeroIn { from { opacity: 0; transform: translateY(34px) scale(.8); } to { opacity: 1; transform: none; } }
+.promo-hero-cv { width: 92px; height: 108px; image-rendering: pixelated; filter: drop-shadow(0 8px 8px rgba(0,0,0,.55)); }
+.promo-hero-name { color: #fff4ca; font: 900 12px "Arial Black", sans-serif; letter-spacing: .3px; background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: 3px 9px; }
+#promo-cards { position: absolute; left: 0; right: 0; bottom: 20%; height: 0; }
+.promo-card {
+  position: absolute; left: 50%; top: 0; width: 96px; height: 132px; margin-left: -48px;
+  border-radius: 10px; overflow: hidden; border: 3px solid var(--glow, #fff); box-shadow: 0 0 32px var(--glow, #fff);
+  transform: translate(var(--land-x, 0px), -72vh) scale(var(--start-scale, 2.6)) rotate(-9deg);
+  transition: transform .5s cubic-bezier(.55,0,.85,1); will-change: transform;
+}
+.promo-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.promo-card.land { transform: translate(var(--land-x, 0px), 0) scale(1) rotate(0deg); }
+.promo-card.landed { box-shadow: 0 0 16px var(--glow, #fff), 0 12px 22px rgba(0,0,0,.55); }
+.promo-card.cf-noart img { display: none; }
+.promo-card.cf-noart::after { content: attr(data-n); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 900 34px "Arial Black", sans-serif; color: rgba(9,14,24,.8); }
+.promo-card.cf-noart.rarity-legendary { background: linear-gradient(160deg,#ffd873,#ffb800); }
+.promo-card.cf-noart.rarity-epic { background: linear-gradient(160deg,#d0a3ff,#b46bff); }
+.promo-card.cf-noart.rarity-rare { background: linear-gradient(160deg,#7fbcff,#4ea0ff); }
+.promo-card.cf-noart.rarity-common { background: linear-gradient(160deg,#c4d3e0,#9ab0c5); }
+#promo-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+#promo-flash.hit { animation: promoFlash .22s ease; }
+@keyframes promoFlash { 0% { opacity: .5; } 100% { opacity: 0; } }

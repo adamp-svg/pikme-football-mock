@@ -14,7 +14,7 @@ import {
   createState, addPlayer, removePlayer, step, attachBall,
 } from './shared/sim.js';
 import {
-  TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, GOAL, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD,
+  TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, GOAL, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD, INTRO_PROMO,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
@@ -22,7 +22,7 @@ import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC } from './shared/cosmetics.js';
 const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
-import { PEN, penDummy, trainingDummyInput } from './shared/training.js';
+import { PEN, CENTER, TRAIN_ARENA, penDummy, trainingDummyInput, createSentryMem, trainingSentryInput, leashSentry } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3010;
@@ -88,7 +88,7 @@ function makeRoom(id, isPrivate, mode = 'match') {
     id, isPrivate: !!isPrivate,
     mode,                    // 'match' | 'training' (solo practice vs a penned dummy)
     phase: 'lobby',          // lobby | countdown | match
-    countdownT: 0, endHoldT: 0,
+    countdownT: 0, endHoldT: 0, introT: 0,
     state: createState(),
     inputs: new Map(),       // playerId -> input
     botMem: createBotMemory(), // persistent bot-AI memory (roles, aim, beliefs)
@@ -110,7 +110,7 @@ function genCode() {
 }
 
 function emptyInput() {
-  return { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false, build: false, charge: 0 };
+  return { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, hold: false, fire: false, special: false, build: false };
 }
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
@@ -140,7 +140,7 @@ function balancedTeam(room) {
 }
 
 function fillBots(room) {
-  if (room.mode === 'training') return; // training keeps exactly one penned dummy — no backfill
+  if (room.mode === 'training') return; // training has its own fixed dummy + sentry — no backfill
   const teamCount = (t) => Object.values(room.state.players).filter((p) => p.team === t).length;
   const usedSlots = (t) => new Set(Object.values(room.state.players).filter((p) => p.team === t).map((p) => p.slot));
   while (Object.keys(room.state.players).length < MAX_PLAYERS) {
@@ -164,8 +164,10 @@ function updateBots(room) {
 
 // Training ground: drive the penned dummy from the shared, testable controller.
 function updateTrainingDummy(room) {
-  const inp = trainingDummyInput(room.state, room.dummyId);
-  if (inp) room.inputs.set(room.dummyId, inp);
+  const dummy = trainingDummyInput(room.state, room.dummyId);
+  if (dummy) room.inputs.set(room.dummyId, dummy);
+  const sentry = trainingSentryInput(room.state, room.sentryId, room.sentryMem, DT);
+  if (sentry) room.inputs.set(room.sentryId, sentry);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,12 +190,15 @@ function quickMatch(member) {
   const room = publicRoom;
   addToRoom(member, room);
   send(member.ws, { type: 'roomJoined', mode: 'quick', code: null });
-  if (room.phase === 'lobby') startCountdown(room); // quick match: joining kicks off the countdown
+  // Room is full (all human slots taken) -> start now; no point waiting out the countdown.
+  if (room.members.size >= MAX_PLAYERS) { startMatch(room); return; }
+  if (room.phase === 'lobby') startCountdown(room); // first in: open the 5s matchmaking window
   broadcastLobby(room);
 }
 
-// Solo training ground: instant entry, no lobby/countdown, one penned dummy,
-// endless clock. Reuses the whole match render/snapshot pipeline.
+// Solo training ground: instant entry, no lobby/countdown, endless clock, and
+// two enemies — a penned roaming dummy by the far goal + a midfield sentry that
+// fires at you. Reuses the whole match render/snapshot pipeline.
 function startTraining(member) {
   leaveCurrentRoom(member);
   const room = makeRoom(`train-${++roomCounter}`, false, 'training');
@@ -202,6 +207,7 @@ function startTraining(member) {
 
   room.state = createState();
   room.state.noClock = true;      // never transitions to 'ended'
+  room.state.arena = TRAIN_ARENA; // custom field: top-left bush + bottom-right steel wall
   room.inputs.clear();
   room.botCounter = 0;
 
@@ -217,6 +223,16 @@ function startTraining(member) {
   room.dummyId = dummyId;
   const d = room.state.players[dummyId];
   d.x = (PEN.x0 + PEN.x1) / 2; d.y = FIELD.H / 2; // start centred in the pen
+
+  // One "sentry" enemy at midfield: holds the centre, always aims at you, fires
+  // in random bursts. Not penned — it just steers back to CENTER if shoved.
+  const sentryId = `sentry-${room.id}`;
+  addPlayer(room.state, sentryId, { name: 'Sentry', char: DEFAULT_CHAR, team: 'B', slot: 1, isBot: true, cosmetic: randomBotCosmetic() });
+  room.inputs.set(sentryId, emptyInput());
+  room.sentryId = sentryId;
+  room.sentryMem = createSentryMem();
+  const sen = room.state.players[sentryId];
+  sen.x = CENTER.x; sen.y = CENTER.y;
 
   const matchId = `${room.id}-${++matchSeq}`;
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [] }];
@@ -304,16 +320,18 @@ function startMatch(room) {
   // identical if the same matchStart is resent. Feeds matchResult idempotency downstream (app -> backend).
   const matchId = `${room.id}-${++matchSeq}`;
   // Roster for the team-intro overlay: every human, their team + album (cards).
-  const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [] }));
+  const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [], cosmetic: m.cosmetic || DEFAULT_COSMETIC }));
+  const introMs = Math.round(INTRO_PROMO * 1000);
   for (const [m, team, slot] of assigned) {
     addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false, cosmetic: m.cosmetic || DEFAULT_COSMETIC });
     room.inputs.set(m.id, emptyInput());
     m.team = team; m.inMatch = true; m.afk = false; m.lastInputAt = nowMs();
-    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs });
   }
   fillBots(room);
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0;
+  room.introT = INTRO_PROMO;   // hold the sim frozen while the client plays the promo (see tickRoom)
   room.phase = 'match';
   room.rosterVersion++; broadcastRoster(room); // slot->id map for binary snapshots — sent before any snapshot
   if (publicRoom === room) publicRoom = null; // next quick-matchers form a fresh room
@@ -361,6 +379,11 @@ function tickRoom(room) {
     return;
   }
   if (room.phase !== 'match') return;
+  if (room.introT > 0) {                    // pre-kickoff promo: freeze the sim so the clock + play wait for the cinematic
+    room.introT -= DT;
+    for (const inp of room.inputs.values()) { inp.fire = false; inp.special = false; inp.build = false; }
+    return;                                 // snapshots keep broadcasting the frozen kickoff state
+  }
   if (room.mode === 'training') {
     updateTrainingDummy(room);
   } else {
@@ -370,8 +393,11 @@ function tickRoom(room) {
   const inputMap = {};
   for (const [id, inp] of room.inputs) inputMap[id] = inp;
   step(room.state, inputMap, DT);
-  if (room.mode === 'training') penDummy(room.state, room.dummyId); // keep the dummy inside its pen after physics
-  for (const inp of room.inputs.values()) { inp.shoot = false; inp.special = false; inp.build = false; inp.charge = 0; }
+  if (room.mode === 'training') {
+    penDummy(room.state, room.dummyId);    // keep the dummy inside its pen after physics
+    leashSentry(room.state, room.sentryId); // keep the sentry anchored to midfield
+  }
+  for (const inp of room.inputs.values()) { inp.fire = false; inp.special = false; inp.build = false; } // consume edges; hold persists as a level
   if (room.state.phase === 'ended') {
     room.endHoldT += DT;
     if (room.endHoldT >= ENDED_HOLD) endRoom(room);
@@ -554,17 +580,18 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'input') {
         if (!room || !member.inMatch) return;
-        const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.shoot || !!msg.special || !!msg.build;
+        const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.hold || !!msg.fire || !!msg.special || !!msg.build;
         if (active) {
           member.lastInputAt = nowMs();
           if (member.afk) { member.afk = false; const p = room.state.players[member.id]; if (p) p.isBot = false; }
         }
         const prev = room.inputs.get(member.id) || {};
-        let charge = prev.charge || 0;
-        if (msg.shoot) charge = msg.charge || 0;
         room.inputs.set(member.id, {
           seq: msg.seq, moveX: msg.moveX || 0, moveY: msg.moveY || 0, aimX: msg.aimX || 0, aimY: msg.aimY || 0,
-          shoot: prev.shoot || !!msg.shoot, special: prev.special || !!msg.special, build: prev.build || !!msg.build, charge,
+          // hold = a level signal (charging now); fire = an EDGE (release), latched
+          // sticky until the next tick consumes it so a fire between ticks isn't lost.
+          hold: !!msg.hold, fire: prev.fire || !!msg.fire,
+          special: prev.special || !!msg.special, build: prev.build || !!msg.build,
         });
         return;
       }

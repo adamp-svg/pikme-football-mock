@@ -34,6 +34,15 @@ quick-match path — muddies matchmaking with training special-cases.)
 - `tickRoom` for training uses `trainingBotInputs` instead of `computeBotInputs`,
   and skips the "0 humans → endRoom" only insofar as normal (leaving still ends it).
 
+### 1b. Midfield "sentry" enemy (added)
+A second team-B bot (`sentry`) spawned at `CENTER` (2nd team-B slot):
+- **Holds midfield**: steers back to `CENTER` whenever shoved; otherwise still.
+  Not penned/clamped — the return-to-centre steering is the confinement.
+- **Always faces the player**: `aim` tracks the human every tick.
+- **Random-burst fire**: flips between a firing window (sprays as fast as the gun
+  allows, capped by `shootCd`/ammo/reload) and an idle window that is sometimes
+  long — "sometimes many, sometimes none". Never plants, builds, or carries.
+
 ### 2. Penned dummy bot ("roaming target")
 `trainingBotInputs(room)`:
 - **Pen zone**: rectangle in front of team B's (far) goal. Bot's target position
@@ -59,6 +68,21 @@ quick-match path — muddies matchmaking with training special-cases.)
   assert it stays inside the pen; assert the bot never fires/builds/plants.
 - Smoke on `localhost:3010`: instant entry + penned roaming + reset ball.
 
+### 1c. Custom training field (added)
+Training swaps the global mirror-symmetric arena for a deliberately asymmetric one
+(fairness doesn't apply to solo practice), via a per-room override `state.arena`:
+- **Large bush, top-left** — cover for stealth / bush-fire practice.
+- **Large indestructible steel wall, bottom-right** — a fixed barrier that blocks
+  players and ricochets the ball; can't be destroyed.
+- Only these two (plus goals/pen/sentry) — the default stone blocks + bushes are
+  cleared in training.
+
+Implementation: `shared/training.js` exports `TRAIN_ARENA` (`TRAIN_WALLS` +
+`TRAIN_BUSHES`). The sim reads `arenaOf(state) = state.arena || ARENA` at every
+obstacle site (`resolveWalls` gained a `staticWalls` param; `boxInBush` takes
+`state`). The client swaps to `TRAIN_ARENA` via `fieldArena()`/`inBushAt()` when
+the `training` flag is on. Neither is sent over the wire — both sides derive it.
+
 ## Out of scope
-- No new pitch geometry (reuse existing FIELD/ARENA).
+- No new pitch geometry beyond the training obstacle swap (FIELD dimensions unchanged).
 - No difficulty tiers for the dummy, no scoring drills/targets, no persistence.

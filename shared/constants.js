@@ -53,6 +53,7 @@ export const KICKOFF_FREEZE = 0.7; // brief reset pause at match start
 export const GOAL_RESET = 5;       // post-goal countdown before play resumes
 export const GOAL_FREEZE_HOLD = 2; // of GOAL_RESET, hold in the scoring positions this long before snapping to kickoff
 export const ENDED_HOLD = 6; // seconds the final score shows before returning to lobby
+export const INTRO_PROMO = 3.8; // pre-kickoff promo hold: server freezes stepping so the clock waits while the client plays the card-meteor intro
 
 // One player type. `speed`/`radius` are live-tunable via settings multipliers.
 //   Holding the ball: it sticks to you; SHOOT releases/passes it.
@@ -128,6 +129,16 @@ export const SLOW_MUL = 0.9;    // speed multiplier while slowed
 // A fast free ball shoves the opponent it runs into (power shots plow through).
 export const BALL_BUMP_SPEED = 300; // ball speed above which it bumps an opponent
 export const BALL_BUMP_SCALE = 0.5; // knockback = ball speed * this (a bit of a push)
+// Two power tiers layered on the charge. FULL (>= FULL_CHARGE, hold-based, anyone):
+// strips a carrier; a full KICK into an enemy STOPS dead (no attach). OVERCHARGE
+// (earned by landing a forceful hit — see p.power/powerT — layered on top of a full
+// charge): an overcharge KICK shoves harder AND the ball rolls on (breakthrough).
+export const OVERCHARGE_TTL = 4;     // seconds the overcharge meter lasts if unused
+export const OVERCHARGE_MUL = 1.5;   // overcharge kick shoves the enemy this much harder
+export const OVERCHARGE_ROLL = 0.30; // ball keeps this fraction of speed after an overcharge bump (rolls on)
+// A FULL kick blocked by a defender standing in their OWN penalty box only DEFLECTS
+// (keeps this fraction of speed) instead of dead-stopping — so camping the line isn't a free save.
+export const KEEPER_DEFLECT = 0.30;
 // Bomb mechanics: a planter standing this close to their own bomb gets launched
 // (full-shot strength) in their AIM direction ("rocket jump") instead of being
 // flung away from center. Enemies in the blast fly away a bit harder.
@@ -135,6 +146,14 @@ export const BOMB_CENTER_R = 95;
 export const BOMB_ENEMY_MUL = 1.25; // enemies of the bomber fly this much harder
 export const BOMB_LAUNCH_TTL = 0.5; // seconds the launched planter can "tackle" an enemy
 export const BOMB_TACKLE_KB = 1800; // shove given to an enemy the flying planter hits
+// Rocket-jump scaling: on-centre you fly FURTHER; reduced if you're carrying the ball.
+export const BOMB_CENTER_LAUNCH_MUL = 1.35; // on-centre launch is this much stronger than a flung-away hit
+export const BOMB_CARRY_LAUNCH_MUL = 0.6;   // ...but reduced this much if the bomber owns the ball
+// Wall cannon: a wall collinear BEHIND the bomb (player -> bomb -> wall) boosts the
+// launch in that direction. Any wall qualifies (static, built, even your own).
+export const BOMB_WALL_CANNON_MUL = 1.5; // launch multiplier when backed by a wall
+export const BOMB_WALL_DIST = 140;       // wall must be within this of the bomb to back it
+export const BOMB_WALL_COS = 0.82;       // collinearity: cos(~35°) cone opposite the launch dir
 
 // --- Arena obstacles -------------------------------------------------------
 // Ball restitution off any wall (static or built) — a touch bouncier than the

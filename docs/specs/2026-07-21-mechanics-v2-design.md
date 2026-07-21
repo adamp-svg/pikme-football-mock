@@ -119,13 +119,31 @@ Rewrite `drawAimIndicator` into a raycast to the first obstacle:
 
 ## 5. Bots (fairness finding ⑤) — update before ship
 
-Bots are stale against every new rule. Required updates in `bot-ai.js`:
-1. **Charge state machine** (from §1a): hold for N ticks then fire, per `bmem`.
+**Difficulty philosophy (user):** bots play with **human-like attributes** (they pay the same
+charge wind-up, no superhuman reflexes/aim). Difficulty scales *mechanical power*, not reflexes —
+harder bots reach full power earlier and use bomb/build faster.
+
+### Difficulty as mechanical buffs (per-player sim fields)
+Two new per-player fields, default `1` for humans, set from the room's bot difficulty on bot spawn:
+- **`chargeRate`** — charge-accumulation multiplier: `p._charge += DT/SHOOT_CHARGE_TIME * (p.chargeRate||1)`. Hard reaches full ~20% earlier.
+- **`cdMul`** — cooldown multiplier applied when a special (bomb) or build fires: `cd = BASE * (p.cdMul||1)`. Hard's bomb/build come back faster.
+
+Tier presets (`BOT_SKILL` in `constants.js`) — reaction/aim stay in a **human band** across all tiers:
+
+| tier | react (s) | aimSigma (rad) | decisionHz | toolSkill | chargeRate | cdMul |
+|---|---|---|---|---|---|---|
+| easy | 0.30 | 0.10 | 8 | 0.50 | 0.88 (~14% slower full) | 1.20 (slower bomb/build) |
+| normal | 0.22 | 0.05 | 12 | 0.75 | 1.00 (human) | 1.00 |
+| hard | 0.16 | 0.03 | 18 | 0.90 | 1.25 (~20% earlier full) | 0.80 (~20% faster) |
+
+`react` stays in the human 0.16–0.30s range (was 0.06 on Normal = superhuman) — difficulty comes from `chargeRate`/`cdMul`/decision quality, not inhuman reflexes.
+
+### Behaviour updates in `bot-ai.js`
+1. **Charge state machine** (from §1a): emit `{hold, fire}`; hold for the ticks needed to reach the target charge (respecting the bot's own `chargeRate`), then fire, per `bmem`.
 2. **Overcharge bookkeeping**: read `p.power`; gate carry-through finishers (`boxFinish` ~410-414, anti-idle blast ~454-455) on having overcharge; recompute the retained-speed coefficient per tier (0 for full, small for overcharge) — the hard-coded `0.35` assumption is now wrong for full kicks.
 3. **Defensive steering**: add fast-incoming-enemy / `bombLaunch>0` player as a high-weight `steer()` danger so bots juke rocket-jump tackle-steals (currently enemy bodies are never a danger). Add a last-defender "sit on the line" block behaviour.
 4. **`bombTravel`** (~447-449): disable for carriers (point 8 reduces carry launch → it becomes a frozen short-hop sitting-duck).
-5. **Normal difficulty**: raise `react` from 0.06 → ~0.18-0.22 and widen `aimSigma` so the human's hold-to-strip is competitive; reserve instant/near-perfect execution for Hard.
-6. Re-run `bot-eval.mjs` A/B (NEW vs frozen legacy) + `test-behavior`/`test-tricks`/`test-stuck` and retune until green.
+5. Re-run `bot-eval.mjs` A/B (NEW vs frozen legacy) + `test-behavior`/`test-tricks`/`test-stuck` and retune until green.
 
 ---
 

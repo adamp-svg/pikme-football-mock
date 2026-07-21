@@ -7,7 +7,7 @@ import {
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
-import { PEN } from '/shared/training.js';
+import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { drawHero } from '/heroes.js';
 import {
@@ -713,9 +713,10 @@ function enterMatch(msg) {
   showScreen('game');
   resize();
   renderBackground(); // re-cache the field/stands in our team colours
-  if (training) hideTeamIntro();                      // training: straight onto the pitch, no VS intro
+  if (training) hideTeamIntro();                      // training: straight onto the pitch, no intro
+  else if (msg.intro > 0) { quickVs = false; hideTeamIntro(); playPromo(msg.intro); } // team reveal + card-meteor promo
   else if (quickVs) { quickVs = false; hideTeamIntro(); } // the VS countdown already served as the intro
-  else showTeamIntro(msg.players);                    // private room: brief VS intro overlay
+  else showTeamIntro(msg.players);                    // fallback: brief VS intro overlay
   resetPlayNow();
 }
 
@@ -798,6 +799,72 @@ function hideTeamIntro() {
 }
 // Tap-to-skip only applies to the brief match-start intro, not the quick-match countdown.
 if (teamIntroEl) teamIntroEl.addEventListener('click', () => { if (!quickVs) hideTeamIntro(); });
+
+// ---- Match-start promo cinematic --------------------------------------------
+// After matchStart, before play: reveal MY team's heroes, then the team's top-3
+// cards meteor onto the pitch (whoosh + impact haptic + screen shake), scaled up
+// by rarity. Those 3 are the match's "power boosters" (gameplay hook: promoBoosters).
+// The server holds the sim frozen (room.introT) for the same window, so no match
+// time is lost and nothing moves behind the overlay.
+const promoEl = document.getElementById('promo');
+let promoBoosters = [];       // the team's top-3 cards that landed this match (future power-ups)
+function promoHeroCanvas(cosmetic) {
+  const cv = document.createElement('canvas'); cv.width = 120; cv.height = 140; cv.className = 'promo-hero-cv';
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+  const sf = cv.height / 42, ox = cv.width / 2, feetY = cv.height - sf * 3;
+  drawHero(g, ox, feetY, sf, 0.4, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
+  return cv;
+}
+function meteorCard(cardsEl, flashEl, c, i, n) {
+  const rank = RARITY_RANK[c.r] || 0;
+  const el = document.createElement('div');
+  el.className = 'promo-card rarity-' + c.r; el.dataset.n = c.n;
+  el.style.setProperty('--glow', RARITY_GLOW[c.r] || '#fff');
+  el.style.setProperty('--start-scale', String(2.2 + rank * 0.5));    // rarer => bigger, more dramatic entry
+  el.style.setProperty('--land-x', ((i - (n - 1) / 2) * 118) + 'px'); // spread the landed row
+  const img = document.createElement('img'); img.alt = '';
+  img.onerror = () => el.classList.add('cf-noart');
+  img.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`;
+  el.appendChild(img); cardsEl.appendChild(el);
+  playSound('shot', 0.5 + rank * 0.12, 0.72 - rank * 0.05);           // whoosh (lower rate = heavier)
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('land')));
+  setTimeout(() => {                                                  // impact when it lands
+    playSound('explosion', 0.45 + rank * 0.15, 1.2 - rank * 0.08);
+    haptic(rank >= 2 ? 'bomb' : 'hit');
+    promoEl.style.setProperty('--shake', (5 + rank * 4) + 'px');
+    promoEl.classList.remove('shake'); void promoEl.offsetWidth; promoEl.classList.add('shake');
+    flashEl.classList.remove('hit'); void flashEl.offsetWidth; flashEl.classList.add('hit');
+    el.classList.add('landed');
+  }, 520);
+}
+function playPromo(introMs) {
+  if (!promoEl) return;
+  const heroesEl = promoEl.querySelector('.promo-heroes');
+  const cardsEl = document.getElementById('promo-cards');
+  const flashEl = document.getElementById('promo-flash');
+  heroesEl.innerHTML = ''; cardsEl.innerHTML = '';
+  // my team = my roster humans, padded to 2 slots (bot fill)
+  const mates = matchRoster.filter((p) => p.team === me.team);
+  for (let i = 0; i < 2; i++) {
+    const p = mates[i] || null;
+    const wrap = document.createElement('div'); wrap.className = 'promo-hero';
+    wrap.appendChild(promoHeroCanvas(p ? p.cosmetic : DEFAULT_COSMETIC));
+    const nm = document.createElement('div'); nm.className = 'promo-hero-name';
+    nm.textContent = p ? (p.id === myMemberId ? `${p.name} (אני)` : p.name) : 'בוט';
+    wrap.appendChild(nm); heroesEl.appendChild(wrap);
+  }
+  // the team's best 3 cards (across both mates) — future power boosters
+  const cards = rankCards(mates.flatMap((p) => (p && p.cards) || [])).slice(0, 3);
+  promoBoosters = cards.slice();
+  preloadCards(cards);
+  promoEl.classList.remove('hidden');
+  requestAnimationFrame(() => promoEl.classList.add('show'));
+  const startDelay = 620, perCard = 720, n = cards.length;
+  cards.forEach((c, i) => setTimeout(() => meteorCard(cardsEl, flashEl, c, i, n), startDelay + i * perCard));
+  // fade out + reveal the pitch (coupled to the server's introT freeze window)
+  const done = Math.max((introMs || 3800) - 360, startDelay + n * perCard + 260);
+  setTimeout(() => { promoEl.classList.remove('show'); setTimeout(() => promoEl.classList.add('hidden'), 340); }, done);
+}
 
 // Keyed reconcile of the two team lists (avoids reloading avatar <img>s every tick).
 const memberRows = new Map(); // id -> row element
@@ -898,7 +965,7 @@ function stepPrediction(moveX, moveY, dt) {
   // Keep the prediction out of walls (built walls arrive in the snapshot) so the
   // local player slides along cover instead of clipping through then rubber-banding.
   const e = { x: predicted.x, y: predicted.y, vx: predVel.x, vy: predVel.y };
-  resolveWalls(e, r, latest && latest.walls);
+  resolveWalls(e, r, latest && latest.walls, undefined, fieldArena().walls);
   predicted.x = e.x; predicted.y = e.y; predVel.x = e.vx; predVel.y = e.vy;
 }
 
@@ -918,26 +985,36 @@ function reconcile(snap) {
 // --------------------------------------------------------------------------
 // Input — keyboard/mouse (desktop) + dual touch joysticks (mobile)
 // --------------------------------------------------------------------------
-let shootQueued = false;   // a shot was released this frame
+let holding = false;       // fire trigger currently HELD (charge builds server-side)
+let fireQueued = false;    // a real fire (pulled-out release) this frame
 let specialQueued = false; // special skill
 let buildQueued = false;   // a wall build was released this frame
 let buildHold = null;      // aim captured at build-button release (drag-to-aim)
-let aimHold = null;        // aim captured at right-stick release
-let chargeStart = null;    // timestamp when the current aim-hold began (charging)
-let pendingCharge = 0;     // 0..1 charge captured on release
+let aimHold = null;        // aim captured at right-stick release (fire direction)
+let chargeStart = null;    // timestamp the hold began — LOCAL charge estimate for the HUD only
+const AIM_DEADZONE_PX = 12; // stick/cursor pull past this = a real shot; inside it = cancel
 
 // Build a wall — like a shot, you can drag to aim (pull-to-build) then release.
 function releaseBuild(aim) { buildQueued = true; if (aim) buildHold = aim; playSound('ui', 0.5, 0.86); }
 
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
-function beginCharge() { if (chargeStart === null) chargeStart = performance.now(); }
+function beginCharge() { if (!holding) { holding = true; chargeStart = performance.now(); } }
 function currentCharge() { return chargeStart === null ? 0 : Math.min(1, (performance.now() - chargeStart) / CHARGE_MS); }
+// Commit a shot: fire in the pulled-out direction. The SERVER owns the actual
+// charge (accumulated from the held trigger); we just flag the release.
 function releaseShot(aim) {
-  pendingCharge = currentCharge();
   if (aim) aimHold = aim;
-  shootQueued = true;
-  playSound(holdingBall ? 'kick' : 'shot', holdingBall ? 0.85 : 0.38, 0.92 + pendingCharge * 0.16);
-  chargeStart = null;
+  fireQueued = true;
+  playSound(holdingBall ? 'kick' : 'shot', holdingBall ? 0.85 : 0.38, 0.92 + currentCharge() * 0.16);
+  holding = false; chargeStart = null;
+}
+// Cancel a charge: trigger returned to centre — no shot, no sound.
+function cancelCharge() { holding = false; chargeStart = null; aimHold = null; }
+// Is the aim pulled out of the deadzone (mouse/keyboard aim toward the cursor)?
+function aimPulled() {
+  if (!rendered) return true;
+  const w = screenToWorld(mouse.x, mouse.y);
+  return Math.hypot(w.x - rendered.x, w.y - rendered.y) > ownRadius() * 1.3;
 }
 
 const keys = {};
@@ -949,7 +1026,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   keys[e.key.toLowerCase()] = false;
-  if (e.key === ' ') releaseShot();                  // release to fire
+  if (e.key === ' ') { if (aimPulled()) releaseShot(); else cancelCharge(); } // release fires; cursor on self cancels
 });
 
 let mouse = { x: 0, y: 0, down: false };
@@ -959,7 +1036,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 2) { specialQueued = true; }   // right-click = special
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
-addEventListener('mouseup', (e) => { if (mouse.down && e.button !== 2) releaseShot(); mouse.down = false; });
+addEventListener('mouseup', (e) => { if (mouse.down && e.button !== 2) { if (aimPulled()) releaseShot(); else cancelCharge(); } mouse.down = false; });
 addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Special-skill button (touch + click)
@@ -1055,7 +1132,7 @@ for (const b of diffBtns) b.addEventListener('click', () => setDifficulty(b.data
 
 function openSettings() {
   playSound('ui', 0.45);
-  shootQueued = false; specialQueued = false; aimHold = null;
+  holding = false; chargeStart = null; fireQueued = false; specialQueued = false; aimHold = null;
   settingsPanel.classList.remove('hidden');
   syncSliderUI();
   syncDifficultyUI();
@@ -1138,10 +1215,10 @@ addEventListener('touchend', (e) => {
       touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.add('hidden');
     }
     else if (t.identifier === touchR.id) {
-      // Right stick is AIM. Dragged past the deadzone -> aimed charged shot.
-      // A quick tap (no drag) -> instant QUICK SHOT in the current facing dir.
-      if (Math.hypot(touchR.dx, touchR.dy) > 12) releaseShot({ x: touchR.dx, y: touchR.dy });
-      else releaseShot(); // quick shot (low charge, current aim)
+      // Right stick is AIM. Released while pulled OUT -> fire in that direction.
+      // Released back at CENTRE (deadzone) -> CANCEL (no shot).
+      if (Math.hypot(touchR.dx, touchR.dy) > AIM_DEADZONE_PX) releaseShot({ x: touchR.dx, y: touchR.dy });
+      else cancelCharge();
       touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; stickR.classList.add('hidden');
     }
   }
@@ -1152,7 +1229,7 @@ addEventListener('touchend', (e) => {
 addEventListener('touchcancel', (e) => {
   for (const t of e.changedTouches) {
     if (t.identifier === touchL.id) { touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.add('hidden'); }
-    else if (t.identifier === touchR.id) { chargeStart = null; touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; stickR.classList.add('hidden'); }
+    else if (t.identifier === touchR.id) { cancelCharge(); touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; stickR.classList.add('hidden'); }
   }
 }, { passive: false });
 
@@ -1161,7 +1238,7 @@ function sampleInput() {
   // Settings pause only this player. A realtime multiplayer room must never be
   // globally frozen by one client (especially if that client disconnects).
   if (!settingsPanel.classList.contains('hidden')) {
-    return { moveX: 0, moveY: 0, aimX: 0, aimY: 0, shoot: false, special: false, charge: 0 };
+    return { moveX: 0, moveY: 0, aimX: 0, aimY: 0, hold: false, fire: false, special: false, build: false };
   }
   let moveX = 0, moveY = 0, aimX = 0, aimY = 0;
 
@@ -1190,12 +1267,10 @@ function sampleInput() {
   if (aimHold) { aimX = flip ? -aimHold.x : aimHold.x; aimY = aimHold.y; aimHold = null; }
   // A build-button drag aims the wall the same way; overrides aim for this frame.
   if (buildHold) { aimX = flip ? -buildHold.x : buildHold.x; aimY = buildHold.y; buildHold = null; }
-  const shoot = shootQueued; shootQueued = false;
+  const fire = fireQueued; fireQueued = false;
   const special = specialQueued; specialQueued = false;
   const build = buildQueued; buildQueued = false;
-  const charge = shoot ? pendingCharge : 0;
-  if (shoot) pendingCharge = 0;
-  return { moveX, moveY, aimX, aimY, shoot, special, build, charge };
+  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build };
 }
 
 // Send inputs + advance prediction at a fixed rate.
@@ -1790,21 +1865,45 @@ function currentAim() {
   return { aiming: true, ax: ax / l, ay: ay / l };
 }
 
-function drawAimIndicator(wxp, wyp, ax, ay, charge = 0) {
+// Ray vs an AABB (true-world). Returns the nearest positive hit distance, or null.
+function rayBox(x0, y0, ax, ay, w) {
+  let tmin = -Infinity, tmax = Infinity;
+  if (Math.abs(ax) < 1e-9) { if (x0 < w.x || x0 > w.x + w.w) return null; }
+  else { let t1 = (w.x - x0) / ax, t2 = (w.x + w.w - x0) / ax; if (t1 > t2) { const t = t1; t1 = t2; t2 = t; } tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2); }
+  if (Math.abs(ay) < 1e-9) { if (y0 < w.y || y0 > w.y + w.h) return null; }
+  else { let t1 = (w.y - y0) / ay, t2 = (w.y + w.h - y0) / ay; if (t1 > t2) { const t = t1; t1 = t2; t2 = t; } tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2); }
+  if (tmax < tmin || tmax < 0) return null;
+  return tmin > 0 ? tmin : (tmax > 0 ? tmax : null);
+}
+// Cast the aim from (x0,y0) along (ax,ay) to the first WALL or FIELD EDGE. Never
+// stops on a player body — so an aiming player can't out a hidden (bushed) enemy.
+function raycastAim(x0, y0, ax, ay) {
+  let t = Infinity;
+  if (ax > 1e-6) t = Math.min(t, (FIELD.W - x0) / ax); else if (ax < -1e-6) t = Math.min(t, (0 - x0) / ax);
+  if (ay > 1e-6) t = Math.min(t, (FIELD.H - y0) / ay); else if (ay < -1e-6) t = Math.min(t, (0 - y0) / ay);
+  const walls = ARENA.walls.concat((latest && latest.walls) || []);
+  for (const w of walls) { const th = rayBox(x0, y0, ax, ay, w); if (th != null && th < t) t = th; }
+  if (!isFinite(t) || t < 0) t = 0;
+  return { x: x0 + ax * t, y: y0 + ay * t };
+}
+
+// Infinite pale aim line to the first obstacle. Faded GREY normally; faded RED when
+// OVERCHARGED. Charge no longer sets the length (always full) — it ramps the alpha.
+function drawAimIndicator(wxp, wyp, ax, ay, charge = 0, overcharged = false) {
   const px = wx(wxp), py = wy(wyp);
-  const len = ws_(150 + 130 * charge);            // longer as it charges
-  const ex = px + ax * len, ey = py + ay * len;
-  const g = Math.round(255 * (1 - charge));        // white -> red with charge
-  const steps = 9, block = Math.max(2, ws_(5 + charge * 4));
-  const col = `rgba(255,${g},${g},${0.55 + 0.4 * charge})`;
-  for (let i = 2; i <= steps; i++) {
-    const t = i / steps;
-    pxi(px + ax * len * t - block / 2, py + ay * len * t - block / 2, block, block, col);
+  const hit = raycastAim(wxp, wyp, ax, ay);
+  const ex = wx(hit.x), ey = wy(hit.y);
+  const rgb = overcharged ? '255,64,64' : '176,176,176';
+  const col = `rgba(${rgb},${(0.32 + 0.45 * charge).toFixed(3)})`;
+  const mc = `rgba(${rgb},.95)`;
+  const dx = ex - px, dy = ey - py, dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist, uy = dy / dist;
+  const block = Math.max(2, ws_(6)), gap = block * 1.6, startOff = ws_(22);
+  for (let d = startOff; d < dist - ws_(8); d += block + gap) {
+    pxi(px + ux * d - block / 2, py + uy * d - block / 2, block, block, col);
   }
-  const mark = Math.max(2, ws_(12 + charge * 5)), tk = Math.max(1, Math.round(ws_(3)));
-  const mc = `rgba(255,${g},${g},.95)`;
-  pxi(ex - mark, ey - mark, mark * 2, tk, mc); pxi(ex - mark, ey + mark - tk, mark * 2, tk, mc);
-  pxi(ex - mark, ey - mark, tk, mark * 2, mc); pxi(ex + mark - tk, ey - mark, tk, mark * 2, mc);
+  const mark = Math.max(2, ws_(9)), tk = Math.max(1, Math.round(ws_(3)));
+  pxi(ex - mark, ey - tk / 2, mark * 2, tk, mc); pxi(ex - tk / 2, ey - mark, tk, mark * 2, mc);
 }
 
 function drawProjectile(pr) {
@@ -1960,7 +2059,7 @@ function drawHUD() {
   const meP = latest.players && latest.players.find((pp) => pp.id === me.playerId);
   if (meP) updateBuildHud(meP);
   const hiddenCue = document.getElementById('stealth-cue');
-  if (hiddenCue) hiddenCue.classList.toggle('on', !!(rendered && pointInBush(rendered.x, rendered.y) && latest.ball.owner !== me.playerId));
+  if (hiddenCue) hiddenCue.classList.toggle('on', !!(rendered && inBushAt(rendered.x, rendered.y) && latest.ball.owner !== me.playerId));
   const powerCue = document.getElementById('power-cue');
   if (powerCue) powerCue.classList.toggle('on', !!(meP && meP.power)); // charged -> full shot/kick available
 
@@ -2120,7 +2219,7 @@ const BUSH_FIRE_REVEAL = 1000; // ms an enemy stays visible after shooting from 
 const firedReveal = {};
 function canSeePlayer(p) {
   if (p.team === me.team) return true;
-  const inBush = pointInBush(p.x, p.y);
+  const inBush = inBushAt(p.x, p.y);
   if (p.firing && inBush) firedReveal[p.id] = performance.now();
   if (!inBush) return true;
   if (latest && latest.ball && latest.ball.owner === p.id) return true;
@@ -2129,11 +2228,20 @@ function canSeePlayer(p) {
   return false;
 }
 
+// Active obstacle layout: training swaps in its custom asymmetric field.
+function fieldArena() { return training ? TRAIN_ARENA : ARENA; }
+// Bush test against the active layout (pointInBush only knows the global one).
+function inBushAt(x, y) {
+  for (const g of fieldArena().bushes) if (x > g.x && x < g.x + g.w && y > g.y && y < g.y + g.h) return true;
+  return false;
+}
+
 function drawObstacles() {
   const t = performance.now() / 1000;
-  for (const g of ARENA.bushes) drawBush(g, t);
-  for (const tr of ARENA.trampolines) drawTramp(tr, t);
-  for (const w of ARENA.walls) drawWallBlock(w);
+  const A = fieldArena();
+  for (const g of A.bushes) drawBush(g, t);
+  for (const tr of A.trampolines) drawTramp(tr, t);
+  for (const w of A.walls) drawWallBlock(w);
   if (latest && latest.walls) for (const w of latest.walls) drawBuiltWall(w);
   // Ghost preview while dragging the build button.
   if (buildDrag.active && rendered) {
@@ -2211,15 +2319,19 @@ function renderFrame() {
     }
     drawBall(ballDraw);
 
-    // Aim-to-shoot indicator for the local player (reflects charge).
+    // Aim-to-shoot indicator for the local player: infinite line, grey normally,
+    // RED when overcharged (the meter is up). Owner-only — never drawn for others.
     const aim = currentAim();
-    if (aim.aiming && rendered) drawAimIndicator(rendered.x, rendered.y, aim.ax, aim.ay, currentCharge());
+    if (aim.aiming && rendered) {
+      const meNow = view.players.find((pp) => pp.id === me.playerId);
+      drawAimIndicator(rendered.x, rendered.y, aim.ax, aim.ay, currentCharge(), !!(meNow && meNow.power));
+    }
     for (const p of view.players) {
       const isMe = p.id === me.playerId && rendered;
       const dp = isMe ? { ...p, x: rendered.x, y: rendered.y, vx: predVel.x, vy: predVel.y } : p;
       if (!isMe && !canSeePlayer(p)) { drawRustle(p, performance.now() / 1000); continue; } // hidden enemy
       // You + teammates hidden in a bush render translucent, so you can tell you're concealed.
-      if (dp.team === me.team && pointInBush(dp.x, dp.y)) {
+      if (dp.team === me.team && inBushAt(dp.x, dp.y)) {
         ctx.save(); ctx.globalAlpha = 0.5; drawPlayer(dp); ctx.restore();
       } else drawPlayer(dp);
     }
@@ -2248,9 +2360,10 @@ function renderFrame() {
       if (knob) knob.style.background = '';
     } else {
       const chg = bucket / 5;
-      const g = Math.round(120 * (1 - chg));
-      stickR.style.borderColor = `rgba(255,${g},${g},.95)`;
-      if (knob) knob.style.background = `rgba(255,${Math.round(60 * (1 - chg))},60,${0.4 + 0.5 * chg})`;
+      // AMBER -> GOLD as it charges. Red is reserved for OVERCHARGE (the aim line),
+      // so the charge tint must not read as red.
+      stickR.style.borderColor = `rgba(255,${Math.round(150 + 60 * chg)},60,.95)`;
+      if (knob) knob.style.background = `rgba(255,${Math.round(165 + 45 * chg)},70,${0.4 + 0.5 * chg})`;
     }
   }
 }
