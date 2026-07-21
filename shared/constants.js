@@ -146,11 +146,15 @@ export const OVERCHARGE_PARTIAL_GAIN = 0.5; // a lower-power hit / bump — two 
 export const OVERCHARGE_MUL = 2.0;   // overcharge KICK shoves the enemy this much harder (vs a full kick)
 export const FULL_BUMP_MUL = 1.3;    // a FULL kick shoves a little harder than a quick/medium kick
 export const OVERCHARGE_BULLET_MUL = 1.6; // an overcharge BULLET pushes/strips this much harder than a full bullet
-export const OVERCHARGE_ROLL = 0.30; // ball keeps this fraction of speed after an overcharge bump (rolls on)
 export const BALL_WALL_POP_SPEED = 260; // carried ball popped loose when the holder walks it into a wall
-// A FULL kick blocked by a defender standing in their OWN penalty box only DEFLECTS
-// (keeps this fraction of speed) instead of dead-stopping — so camping the line isn't a free save.
-export const KEEPER_DEFLECT = 0.30;
+// MONOTONIC ball penetration when a kicked ball hits an enemy — harder kick = more roll-through:
+//   weak/medium = BLOCKED, rebounds off the defender (keeps this fraction, reversed)
+//   FULL        = DRIVES THROUGH with good pace
+//   OVERCHARGE  = breaks through HARDEST
+export const KICK_BLOCK_REBOUND = 0.40; // weak kick bounces back off a defender (fraction, reversed)
+export const FULL_DRIVE_ROLL = 0.50;    // full kick keeps this fraction going forward through the defender
+export const OVERCHARGE_ROLL = 0.75;    // overcharge kick keeps the most (breakthrough)
+export const KEEPER_BREAK_ROLL = 0.45;  // an overcharge kick still gets through a keeper, but reduced
 // Bomb mechanics: a planter standing this close to their own bomb gets launched
 // (full-shot strength) in their AIM direction ("rocket jump") instead of being
 // flung away from center. Enemies in the blast fly away a bit harder.
@@ -173,7 +177,8 @@ export const BOMB_WALL_COS = 0.82;       // collinearity: cos(~35°) cone opposi
 // Multi-bomb: bombs detonating close together COMBINE into one bigger blast — the launch
 // (and blast radius) scales with how many stacked. Two players bombing the same spot = big.
 export const BOMB_COMBINE_RADIUS = 210;  // bombs within this of the first-to-blow detonate together
-export const BOMB_STACK_PER = 1.0;       // each EXTRA bomb adds this to the power multiplier (2 bombs = x2, 3 = x3)
+export const BOMB_STACK_PER = 0.6;       // each EXTRA bomb adds this to the power multiplier (sublinear — 2 bombs = x1.6)
+export const BOMB_STACK_MAX = 2;         // at most this many bombs combine into one blast
 export const BOMB_STACK_RADIUS = 0.30;   // each extra bomb grows the blast radius by this fraction
 
 // --- Arena obstacles -------------------------------------------------------

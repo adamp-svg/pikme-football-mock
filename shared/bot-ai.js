@@ -114,24 +114,11 @@ function pointSegDist(px, py, ax, ay, bx, by) {
   return hyp(px - (ax + dx * t), py - (ay + dy * t));
 }
 
-// ---- would a built wall placed by `p` aiming (ax,ay) actually spawn? mirrors the
-// sim's buildWall geometry + its silent rejection when the box overlaps a bush or
-// either penalty area (so a bot never burns its ambush on a rejected build). ----
-const PEN_BOXES = [
-  { x: 0, y: PEN_TOP, w: PENALTY.depth, h: PENALTY.width },
-  { x: FIELD.W - PENALTY.depth, y: PEN_TOP, w: PENALTY.depth, h: PENALTY.width },
-];
-function boxesOverlap(ax, ay, aw, ah, b) { return ax < b.x + b.w && ax + aw > b.x && ay < b.y + b.h && ay + ah > b.y; }
+// ---- would a built wall placed by `p` aiming (ax,ay) actually spawn? The sim ALWAYS
+// places one now (a build inside a bush/penalty is allowed — it's just FRAGILE, hp1),
+// so a build never fails. Kept as a hook in case future rules reject a placement. ----
 function wallWouldPlace(p, ax, ay) {
-  const [ux, uy] = unit(ax, ay);
-  const horiz = Math.abs(ux) >= Math.abs(uy);
-  const w = horiz ? BUILT_WALL.thick : BUILT_WALL.len;
-  const h = horiz ? BUILT_WALL.len : BUILT_WALL.thick;
-  const x = clamp(p.x + ux * BUILT_WALL.offset - w / 2, 2, FIELD.W - w - 2);
-  const y = clamp(p.y + uy * BUILT_WALL.offset - h / 2, 2, FIELD.H - h - 2);
-  for (const g of ARENA.bushes) if (boxesOverlap(x, y, w, h, g)) return false;
-  for (const bx of PEN_BOXES) if (boxesOverlap(x, y, w, h, bx)) return false;
-  return true;
+  return true; // sim.buildWall always places (fragile in bush/penalty) — the bush-ambush wall trap works there
 }
 
 // ---- pick the bush that best straddles the carrier -> our-goal lane (ambush spot) ----

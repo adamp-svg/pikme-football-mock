@@ -1,7 +1,7 @@
 // Power tiers (mechanics v2). Charge is SIM-OWNED: hold the trigger to build it.
 //   FULL (>= FULL_CHARGE) is hold-based and UNGATED — anyone reaching full strips a
-//     carrier, and a full KICK into an enemy STOPS the ball dead (keeper-diminish in
-//     the defender's own box only deflects it).
+//     carrier; a KICK into an enemy is MONOTONIC (weak rebounds, full drives through,
+//     overcharge hardest) — a keeper in their OWN box catches a full kick (save).
 //   OVERCHARGE (p.power) is EARNED by a FORCEFUL hit (>= QUICK_CHARGE / bomb), DECAYS
 //     if unused, is SPENT on an overcharge kick, and makes that kick ROLL THROUGH an
 //     enemy. A quick poke never earns it, and an overcharge kick can't self-farm it.
@@ -73,23 +73,37 @@ function shoot(s, id, charge, aim = [1, 0], others = {}) {
 
 // 4) a FULL kick into an enemy STOPS the ball (no attach); an OVERCHARGE kick ROLLS it
 //    through AND spends the meter.
-function kickInto(overcharged) {
+function kickInto(tier) { // 'weak' | 'full' | 'over' — MONOTONIC: weak rebounds, full drives through, over hardest
   const s = duel(); const A = s.players.A, B = s.players.B;
   A.x = 1000; A.y = 550; A.aimX = 1; A.aimY = 0;
-  if (overcharged) { A.power = true; A.powerT = OVERCHARGE_TTL; }
+  if (tier === 'over') { A.power = true; A.powerT = OVERCHARGE_TTL; }
   s.ball.owner = 'A'; s.ball.x = 1030; s.ball.y = 550; s.ball.lastTouch = 'A';
-  B.x = 1160; B.y = 550; // open field (B's box is x>1640)
-  shoot(s, 'A', 1, [1, 0], { B: inp() });
-  let ballAtBump = null;
-  for (let t = 0; t < 40; t++) { step(s, { A: inp(), B: inp() }, DT); if (s.players.B.kvx > 30 && ballAtBump === null) ballAtBump = Math.hypot(s.ball.vx, s.ball.vy); }
-  return { ballAtBump: ballAtBump == null ? Math.hypot(s.ball.vx, s.ball.vy) : ballAtBump, spent: !s.players.A.power };
+  B.x = 1160; B.y = 550; // open field (B's box is x>1640), so no keeper save
+  shoot(s, 'A', tier === 'weak' ? 0.4 : 1, [1, 0], { B: inp() });
+  let vxAtBump = null;
+  for (let t = 0; t < 40; t++) { step(s, { A: inp(), B: inp() }, DT); if (s.players.B.kvx > 30 && vxAtBump === null) vxAtBump = s.ball.vx; }
+  return { vx: vxAtBump == null ? s.ball.vx : vxAtBump, spent: !s.players.A.power };
 }
 {
-  const full = kickInto(false);
-  ok(full.ballAtBump < 30, `a FULL kick STOPS on an enemy (ball speed ~${full.ballAtBump.toFixed(0)})`);
-  const over = kickInto(true);
-  ok(over.ballAtBump > 60, `an OVERCHARGE kick ROLLS the ball through (ball speed ~${over.ballAtBump.toFixed(0)})`);
+  const weak = kickInto('weak'), full = kickInto('full'), over = kickInto('over');
+  ok(weak.vx < full.vx && full.vx < over.vx, `MONOTONIC roll-through: weak(${weak.vx.toFixed(0)}) < full(${full.vx.toFixed(0)}) < over(${over.vx.toFixed(0)})`);
+  ok(weak.vx < 0, `a WEAK kick REBOUNDS off the defender (fwd vx ${weak.vx.toFixed(0)} < 0)`);
+  ok(full.vx > 0, `a FULL kick DRIVES THROUGH the defender (fwd vx ${full.vx.toFixed(0)} > 0)`);
   ok(over.spent, 'an overcharge kick SPENDS the meter');
+}
+// keeper in their OWN box catches a full kick (a real save); overcharge still breaks through
+{
+  function kickAtKeeper(tier) {
+    const s = duel(); const A = s.players.A, B = s.players.B;
+    A.x = 1500; A.y = 550; A.aimX = 1; A.aimY = 0; if (tier === 'over') { A.power = true; A.powerT = OVERCHARGE_TTL; }
+    s.ball.owner = 'A'; s.ball.x = 1530; s.ball.y = 550; s.ball.lastTouch = 'A';
+    B.x = 1720; B.y = 550; // B in its OWN box (x > 1640) — a keeper
+    shoot(s, 'A', 1, [1, 0], { B: inp() });
+    let v = null; for (let t = 0; t < 40; t++) { step(s, { A: inp(), B: inp() }, DT); if (s.players.B.kvx > 20 && v === null) v = Math.hypot(s.ball.vx, s.ball.vy); }
+    return v == null ? Math.hypot(s.ball.vx, s.ball.vy) : v;
+  }
+  ok(kickAtKeeper('full') < 40, 'a keeper in their OWN box CATCHES a full kick (save)');
+  ok(kickAtKeeper('over') > 60, 'an OVERCHARGE kick still breaks through the keeper');
 }
 
 // 5) the charged KICK is stronger than a weak one (hold = more power).

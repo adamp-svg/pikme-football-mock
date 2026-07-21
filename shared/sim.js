@@ -6,8 +6,8 @@ import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
   PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
-  OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KEEPER_DEFLECT,
-  OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX,
+  OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
+  OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_DIST, BOMB_WALL_COS,
   BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE,
@@ -166,7 +166,7 @@ function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
-    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerMeter = 0; p.launchGlide = 0;
+    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.launchGlide = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
@@ -438,7 +438,10 @@ export function step(state, inputs, dt) {
     const h = state.players[b.owner];
     const ballR = ballRadius(state);
     const off = radiusOf(h, state) + ballR;
-    const gx = h.x + h.aimX * off, gy = h.y + h.aimY * off; // where the ball WANTS to glue (in front)
+    // where the ball WANTS to glue (in front) — kept inside the pitch so a carrier at the
+    // line can't park the ball past the goal line (a free release would then tap in).
+    const gx = clamp(h.x + h.aimX * off, ballR, FIELD.W - ballR);
+    const gy = clamp(h.y + h.aimY * off, ballR, FIELD.H - ballR);
     // If that spot is inside a wall (you walked the ball INTO cover), it can't stay there
     // — pop it loose off the holder so it rolls forward into the wall and bounces back.
     const walls = arenaOf(state).walls.concat(state.builtWalls || []);
@@ -481,32 +484,32 @@ export function step(state, inputs, dt) {
       // A bomb-flung / stripped / wall-popped ball (clearKick -> lastKicker null) falls
       // through to the pickup below, so TOUCHING it attaches it (reliable pickup).
       if (bspeed > BALL_BUMP_SPEED && enemyOfBall && b.lastKicker) {
-        // A fast ball shoves the opponent it runs into. What the ball does next
-        // depends on the KICK TIER it was launched with:
-        //   0 (quick/medium): trickles on (keeps 0.35) — unchanged
-        //   1 (FULL, no meter): STOPS dead (no attach) — unless the enemy is a keeper
-        //     in their OWN box, where it only DEFLECTS (camping the line isn't a free save)
-        //   2 (OVERCHARGE): shoves HARDER and the ball ROLLS ON (breakthrough)
+        // MONOTONIC penetration — harder kick = more roll-through:
+        //   0 (weak/medium): BLOCKED — rebounds back off the defender
+        //   1 (FULL): DRIVES THROUGH with good pace
+        //   2 (OVERCHARGE): breaks through HARDEST
+        // A keeper in their OWN box makes the SAVE — catches a weak/full kick dead; only an
+        // OVERCHARGE kick still gets through them (reduced).
         const nx = b.vx / bspeed, ny = b.vy / bspeed;
         const tier = b.kickTier || 0;
-        // Push ladder: quick/medium ×1, FULL a little more, OVERCHARGE clearly more.
-        const mul = tier === 2 ? OVERCHARGE_MUL : tier === 1 ? FULL_BUMP_MUL : 1;
+        const mul = tier === 2 ? OVERCHARGE_MUL : tier === 1 ? FULL_BUMP_MUL : 1; // push: weak < full < overcharge
         const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p);
         p.kvx += nx * kb; p.kvy += ny * kb;
-        if (tier === 1) {
-          if (inOwnPenalty(p)) { b.vx *= KEEPER_DEFLECT; b.vy *= KEEPER_DEFLECT; b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5); } // keeper-diminish (short lockout so it isn't scooped point-blank)
-          else { b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD; }              // dead stop, no instant scoop
+        if (inOwnPenalty(p) && tier < 2) {
+          b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD;         // keeper catches it (a real save)
         } else if (tier === 2) {
-          b.vx *= OVERCHARGE_ROLL; b.vy *= OVERCHARGE_ROLL;
-          b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
+          const roll = inOwnPenalty(p) ? KEEPER_BREAK_ROLL : OVERCHARGE_ROLL; // overcharge beats a keeper, reduced
+          b.vx *= roll; b.vy *= roll; b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
+        } else if (tier === 1) {
+          b.vx *= FULL_DRIVE_ROLL; b.vy *= FULL_DRIVE_ROLL;           // drives through with pace
         } else {
-          b.vx *= 0.35; b.vy *= 0.35; // comes forward only a bit after the hit
+          b.vx *= -KICK_BLOCK_REBOUND; b.vy *= -KICK_BLOCK_REBOUND;   // weak kick rebounds off the defender
+          b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
         }
         b.kickTier = 0; // consumed — never re-bumps a second enemy on the same tier
-        // A forceful kick that bumps an enemy earns overcharge (lets an attacker build
-        // the punch-through) — but an OVERCHARGE kick's ball never re-earns it (no self-farm,
-        // even if the rolled-on ball re-contacts an enemy: b.overSpent stays set).
-        if (!b.overSpent && b.lastKicker && state.players[b.lastKicker]) earnPower(state.players[b.lastKicker], tier >= 1 ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
+        // A FULL+ kick that bumps an enemy earns overcharge (forceful connect); a weak kick
+        // does not farm it, and an overcharge kick's ball can't self-refill (b.overSpent).
+        if (tier >= 1 && !b.overSpent && b.lastKicker && state.players[b.lastKicker]) earnPower(state.players[b.lastKicker], OVERCHARGE_FULL_GAIN);
         // keep lastTouch as the shooter's (goal credit unchanged)
         continue; // keep checking other players
       }
@@ -740,6 +743,7 @@ function updateBombs(state, dt) {
     if (bomb.fuse > 0 || detonated.has(bomb.id)) continue;
     let stack = 1;
     for (const other of state.bombs) {
+      if (stack >= BOMB_STACK_MAX) break; // cap how many combine into one blast
       if (other.id === bomb.id || detonated.has(other.id)) continue;
       if (Math.hypot(other.x - bomb.x, other.y - bomb.y) <= BOMB_COMBINE_RADIUS) { stack++; detonated.add(other.id); }
     }
@@ -749,13 +753,12 @@ function updateBombs(state, dt) {
   state.bombs = state.bombs.filter((b) => b.fuse > 0 && !detonated.has(b.id));
 }
 
-// Wall cannon: how much does a wall collinear BEHIND the bomb (player->bomb->wall)
-// boost a launch in (dx,dy)? Returns a multiplier 1..BOMB_WALL_CANNON_MUL scaled by
-// PROXIMITY (closer wall = more). 1 if none. Nearest-point-on-box + dot-with-(-dir)
-// cone test. Any wall qualifies — static, built, even your own.
+// Wall cannon: how much does a STATIC-STONE wall collinear BEHIND the bomb boosts a
+// launch in (dx,dy)? Returns 1..BOMB_WALL_CANNON_MUL scaled by proximity. Only static
+// stone qualifies — NOT your own built walls (else it's a build-your-own launchpad).
 function wallCannonMul(state, bx, by, dx, dy) {
   let mul = 1;
-  const walls = arenaOf(state).walls.concat(state.builtWalls || []);
+  const walls = arenaOf(state).walls; // static stone only — built walls don't cannon
   for (const w of walls) {
     const np = nearestOnWall(w, bx, by);
     const vx = np.x - bx, vy = np.y - by, d = Math.hypot(vx, vy);
@@ -809,6 +812,7 @@ function explode(state, bomb, stack = 1) {
       const enemyMul = bomber && t.team !== bomber.team ? BOMB_ENEMY_MUL : 1;
       let power = P * (1 - d / radius) * enemyMul * knockMul(t);
       power *= wallCannonMul(state, bomb.x, bomb.y, ux, uy);
+      power = Math.min(power, BOMB_LAUNCH_MAX); // same cap as the self-launch — stack+wall can't screen-clear
       t.kvx += ux * power;
       t.kvy += uy * power;
       t.launchGlide = BOMB_LAUNCH_GLIDE * 0.75; // caught in the blast → smooth arc too (matches the fly anim)
