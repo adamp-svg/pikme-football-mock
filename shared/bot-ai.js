@@ -17,7 +17,7 @@
 //   - live tuning (bulletSpeed/bombPower/shotPower) comes from state.settings.
 
 import {
-  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
+  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
@@ -403,6 +403,20 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
   return out;
 }
 
+// WALL-BOMB CANNON spot: a plant point a SHORT step from `(px,py)` where a static stone
+// wall sits ~130px BEHIND a launch aimed along `dir` (opposite it), so a rocket-jump there
+// gets the wall-cannon boost (sim wallCannonMul, static stone only). null if none nearby.
+function staticCannonSpot(px, py, dirx, diry) {
+  let best = null, bd = 1e9;
+  for (const w of ARENA.walls) {
+    const cx = w.x + w.w / 2, cy = w.y + w.h / 2;
+    const sx = cx + dirx * 130, sy = cy + diry * 130; // stand on the LAUNCH side of the wall
+    const d = hyp(sx - px, sy - py);
+    if (d < bd && d < 210) { bd = d; best = { x: sx, y: sy }; } // only a short hop — never detour far
+  }
+  return best;
+}
+
 // Decide one bot's input: role tactics -> desired {move target, aim, buttons},
 // then apply steering + skill (reaction latency, aim slew + noise).
 function decideBot(p, role, state, mem, sk, dt) {
@@ -600,12 +614,39 @@ function decideBot(p, role, state, mem, sk, dt) {
       const pcx = c.x + (c.vx || 0) * BOMB.fuse, pcy = c.y + (c.vy || 0) * BOMB.fuse;
       const willReach = hyp(pcx - p.x, pcy - p.y) < BOMB_CENTER_R + BOMB.radius * 0.6;
       const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
-      if (bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && !carrierDeepInBox && mem.t > (bm.nextBombAt || 0)) {
+      // WALL-BOMB CANNON is OPPORTUNISTIC: if a tackle plant already has a static wall behind
+      // it, the sim boosts the launch automatically (wallCannonMul) — no need to obsessively
+      // seek walls (that made bots abandon the press). A short nudge onto a wall-backed spot
+      // is taken only when one is right beside us and we're already committing the tackle.
+      if (bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && mem.t > (bm.nextBombAt || 0)) {
+        const [cdx, cdy] = unit(c.x - p.x, c.y - p.y);
+        const cannon = sk.toolSkill >= 0.85 ? staticCannonSpot(p.x, p.y, cdx, cdy) : null; // wall-backed plant right beside us?
+        const plantX = cannon ? cannon.x : p.x, plantY = cannon ? cannon.y : p.y;
         special = true; shoot = false; aim = { x: c.x - p.x, y: c.y - p.y };
-        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
-        bm.nextBombAt = mem.t + 3.0;
+        bm.bombHold = { x: plantX, y: plantY, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
+        bm.nextBombAt = mem.t + 3.0; if (cannon) bm.lastTrick = 'wallCannon';
+        // Signal a TWO-BOMB stack: tell a NEARBY support bot to drop a second bomb on the same
+        // spot so the blasts COMBINE (bigger strip/knockback on the carrier).
+        (mem.stack || (mem.stack = {}))[team] = { x: pcx, y: pcy, by: p.id, until: mem.t + BOMB.fuse * 0.7 };
       }
     } else {
+      // TWO-BOMB JOIN: the presser just committed a tackle bomb — rush in and plant a SECOND
+      // within the combine radius so they detonate together (a deliberate set-piece; bypasses
+      // the usual mate-safety spacing). Skilled bots only.
+      // Only a support bot ALREADY near the stack joins — no cross-map sprint that abandons
+      // cover (that starved the ambush/mark plays). Occasional, opportunistic set-piece.
+      const stk = mem.stack && mem.stack[team];
+      if (stk && stk.by !== p.id && mem.t < stk.until && bombReady && sk.toolSkill >= 0.75 && !bm.bombHold
+          && hyp(stk.x - p.x, stk.y - p.y) < BOMB_COMBINE_RADIUS * 1.3) {
+        const dS = hyp(stk.x - p.x, stk.y - p.y);
+        {
+          if (dS > BOMB_COMBINE_RADIUS * 0.6) {
+            return finalize(p, { x: stk.x, y: stk.y }, { x: stk.x - p.x, y: stk.y - p.y }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+          }
+          bm.lastTrick = 'doubleBomb'; bm.nextBombAt = mem.t + 3.0;
+          return finalize(p, { x: p.x, y: p.y }, { x: stk.x - p.x, y: stk.y - p.y }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+        }
+      }
       // ===== SUPPORT cover — skilled bots run a BUSH-AMBUSH + WALL-TRAP (lurk->wall->strip) =====
       const other = enemies.find((e) => e.id !== c.id);
       const shadowX = c.x + (ogX - c.x) * 0.58, shadowY = c.y + (GY - c.y) * 0.58;
