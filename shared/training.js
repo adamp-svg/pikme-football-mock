@@ -1,7 +1,7 @@
 // Training ground — pure logic for the solo practice mode's penned "roaming
 // target" dummy. Kept separate from server.js so it's unit-testable and shared
 // with the client (the pen outline uses the same PEN box).
-import { FIELD } from './constants.js';
+import { FIELD, VISION_RANGE, BUSH_REVEAL_DIST } from './constants.js';
 
 // The box the dummy is confined to: in front of team B's (right) goal.
 export const PEN = {
@@ -19,10 +19,14 @@ export const SENTRY_LEASH = 240; // it can be nudged this far from CENTER, no fu
 // global mirror-symmetric ARENA. The server sets state.arena = TRAIN_ARENA; the
 // client swaps to it whenever the `training` flag is on. Neither is sent over the wire.
 export const TRAIN_BUSHES = [{ x: 160, y: 120, w: 400, h: 260 }];  // top-left cover
-// Steel wall: a long, flat horizontal barrier across the bottom-half CENTRE,
-// directly below the midfield sentry — so standing behind it (toward the bottom
-// edge) shields you from its fire.
-export const TRAIN_WALLS = [{ x: 590, y: 780, w: 820, h: 80 }];
+// Steel wall: an L-shape ("half square") of two arms in the bottom-half CENTRE,
+// below the midfield sentry — a long top arm that blocks its fire from above plus
+// a side arm going down, forming a corner you tuck into for cover.
+const WALL_T = 36; // arm thickness
+export const TRAIN_WALLS = [
+  { x: 740, y: 800, w: 520, h: WALL_T },      // top arm (long) — shields from the sentry above
+  { x: 740, y: 800, w: WALL_T, h: 250 },      // side arm (down) — the other half of the square
+];
 export const TRAIN_ARENA = { walls: TRAIN_WALLS, bushes: TRAIN_BUSHES, trampolines: [] };
 
 const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -121,7 +125,7 @@ function gauss() { return (Math.random() + Math.random() + Math.random() - 1.5) 
 
 // Segment (x0,y0)->(x1,y1) vs axis-aligned box (sampled) — is the shot blocked?
 function segHitsBox(x0, y0, x1, y1, b) {
-  const steps = 24;
+  const steps = 48; // dense enough to catch a thin (32px) wall
   for (let i = 0; i <= steps; i++) {
     const t = i / steps, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
     if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) return true;
@@ -145,6 +149,21 @@ export function leashSentry(state, sentryId) {
 
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
+// Fog of war for the sentry: can it actually SEE `target`? Same rule as the match bots —
+// out of view (> VISION_RANGE) or hidden in a (training-arena) bush is invisible, unless
+// close, firing, or in the open. So hiding / breaking line of sight works here too.
+function sentrySees(sentry, target, state) {
+  if (!target) return false;
+  const dist = Math.hypot(sentry.x - target.x, sentry.y - target.y);
+  if (dist > VISION_RANGE) return false;                       // out of sight
+  const bushes = (state.arena && state.arena.bushes) || [];
+  const inBush = bushes.some((g) => target.x > g.x && target.x < g.x + g.w && target.y > g.y && target.y < g.y + g.h);
+  if (!inBush) return true;                                     // in the open + in view
+  if (target.firing) return true;                              // muzzle flash reveals
+  if (dist < BUSH_REVEAL_DIST) return true;                    // close enough to spot
+  return false;                                                // bushed + far = HIDDEN
+}
+
 // Center "sentry" enemy: holds midfield (returns to CENTER if shoved), leads its
 // aim at the player, and alternates quick-shot bursts with CHARGED power shots —
 // all scaled by difficulty (`skill`). Never plants, builds, or carries.
@@ -155,17 +174,22 @@ export function trainingSentryInput(state, sentryId, mem, dt, skill = 'normal') 
   const target = Object.values(state.players).find((q) => q.team !== p.team);
   const tx = target ? target.x : CENTER.x, ty = target ? target.y : CENTER.y;
   const bulletSpeed = (state.settings && state.settings.bulletSpeed) || 700;
+  const canSee = sentrySees(p, target, state); // FOG: only track/fire when we actually see them
 
   // --- Smart aim: lead the target, blend toward straight-at-now by `lead`, add
   //     difficulty-scaled noise, then slew the stored aim toward it by `turn`. ---
-  const [lx, ly] = leadAim(p.x, p.y, tx, ty, (target?.vx || 0) * S.lead, (target?.vy || 0) * S.lead, bulletSpeed);
-  const nowx = tx - p.x, nowy = ty - p.y, nl = Math.hypot(nowx, nowy) || 1;
-  let dx = lx * S.lead + (nowx / nl) * (1 - S.lead);
-  let dy = ly * S.lead + (nowy / nl) * (1 - S.lead);
-  const ang = Math.atan2(dy, dx) + gauss() * S.aimSigma;          // aim jitter
-  const desX = Math.cos(ang), desY = Math.sin(ang);
-  mem.aimX += (desX - mem.aimX) * S.turn;                          // slew toward it
-  mem.aimY += (desY - mem.aimY) * S.turn;
+  // Only track while the target is VISIBLE; when it hides / leaves sight, HOLD the last
+  // aim (the sentry keeps facing where it last saw them, it doesn't x-ray the bush).
+  if (canSee) {
+    const [lx, ly] = leadAim(p.x, p.y, tx, ty, (target?.vx || 0) * S.lead, (target?.vy || 0) * S.lead, bulletSpeed);
+    const nowx = tx - p.x, nowy = ty - p.y, nl = Math.hypot(nowx, nowy) || 1;
+    let dx = lx * S.lead + (nowx / nl) * (1 - S.lead);
+    let dy = ly * S.lead + (nowy / nl) * (1 - S.lead);
+    const ang = Math.atan2(dy, dx) + gauss() * S.aimSigma;          // aim jitter
+    const desX = Math.cos(ang), desY = Math.sin(ang);
+    mem.aimX += (desX - mem.aimX) * S.turn;                          // slew toward it
+    mem.aimY += (desY - mem.aimY) * S.turn;
+  }
   const am = Math.hypot(mem.aimX, mem.aimY) || 1;
   const aimX = mem.aimX / am, aimY = mem.aimY / am;
 
@@ -176,9 +200,13 @@ export function trainingSentryInput(state, sentryId, mem, dt, skill = 'normal') 
   const moveY = hl > dead ? hy / hl : 0;
 
   // --- Fire cycle: idle → (quick burst | charged power shot) → idle. ---
+  // Blind (can't see the target)? Relax to idle and HOLD FIRE — no shooting a hidden or
+  // out-of-sight player. Re-engages the instant they step out / get close / fire.
   mem.t -= dt;
   let hold = false, fire = false;
-  if (mem.mode === 'idle') {
+  if (!canSee) {
+    if (mem.mode !== 'idle') { mem.mode = 'idle'; mem.t = rand(S.idle[0], S.idle[1]); }
+  } else if (mem.mode === 'idle') {
     if (mem.t <= 0) {
       if (Math.random() < S.powerChance) { mem.mode = 'charge'; mem.t = S.chargeHold; }
       else { mem.mode = 'burst'; mem.t = rand(S.burst[0], S.burst[1]); }

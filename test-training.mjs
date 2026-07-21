@@ -86,15 +86,17 @@ console.log('3) passive — dummy never shoots / plants / builds / carries');
 console.log('4) sentry — holds midfield, faces player, fires in bursts');
 {
   const s = makeTraining();
-  s.players.me.x = 400; s.players.me.y = 400; // off to the left → clear "facing" direction
+  s.players.me.x = 720; s.players.me.y = 520; // left of the sentry, clear line, WITHIN its view range
   const mem = createSentryMem();
   let maxDist = 0, misaimed = 0, fireTicks = 0, idleTicks = 0, ticks = 0;
   for (let t = 0; t < Math.round(45 / DT); t++) {
+    { const M = s.players.me; M.x = 720; M.y = 520; M.kvx = 0; M.kvy = 0; } // pin target in view (knockback would drift it out)
     if (t % 90 === 0) { const p = s.players.sentry; p.kvx = 3500; p.kvy = -2200; }
     const inp = trainingSentryInput(s, 'sentry', mem, DT);
     step(s, { me: s._me || (s._me = { seq: 0, moveX: 0, moveY: 0, aimX: 1, aimY: 0 }), dummy: trainingDummyInput(s, 'dummy'), sentry: inp }, DT);
     penDummy(s, 'dummy');
     leashSentry(s, 'sentry');
+    { const m = s.players.me; m.x = 720; m.y = 520; m.vx = m.vy = m.kvx = m.kvy = 0; } // fixed target: shots can't fling it out of view
     if (s.resetTimer > 0) continue;
     ticks++;
     const p = s.players.sentry;
@@ -135,8 +137,8 @@ console.log('5) custom field — steel wall blocks the player, bush makes builds
   {
     const s = makeTraining();
     for (let t = 0; t < Math.round(5 / DT); t++) tick(s);
-    check(s.arena === TRAIN_ARENA && s.arena.walls.length === 1 && s.arena.bushes.length === 1,
-      `training arena stayed custom (${s.arena.walls.length} wall, ${s.arena.bushes.length} bush)`);
+    check(s.arena === TRAIN_ARENA && s.arena.walls.length === TRAIN_WALLS.length && s.arena.bushes.length === 1,
+      `training arena stayed custom (${s.arena.walls.length} wall segs, ${s.arena.bushes.length} bush)`);
   }
 }
 
@@ -145,11 +147,12 @@ console.log('6) difficulty — hard is faster, leads, and lands full-power shots
   // Run the sentry vs a target that strafes up/down (so lead-aim matters). Returns stats.
   function run(skill) {
     const s = makeTraining();
-    const me = s.players.me; me.x = 500; me.y = 550; // to the left, in clear line (no wall)
+    const me = s.players.me; me.x = 600; me.y = 550; // to the left, clear line, WITHIN the sentry's view
     const mem = createSentryMem();
     let fire = 0, hold = 0, maxCharge = 0;
     for (let t = 0; t < Math.round(30 / DT); t++) {
-      me.vy = Math.sin(t / 12) * 180; me.y += me.vy * DT; me.y = Math.max(120, Math.min(980, me.y)); // strafe
+      me.x = 600; me.kvx = 0; me.kvy = 0; // pin the practice target so the sentry's own knockback can't shove it out of view
+      me.vy = Math.sin(t / 12) * 120; me.y += me.vy * DT; me.y = Math.max(360, Math.min(740, me.y)); // strafe (stays in view + clear of the wall)
       const inp = trainingSentryInput(s, 'sentry', mem, DT, skill);
       step(s, { me: { seq: 0, moveX: 0, moveY: 0, aimX: 1, aimY: 0 }, dummy: trainingDummyInput(s, 'dummy'), sentry: inp }, DT);
       penDummy(s, 'dummy'); leashSentry(s, 'sentry');
