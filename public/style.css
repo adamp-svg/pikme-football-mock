@@ -196,6 +196,17 @@ html, body {
 }
 .sound-btn:active { transform: scale(.94); }
 .sound-btn.muted { filter: grayscale(1); opacity: .65; }
+/* 🎵 music toggle — sits next to the 🔊 SFX button */
+.music-btn {
+  position: fixed; left: 156px; top: 12px;
+  width: 40px; height: 40px; border-radius: 2px;
+  background: #182019e8; border: 2px solid #667061; box-shadow: 0 4px 0 rgba(0,0,0,.4);
+  color: #dfe8fb; font-size: 16px; cursor: pointer; z-index: 6;
+  display: flex; align-items: center; justify-content: center; touch-action: manipulation;
+}
+.music-btn:active { transform: scale(.94); }
+.music-btn.muted { filter: grayscale(1); opacity: .55; }
+.music-btn.muted::after { content: ''; position: absolute; left: 3px; right: 3px; top: 50%; height: 2px; background: #ff6a6a; transform: rotate(-22deg); box-shadow: 0 0 2px #000; }
 
 /* Training ground HUD */
 .train-tag {
@@ -564,9 +575,11 @@ html, body {
 .hub {
   position: relative; z-index: 1;
   width: 100%; height: 100%;
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 8px 12px 10px; overflow: hidden;
+  display: flex; flex-direction: column; gap: clamp(2px, 1vh, 7px); overflow: hidden;
+  padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px))
+           calc(7px + env(safe-area-inset-bottom, 0px)) calc(10px + env(safe-area-inset-left, 0px));
 }
+.hub-top { flex: 0 0 auto; }
 /* top bar: identity (right) · xp slot (center, reserved) · online (left) */
 .hub-top { display: flex; align-items: center; gap: 12px; padding: 2px 2px 0; }
 .hub-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -601,22 +614,25 @@ html, body {
 }
 .hub-online i { width: 8px; height: 8px; border-radius: 50%; background: #57e08a; box-shadow: 0 0 8px #57e08a; }
 
-/* center hero — tap opens the wardrobe */
-.hub-stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+/* --- main row: loadout slots (left) · hero (center) · album stats (right) --- */
+/* Row lays zones LEFT->RIGHT (slots · hero · stats); each zone keeps RTL text. */
+.hub-main { flex: 1 1 auto; display: flex; direction: ltr; align-items: stretch; gap: clamp(6px, 2vw, 18px); min-height: 0; }
+.hub-left, .hub-right { flex: 0 0 auto; direction: rtl; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(3px, 1.2vh, 8px); align-self: stretch; min-height: 0; overflow: hidden; }
+.hub-center { flex: 1 1 auto; direction: rtl; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; position: relative; }
 .hub-hero {
   appearance: none; background: none; border: none; cursor: pointer; padding: 0;
-  position: relative; display: flex; align-items: center; justify-content: center;
+  position: relative; display: flex; align-items: center; justify-content: center; max-height: 100%; max-width: 100%;
 }
 /* soft translucent disc behind the character so it reads against the busy stadium */
 .hub-hero::before {
-  content: ''; position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%);
-  width: 230px; height: 200px; border-radius: 50%; pointer-events: none;
+  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 128%; height: 116%; border-radius: 50%; pointer-events: none;
   background: radial-gradient(closest-side, rgba(5,10,7,.72), rgba(5,10,7,.4) 55%, transparent 74%);
 }
 .hub-char {
   position: relative;                                  /* paint above the backing disc */
-  height: clamp(96px, 26vh, 172px); width: auto; image-rendering: pixelated;
-  filter: drop-shadow(0 14px 10px rgba(0,0,0,.5));
+  height: clamp(78px, 26vh, 158px); width: auto; max-width: 100%; image-rendering: pixelated;
+  filter: drop-shadow(0 10px 8px rgba(0,0,0,.5));
 }
 .hub-edit {
   position: absolute; top: 2px; right: 2px; width: 30px; height: 30px; display: grid; place-items: center;
@@ -627,36 +643,36 @@ html, body {
   font: 900 10px "Arial Black", sans-serif; letter-spacing: .5px; color: #ffcb43; opacity: .92;
 }
 
-/* cards strip: album stat chips + coverflow of owned cards */
-.hub-cards { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
-.hub-cstats { display: flex; gap: 7px; flex: none; }
-.hub-chip { background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: 5px 10px; text-align: center; min-width: 58px; }
-.hub-chip b { display: block; color: #fff4ca; font: 900 16px "Arial Black", sans-serif; line-height: 1; font-variant-numeric: tabular-nums; }
+/* album stat chips — now the right column of the main row */
+.hub-chip { background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: clamp(3px,1vh,6px) clamp(6px,1.2vw,10px); text-align: center; min-width: clamp(46px, 12vw, 62px); }
+.hub-chip b { display: block; color: #fff4ca; font: 900 clamp(13px,3.4vh,16px) "Arial Black", sans-serif; line-height: 1; font-variant-numeric: tabular-nums; }
 .hub-chip.gold b { color: var(--gold); }
-.hub-chip small { display: block; margin-top: 3px; color: #8aa08c; font-size: 8px; font-weight: 900; letter-spacing: 1px; }
-.hub-cards .carousel { flex: 1; height: 92px; }
-.hub-cards .cf-card { width: 64px; height: 88px; margin: -44px 0 0 -32px; }
+.hub-chip small { display: block; margin-top: 2px; color: #8aa08c; font-size: clamp(7px,1.8vh,9px); font-weight: 900; letter-spacing: .5px; }
+/* card carousel — a thin bottom strip that scales with the screen */
+.hub-cards { flex: 0 0 auto; height: clamp(52px, 14vh, 90px); overflow: hidden; display: flex; }
+.hub-cards .carousel { flex: 1; height: 100%; width: 100%; }
+.hub-cards .cf-card { --cfw: clamp(46px, 12vh, 64px); --cfh: clamp(62px, 16vh, 88px); width: var(--cfw); height: var(--cfh); margin: calc(var(--cfh) / -2) 0 0 calc(var(--cfw) / -2); }
 
 /* play rail: featured Quick Match + horizontal-scroll modes */
-.hub-play { padding: 2px 0 0; }
-.hub-rail { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.hub-play { flex: 0 0 auto; padding: 2px 0 0; }
+.hub-rail { display: flex; gap: clamp(6px,1.4vw,10px); overflow-x: auto; padding: 2px 2px 5px; scroll-snap-type: x proximity; scrollbar-width: none; }
 .hub-rail::-webkit-scrollbar { display: none; }
 .hub-mode {
   flex: none; scroll-snap-align: end; cursor: pointer; text-align: right;
-  display: flex; align-items: center; gap: 11px; min-width: 168px; padding: 11px 14px;
+  display: flex; align-items: center; gap: clamp(7px,1.4vw,11px); min-width: clamp(140px,30vw,172px); padding: clamp(7px,2vh,11px) clamp(10px,1.4vw,14px);
   background: rgba(19,27,22,.92); border: 3px solid #39463b; color: #e7dcae;
   box-shadow: inset 0 -5px #0b100c, 0 5px 0 rgba(0,0,0,.35);
 }
-.hub-mode .hub-mic { width: 40px; height: 40px; flex: none; display: grid; place-items: center; font-size: 21px; background: rgba(0,0,0,.28); }
+.hub-mode .hub-mic { width: clamp(32px,7vh,40px); height: clamp(32px,7vh,40px); flex: none; display: grid; place-items: center; font-size: clamp(17px,4.4vh,21px); background: rgba(0,0,0,.28); }
 .hub-mtx { min-width: 0; }
-.hub-mtx b { display: block; font: 900 15px "Arial Black", sans-serif; }
-.hub-mtx small { display: block; color: #8aa08c; font-size: 10px; font-weight: 800; margin-top: 2px; }
+.hub-mtx b { display: block; font: 900 clamp(13px,3.4vh,15px) "Arial Black", sans-serif; }
+.hub-mtx small { display: block; color: #8aa08c; font-size: clamp(9px,2.4vh,10px); font-weight: 800; margin-top: 2px; }
 .hub-mode.quick {
-  min-width: 224px; background: #e3a92f; color: #302108; border-color: #fff09d;
+  min-width: clamp(184px,38vw,224px); background: #e3a92f; color: #302108; border-color: #fff09d;
   box-shadow: inset 0 -6px #a66a18, 0 6px 0 #0b0f0b;
 }
 .hub-mode.quick .hub-mic { background: rgba(0,0,0,.14); }
-.hub-mode.quick .hub-mtx b { font-size: 19px; }
+.hub-mode.quick .hub-mtx b { font-size: clamp(16px,4.4vh,19px); }
 .hub-mode.quick .hub-mtx small { color: #5c4410; }
 .hub-mode.quick .hub-go { margin-right: auto; font: 900 26px "Arial Black", sans-serif; }
 .hub-mode:active { transform: translateY(3px); box-shadow: inset 0 -3px #0b100c, 0 2px 0 rgba(0,0,0,.35); }
@@ -730,12 +746,14 @@ html, body {
 /* Loadout: a small vertical column to the LEFT of the hero. Each slot is a raised 3D
    tile with its power label beneath it, plus a "pick best" button under the column. */
 .power-slots {
-  position: absolute; top: 50%; left: 16%; transform: translateY(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 9px; z-index: 4; pointer-events: auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(3px, 1.2vh, 7px);
+  height: 100%; max-height: 100%; pointer-events: auto;
 }
-.pslot-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+/* The 3 slots flex-share the column's height, so they ALWAYS fit (capped at max) — no
+   reliance on vh, no overflow. Caps + the pick-best button take fixed space. */
+.pslot-item { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
 .pslot {
-  position: relative; width: 42px; height: 54px; cursor: pointer; border-radius: 5px; overflow: hidden;
+  position: relative; height: 100%; max-height: 54px; min-height: 0; aspect-ratio: 42 / 54; width: auto; cursor: pointer; border-radius: 5px; overflow: hidden; flex: 0 1 auto;
   background: linear-gradient(180deg, #243228, #121b15); border: 2px solid #6a7a68;
   display: flex; align-items: flex-end; justify-content: center;
   box-shadow: inset 0 2px 0 rgba(255,255,255,.16), inset 0 -6px 0 rgba(0,0,0,.5), 0 5px 0 #0b120d, 0 7px 10px rgba(0,0,0,.5);
@@ -763,6 +781,13 @@ html, body {
   box-shadow: inset 0 -3px 0 #a56a16, 0 3px 0 #0b0f0b;
 }
 .pslot-best:active { transform: translateY(2px); box-shadow: inset 0 -1px 0 #a56a16, 0 1px 0 #0b0f0b; }
+/* Very short landscape (e.g. iPhone SE ~320h): drop slot labels + the hero hint so the
+   loadout column stays inside the main row without clipping. */
+@media (max-height: 400px) {
+  .pslot-cap { display: none; }
+  .hub-herohint { display: none; }
+  .pslot-best { padding: 4px 3px; }
+}
 .pslot.rarity-legendary { border-color: #ffb800; }
 .pslot.rarity-epic { border-color: #b46bff; }
 .pslot.rarity-rare { border-color: #4ea0ff; }

@@ -93,7 +93,9 @@ const SOUND_FILES = {
 };
 let audioCtx = null;
 let masterGain = null;
-let soundEnabled = true;
+let soundEnabled = true;   // SFX (bomb/kick/hit/ui) — the 🔊 button
+let musicEnabled = true;   // background music on/off — the 🎵 button
+let musicUserVol = 0.6;    // user music volume 0..1 (multiplies each track's own base level)
 const soundBuffers = new Map();
 let soundLoading = null;
 let soundEventsReady = false;
@@ -137,17 +139,33 @@ let lastStepPos = null;
 let stepVariant = 0;
 
 try { soundEnabled = localStorage.getItem('pikme-sound') !== 'off'; } catch { /* private mode */ }
+try { musicEnabled = localStorage.getItem('pikme-music') !== 'off'; } catch { /* private mode */ }
+try { const v = parseFloat(localStorage.getItem('pikme-musicvol')); if (Number.isFinite(v)) musicUserVol = Math.min(1, Math.max(0, v)); } catch { /* private mode */ }
 
+// 🔊 button = SFX only (bomb/kick/hit/ui). Music has its own 🎵 toggle + volume slider.
 function updateSoundButton() {
   const btn = document.getElementById('sound-btn');
-  if (!btn) return;
-  btn.textContent = soundEnabled ? '🔊' : '🔇';
-  btn.classList.toggle('muted', !soundEnabled);
-  btn.setAttribute('aria-label', soundEnabled ? 'השתקה' : 'הפעלת סאונד');
-  btn.title = soundEnabled ? 'השתקה' : 'הפעלת סאונד';
+  if (btn) {
+    btn.textContent = soundEnabled ? '🔊' : '🔇';
+    btn.classList.toggle('muted', !soundEnabled);
+    btn.setAttribute('aria-label', soundEnabled ? 'השתקת אפקטים' : 'הפעלת אפקטים');
+    btn.title = soundEnabled ? 'אפקטים' : 'אפקטים מושתקים';
+  }
   if (masterGain) masterGain.gain.value = soundEnabled ? 0.72 : 0;
-  if (musicEl) musicEl.volume = soundEnabled ? musicVol : 0;
+  updateMusicButton();
 }
+function updateMusicButton() {
+  const btn = document.getElementById('music-btn');
+  if (btn) {
+    btn.textContent = '🎵';
+    btn.classList.toggle('muted', !musicEnabled);
+    btn.setAttribute('aria-label', musicEnabled ? 'השתקת מוזיקה' : 'הפעלת מוזיקה');
+    btn.title = musicEnabled ? 'מוזיקה' : 'מוזיקה מושתקת';
+  }
+  applyMusicVol();
+}
+// Effective music volume = the track's own base level × the user's music-volume slider.
+function applyMusicVol() { if (musicEl) musicEl.volume = musicEnabled ? musicVol * musicUserVol : 0; }
 
 function unlockAudio() {
   if (!audioCtx) {
@@ -171,6 +189,7 @@ function unlockAudio() {
         soundBuffers.set(name, arr);
       })));
   }
+  primeMusic(); // bless the music element in this same gesture so iOS lets it autoplay later
 }
 
 function playSound(name, volume = 1, rate = 1) {
@@ -211,22 +230,47 @@ const MUSIC_TRACKS = [   // real matches: one of these picked at random and loop
   '/audio/music/pixel-rush.mp3', '/audio/music/stadium-pulse.mp3',
 ];
 const TRAINING_MUSIC = '/audio/music/goooaaall-good.mp3'; // the training ground's own theme
-const LOBBY_MUSIC = '/audio/music/lobby-countdown-5s.mp3';
-let musicEl = null;      // current HTMLAudioElement (match song or lobby countdown)
+const LOBBY_MUSIC = '/audio/music/lobby-waiting-countdown.mp3'; // full 9s clip; cut at kickoff when the countdown is shorter
+let musicEl = null;      // ONE reused <audio> element, blessed once by a user gesture
 let musicKind = null;    // 'match' | 'training' | 'lobby' | null — dedupes repeat start calls
-let musicVol = 0;        // base volume of the current track (before mute)
+let musicVol = 0;        // base volume of the current track (before the music slider)
+let musicPrimed = false; // has a tap "blessed" musicEl so iOS lets it autoplay later?
 
+function ensureMusicEl() {
+  if (!musicEl) { musicEl = new Audio(); musicEl.preload = 'auto'; }
+  return musicEl;
+}
+// iOS/WKWebView silently DROPS the first html-audio play when it races AudioContext
+// startup — which is exactly the lobby countdown (it fires right after the Quick Match
+// tap that creates the context). SFX are WebAudio so they're unaffected; match music only
+// works because it plays seconds later once the session has settled. Fix: reuse ONE <audio>
+// element and "bless" it inside the tap gesture with an unmuted-but-silent real play, so
+// every later track — including the very first countdown clip — is allowed to sound.
+function primeMusic() {
+  ensureMusicEl();
+  if (musicPrimed) return;
+  try {
+    musicEl.loop = false;
+    musicEl.volume = 0;                 // unmuted (counts as user-initiated) but silent
+    if (!musicEl.src) musicEl.src = LOBBY_MUSIC;
+    const p = musicEl.play();
+    const settle = () => { if (musicKind === null) { try { musicEl.pause(); musicEl.currentTime = 0; } catch { /* fine */ } } musicPrimed = true; };
+    if (p && p.then) p.then(settle).catch(() => { musicPrimed = true; }); else settle();
+  } catch { /* no audio support */ }
+}
 function stopMusic() {
   if (musicEl) { try { musicEl.pause(); } catch { /* already gone */ } }
-  musicEl = null; musicKind = null;
+  musicKind = null; // keep the (blessed) element around for reuse
 }
 function playMusic(src, loop, volume) {
-  stopMusic();
+  ensureMusicEl();
   musicVol = volume;
   try {
-    musicEl = new Audio(src);
+    const abs = new URL(src, location.href).href;
+    if (musicEl.src !== abs) musicEl.src = src;
+    musicEl.currentTime = 0;
     musicEl.loop = !!loop;
-    musicEl.volume = soundEnabled ? volume : 0;
+    musicEl.volume = musicEnabled ? volume * musicUserVol : 0;
     const p = musicEl.play();
     if (p && p.catch) p.catch(() => { /* autoplay blocked until a gesture */ });
   } catch { /* no audio support */ }
@@ -1475,6 +1519,24 @@ soundBtn.addEventListener('click', () => {
   updateSoundButton();
   if (soundEnabled) setTimeout(() => playSound('ui', 0.55, 1.08), 30);
 });
+// 🎵 music toggle (separate from SFX) + the music-volume slider in settings.
+const musicBtn = document.getElementById('music-btn');
+if (musicBtn) musicBtn.addEventListener('click', () => {
+  unlockAudio();
+  musicEnabled = !musicEnabled;
+  try { localStorage.setItem('pikme-music', musicEnabled ? 'on' : 'off'); } catch { /* private mode */ }
+  updateMusicButton();
+});
+const musicVolSlider = document.getElementById('s-musicvol');
+if (musicVolSlider) {
+  musicVolSlider.value = String(musicUserVol);
+  musicVolSlider.addEventListener('input', () => {
+    musicUserVol = Math.min(1, Math.max(0, parseFloat(musicVolSlider.value) || 0));
+    try { localStorage.setItem('pikme-musicvol', String(musicUserVol)); } catch { /* private mode */ }
+    applyMusicVol();
+  });
+}
+updateMusicButton();
 
 // Local cooldown shading for the button (approximate; server is authoritative).
 let specialCdUntil = 0;
