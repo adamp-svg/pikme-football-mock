@@ -92,9 +92,11 @@ export function quadraticIntercept(sx, sy, tx, ty, tvx, tvy, ps) {
 }
 
 // ---- line-of-fire clear? samples static+built walls AND enemy bodies ----
-export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, margin = 0 } = {}) {
+// `viewer` (a bot): if given, an enemy HIDDEN in a bush (unseen by this viewer) is NOT
+// counted as blocking — the bot can't plan around a body it can't see (bush stealth).
+export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, margin = 0, viewer = null } = {}) {
   const steps = 10;
-  const foes = enemies ? Object.values(state.players).filter((q) => q.team !== forTeam) : [];
+  const foes = enemies ? Object.values(state.players).filter((q) => q.team !== forTeam && (!viewer || botCanSee(viewer, q, state))) : [];
   const er = radOf(state) + 10 + margin;
   for (let i = 1; i <= steps; i++) {
     const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
@@ -150,7 +152,7 @@ function chooseAmbushBush(c, ogX) {
 // blocker to target (tx,ty). Restitution-corrected mirror (image = T - dT*(1+1/e)*n)
 // so the bounce arrives on target; validated by an energy model (friction + bounce
 // loss) so we never bank a ball that dies short. Returns {aimX,aimY,charge,vT} or null. ----
-function bankAim(sx, sy, tx, ty, state, team, { goal = false, maxPath = 780 } = {}) {
+function bankAim(sx, sy, tx, ty, state, team, { goal = false, maxPath = 780, viewer = null } = {}) {
   const R = BALL_RADIUS * (state.settings.ballSizeMul || 1);
   const K = 2.1768;                       // -ln(BALL_FRICTION per second)
   const v0 = state.settings.shotPower || 1850; // full-charge release speed
@@ -183,8 +185,8 @@ function bankAim(sx, sy, tx, ty, state, team, { goal = false, maxPath = 780 } = 
     if (span < lo + R || span > hi - R) continue;               // keep off the corners
     const [udx, udy] = unit(adx, ady);
     if (udx * rf.nx + udy * rf.ny >= 0) continue;               // must head into the plane
-    if (!laneClear(sx, sy, Bx, By, state, team, { enemies: true })) continue;
-    if (!laneClear(Bx, By, tx, ty, state, team, { enemies: true, margin: goal ? 0 : 4 })) continue;
+    if (!laneClear(sx, sy, Bx, By, state, team, { enemies: true, viewer })) continue;
+    if (!laneClear(Bx, By, tx, ty, state, team, { enemies: true, margin: goal ? 0 : 4, viewer })) continue;
     const L1 = hyp(Bx - sx, By - sy), L2 = hyp(tx - Bx, ty - By);
     if (L1 + L2 > maxPath) continue;
     const vB = v0 - K * L1; if (vB <= 0) continue;
@@ -257,6 +259,7 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
     // its path so a bomb-launched or wall-cannoned opponent can't flying-tackle-steal us.
     for (const e of Object.values(state.players)) {
       if (e.team === bot.team) continue;
+      if (!botCanSee(bot, e, state)) continue; // a hidden (bushed) enemy is invisible — don't react to it
       const espd = hyp(e.kvx || 0, e.kvy || 0);
       const lunging = (e.bombLaunch || 0) > 0 || espd > 700;
       if (!lunging) continue;
@@ -413,7 +416,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     for (const e of visibleEnemies) { const d = hyp(e.x - p.x, e.y - p.y); if (d < nfd) { nfd = d; nearFoe = e; } }
     const linedUp = Math.abs(p.y - GY) < GOAL.width / 2 + 280;
     const laneWalls = laneClear(p.x, p.y, egX, GY, state, team, { enemies: false }); // walls only (a power shot plows a defender)
-    const laneOpen = laneClear(p.x, p.y, egX, GY, state, team, { enemies: true });   // truly unobstructed
+    const laneOpen = laneClear(p.x, p.y, egX, GY, state, team, { enemies: true, viewer: p });   // truly unobstructed (ignores hidden foes)
     const trick = sk.toolSkill;                                                       // fancy tricks scale with difficulty
     const ballR = BALL_RADIUS * (settings.ballSizeMul || 1);
     const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
@@ -436,7 +439,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'boxFinish';
     } else if (trick > 0.6 && distGoal < 900 && linedUp && !laneOpen && blocker && blockerDL >= 260 && blockerDL < 720) {
       // blocker too far up the lane to bump through -> BANK the ball off a wall/touchline around them
-      const bk = bankAim(b.x, b.y, egX, clamp(GY + (blocker.y < GY ? 80 : -80), 420, 680), state, team, { goal: true, maxPath: 520 + 300 * trick });
+      const bk = bankAim(b.x, b.y, egX, clamp(GY + (blocker.y < GY ? 80 : -80), 420, 680), state, team, { goal: true, maxPath: 520 + 300 * trick, viewer: p });
       if (bk && Math.random() < trick) { aim = { x: bk.aimX, y: bk.aimY }; shoot = true; charge = 1; bm.lastTrick = 'goalBank'; }
     }
 
@@ -445,12 +448,12 @@ function decideBot(p, role, state, mem, sk, dt) {
       const mateBetter = hyp(egX - mate.x, GY - mate.y) < distGoal - 30;
       if (mateBetter) {
         const full = settings.shotPower || 1850;
-        if (laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4 })) {
+        if (laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
           charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
           const [pax, pay] = quadraticIntercept(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, full * clamp(charge, 0.33, 1));
           aim = { x: pax, y: pay }; shoot = true; bm.giveGo = { until: mem.t + 1.0 };
         } else if (trick > 0.6) {
-          const bk = bankAim(b.x, b.y, mate.x + (mate.vx || 0) * 0.25, mate.y + (mate.vy || 0) * 0.25, state, team, { goal: false, maxPath: 560 + 260 * trick });
+          const bk = bankAim(b.x, b.y, mate.x + (mate.vx || 0) * 0.25, mate.y + (mate.vy || 0) * 0.25, state, team, { goal: false, maxPath: 560 + 260 * trick, viewer: p });
           if (bk) { aim = { x: bk.aimX, y: bk.aimY }; shoot = true; charge = 1; bm.lastTrick = 'passBank'; bm.giveGo = { until: mem.t + 1.0 }; }
         }
       }

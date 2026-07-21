@@ -6,7 +6,13 @@ import { ARENA } from './shared/arena.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
-const inp = (id, o) => ({ [id]: { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, shoot: false, special: false, build: false, charge: 0, ...o } });
+const inp = (id, o) => ({ [id]: { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, ...o } });
+// Sim-owned charge ramp: HOLD to build charge (~1s = full), then release (fire).
+function fireAt(s, id, charge, aim = [1, 0]) {
+  const n = Math.max(0, Math.round(charge * 60));
+  for (let i = 0; i < n; i++) step(s, inp(id, { hold: true, aimX: aim[0], aimY: aim[1] }), DT);
+  step(s, inp(id, { fire: true, aimX: aim[0], aimY: aim[1] }), DT);
+}
 
 function build(px, py, aimX, aimY) {
   const s = createState(); s.resetTimer = 0;
@@ -41,7 +47,7 @@ function build(px, py, aimX, aimY) {
   addPlayer(s, 'A', { name: 'a', char: 'player', team: 'A', slot: 0, isBot: true });
   s.builtWalls = [{ id: 9, x: 900, y: 480, w: 32, h: 160, hp: 1, maxHp: 1, team: 'B', fragile: true }];
   const p = s.players.A; p.x = 780; p.y = 560; p.aimX = 1; p.aimY = 0; p.ammo = 3;
-  step(s, inp('A', { shoot: true, charge: 0.2, aimX: 1, aimY: 0 }), DT); // a QUICK (low-charge) shot
+  fireAt(s, 'A', 0.2, [1, 0]); // a QUICK (low-charge) shot
   for (let t = 0; t < 30; t++) step(s, inp('A'), DT);
   ok(s.builtWalls.length === 0, `a quick shot shatters the fragile wall (${s.builtWalls.length} left)`);
 }

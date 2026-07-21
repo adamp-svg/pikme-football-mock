@@ -1,12 +1,18 @@
-// Power meter: a FULL shot/kick needs a charged meter (earned by landing ANY hit on an
-// opponent). Uncharged full attempts are capped to a medium. Using a full action spends
-// the meter; a hit that lands recharges it. Run: node test-power.mjs
-import { createState, addPlayer, attachBall, step } from './shared/sim.js';
-import { DT, FIELD, FULL_CHARGE } from './shared/constants.js';
+// Power tiers (mechanics v2). Charge is SIM-OWNED: hold the trigger to build it.
+//   FULL (>= FULL_CHARGE) is hold-based and UNGATED — anyone reaching full strips a
+//     carrier, and a full KICK into an enemy STOPS the ball dead (keeper-diminish in
+//     the defender's own box only deflects it).
+//   OVERCHARGE (p.power) is EARNED by a FORCEFUL hit (>= QUICK_CHARGE / bomb), DECAYS
+//     if unused, is SPENT on an overcharge kick, and makes that kick ROLL THROUGH an
+//     enemy. A quick poke never earns it, and an overcharge kick can't self-farm it.
+// Run: node test-power.mjs
+import { createState, addPlayer, step } from './shared/sim.js';
+import { DT, FULL_CHARGE, OVERCHARGE_TTL } from './shared/constants.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
-const inp = (o = {}) => ({ seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, shoot: false, special: false, build: false, charge: 0, ...o });
+const inp = (o = {}) => ({ seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, ...o });
+const ticks = (sec) => Math.round(sec / DT);
 
 function duel() {
   const s = createState(); s.resetTimer = 0;
@@ -15,60 +21,85 @@ function duel() {
   s.players.A.ammo = 3;
   return s;
 }
+// HOLD to build charge (~1s = full), then release (fire). `others` = co-players' idle inputs.
+function shoot(s, id, charge, aim = [1, 0], others = {}) {
+  const n = Math.max(0, Math.round(charge * 60));
+  for (let i = 0; i < n; i++) step(s, { [id]: inp({ hold: true, aimX: aim[0], aimY: aim[1] }), ...others }, DT);
+  step(s, { [id]: inp({ fire: true, aimX: aim[0], aimY: aim[1] }), ...others }, DT);
+}
 
-// 1) starts uncharged; a FULL bullet at a carrier while UNCHARGED can't strip (capped),
-//    but landing the hit CHARGES the shooter.
+// 1) FULL is UNGATED: a full bullet strips a carrier with NO meter, and landing the hit
+//    (forceful) EARNS overcharge.
 {
   const s = duel(); const A = s.players.A, B = s.players.B;
   A.x = 900; A.y = 550; A.aimX = 1; A.aimY = 0;
-  B.x = 1130; B.y = 550; s.ball.owner = 'B'; s.ball.x = 1160; s.ball.y = 550; s.ball.lastTouch = 'B';
-  ok(A.power === false, 'players start UNCHARGED');
-  step(s, { A: inp({ shoot: true, charge: 1 }) }, DT);
-  for (let t = 0; t < 25; t++) { s.ball.owner === 'B' && (s.ball.x = B.x + 30); step(s, { A: inp() }, DT); if (s.ball.owner !== 'B') break; }
-  ok(s.ball.owner === 'B', 'an UNCHARGED full shot cannot strip a carrier (capped to medium)');
-  ok(A.power === true, 'landing that bullet on the carrier CHARGED the shooter');
+  B.x = 1120; B.y = 550; s.ball.owner = 'B'; s.ball.x = 1150; s.ball.y = 550; s.ball.lastTouch = 'B';
+  ok(A.power === false, 'players start with NO overcharge');
+  shoot(s, 'A', 1, [1, 0], { B: inp() });
+  let stripped = false;
+  for (let t = 0; t < 25; t++) { if (s.ball.owner === 'B') { B.x = 1120; s.ball.x = 1150; } step(s, { A: inp(), B: inp() }, DT); if (s.ball.owner !== 'B') { stripped = true; break; } }
+  ok(stripped, 'an UNGATED full shot strips the carrier (no meter needed)');
+  ok(A.power === true, 'landing that forceful bullet EARNED overcharge');
 }
 
-// 2) CHARGED full bullet strips a carrier.
+// 2) a QUICK poke does NOT earn overcharge (only forceful hits do).
 {
   const s = duel(); const A = s.players.A, B = s.players.B;
-  A.x = 900; A.y = 550; A.aimX = 1; A.aimY = 0; A.power = true;
-  B.x = 1120; B.y = 550; s.ball.owner = 'B'; s.ball.x = 1150; s.ball.y = 550; s.ball.lastTouch = 'B';
-  step(s, { A: inp({ shoot: true, charge: 1 }) }, DT);
-  let stripped = false;
-  for (let t = 0; t < 25; t++) { if (s.ball.owner === 'B') { B.x = 1120; s.ball.x = 1150; } step(s, { A: inp() }, DT); if (s.ball.owner !== 'B') { stripped = true; break; } }
-  ok(stripped, 'a CHARGED full shot strips the carrier');
+  A.x = 800; A.y = 550; A.aimX = 1; A.aimY = 0; B.x = 1000; B.y = 550;
+  shoot(s, 'A', 0.1, [1, 0], { B: inp() }); // < QUICK_CHARGE
+  for (let t = 0; t < 20; t++) step(s, { A: inp(), B: inp() }, DT);
+  ok(A.power === false, 'a quick poke does NOT earn overcharge');
 }
 
-// 3) a power shot that MISSES spends the meter (no refill without a hit).
+// 3) overcharge DECAYS if unused.
 {
   const s = duel(); const A = s.players.A;
-  A.x = 1000; A.y = 550; A.aimX = 0; A.aimY = -1; A.power = true; // fire up into empty space
-  step(s, { A: inp({ shoot: true, charge: 1, aimX: 0, aimY: -1 }) }, DT);
-  for (let t = 0; t < 30; t++) step(s, { A: inp({ aimX: 0, aimY: -1 }) }, DT);
-  ok(A.power === false, 'a full shot that misses leaves the meter EXHAUSTED');
+  A.power = true; A.powerT = OVERCHARGE_TTL;
+  for (let t = 0; t < ticks(OVERCHARGE_TTL + 0.5); t++) step(s, { A: inp() }, DT);
+  ok(A.power === false, 'overcharge decays to empty after its TTL');
 }
 
-// 4) the meter makes the KICK stronger: charged full kick faster than an uncharged (capped) kick.
-function kickSpeed(powered) {
+// 4) a FULL kick into an enemy STOPS the ball (no attach); an OVERCHARGE kick ROLLS it
+//    through AND spends the meter.
+function kickInto(overcharged) {
+  const s = duel(); const A = s.players.A, B = s.players.B;
+  A.x = 1000; A.y = 550; A.aimX = 1; A.aimY = 0;
+  if (overcharged) { A.power = true; A.powerT = OVERCHARGE_TTL; }
+  s.ball.owner = 'A'; s.ball.x = 1030; s.ball.y = 550; s.ball.lastTouch = 'A';
+  B.x = 1160; B.y = 550; // open field (B's box is x>1640)
+  shoot(s, 'A', 1, [1, 0], { B: inp() });
+  let ballAtBump = null;
+  for (let t = 0; t < 40; t++) { step(s, { A: inp(), B: inp() }, DT); if (s.players.B.kvx > 30 && ballAtBump === null) ballAtBump = Math.hypot(s.ball.vx, s.ball.vy); }
+  return { ballAtBump: ballAtBump == null ? Math.hypot(s.ball.vx, s.ball.vy) : ballAtBump, spent: !s.players.A.power };
+}
+{
+  const full = kickInto(false);
+  ok(full.ballAtBump < 30, `a FULL kick STOPS on an enemy (ball speed ~${full.ballAtBump.toFixed(0)})`);
+  const over = kickInto(true);
+  ok(over.ballAtBump > 60, `an OVERCHARGE kick ROLLS the ball through (ball speed ~${over.ballAtBump.toFixed(0)})`);
+  ok(over.spent, 'an overcharge kick SPENDS the meter');
+}
+
+// 5) the charged KICK is stronger than a weak one (hold = more power).
+function kickSpeed(charge) {
   const s = duel(); const C = s.players.A;
-  C.x = 1000; C.y = 550; C.aimX = 1; C.aimY = 0; C.power = powered;
+  C.x = 1000; C.y = 550; C.aimX = 1; C.aimY = 0;
   s.ball.owner = 'A'; s.ball.x = 1050; s.ball.y = 550;
-  step(s, { A: inp({ shoot: true, charge: 1 }) }, DT);
+  shoot(s, 'A', charge, [1, 0], { B: inp() });
   return Math.hypot(s.ball.vx, s.ball.vy);
 }
 {
-  const hi = kickSpeed(true), lo = kickSpeed(false);
-  ok(hi > lo + 50, `charged power kick is stronger than an uncharged one (${hi.toFixed(0)} > ${lo.toFixed(0)})`);
+  const hi = kickSpeed(1), lo = kickSpeed(0.1);
+  ok(hi > lo + 50, `a full-charge kick is stronger than a weak one (${hi.toFixed(0)} > ${lo.toFixed(0)})`);
 }
 
-// 5) a bomb that catches an enemy charges the bomber.
+// 6) a bomb that catches an enemy earns the bomber overcharge.
 {
   const s = duel(); const A = s.players.A, B = s.players.B;
   A.x = 1000; A.y = 550; B.x = 1080; B.y = 550; A.specialCd = 0;
-  step(s, { A: inp({ special: true }) }, DT);
+  step(s, { A: inp({ special: true }), B: inp() }, DT);
   for (let t = 0; t < 90 && !A.power; t++) step(s, { A: inp(), B: inp() }, DT); // wait out the fuse
-  ok(A.power === true, 'a bomb catching an enemy charges the bomber');
+  ok(A.power === true, 'a bomb catching an enemy earns the bomber overcharge');
 }
 
 console.log(`\n${fails === 0 ? '✅ ALL PASS' : '❌ ' + fails + ' FAILED'}`);

@@ -16,7 +16,14 @@ function fresh() {
   addPlayer(s, 'p2', { name: 'B', char: 'player', team: 'B', slot: 0 });
   return s;
 }
-function inp(o = {}) { return { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, shoot: false, special: false, build: false, charge: 0, ...o }; }
+function inp(o = {}) { return { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, ...o }; }
+// Sim-owned charge ramp: HOLD the trigger to build charge (~1s = full), then release
+// (fire) to shoot at that charge. `other` carries co-players' idle inputs each tick.
+function shoot(s, id, charge, aim = [1, 0], other = {}) {
+  const n = Math.max(0, Math.round(charge * 60));
+  for (let i = 0; i < n; i++) step(s, { [id]: inp({ hold: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
+  step(s, { [id]: inp({ fire: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
+}
 const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
 
 // 1) A player cannot walk through a stone wall (slides / is blocked).
@@ -43,7 +50,7 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   const s = fresh();
   const p = s.players.p1;
   p.x = wall.x - 60; p.y = wall.y + 60; p.aimX = 1; p.aimY = 0; p.ammo = 3;
-  step(s, { p1: inp({ shoot: true, charge: 1 }), p2: inp() }, DT); // fire toward wall
+  shoot(s, 'p1', 1, [1, 0], { p2: inp() }); // fire toward wall
   for (let i = 0; i < 30; i++) step(s, { p1: inp({ moveX: 0 }), p2: inp() }, DT);
   const past = s.projectiles.some((pr) => pr.x > wall.x + wall.w);
   ok(!past, `bullet stopped by wall (none passed through; ${s.projectiles.length} live)`);
@@ -89,9 +96,9 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
 {
   const s = fresh();
   const p = s.players.p1;
-  p.x = 900; p.y = 550; p.aimX = 1; p.aimY = 0; p.ammo = 3; p.power = true; // charged: a genuine full shot
+  p.x = 900; p.y = 550; p.aimX = 1; p.aimY = 0; p.ammo = 3; // full charge is hold-based, ungated
   s.builtWalls.push({ id: 5, x: 958, y: 520, w: 40, h: 60, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp, team: 'A' });
-  step(s, { p1: inp({ shoot: true, charge: 1 }), p2: inp() }, DT);
+  shoot(s, 'p1', 1, [1, 0], { p2: inp() });
   for (let i = 0; i < 40 && s.builtWalls.length; i++) step(s, { p1: inp(), p2: inp() }, DT);
   ok(s.builtWalls.length === 0, `full-power shot destroys a fresh wall in one hit`);
 }
@@ -102,7 +109,7 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   const p = s.players.p1;
   p.x = 900; p.y = 550; p.aimX = 1; p.aimY = 0; p.ammo = 3;
   s.builtWalls.push({ id: 6, x: 958, y: 520, w: 40, h: 60, hp: BUILT_WALL.hp, maxHp: BUILT_WALL.hp, team: 'A' });
-  step(s, { p1: inp({ shoot: true, charge: 0 }), p2: inp() }, DT);
+  shoot(s, 'p1', 0, [1, 0], { p2: inp() }); // quick (min-charge) shot
   for (let i = 0; i < 40 && s.builtWalls.length && s.builtWalls[0].hp === BUILT_WALL.hp; i++) step(s, { p1: inp(), p2: inp() }, DT);
   ok(s.builtWalls.length === 1 && s.builtWalls[0].hp === BUILT_WALL.hp - 1, `min-power shot chips wall by 1 (hp=${s.builtWalls[0]?.hp})`);
 }
