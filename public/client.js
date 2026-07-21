@@ -624,18 +624,25 @@ function renderPowerSlots() {
   powerSlotsEl.innerHTML = '';
   eff.forEach((card, i) => {
     const meta = SLOT_META[i];
+    const item = document.createElement('div'); item.className = 'pslot-item';
     const el = document.createElement('div');
     el.className = 'pslot' + (card ? ' rarity-' + card.r : ' pslot-empty');
     el.dataset.slot = i;
-    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 52, 66));
+    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 42, 54));
     const icon = document.createElement('span'); icon.className = 'pslot-icon'; icon.textContent = meta.icon;
     const buff = document.createElement('span'); buff.className = 'pslot-buff';
     buff.textContent = card ? '+' + (RARITY_PCT[card.r] || 0) + '%' : '—';
     el.appendChild(icon); el.appendChild(buff);
     // Tap a slot to see what its power does (and remove the card from there).
     el.addEventListener('click', () => showSlotInfo(i));
-    powerSlotsEl.appendChild(el);
+    const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label; // words: what each slot is
+    item.appendChild(el); item.appendChild(cap);
+    powerSlotsEl.appendChild(item);
   });
+  // "Pick best" — reset to the auto top-3 loadout (clears any manual picks).
+  const best = document.createElement('button'); best.className = 'pslot-best'; best.textContent = '★ הטובים ביותר';
+  best.addEventListener('click', () => { myLoadout = null; saveLoadout(myLoadout); renderPowerSlots(); sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); playSound('ui', 0.5); });
+  powerSlotsEl.appendChild(best);
 }
 // Tap-a-slot info popup: what the power does + the equipped card's buff, with a remove action.
 let powerInfoEl = null;
@@ -1121,7 +1128,11 @@ function playPromo(introMs) {
     col.appendChild(nm);
     const zone = document.createElement('div'); zone.className = 'promo-hero-cards';
     col.appendChild(zone); heroesEl.appendChild(col);
-    const cards = rankCards((p && p.cards) || []).slice(0, 3);          // this hero's top-3
+    // Same cards as the lobby loadout: MY live equipped set, teammates' equipped set from
+    // the roster; fall back to their top-3 only if no loadout came through.
+    const enrich = (slot) => { if (!slot) return null; const src = (p && p.cards) || myCards(); return src.find((c) => c.r === slot.r && +c.n === +slot.n) || { r: slot.r, n: +slot.n, w: 0, c: 1 }; };
+    const eq = (p && p.id === myMemberId) ? effectiveLoadout() : (p && p.loadout);
+    const cards = (Array.isArray(eq) ? eq.map(enrich).filter(Boolean) : rankCards((p && p.cards) || []).slice(0, 3));
     promoBoosters.push(...cards); preloadCards(cards);
     cards.forEach((c, k) => queue.push({ zone, card: c, k, kn: cards.length }));
   }

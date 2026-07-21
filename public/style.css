@@ -727,28 +727,42 @@ html, body {
    ============================================================================ */
 /* Anchor the slot column to the stage so the hero stays centred. */
 .hub-stage { position: relative; }
+/* Loadout: a small vertical column to the LEFT of the hero. Each slot is a raised 3D
+   tile with its power label beneath it, plus a "pick best" button under the column. */
 .power-slots {
-  position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%);
-  display: flex; flex-direction: row; gap: 10px; z-index: 4; pointer-events: auto;
+  position: absolute; top: 50%; left: 16%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 9px; z-index: 4; pointer-events: auto;
 }
+.pslot-item { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .pslot {
-  position: relative; width: 52px; height: 66px; cursor: pointer;
-  background: rgba(11,16,12,.72); border: 2px solid #4a5a4c; overflow: hidden;
+  position: relative; width: 42px; height: 54px; cursor: pointer; border-radius: 5px; overflow: hidden;
+  background: linear-gradient(180deg, #243228, #121b15); border: 2px solid #6a7a68;
   display: flex; align-items: flex-end; justify-content: center;
-  box-shadow: 0 4px 0 rgba(0,0,0,.4); transition: border-color .12s, box-shadow .12s, transform .12s;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.16), inset 0 -6px 0 rgba(0,0,0,.5), 0 5px 0 #0b120d, 0 7px 10px rgba(0,0,0,.5);
+  transition: border-color .12s, box-shadow .12s, transform .1s;
 }
+.pslot:active { transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.12), inset 0 -3px 0 rgba(0,0,0,.5), 0 2px 0 #0b120d; }
 .pslot-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .pslot-icon {
-  position: absolute; top: 2px; right: 2px; font-size: 13px; line-height: 1; z-index: 2;
-  filter: drop-shadow(0 1px 1px #000);
+  position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; z-index: 2; display: grid; place-items: center;
+  font-size: 10px; line-height: 1; border-radius: 50%; border: 1px solid #0b120d;
+  background: radial-gradient(circle at 40% 32%, #43543f, #10160f); box-shadow: 0 1px 1px rgba(0,0,0,.6);
 }
 .pslot-buff {
   position: relative; z-index: 2; width: 100%; text-align: center;
-  font: 900 10px "Arial Black", sans-serif; color: #fff4ca; padding: 1px 0;
-  background: linear-gradient(0deg, rgba(0,0,0,.82), transparent);
+  font: 900 9px "Arial Black", sans-serif; color: #fff4ca; padding: 1px 0;
+  background: linear-gradient(0deg, rgba(0,0,0,.85), transparent);
 }
-.pslot-empty { border-style: dashed; opacity: .82; }
+.pslot-cap { font: 900 8px "Arial Black", sans-serif; letter-spacing: .2px; color: #d3ddca; text-shadow: 0 1px 0 #050705; white-space: nowrap; }
+.pslot-empty { border-style: dashed; opacity: .9; }
 .pslot-empty .pslot-buff { color: #8aa08c; }
+.pslot-best {
+  margin-top: 3px; cursor: pointer; border: 2px solid #a56a16; border-radius: 5px; width: 100%;
+  background: linear-gradient(180deg, #ffd873, #e0a92a); color: #2a1c06;
+  font: 900 8px "Arial Black", sans-serif; letter-spacing: .2px; padding: 6px 3px;
+  box-shadow: inset 0 -3px 0 #a56a16, 0 3px 0 #0b0f0b;
+}
+.pslot-best:active { transform: translateY(2px); box-shadow: inset 0 -1px 0 #a56a16, 0 1px 0 #0b0f0b; }
 .pslot.rarity-legendary { border-color: #ffb800; }
 .pslot.rarity-epic { border-color: #b46bff; }
 .pslot.rarity-rare { border-color: #4ea0ff; }

@@ -320,7 +320,7 @@ function startMatch(room) {
   // identical if the same matchStart is resent. Feeds matchResult idempotency downstream (app -> backend).
   const matchId = `${room.id}-${++matchSeq}`;
   // Roster for the team-intro overlay: every human, their team + album (cards).
-  const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [], cosmetic: m.cosmetic || DEFAULT_COSMETIC }));
+  const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [], cosmetic: m.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(m.loadout, m.cards) }));
   const introMs = Math.round(INTRO_PROMO * 1000);
   for (const [m, team, slot] of assigned) {
     addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false, cosmetic: m.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(m.loadout) });
