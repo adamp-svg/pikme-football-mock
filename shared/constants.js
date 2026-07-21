@@ -134,10 +134,10 @@ export const SLOW_MUL = 0.9;    // speed multiplier while slowed
 // A fast free ball shoves the opponent it runs into (power shots plow through).
 export const BALL_BUMP_SPEED = 300; // ball speed above which it bumps an opponent
 export const BALL_BUMP_SCALE = 0.5; // knockback = ball speed * this (a bit of a push)
-// Two power tiers layered on the charge. FULL (>= FULL_CHARGE, hold-based, anyone):
-// strips a carrier; a full KICK into an enemy STOPS dead (no attach). OVERCHARGE
-// (earned by landing a forceful hit — see p.power/powerT — layered on top of a full
-// charge): an overcharge KICK shoves harder AND the ball rolls on (breakthrough).
+// Two power tiers layered on the charge. FULL (>= FULL_CHARGE, hold-based, anyone) strips a
+// carrier; a kicked ball hitting an enemy is MONOTONIC — a weak kick REBOUNDS, a FULL kick
+// DRIVES THROUGH, an OVERCHARGE kick breaks through HARDEST (a keeper in their own box
+// catches everything except an overcharge kick). OVERCHARGE is earned by forceful hits.
 export const OVERCHARGE_TTL = 4;     // seconds the overcharge (once READY) lasts if unused
 // Overcharge is a CONSUMABLE meter (0..1): a FULL-power hit fills it, or TWO lower-power
 // hits (partial each). Spent on ONE overcharge shot/kick. See earnPower() in sim.js.
@@ -200,6 +200,10 @@ export const SHOT_REVEAL_TIME = 0.45;
 // (~half the visible width) — no seeing/tracking a foe across the whole pitch. The ball
 // itself is always known (shared objective); this gates enemy-PLAYER awareness only.
 export const VISION_RANGE = 620;
+// The ball-CARRIER is a tracked objective — a bot sees them at a longer range (and even
+// in a bush), matching what the human client shows, so bots don't go blind mid-build-up.
+// Off-ball enemies still use the shorter VISION_RANGE + bush stealth (ambushes still work).
+export const BALL_VISION = 950;
 // Player-built destructible wall (SPECIAL-style pull-to-build).
 export const BUILT_WALL = {
   len: 176,         // long side of the placed segment

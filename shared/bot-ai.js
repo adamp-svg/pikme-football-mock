@@ -17,7 +17,7 @@
 //   - live tuning (bulletSpeed/bombPower/shotPower) comes from state.settings.
 
 import {
-  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE,
+  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
@@ -193,11 +193,15 @@ function bankAim(sx, sy, tx, ty, state, team, { goal = false, maxPath = 780, vie
 export function botCanSee(viewer, target, state) {
   if (viewer.team === target.team) return true;          // teammates always
   const dist = hyp(viewer.x - target.x, viewer.y - target.y);
-  if (dist > VISION_RANGE) return false;                 // out of view — no seeing across the field
+  // The ball-carrier is the tracked objective — seen at a longer range so bots keep
+  // pressing instead of idling. BUT a carrier hiding IN A BUSH stays concealed (falls to
+  // the bush rules below) — carrying the ball in a bush does NOT give you away.
+  if (state.ball.owner === target.id && !pointInBush(target.x, target.y) && dist <= BALL_VISION) return true;
+  if (dist > VISION_RANGE) return false;                 // an OFF-ball enemy out of view — no seeing across the field
   if (!pointInBush(target.x, target.y)) return true;     // in the open (and in view) = seen
-  if (target.firing) return true;                        // muzzle flash reveals (even carrying)
+  if (target.firing) return true;                        // muzzle flash reveals
   if (dist < BUSH_REVEAL_DIST) return true;              // close enough to spot in the bush
-  return false;                                          // bushed + not close + not firing = HIDDEN (even carrying the ball)
+  return false;                                          // off-ball, bushed, not close, not firing = HIDDEN
 }
 
 // ---- CONTEXT STEERING: pick a movement dir toward `tgt`, avoiding walls/bombs/bullets ----
@@ -305,9 +309,18 @@ function updateBelief(state, team, mem) {
     visible = bots.some((bt) => hyp(bt.x - b.x, bt.y - b.y) < BUSH_REVEAL_DIST); // bushed loose ball — only up close
   }
   const store = mem.belief || (mem.belief = {});
-  const cur = store[team] || (store[team] = { x: b.x, y: b.y });
-  if (visible) { cur.x = b.x; cur.y = b.y; }
-  return { x: cur.x, y: cur.y, visible };
+  const cur = store[team] || (store[team] = { x: b.x, y: b.y, vx: 0, vy: 0, tSeen: mem.t });
+  if (visible) {
+    cur.x = b.x; cur.y = b.y; cur.tSeen = mem.t;
+    const carrier = b.owner ? state.players[b.owner] : null;
+    cur.vx = carrier ? (carrier.vx || 0) : (b.vx || 0); // remember heading so we chase where it's GOING
+    cur.vy = carrier ? (carrier.vy || 0) : (b.vy || 0);
+  }
+  // When blind, DEAD-RECKON forward along the last-seen heading (bots chase the run, not the stale spot).
+  const age = clamp(mem.t - (cur.tSeen || 0), 0, 1.2);
+  const px = clamp(cur.x + cur.vx * age, 20, FIELD.W - 20);
+  const py = clamp(cur.y + cur.vy * age, 20, FIELD.H - 20);
+  return { x: px, y: py, vx: cur.vx, vy: cur.vy, visible, age };
 }
 
 // ---- COORDINATOR: assign roles to a team's two bots, with hysteresis ----
@@ -433,11 +446,25 @@ function decideBot(p, role, state, mem, sk, dt) {
   const belief = role.belief || { x: b.x, y: b.y, visible: true };
   if (!belief.visible && b.owner !== p.id) {
     bm.charging = null; // lost sight — abandon any pending shot wind-up
-    const gx = belief.x, gy = belief.y;
-    const tgt = isOnBall ? { x: gx, y: gy } : { x: (gx + ogX) / 2, y: (gy + GY) / 2 };
-    const aim = { x: gx - p.x, y: gy - p.y };
+    // ACTIVE SEARCH — never park. onBall sweeps a widening arc around the dead-reckoned
+    // last-seen point (chasing the likely run); support fans to the OTHER channel and
+    // sits goal-side so a blind team still defends. Both always keep moving.
+    bm.blindT = (bm.blindT || 0) + dt;
+    let tgt;
+    if (isOnBall) {
+      const sweepR = clamp(bm.blindT, 0, 1.5) / 1.5 * 300;
+      const th = mem.t * 2.2 + idHash(p.id) * 0.01;
+      tgt = { x: belief.x + Math.cos(th) * sweepR, y: belief.y + Math.sin(th) * sweepR };
+    } else {
+      // cover the lane between the last-seen ball and our goal, offset to the far channel
+      const side = p.slot === 0 ? -1 : 1;
+      tgt = { x: (belief.x + ogX) / 2, y: clamp(GY + side * 260, 140, FIELD.H - 140) };
+    }
+    tgt.x = clamp(tgt.x, 60, FIELD.W - 60); tgt.y = clamp(tgt.y, 60, FIELD.H - 60);
+    const aim = { x: belief.x - p.x, y: belief.y - p.y };
     return finalize(p, tgt, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
   }
+  bm.blindT = 0;
 
   if (b.owner === p.id) {
     // ===== I CARRY: attack =====
@@ -460,18 +487,20 @@ function decideBot(p, role, state, mem, sk, dt) {
       if (Math.abs(e.y - lineY) < radOf(state) + ballR + 20) { const dl = Math.abs(egX - e.x); if (dl < blockerDL) { blockerDL = dl; blocker = e; } }
     }
 
-    // 1) SHOOT on goal: open lane, or BUMP-THROUGH a close blocker, or BANK around one near goal.
-    if (distGoal < 720 && linedUp && laneOpen) {
-      aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1;
-    } else if (p.power && distGoal < 720 && linedUp && laneWalls && blocker && blockerDL < 260
-               && (0.30 * Math.max(0, (settings.shotPower || 1850) - 2.1768 * (distGoal - blockerDL)) - 2.1768 * blockerDL) >= 200) {
-      // BUMP-THROUGH: only an OVERCHARGE kick (p.power) rolls THROUGH a blocker now — a plain
-      // full kick STOPS dead and would gift possession. Energy uses the overcharge roll (0.30).
-      aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'boxFinish';
-    } else if (trick > 0.6 && distGoal < 900 && linedUp && !laneOpen && blocker && blockerDL >= 260 && blockerDL < 720) {
-      // blocker too far up the lane to bump through -> BANK the ball off a wall/touchline around them
-      const bk = bankAim(b.x, b.y, egX, clamp(GY + (blocker.y < GY ? 80 : -80), 420, 680), state, team, { goal: true, maxPath: 520 + 300 * trick, viewer: p });
-      if (bk && Math.random() < trick) { aim = { x: bk.aimX, y: bk.aimY }; shoot = true; charge = 1; bm.lastTrick = 'goalBank'; }
+    // A KEEPER = a defender parked in the box in front of the goal — they CATCH a full kick.
+    const keeper = blocker && Math.abs(egX - blocker.x) < PENALTY.depth && blocker.y > PEN_TOP && blocker.y < PEN_BOT ? blocker : null;
+
+    // 1) FINISH — a FULL kick now DRIVES THROUGH any field defender (monotonic), so just
+    //    shoot on a walls-clear lane. Only a KEEPER-in-box catches it: then spend OVERCHARGE
+    //    to break through (if ready), else BANK around them, else fall through to pass/drive.
+    if (distGoal < 780 && linedUp && laneWalls && !keeper) {
+      aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'drive';
+    } else if (distGoal < 800 && linedUp && keeper) {
+      if (p.power) { aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'overFinish'; } // overcharge beats the save
+      else if (trick >= 0.7) {
+        const bk = bankAim(b.x, b.y, egX, clamp(GY + (keeper.y < GY ? 90 : -90), 420, 680), state, team, { goal: true, maxPath: 560 + 300 * trick, viewer: p });
+        if (bk) { aim = { x: bk.aimX, y: bk.aimY }; shoot = true; charge = 1; bm.lastTrick = 'goalBank'; }
+      }
     }
 
     // 2) marked & not shooting -> PASS to a better mate (direct, or BANK around a blocker); sets give-and-go
@@ -495,15 +524,16 @@ function decideBot(p, role, state, mem, sk, dt) {
     // just gets the carrier stripped.)
     if (!shoot && !special && bombReady && mateSafe && distGoal < 1200 && laneWalls) {
       const cornered = nfd < 150 && distGoal < 560;
-      if (cornered && Math.random() < sk.aggro * 0.5) {
+      if (cornered && mem.t > (bm.nextBombAt || 0)) { // commit (specialCd already paces it) — no dice roll
         special = true; aim = { x: egX - p.x, y: GY - p.y };
         bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY }; bm.lastTrick = 'bombFinish';
+        bm.nextBombAt = mem.t + 3.0;
       }
     }
 
-    // Anti-idle: blast goalward if we've dithered. Only blast INTO a blocker when OVERCHARGED
-    // (a plain full kick would STOP dead on them and gift possession) — otherwise keep driving.
-    if (!shoot && !special && bm.carryT > 1.0 && laneWalls && distGoal < (blocker ? 520 : 1150) && (!blocker || p.power)) {
+    // Anti-idle: blast goalward if we've dithered. A full kick drives through a FIELD
+    // defender, so blast whenever the lane is walls-clear and it's not a keeper we'd feed.
+    if (!shoot && !special && bm.carryT > 0.8 && laneWalls && distGoal < 1150 && !keeper) {
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.carryT = 0;
     }
     // Drive at goal; if marked, JUKE decisively to the more-open side.
@@ -546,9 +576,9 @@ function decideBot(p, role, state, mem, sk, dt) {
     if (canShoot && sk.toolSkill > 0.6 && Math.abs(carrier.x - egX) < FIELD.W * 0.5) {
       let mark = null, md = 1e9;
       for (const e of visibleEnemies) { const d = hyp(e.x - carrier.x, e.y - carrier.y); if (d < 130 && d < md) { md = d; mark = e; } }
-      if (mark && laneClear(p.x, p.y, mark.x, mark.y, state, team, { enemies: false }) && Math.random() < sk.toolSkill * 0.2) {
+      if (mark && laneClear(p.x, p.y, mark.x, mark.y, state, team, { enemies: false }) && mem.t > (bm.nextMarkAt || 0)) {
         const [ax, ay] = quadraticIntercept(p.x, p.y, mark.x, mark.y, mark.vx || 0, mark.vy || 0, bulletSpeed);
-        aim = { x: ax, y: ay }; shoot = true; charge = 0.8; bm.lastTrick = 'clearMarker';
+        aim = { x: ax, y: ay }; shoot = true; charge = 0.8; bm.lastTrick = 'clearMarker'; bm.nextMarkAt = mem.t + 0.7;
       }
     }
 
@@ -570,9 +600,10 @@ function decideBot(p, role, state, mem, sk, dt) {
       const pcx = c.x + (c.vx || 0) * BOMB.fuse, pcy = c.y + (c.vy || 0) * BOMB.fuse;
       const willReach = hyp(pcx - p.x, pcy - p.y) < BOMB_CENTER_R + BOMB.radius * 0.6;
       const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
-      if (bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && !carrierDeepInBox && Math.random() < sk.aggro * 0.28) {
+      if (bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && !carrierDeepInBox && mem.t > (bm.nextBombAt || 0)) {
         special = true; shoot = false; aim = { x: c.x - p.x, y: c.y - p.y };
         bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
+        bm.nextBombAt = mem.t + 3.0;
       }
     } else {
       // ===== SUPPORT cover — skilled bots run a BUSH-AMBUSH + WALL-TRAP (lurk->wall->strip) =====
@@ -593,10 +624,13 @@ function decideBot(p, role, state, mem, sk, dt) {
       } else if (ambush && !bm.trap && distC > 130 && distC <= 340
                  && Math.abs(p.x - ogX) < Math.abs(c.x - ogX)             // goal-side of the carrier
                  && (ogX - c.x) * (c.vx || (ogX - c.x)) >= 0              // carrier driving at our goal
-                 && buildReady && wallWouldPlace(p, w2cx, w2cy) && Math.random() < sk.toolSkill) {
-        // WALL: drop the trap across the carrier's lane, then commit to the strip
-        build = true; aim = { x: w2cx, y: w2cy }; tgt = { x: c.x, y: c.y };
-        bm.trap = { until: mem.t + 1.2 }; bm.lastTrick = 'ambushWall';
+                 && buildReady && mem.t > (bm.nextBuildAt || 0)) {
+        // WALL across the carrier's lane to OUR goal (aim ALONG the lane => capsule spans across
+        // it), then commit to the strip. Stand on the lane, goal-side of the carrier.
+        const [lux, luy] = unit(ogX - c.x, GY - c.y);
+        build = true; aim = { x: lux, y: luy };
+        tgt = { x: c.x + lux * 150, y: c.y + luy * 150 };
+        bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0; bm.lastTrick = 'ambushWall';
       } else if (bm.trap) {
         // STRIP: burst out and full-charge strip the wall-blocked carrier
         tgt = { x: c.x, y: c.y };
