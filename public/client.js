@@ -815,27 +815,42 @@ function promoHeroCanvas(cosmetic) {
   drawHero(g, ox, feetY, sf, 0.4, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
   return cv;
 }
+// Drama scales AGGRESSIVELY with the card's real power: rarity tier + worth
+// (worth already bakes in views × the rarity multiplier) + duplicate count.
+function cardDrama(c) {
+  const rank = RARITY_RANK[c.r] || 0;                                   // tier 0..3
+  const worthBoost = Math.min(1, Math.max(0, (Math.log10((c.w || 0) + 1) - 3.3) / 2.7)); // ~0 @2k -> ~1 @1M
+  const dupeBoost = Math.min(1, ((c.c || 1) - 1) / 5);                  // 0..1 over 1..6 copies
+  return { rank, power: rank + worthBoost * 1.6 + dupeBoost * 1.1 };    // 0 .. ~5.7
+}
 function meteorCard(cardsEl, flashEl, c, i, n) {
-  const rank = RARITY_RANK[c.r] || 0;
+  const { rank, power } = cardDrama(c);
   const el = document.createElement('div');
-  el.className = 'promo-card rarity-' + c.r; el.dataset.n = c.n;
+  el.className = 'promo-card rarity-' + c.r;
   el.style.setProperty('--glow', RARITY_GLOW[c.r] || '#fff');
-  el.style.setProperty('--start-scale', String(2.2 + rank * 0.5));    // rarer => bigger, more dramatic entry
-  el.style.setProperty('--land-x', ((i - (n - 1) / 2) * 118) + 'px'); // spread the landed row
+  el.style.setProperty('--start-scale', (1.9 + power * 0.55).toFixed(2)); // bigger entry the stronger the card
+  el.style.setProperty('--glow-px', (16 + power * 12).toFixed(0) + 'px');
+  el.style.setProperty('--land-x', ((i - (n - 1) / 2) * 122) + 'px');    // spread the landed row
+  const fallMs = Math.round(470 + power * 55);                          // heavier cards fall a touch longer
+  el.style.transitionDuration = (fallMs / 1000) + 's';
+  if (rank === 3) el.appendChild(Object.assign(document.createElement('div'), { className: 'promo-flames' })); // legendary fire
+  const inner = document.createElement('div');
+  inner.className = 'promo-card-inner rarity-' + c.r; inner.dataset.n = c.n;
   const img = document.createElement('img'); img.alt = '';
-  img.onerror = () => el.classList.add('cf-noart');
+  img.onerror = () => inner.classList.add('cf-noart');
   img.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`;
-  el.appendChild(img); cardsEl.appendChild(el);
-  playSound('shot', 0.5 + rank * 0.12, 0.72 - rank * 0.05);           // whoosh (lower rate = heavier)
+  inner.appendChild(img); el.appendChild(inner);
+  cardsEl.appendChild(el);
+  playSound('shot', Math.min(1, 0.4 + power * 0.12), Math.max(0.5, 0.82 - power * 0.06)); // whoosh (lower = heavier)
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('land')));
-  setTimeout(() => {                                                  // impact when it lands
-    playSound('explosion', 0.45 + rank * 0.15, 1.2 - rank * 0.08);
-    haptic(rank >= 2 ? 'bomb' : 'hit');
-    promoEl.style.setProperty('--shake', (5 + rank * 4) + 'px');
+  setTimeout(() => {                                                    // impact
+    playSound('explosion', Math.min(1, 0.4 + power * 0.13), Math.max(0.6, 1.28 - power * 0.07));
+    haptic(power >= 3 ? 'bomb' : 'hit');
+    promoEl.style.setProperty('--shake', (3 + power * 4).toFixed(0) + 'px');
     promoEl.classList.remove('shake'); void promoEl.offsetWidth; promoEl.classList.add('shake');
     flashEl.classList.remove('hit'); void flashEl.offsetWidth; flashEl.classList.add('hit');
     el.classList.add('landed');
-  }, 520);
+  }, fallMs + 20);
 }
 function playPromo(introMs) {
   if (!promoEl) return;
