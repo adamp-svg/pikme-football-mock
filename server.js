@@ -147,7 +147,12 @@ function fillBots(room) {
     const team = teamCount('A') <= teamCount('B') ? 'A' : 'B';
     const slot = usedSlots(team).has(0) ? 1 : 0;
     const id = `bot-${room.id}-${++room.botCounter}`;
-    addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic: randomBotCosmetic() });
+    // EXTREME bots get a movement-SPEED cheat (+ a little extra shot/tool power that STACKS on
+    // the skill preset's chargeRate/cdMul) via the same card-buff path — no wire change.
+    const buffs = room.botDifficulty === 'extreme'
+      ? { cardShot: 1.4, speedBuff: 1.30, cardUtil: 0.65 }
+      : randomBotBuffs(room.botBuffTarget);
+    addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic: randomBotCosmetic(), buffs });
     room.inputs.set(id, emptyInput());
   }
 }
@@ -328,6 +333,7 @@ function startMatch(room) {
     m.team = team; m.inMatch = true; m.afk = false; m.lastInputAt = nowMs();
     send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs });
   }
+  room.botBuffTarget = humanBuffTarget(assigned); // size this match's bot card-powers to the humans
   fillBots(room);
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0;
@@ -552,7 +558,40 @@ const pctOf = (slot) => (slot ? (RARITY_BUFF_PCT[slot.r] || 0) : 0);
 function buffsFromLoadout(loadout) {
   const L = Array.isArray(loadout) ? loadout : [];
   const shot = pctOf(L[0]), speed = pctOf(L[1]), util = pctOf(L[2]);
-  return { chargeRate: 1 / (1 - shot), speedBuff: 1 + speed, cdMul: 1 - util };
+  return { cardShot: 1 / (1 - shot), speedBuff: 1 + speed, cardUtil: 1 - util };
+}
+
+// --- Bots get RANDOM card powers roughly matching the human players in the match ------------------
+// Sum of a loadout's 3 slot buff %s (0..0.6) — a player's total "card power".
+function loadoutTotalPct(loadout) {
+  const L = Array.isArray(loadout) ? loadout : [];
+  return pctOf(L[0]) + pctOf(L[1]) + pctOf(L[2]);
+}
+// Average card power across a match's assigned humans — the level bots are sized to. 0 if nobody has cards.
+function humanBuffTarget(assigned) {
+  const humans = (assigned || []).filter((a) => a && a[0]);
+  if (!humans.length) return 0;
+  return humans.reduce((s, a) => s + loadoutTotalPct(a[0].loadout), 0) / humans.length;
+}
+// Probabilistically round a per-slot target to an ADJACENT rarity step so the EXPECTED buff equals the
+// target (unbiased even at the legendary 0.20 cap) while still varying between bots. Each slot lands on
+// a real rarity, so a bot's buff always equals "a card".
+const RARITY_PCT_STEPS = [0, 0.03, 0.07, 0.12, 0.20]; // empty / common / rare / epic / legendary
+function pickRarityPct(target) {
+  const t = Math.max(0, Math.min(0.20, Number(target) || 0));
+  let lo = 0, hi = 0.20;
+  for (let i = 0; i < RARITY_PCT_STEPS.length - 1; i++) {
+    if (t >= RARITY_PCT_STEPS[i] && t <= RARITY_PCT_STEPS[i + 1]) { lo = RARITY_PCT_STEPS[i]; hi = RARITY_PCT_STEPS[i + 1]; break; }
+  }
+  if (hi === lo) return lo;
+  return Math.random() < (t - lo) / (hi - lo) ? hi : lo;
+}
+// A RANDOM bot loadout whose 3 slot buffs roughly match `targetTotal` (the human average): each slot is
+// target/3 probabilistically rounded to a rarity, so E[total] == target. Same shape as buffsFromLoadout.
+function randomBotBuffs(targetTotal) {
+  const per = Math.max(0, Number(targetTotal) || 0) / 3;
+  const shot = pickRarityPct(per), speed = pickRarityPct(per), util = pickRarityPct(per);
+  return { cardShot: 1 / (1 - shot), speedBuff: 1 + speed, cardUtil: 1 - util };
 }
 
 // ---------------------------------------------------------------------------
@@ -625,10 +664,10 @@ wss.on('connection', (ws, req) => {
             const p = room.state.players[member.id];
             if (p) {
               p.isBot = false;
-              // bot-ai clobbered this human's card buffs with bot-difficulty values while AFK;
-              // restore them from the loadout (speedBuff is untouched by bot-ai, reassigned for consistency).
-              const bf = buffsFromLoadout(member.loadout);
-              p.chargeRate = bf.chargeRate; p.speedBuff = bf.speedBuff; p.cdMul = bf.cdMul;
+              // While AFK, bot-ai drove this human and set the DIFFICULTY multipliers (chargeRate/cdMul).
+              // Strip them so the returning human has no bot difficulty; their CARD buffs (cardShot/
+              // cardUtil/speedBuff) were never touched by bot-ai, so they persist untouched.
+              p.chargeRate = 1; p.cdMul = 1;
             }
           }
         }
@@ -644,7 +683,7 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'settings' && room) {
         if (msg.settings) applySettings(room, msg.settings);
-        if (['easy', 'normal', 'hard'].includes(msg.botDifficulty)) {
+        if (['easy', 'normal', 'hard', 'extreme'].includes(msg.botDifficulty)) {
           room.botDifficulty = msg.botDifficulty;
           if (room.botMem) room.botMem.skill = msg.botDifficulty; // live — read each tick by the bot AI
         }
