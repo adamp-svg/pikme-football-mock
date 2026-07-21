@@ -165,7 +165,11 @@ function updateMusicButton() {
   applyMusicVol();
 }
 // Effective music volume = the track's own base level × the user's music-volume slider.
-function applyMusicVol() { if (musicEl) musicEl.volume = musicEnabled ? musicVol * musicUserVol : 0; }
+function applyMusicVol() {
+  const v = musicEnabled ? musicVol * musicUserVol : 0;
+  if (musicGain) musicGain.gain.value = v;          // iOS + desktop: the real volume knob
+  else if (musicEl) musicEl.volume = v;             // fallback before the graph exists (desktop)
+}
 
 function unlockAudio() {
   if (!audioCtx) {
@@ -235,10 +239,27 @@ let musicEl = null;      // ONE reused <audio> element, blessed once by a user g
 let musicKind = null;    // 'match' | 'training' | 'lobby' | null — dedupes repeat start calls
 let musicVol = 0;        // base volume of the current track (before the music slider)
 let musicPrimed = false; // has a tap "blessed" musicEl so iOS lets it autoplay later?
+let musicSrcNode = null; // MediaElementSource wrapping musicEl (created once)
+let musicGain = null;    // the knob we actually turn — iOS ignores <audio>.volume
 
 function ensureMusicEl() {
-  if (!musicEl) { musicEl = new Audio(); musicEl.preload = 'auto'; }
+  if (!musicEl) { musicEl = new Audio(); musicEl.preload = 'auto'; musicEl.volume = 1; }
   return musicEl;
+}
+// iOS/WKWebView IGNORES HTMLMediaElement.volume (only the hardware buttons change <audio>
+// level), so mute/volume must go through the WebAudio graph. Route the music element via a
+// MediaElementSource -> GainNode -> destination; the GainNode is controllable on iOS and
+// shares the gesture-unlocked audio session. Same-origin media, so no CORS silencing. The
+// source node can only be created ONCE per element, hence the guard.
+function ensureMusicGraph() {
+  if (musicGain || !audioCtx || !musicEl) return;
+  try {
+    musicSrcNode = audioCtx.createMediaElementSource(musicEl);
+    musicGain = audioCtx.createGain();
+    musicSrcNode.connect(musicGain).connect(audioCtx.destination);
+    musicEl.volume = 1;   // the GainNode owns the level from here on
+    applyMusicVol();
+  } catch { /* already connected / unsupported → fall back to musicEl.volume */ }
 }
 // iOS/WKWebView silently DROPS the first html-audio play when it races AudioContext
 // startup — which is exactly the lobby countdown (it fires right after the Quick Match
@@ -248,10 +269,11 @@ function ensureMusicEl() {
 // every later track — including the very first countdown clip — is allowed to sound.
 function primeMusic() {
   ensureMusicEl();
+  ensureMusicGraph();
   if (musicPrimed) return;
   try {
     musicEl.loop = false;
-    musicEl.volume = 0;                 // unmuted (counts as user-initiated) but silent
+    musicVol = 0; applyMusicVol();      // silent via the gain, but a real UNMUTED play → blesses iOS
     if (!musicEl.src) musicEl.src = LOBBY_MUSIC;
     const p = musicEl.play();
     const settle = () => { if (musicKind === null) { try { musicEl.pause(); musicEl.currentTime = 0; } catch { /* fine */ } } musicPrimed = true; };
@@ -264,13 +286,14 @@ function stopMusic() {
 }
 function playMusic(src, loop, volume) {
   ensureMusicEl();
+  ensureMusicGraph();
   musicVol = volume;
   try {
     const abs = new URL(src, location.href).href;
     if (musicEl.src !== abs) musicEl.src = src;
     musicEl.currentTime = 0;
     musicEl.loop = !!loop;
-    musicEl.volume = musicEnabled ? volume * musicUserVol : 0;
+    applyMusicVol();                    // sets musicGain.gain (iOS) or musicEl.volume (fallback)
     const p = musicEl.play();
     if (p && p.catch) p.catch(() => { /* autoplay blocked until a gesture */ });
   } catch { /* no audio support */ }
