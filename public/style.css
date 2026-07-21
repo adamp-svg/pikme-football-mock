@@ -395,6 +395,8 @@ html, body {
   transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .32s;
   will-change: transform, opacity;
 }
+/* While actively swiping, cards track the finger with no transition; released -> smooth snap. */
+.carousel.cf-dragging .cf-card { transition: none; }
 .cf-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cf-card.rarity-legendary { border-color: #ffb800; }
 .cf-card.rarity-epic { border-color: #b46bff; }

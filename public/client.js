@@ -501,10 +501,11 @@ function setCarousel(i) {
 function startCarouselAuto() { stopCarouselAuto(); if (cfCards.length > 1) cfTimer = setInterval(() => setCarousel(cfIndex + 1), 2600); }
 function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = null; } }
 (function bindCarouselSwipe() {
-  // One gesture, two intents: a mostly-HORIZONTAL drag spins the coverflow (as before);
-  // a mostly-UPWARD drag lifts the grabbed card onto a power slot (card-powers). We lock
-  // the intent on first meaningful movement so neither mode fights the other.
+  // One gesture, two intents: a mostly-HORIZONTAL drag SPINS the coverflow smoothly
+  // (follows the finger, snaps + flicks on release); a mostly-UPWARD drag lifts the
+  // grabbed card onto a power slot. Intent locks on the first meaningful movement.
   let sx = null, sy = null, mode = null, dragCard = null, ghost = null;
+  let cfStart = 0, lastX = 0, lastT = 0, vel = 0;
   const clearGhost = () => {
     if (ghost) { ghost.remove(); ghost = null; }
     document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
@@ -512,20 +513,27 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
   const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
   carouselEl.addEventListener('pointerdown', (e) => {
     sx = e.clientX; sy = e.clientY; mode = null; dragCard = null;
+    cfStart = cfIndex; lastX = e.clientX; lastT = performance.now(); vel = 0;
     const cardEl = e.target && e.target.closest ? e.target.closest('.cf-card') : null;
     if (cardEl && cardEl.dataset.idx != null) dragCard = cfCards[+cardEl.dataset.idx] || null;
     stopCarouselAuto();
+    // Capture keeps the WHOLE gesture on the carousel — including lifting a card up and
+    // OFF the carousel onto a slot — so the sequence doesn't die mid-drag.
     try { carouselEl.setPointerCapture(e.pointerId); } catch { /* older webviews */ }
   });
   carouselEl.addEventListener('pointermove', (e) => {
     if (sx == null) return;
     const dx = e.clientX - sx, dy = e.clientY - sy;
     if (!mode) {
-      if (dragCard && dy < -14 && Math.abs(dy) > Math.abs(dx)) mode = 'drag';
-      else if (Math.abs(dx) > 34) mode = 'swipe';
+      if (dragCard && dy < -16 && Math.abs(dy) > Math.abs(dx) * 0.6) mode = 'drag'; // clear lift -> drag (up-and-over to a side slot)
+      else if (Math.abs(dx) > 20) mode = 'swipe';
     }
     if (mode === 'swipe') {
-      if (Math.abs(dx) > 34) { setCarousel(cfIndex + (dx < 0 ? 1 : -1)); sx = e.clientX; } // spin as the finger drags
+      carouselEl.classList.add('cf-dragging');          // no CSS transition while it tracks the finger
+      cfIndex = cfStart - dx / CF_SPACING;              // fractional coverflow follows the drag 1:1
+      layoutCarousel();
+      const now = performance.now();
+      if (now > lastT) { vel = (e.clientX - lastX) / (now - lastT); lastX = e.clientX; lastT = now; }
     } else if (mode === 'drag') {
       if (!ghost) {
         ghost = document.createElement('div');
@@ -542,9 +550,13 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
   });
   const end = (e) => {
     if (sx == null) return;
-    if (mode === 'drag' && dragCard) {
+    if (mode === 'swipe') {
+      carouselEl.classList.remove('cf-dragging');       // re-enable transition -> smooth snap
+      const flick = vel < -0.45 ? 1 : vel > 0.45 ? -1 : 0; // a fast release spins one more (momentum)
+      setCarousel(Math.round(cfIndex) + flick);
+    } else if (mode === 'drag' && dragCard) {
       const slot = slotUnder(e.clientX, e.clientY);
-      if (slot && slot.dataset.slot != null) setSlotCard(+slot.dataset.slot, dragCard);
+      if (slot && slot.dataset.slot != null) setSlotCard(+slot.dataset.slot, dragCard); // drop ANY grabbed card into the slot
     }
     clearGhost();
     sx = sy = null; mode = null; dragCard = null;
