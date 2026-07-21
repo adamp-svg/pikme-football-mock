@@ -39,7 +39,19 @@ function shoot(s, id, charge, aim = [1, 0], others = {}) {
   let stripped = false;
   for (let t = 0; t < 25; t++) { if (s.ball.owner === 'B') { B.x = 1120; s.ball.x = 1150; } step(s, { A: inp(), B: inp() }, DT); if (s.ball.owner !== 'B') { stripped = true; break; } }
   ok(stripped, 'an UNGATED full shot strips the carrier (no meter needed)');
-  ok(A.power === true, 'landing that forceful bullet EARNED overcharge');
+  ok(A.power === true, 'a single FULL-power hit fills the overcharge meter (ready)');
+}
+
+// 1b) OVERCHARGE is a CONSUMABLE METER: one MEDIUM hit is NOT enough (fills half); TWO fill it.
+{
+  const s = duel(); const A = s.players.A, B = s.players.B;
+  A.x = 800; A.y = 550; A.aimX = 1; A.aimY = 0; B.x = 1000; B.y = 550; s.ball.x = 200; s.ball.y = 200; // ball out of the line of fire
+  shoot(s, 'A', 0.5, [1, 0], { B: inp() });
+  for (let t = 0; t < 25; t++) { B.x = 1000; B.kvx = 0; step(s, { B: inp() }, DT); }
+  ok(A.power === false && (A.powerMeter || 0) > 0.4, `one MEDIUM hit half-fills the meter, not ready (meter ${(A.powerMeter || 0).toFixed(2)})`);
+  shoot(s, 'A', 0.5, [1, 0], { B: inp() });
+  for (let t = 0; t < 30; t++) { B.x = 1000; B.kvx = 0; step(s, { B: inp() }, DT); }
+  ok(A.power === true, 'a SECOND medium hit fills the meter (2 partials = 1 full)');
 }
 
 // 2) a QUICK poke does NOT earn overcharge (only forceful hits do).

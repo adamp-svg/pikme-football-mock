@@ -138,9 +138,16 @@ export const BALL_BUMP_SCALE = 0.5; // knockback = ball speed * this (a bit of a
 // strips a carrier; a full KICK into an enemy STOPS dead (no attach). OVERCHARGE
 // (earned by landing a forceful hit — see p.power/powerT — layered on top of a full
 // charge): an overcharge KICK shoves harder AND the ball rolls on (breakthrough).
-export const OVERCHARGE_TTL = 4;     // seconds the overcharge meter lasts if unused
-export const OVERCHARGE_MUL = 1.5;   // overcharge kick shoves the enemy this much harder
+export const OVERCHARGE_TTL = 4;     // seconds the overcharge (once READY) lasts if unused
+// Overcharge is a CONSUMABLE meter (0..1): a FULL-power hit fills it, or TWO lower-power
+// hits (partial each). Spent on ONE overcharge shot/kick. See earnPower() in sim.js.
+export const OVERCHARGE_FULL_GAIN = 1.0;    // a full-power hit / strip / bomb-catch fills the meter
+export const OVERCHARGE_PARTIAL_GAIN = 0.5; // a lower-power hit / bump — two of these fill it
+export const OVERCHARGE_MUL = 2.0;   // overcharge KICK shoves the enemy this much harder (vs a full kick)
+export const FULL_BUMP_MUL = 1.3;    // a FULL kick shoves a little harder than a quick/medium kick
+export const OVERCHARGE_BULLET_MUL = 1.6; // an overcharge BULLET pushes/strips this much harder than a full bullet
 export const OVERCHARGE_ROLL = 0.30; // ball keeps this fraction of speed after an overcharge bump (rolls on)
+export const BALL_WALL_POP_SPEED = 260; // carried ball popped loose when the holder walks it into a wall
 // A FULL kick blocked by a defender standing in their OWN penalty box only DEFLECTS
 // (keeps this fraction of speed) instead of dead-stopping — so camping the line isn't a free save.
 export const KEEPER_DEFLECT = 0.30;
@@ -155,7 +162,8 @@ export const BOMB_TACKLE_KB = 1800; // shove given to an enemy a bomb-LAUNCHED p
 export const FLY_HIT_SPEED = 460;   // knockback speed above which a flying body collides with enemies
 export const FLY_HIT_SCALE = 0.55;  // enemy knockback = flyer speed * this (a plain fling; a bomb tackle uses BOMB_TACKLE_KB)
 // Rocket-jump scaling: on-centre you fly FURTHER; reduced if you're carrying the ball.
-export const BOMB_CENTER_LAUNCH_MUL = 1.15; // on-centre launch is a touch stronger than a flung-away hit
+export const BOMB_CENTER_LAUNCH_MUL = 0.80; // on-centre self-launch (kept modest — it was flinging half the pitch)
+export const BOMB_LAUNCH_MAX = 3000;        // hard cap on the on-centre launch after wall/stack multipliers
 export const BOMB_CARRY_LAUNCH_MUL = 0.6;   // ...but reduced this much if the bomber owns the ball
 // Wall cannon: a wall collinear BEHIND the bomb (player -> bomb -> wall) boosts the
 // launch in that direction, SCALED BY PROXIMITY (closer wall = more). Any wall qualifies.

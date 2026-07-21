@@ -7,6 +7,7 @@ import {
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
   PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
   OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KEEPER_DEFLECT,
+  OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_DIST, BOMB_WALL_COS,
   BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE,
@@ -52,6 +53,16 @@ function inOwnPenalty(t) {
 // event (pickup, kickoff, bullet-push, strip, bomb-pop). Otherwise a stale lastKicker
 // would earn overcharge off a fast ball they never actually kicked.
 function clearKick(b) { b.kickTier = 0; b.overSpent = false; b.lastKicker = null; }
+
+// OVERCHARGE is a consumable meter (p.powerMeter 0..1). A FORCEFUL hit adds `amt` —
+// a full-power hit/strip/bomb fills it (1.0), a lower-power hit fills half (0.5), so it
+// takes ONE full hit OR TWO partials. When it fills, the player is READY (p.power) for
+// exactly ONE overcharge shot/kick, which spends it. Never stacks past ready.
+function earnPower(p, amt) {
+  if (!p || p.power) return;
+  p.powerMeter = (p.powerMeter || 0) + amt;
+  if (p.powerMeter >= 1) { p.power = true; p.powerT = OVERCHARGE_TTL; p.powerMeter = 0; }
+}
 
 // Spawn spots — each team near its OWN goal (A defends left, B defends right).
 function spawnPos(team, slot) {
@@ -123,8 +134,9 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     bombLaunch: 0, // >0 => rocket-jumping off own bomb; can tackle an enemy
     launchGlide: 0, // >0 => recently bomb-launched; knockback decays gently (smooth arc)
     trampCd: 0, // >0 => recently launched by a trampoline (no re-launch)
-    power: false, // OVERCHARGE meter: earned by a forceful hit; adds a bonus tier on top of a full charge
-    powerT: 0,    // seconds of overcharge remaining (decays if unused)
+    power: false, // OVERCHARGE READY: earned by filling the meter; enables ONE overcharge shot/kick
+    powerT: 0,    // seconds the READY overcharge lasts if unused (decays)
+    powerMeter: 0, // 0..1 progress toward overcharge (1 full hit or 2 partial hits fills it)
     buildAmmo: BUILD_MAG, // wall charges available
     buildAmmoT: 0,        // seconds accumulated toward the next wall charge
     buildCd: 0,           // min pacing between wall placements
@@ -154,7 +166,7 @@ function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
-    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.launchGlide = 0;
+    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerMeter = 0; p.launchGlide = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
@@ -406,13 +418,14 @@ export function step(state, inputs, dt) {
         b.vy = p.aimY * state.settings.shotPower * cm;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
-        if (isOver) { p.power = false; p.powerT = 0; } // an OVERCHARGE kick spends the meter
+        if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; } // an OVERCHARGE kick spends the meter
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
-        // Bullets don't consume overcharge — a full bullet already strips a carrier;
-        // overcharge is a KICK-only breakthrough tier.
-        fireBullet(state, p, ch, eff);
+        // A FULL bullet strips a carrier; an OVERCHARGE bullet (isOver) strips AND pushes
+        // harder — and spends the meter, same as an overcharge kick.
+        fireBullet(state, p, ch, eff, isOver);
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
+        if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; }
       }
       p._charge = 0; // consume the wind-up on release
     }
@@ -423,10 +436,20 @@ export function step(state, inputs, dt) {
   // --- Ball: glued to a holder, or free physics + pickup ---
   if (b.owner && state.players[b.owner]) {
     const h = state.players[b.owner];
-    const off = radiusOf(h, state) + ballRadius(state);
-    b.x = h.x + h.aimX * off;
-    b.y = h.y + h.aimY * off;
-    b.vx = 0; b.vy = 0;
+    const ballR = ballRadius(state);
+    const off = radiusOf(h, state) + ballR;
+    const gx = h.x + h.aimX * off, gy = h.y + h.aimY * off; // where the ball WANTS to glue (in front)
+    // If that spot is inside a wall (you walked the ball INTO cover), it can't stay there
+    // — pop it loose off the holder so it rolls forward into the wall and bounces back.
+    const walls = arenaOf(state).walls.concat(state.builtWalls || []);
+    const blocked = walls.some((w) => circleHitsBox(gx, gy, ballR * 0.6, w));
+    if (blocked) {
+      b.owner = null; b.lastTouch = h.team; clearKick(b); b.pickupCd = RELEASE_PICKUP_CD;
+      b.x = h.x; b.y = h.y; // holder centre is wall-resolved (safe), so the ball never spawns inside the wall
+      b.vx = h.aimX * BALL_WALL_POP_SPEED; b.vy = h.aimY * BALL_WALL_POP_SPEED;
+    } else {
+      b.x = gx; b.y = gy; b.vx = 0; b.vy = 0;
+    }
   } else {
     b.owner = null;
     const ballR = ballRadius(state);
@@ -454,7 +477,10 @@ export function step(state, inputs, dt) {
       const p = state.players[id];
       if (Math.hypot(b.x - p.x, b.y - p.y) >= radiusOf(p, state) + ballR) continue;
       const enemyOfBall = b.lastTouch && p.team !== b.lastTouch;
-      if (bspeed > BALL_BUMP_SPEED && enemyOfBall) {
+      // Only a genuinely KICKED ball (b.lastKicker set) plows through / bumps an enemy.
+      // A bomb-flung / stripped / wall-popped ball (clearKick -> lastKicker null) falls
+      // through to the pickup below, so TOUCHING it attaches it (reliable pickup).
+      if (bspeed > BALL_BUMP_SPEED && enemyOfBall && b.lastKicker) {
         // A fast ball shoves the opponent it runs into. What the ball does next
         // depends on the KICK TIER it was launched with:
         //   0 (quick/medium): trickles on (keeps 0.35) — unchanged
@@ -463,7 +489,8 @@ export function step(state, inputs, dt) {
         //   2 (OVERCHARGE): shoves HARDER and the ball ROLLS ON (breakthrough)
         const nx = b.vx / bspeed, ny = b.vy / bspeed;
         const tier = b.kickTier || 0;
-        const mul = tier === 2 ? OVERCHARGE_MUL : 1;
+        // Push ladder: quick/medium ×1, FULL a little more, OVERCHARGE clearly more.
+        const mul = tier === 2 ? OVERCHARGE_MUL : tier === 1 ? FULL_BUMP_MUL : 1;
         const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p);
         p.kvx += nx * kb; p.kvy += ny * kb;
         if (tier === 1) {
@@ -479,7 +506,7 @@ export function step(state, inputs, dt) {
         // A forceful kick that bumps an enemy earns overcharge (lets an attacker build
         // the punch-through) — but an OVERCHARGE kick's ball never re-earns it (no self-farm,
         // even if the rolled-on ball re-contacts an enemy: b.overSpent stays set).
-        if (!b.overSpent && b.lastKicker && state.players[b.lastKicker]) { const k = state.players[b.lastKicker]; k.power = true; k.powerT = OVERCHARGE_TTL; }
+        if (!b.overSpent && b.lastKicker && state.players[b.lastKicker]) earnPower(state.players[b.lastKicker], tier >= 1 ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
         // keep lastTouch as the shooter's (goal credit unchanged)
         continue; // keep checking other players
       }
@@ -501,7 +528,7 @@ export function step(state, inputs, dt) {
 // --- Weapons -------------------------------------------------------------
 
 // PRIMARY attack — fire a bullet in the aim direction, scaled by charge.
-function fireBullet(state, p, ch, charge) {
+function fireBullet(state, p, ch, charge, over = false) {
   p.shootCd = ch.shootCooldown;
   p.firing = true;
   const cm = chargeMul(charge);
@@ -513,6 +540,7 @@ function fireBullet(state, p, ch, charge) {
     vx: p.aimX * spd, vy: p.aimY * spd,
     dist: 0,            // travelled distance -> proximity knockback
     charge: charge || 0, // 0..1 (a full charge ignores the point-blank rule)
+    over: !!over,       // OVERCHARGE bullet — strips/pushes harder (see hitEnemy)
     cmul: cm,           // power multiplier
   });
 }
@@ -614,23 +642,23 @@ function updateProjectiles(state, dt) {
         continue; // consume the bullet
       }
     } else {
-      // A HELD ball: only a FULL-power bullet hitting the ball head-on affects it
-      // — it shoves the CARRIER back, and the ball drops loose where it was (it
-      // does NOT fly forward).
+      // A HELD ball: a FULL-power bullet hitting the ball head-on strips an ENEMY carrier
+      // (shoves them, ball drops loose in place). An OVERCHARGE bullet shoves harder.
       const bdx = b.x - pr.x, bdy = b.y - pr.y;
-      if (pr.charge >= FULL_CHARGE && Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
+      const carrier = state.players[b.owner];
+      const enemyCarrier = carrier && carrier.team !== pr.team;
+      if (pr.charge >= FULL_CHARGE && enemyCarrier && Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
         const l = Math.hypot(pr.vx, pr.vy) || 1, nx = pr.vx / l, ny = pr.vy / l;
-        const carrier = state.players[b.owner];
         b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
         b.vx = 0; b.vy = 0; clearKick(b); // ball stays in place
-        if (carrier) {
-          const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * knockMul(carrier);
-          carrier.kvx += nx * kb; carrier.kvy += ny * kb;
-        }
+        const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1; // MAX strip pushes more than FULL
+        const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * overMul * knockMul(carrier);
+        carrier.kvx += nx * kb; carrier.kvy += ny * kb;
+        if (!pr.over) earnPower(state.players[pr.owner], OVERCHARGE_FULL_GAIN); // a full strip earns; an overcharge strip can't self-refill
         addImpact(state, pr, 'ball', b.x, b.y);
         continue; // consume the bullet
       }
-      // Non-full bullets pass through the held ball (transparent) to the carrier.
+      // Non-full bullets (or a teammate's held ball) pass through to the carrier behind.
     }
 
     // Hit an enemy player.
@@ -672,15 +700,13 @@ function hitEnemy(state, t, pr) {
   const l = Math.hypot(pr.vx, pr.vy) || 1;
   const nx = pr.vx / l, ny = pr.vy / l;
   const shooter = state.players[pr.owner];
-  // Only a FORCEFUL hit (>= QUICK_CHARGE knockback) earns overcharge — a harmless
-  // slow poke does not — and the meter decays if unused (see the per-player tick).
-  if (shooter && pr.charge >= QUICK_CHARGE) { shooter.power = true; shooter.powerT = OVERCHARGE_TTL; }
+  const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1; // OVERCHARGE bullet pushes/strips harder
 
-  // A ball-carrier is protected: only a FULL-power shot (or a bomb, elsewhere)
-  // can affect them. Medium/quick bullets are absorbed with no effect.
+  // A ball-carrier is protected: only a FULL-power shot (or a bomb, elsewhere) can
+  // affect them. Both FULL and OVERCHARGE strip the ball; OVERCHARGE pushes more.
   if (state.ball.owner === t.id) {
-    if (pr.charge < FULL_CHARGE) return;
-    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * knockMul(t);
+    if (pr.charge < FULL_CHARGE) return; // medium/quick absorbed — no effect, no earn
+    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * overMul * knockMul(t);
     t.kvx += nx * kb;
     t.kvy += ny * kb;
     // knock the ball loose off this carrier, with a sideways kick
@@ -689,17 +715,20 @@ function hitEnemy(state, t, pr) {
     const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
     b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
     b.vy = ny * PROJECTILE.ballPush + (nx) * side;
+    if (!pr.over) earnPower(shooter, OVERCHARGE_FULL_GAIN); // a full strip earns overcharge; an overcharge strip can't self-refill
     return;
   }
 
   if (pr.charge < QUICK_CHARGE) {
-    t.slowTimer = SLOW_TIME; // quick shot: slow, don't push
+    t.slowTimer = SLOW_TIME; // quick shot: slow, don't push, doesn't earn
     return;
   }
-  // medium & full: push the enemy along the bullet's travel direction
-  const kb = state.settings.bulletKnockback * pr.charge * knockMul(t);
+  // medium & full: push the enemy along the bullet's travel direction (OVERCHARGE = more)
+  const kb = state.settings.bulletKnockback * pr.charge * overMul * knockMul(t);
   t.kvx += nx * kb;
   t.kvy += ny * kb;
+  // A forceful body hit earns overcharge: a full hit fills it, a medium fills half.
+  if (!pr.over) earnPower(shooter, pr.charge >= FULL_CHARGE ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
 }
 
 function updateBombs(state, dt) {
@@ -760,6 +789,7 @@ function explode(state, bomb, stack = 1) {
     let launch = P * BOMB_CENTER_LAUNCH_MUL;
     if (state.ball.owner === bomber.id) launch *= BOMB_CARRY_LAUNCH_MUL; // heavier with the ball
     launch *= wallCannonMul(state, bomb.x, bomb.y, dx, dy); // wall behind you cannons harder the closer it is
+    launch = Math.min(launch, BOMB_LAUNCH_MAX); // hard cap so wall/stack combos can't fling across the pitch
     bomber.kvx += dx * launch;
     bomber.kvy += dy * launch;
     bomber.bombLaunch = BOMB_LAUNCH_TTL;
@@ -782,7 +812,7 @@ function explode(state, bomb, stack = 1) {
       t.kvx += ux * power;
       t.kvy += uy * power;
       t.launchGlide = BOMB_LAUNCH_GLIDE * 0.75; // caught in the blast → smooth arc too (matches the fly anim)
-      if (bomber && t.team !== bomber.team) { bomber.power = true; bomber.powerT = OVERCHARGE_TTL; } // catching an enemy in the blast earns overcharge
+      if (bomber && t.team !== bomber.team) earnPower(bomber, OVERCHARGE_FULL_GAIN); // catching an enemy in the blast is a full earn
     }
   }
 
@@ -801,8 +831,8 @@ function explode(state, bomb, stack = 1) {
   const bd = Math.hypot(bx, by) || 0.0001;
   if (bd < radius && !(bomberOnCenter && b.owner)) {
     const wasCarried = !!b.owner;
-    if (b.owner) { b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; }
-    b.lastTouch = bomb.team; clearKick(b); // bomb-flung, not a kick
+    if (b.owner) { b.owner = null; b.pickupCd = RELEASE_PICKUP_CD * 0.5; } // short lockout so a scramble grab is snappy
+    b.lastTouch = bomb.team; clearKick(b); // bomb-flung, not a kick — clearKick nulls lastKicker so TOUCHING it attaches
     if (wasCarried) {
       // A carried ball knocked loose by a bomb pops off in a slightly RANDOM
       // direction (roughly away from the blast) and only travels a little.
