@@ -499,7 +499,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       // move ahead to an OPEN outlet with a clear lane from the carrier
       let bestY = GY + (p.slot === 0 ? -220 : 220), bestScore = -1e9;
       for (const oy of [GY - 300, GY - 150, GY, GY + 150, GY + 300]) {
-        if (laneClear(carrier.x, carrier.y, ahead, oy, state, team, { margin: 2 })) {
+        if (laneClear(carrier.x, carrier.y, ahead, oy, state, team, { margin: 2, viewer: p })) {
           const openness = visibleEnemies.reduce((m, e) => Math.min(m, hyp(ahead - e.x, oy - e.y)), 1e9);
           const sc = openness - Math.abs(oy - p.y) * 0.2;
           if (sc > bestScore) { bestScore = sc; bestY = oy; }

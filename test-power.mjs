@@ -93,6 +93,21 @@ function kickSpeed(charge) {
   ok(hi > lo + 50, `a full-charge kick is stronger than a weak one (${hi.toFixed(0)} > ${lo.toFixed(0)})`);
 }
 
+// 5b) REGRESSION (review #1): a fast ball from a NON-kick origin (bullet-pushed) that
+//     bumps an enemy must NOT earn overcharge for a stale earlier kicker.
+{
+  const s = duel(); const A = s.players.A, B = s.players.B;
+  A.x = 400; A.y = 200; A.power = false; A.powerT = 0; // the stale kicker, far away & uninvolved
+  s.ball.owner = null; s.ball.x = 1000; s.ball.y = 550; s.ball.vx = 0; s.ball.vy = 0;
+  s.ball.lastTouch = 'A'; s.ball.lastKicker = 'A'; s.ball.kickTier = 0; s.ball.overSpent = false;
+  addPlayer(s, 'A2', { name: 'a2', char: 'player', team: 'A', slot: 1, isBot: true });
+  const A2 = s.players.A2; A2.x = 850; A2.y = 550; A2.aimX = 1; A2.aimY = 0; A2.ammo = 3;
+  B.x = 1120; B.y = 550;
+  shoot(s, 'A2', 1, [1, 0], { A: inp(), B: inp() }); // full bullet pushes the loose ball into B
+  for (let t = 0; t < 40; t++) step(s, { A: inp(), B: inp() }, DT);
+  ok(A.power === false, 'a non-kick (bullet-pushed) ball bumping an enemy does NOT earn a stale kicker overcharge');
+}
+
 // 6) a bomb that catches an enemy earns the bomber overcharge.
 {
   const s = duel(); const A = s.players.A, B = s.players.B;

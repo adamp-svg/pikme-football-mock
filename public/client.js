@@ -9,7 +9,7 @@ import {
 import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { decodeSnapshot } from '/shared/wire.js';
-import { drawHero } from '/heroes.js';
+import { drawHero, ACTION_DUR } from '/heroes.js';
 import {
   HERO_KEYS, HERO_NAMES, SIGNATURE_NAMES, SKIN_KEYS, SKIN_NAMES, SKIN_RARITY,
   DEFAULT_COSMETIC, normalizeCosmetic,
@@ -85,6 +85,34 @@ let previousBallOwner = null;
 let previousResetTimer = 0;
 let knownBlasts = new Set();
 let knownImpacts = new Set();
+
+// ---- Player animation state (client-inferred → heroes.js drawHero) --------
+// The wire only carries velocity/firing/power + the bombs/walls/blasts/impacts
+// lists, so we infer each action from those events; see getAnim/triggerAnim.
+const animState = {};                 // playerId -> { action, t0, dur, prio, ...params }
+let knownBombs = new Set(), knownWalls = new Set();
+const firingPrev = {};                // playerId -> firing flag last snapshot
+const ANIM_PRIO = { shoot: 2, kick: 2, bomb: 3, wall: 4, hit: 5, fly: 6 };
+function nearestPlayer(players, x, y, maxD, team) {
+  let best = null, bd = maxD;
+  for (const pl of players) { if (team && pl.team !== team) continue; const d = Math.hypot(pl.x - x, pl.y - y); if (d < bd) { bd = d; best = pl; } }
+  return best;
+}
+function triggerAnim(id, action, params) {
+  const now = performance.now(), prio = ANIM_PRIO[action] || 0, cur = animState[id];
+  if (cur && (now - cur.t0) < cur.dur * 1000 && prio < (cur.prio || 0)) return; // keep a higher-priority action
+  animState[id] = Object.assign({ action, t0: now, dur: ACTION_DUR[action] || 0.5, prio }, params || {});
+}
+// Which animation a player is in right now: goal freeze > active timed action > run/idle by velocity.
+function getAnim(p) {
+  if (latest && latest.lastGoal) return { action: p.team === latest.lastGoal ? 'celebrate' : 'concede' };
+  const s = animState[p.id], now = performance.now();
+  if (s && (now - s.t0) < s.dur * 1000) return Object.assign({ u: (now - s.t0) / (s.dur * 1000) }, s);
+  const sp = Math.hypot(p.vx || 0, p.vy || 0);
+  if (sp < 12) return { action: 'idle', facing: 'front' };
+  return { action: 'run', facing: (p.vy < 0 && -p.vy >= 0.5 * sp) ? 'back' : 'front' }; // back only in the 10→2 wedge
+}
+
 let screenShakeUntil = 0;
 let screenShakeStrength = 0;
 let lastStepAt = 0;
@@ -199,11 +227,35 @@ function processSnapshotSounds(snap) {
       playSound('hit', volume, rate + Math.random() * 0.06);
       haptic(impact.type === 'player' ? 'playerHit' : 'hit'); // buzz on each hit
     }
+
+    // --- animation triggers (same new-event diffing as the sounds above) ---
+    const players = snap.players || [];
+    for (const b of snap.blasts || []) if (!knownBlasts.has(b.id)) {          // blown off his feet
+      for (const pl of players) { const dx = pl.x - b.x, dy = pl.y - b.y, d = Math.hypot(dx, dy);
+        if (d < BOMB.radius) triggerAnim(pl.id, 'fly', { dir: [dx || 0.001, dy], strength: clamp(1 - d / BOMB.radius, 0.15, 1) }); }
+    }
+    for (const im of snap.impacts || []) if (im.type === 'player' && !knownImpacts.has(im.id)) { // took a hit
+      const pl = nearestPlayer(players, im.x, im.y, 42);
+      if (pl) triggerAnim(pl.id, 'hit', { force: Math.hypot(pl.vx || 0, pl.vy || 0) > 300 ? 1 : 0, dir: [im.dx || -1, im.dy || 0] });
+    }
+    for (const b of snap.bombs || []) if (!knownBombs.has(b.id)) {            // planted a bomb
+      const pl = nearestPlayer(players, b.x, b.y, 70, b.team); if (pl) triggerAnim(pl.id, 'bomb');
+    }
+    for (const w of snap.walls || []) if (!knownWalls.has(w.id)) {            // built a wall
+      const pl = nearestPlayer(players, w.x, w.y, 130, w.team); if (pl) triggerAnim(pl.id, 'wall', { aimSign: (w.x - pl.x) >= 0 ? 1 : -1 });
+    }
+    for (const p of players) if (p.firing && !firingPrev[p.id]) {            // kick (had the ball) vs shoot
+      const hadBall = snap.ball.owner === p.id || previousBallOwner === p.id;
+      triggerAnim(p.id, hadBall ? 'kick' : 'shoot', { power: !!p.power, aimSign: (p.aimX || 0) >= 0 ? 1 : -1 });
+    }
   }
   previousBallOwner = snap.ball.owner;
   previousResetTimer = snap.resetTimer;
   knownBlasts = blastIds;
   knownImpacts = impactIds;
+  knownBombs = new Set((snap.bombs || []).map((b) => b.id));
+  knownWalls = new Set((snap.walls || []).map((w) => w.id));
+  for (const p of (snap.players || [])) firingPrev[p.id] = !!p.firing;
   soundEventsReady = true;
 }
 
@@ -1018,13 +1070,14 @@ function currentCharge() { return chargeStart === null ? 0 : Math.min(1, (perfor
 // Commit a shot: fire in the pulled-out direction. The SERVER owns the actual
 // charge (accumulated from the held trigger); we just flag the release.
 function releaseShot(aim) {
+  if (!holding) return; // charge already consumed — a second trigger source must not re-fire
   if (aim) aimHold = aim;
   fireQueued = true;
   playSound(holdingBall ? 'kick' : 'shot', holdingBall ? 0.85 : 0.38, 0.92 + currentCharge() * 0.16);
   holding = false; chargeStart = null;
 }
 // Cancel a charge: trigger returned to centre — no shot, no sound.
-function cancelCharge() { holding = false; chargeStart = null; aimHold = null; }
+function cancelCharge() { if (!holding) return; holding = false; chargeStart = null; aimHold = null; }
 // Is the aim pulled out of the deadzone (mouse/keyboard aim toward the cursor)?
 function aimPulled() {
   if (!rendered) return true;
@@ -1253,6 +1306,8 @@ function sampleInput() {
   // Settings pause only this player. A realtime multiplayer room must never be
   // globally frozen by one client (especially if that client disconnects).
   if (!settingsPanel.classList.contains('hidden')) {
+    // Paused: drop any charge/queued edges so nothing accumulates and fires on resume.
+    holding = false; chargeStart = null; fireQueued = false; specialQueued = false; buildQueued = false; aimHold = null; buildHold = null;
     return { moveX: 0, moveY: 0, aimX: 0, aimY: 0, hold: false, fire: false, special: false, build: false };
   }
   let moveX = 0, moveY = 0, aimX = 0, aimY = 0;
@@ -1770,7 +1825,8 @@ function drawPlayer(p) {
   // Look = this player's cosmetic (from the roster frame). Fall back to my own
   // pick for the local player before the roster arrives, else the default hero.
   const cos = cosmeticById[p.id] || (isMe ? myCosmetic : DEFAULT_COSMETIC);
-  drawHero(ctx, ox, feetY, sf, dir, walkPhase, moving, p.firing, cos, { J: team, JS: shade(team) }, performance.now() / 1000);
+  const anim = getAnim(p);
+  drawHero(ctx, ox, feetY, sf, dir, walkPhase, moving, p.firing, cos, { J: team, JS: shade(team) }, performance.now() / 1000, anim);
 
   // Local player: pixel corner-bracket + bobbing marker so you find yourself fast.
   if (isMe) {
@@ -1896,7 +1952,7 @@ function raycastAim(x0, y0, ax, ay) {
   let t = Infinity;
   if (ax > 1e-6) t = Math.min(t, (FIELD.W - x0) / ax); else if (ax < -1e-6) t = Math.min(t, (0 - x0) / ax);
   if (ay > 1e-6) t = Math.min(t, (FIELD.H - y0) / ay); else if (ay < -1e-6) t = Math.min(t, (0 - y0) / ay);
-  const walls = ARENA.walls.concat((latest && latest.walls) || []);
+  const walls = fieldArena().walls.concat((latest && latest.walls) || []); // mode-aware (TRAIN_ARENA in training) — matches the sim's collision walls
   for (const w of walls) { const th = rayBox(x0, y0, ax, ay, w); if (th != null && th < t) t = th; }
   if (!isFinite(t) || t < 0) t = 0;
   return { x: x0 + ax * t, y: y0 + ay * t };

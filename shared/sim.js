@@ -42,6 +42,10 @@ function inOwnPenalty(t) {
   if (t.y < PENALTY_TOP || t.y > PENALTY_BOTTOM) return false;
   return t.team === 'A' ? t.x < PENALTY.depth : t.x > FIELD.W - PENALTY.depth;
 }
+// Reset a ball's "kick identity" — call wherever the ball becomes free via a NON-kick
+// event (pickup, kickoff, bullet-push, strip, bomb-pop). Otherwise a stale lastKicker
+// would earn overcharge off a fast ball they never actually kicked.
+function clearKick(b) { b.kickTier = 0; b.overSpent = false; b.lastKicker = null; }
 
 // Spawn spots — each team near its OWN goal (A defends left, B defends right).
 function spawnPos(team, slot) {
@@ -91,7 +95,7 @@ export function attachBall(state, team) {
   const off = radiusOf(holder, state) + ballRadius(state);
   state.ball.x = holder.x + holder.aimX * off;
   state.ball.y = holder.y + holder.aimY * off;
-  state.ball.vx = 0; state.ball.vy = 0; state.ball.kickTier = 0; state.ball.overSpent = false;
+  state.ball.vx = 0; state.ball.vy = 0; clearKick(state.ball);
 }
 
 export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic }) {
@@ -448,7 +452,7 @@ export function step(state, inputs, dt) {
         const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p);
         p.kvx += nx * kb; p.kvy += ny * kb;
         if (tier === 1) {
-          if (inOwnPenalty(p)) { b.vx *= KEEPER_DEFLECT; b.vy *= KEEPER_DEFLECT; } // keeper-diminish
+          if (inOwnPenalty(p)) { b.vx *= KEEPER_DEFLECT; b.vy *= KEEPER_DEFLECT; b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5); } // keeper-diminish (short lockout so it isn't scooped point-blank)
           else { b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD; }              // dead stop, no instant scoop
         } else if (tier === 2) {
           b.vx *= OVERCHARGE_ROLL; b.vy *= OVERCHARGE_ROLL;
@@ -464,7 +468,7 @@ export function step(state, inputs, dt) {
         // keep lastTouch as the shooter's (goal credit unchanged)
         continue; // keep checking other players
       }
-      if (b.pickupCd <= 0) { b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; b.kickTier = 0; b.overSpent = false; break; }
+      if (b.pickupCd <= 0) { b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; clearKick(b); break; }
     }
   }
 
@@ -581,7 +585,7 @@ function updateProjectiles(state, dt) {
       const bdx = b.x - pr.x, bdy = b.y - pr.y;
       if (Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
         const l = Math.hypot(pr.vx, pr.vy) || 1;
-        b.lastTouch = pr.team; b.pickupCd = RELEASE_PICKUP_CD; b.kickTier = 0; // bullet-pushed, not a kick
+        b.lastTouch = pr.team; b.pickupCd = RELEASE_PICKUP_CD; clearKick(b); // bullet-pushed, not a kick
         b.vx = (pr.vx / l) * PROJECTILE.ballPush * pr.cmul;
         b.vy = (pr.vy / l) * PROJECTILE.ballPush * pr.cmul;
         addImpact(state, pr, 'ball', b.x, b.y);
@@ -596,7 +600,7 @@ function updateProjectiles(state, dt) {
         const l = Math.hypot(pr.vx, pr.vy) || 1, nx = pr.vx / l, ny = pr.vy / l;
         const carrier = state.players[b.owner];
         b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team;
-        b.vx = 0; b.vy = 0; b.kickTier = 0; // ball stays in place
+        b.vx = 0; b.vy = 0; clearKick(b); // ball stays in place
         if (carrier) {
           const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * knockMul(carrier);
           carrier.kvx += nx * kb; carrier.kvy += ny * kb;
@@ -659,7 +663,7 @@ function hitEnemy(state, t, pr) {
     t.kvy += ny * kb;
     // knock the ball loose off this carrier, with a sideways kick
     const b = state.ball;
-    b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team; b.kickTier = 0; // a strip, not a kick
+    b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team; clearKick(b); // a strip, not a kick
     const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
     b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
     b.vy = ny * PROJECTILE.ballPush + (nx) * side;
@@ -758,7 +762,7 @@ function explode(state, bomb) {
   if (bd < BOMB.radius && !(bomberOnCenter && b.owner)) {
     const wasCarried = !!b.owner;
     if (b.owner) { b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; }
-    b.lastTouch = bomb.team; b.kickTier = 0; // bomb-flung, not a kick
+    b.lastTouch = bomb.team; clearKick(b); // bomb-flung, not a kick
     if (wasCarried) {
       // A carried ball knocked loose by a bomb pops off in a slightly RANDOM
       // direction (roughly away from the blast) and only travels a little.
