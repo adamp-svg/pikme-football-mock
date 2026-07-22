@@ -493,6 +493,13 @@ const _params = new URLSearchParams(location.search);
 const MY_NAME = (_params.get('name') || 'Player').toString().slice(0, 16);
 const MY_AVATAR = _params.get('avatar') || null;
 
+// Pikme identity for Friends & Challenges: the app injects window.PIKME_FOOTBALL_TOKEN
+// (same precedent as window.SALTIZ_XP); ?ftoken= is the dev fallback. PIKME_API is the
+// pikme-server REST base for the friends endpoints (Task 3).
+const FOOTBALL_TOKEN = (() => { try { return window.PIKME_FOOTBALL_TOKEN || new URLSearchParams(location.search).get('ftoken') || null; } catch { return null; } })();
+const PIKME_API = (window.PIKME_API || (location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://pikme-server.onrender.com')).replace(/\/$/, '');
+let MY_USER_ID = null; // filled from the welcome message (authenticated connections only)
+
 // ---- Player album (cards) -------------------------------------------------
 // The app injects window.SALTIZ_CARDS pre-load: a compact, non-PII list [{r,n,c,w}]
 // (rarity, card number, copies, worth). Empty on the web/dev without the app.
@@ -540,6 +547,14 @@ const specialIcon = () => '💣'; // special is Bomb
 function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
 function sendMsg(o) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(o)); }
 function showRoomError(msg) { roomErrorEl.textContent = msg; roomErrorEl.classList.remove('hidden'); }
+// Minimal toast: reuses the #room-error strip for ~2s (no dedicated toast UI in Slice 1).
+let _toastT = null;
+function toast(msg) {
+  if (!roomErrorEl) { alert(msg); return; }
+  showRoomError(msg);
+  if (_toastT) clearTimeout(_toastT);
+  _toastT = setTimeout(() => roomErrorEl.classList.add('hidden'), 2000);
+}
 
 // Show the player's character (their avatar as the face) on the home menu.
 function renderHomeCharacter() {
@@ -1016,6 +1031,58 @@ function clearLobbyLists() {
 }
 
 // --------------------------------------------------------------------------
+// Friends & Challenges (Slice 1) — pikme-server REST (Task 3) + WS presence/
+// challenge messages (Tasks 4-6). Only reachable for authenticated (Pikme)
+// connections: MY_USER_ID is set from `welcome`, which fires loadFriends().
+// --------------------------------------------------------------------------
+function apiHeaders() { return { 'content-type': 'application/json', 'football-auth': FOOTBALL_TOKEN || '' }; }
+async function apiGet(path) { const r = await fetch(`${PIKME_API}${path}`, { headers: apiHeaders() }); return r.ok ? r.json() : []; }
+async function apiPost(path, body) { const r = await fetch(`${PIKME_API}${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) }); return r.ok; }
+
+let FRIENDS = [];          // [{userId, nickName, image}]
+let ONLINE = new Set();    // userIds currently online (from friendsPresence)
+
+async function loadFriends() {
+  FRIENDS = await apiGet('/handle-friends');
+  sendMsg({ type: 'setFriends', friends: FRIENDS.map((f) => f.userId) });
+  renderFriends();
+  loadRequests();
+}
+async function loadRequests() {
+  const reqs = await apiGet('/handle-friends/requests');
+  renderRequests(reqs);
+}
+async function searchFriends(q) {
+  if (!q || q.length < 2) { renderSearch([]); return; }
+  renderSearch(await apiGet(`/handle-friends/search?q=${encodeURIComponent(q)}`));
+}
+
+function friendRow(f, opts = {}) {
+  const online = ONLINE.has(f.userId);
+  const div = document.createElement('div');
+  div.className = 'friend-row' + (online ? ' online' : '');
+  div.innerHTML = `<span class="friend-dot"></span><img class="friend-pfp" src="${f.image || ''}"/><span class="friend-name">${f.nickName}</span>`;
+  const btn = document.createElement('button');
+  btn.className = 'friend-act';
+  if (opts.kind === 'search') { btn.textContent = 'הוסף'; btn.onclick = async () => { if (await apiPost('/handle-friends/request', { toUserId: f.userId })) { btn.textContent = 'נשלח'; btn.disabled = true; } }; }
+  else if (opts.kind === 'request') { btn.textContent = 'אישור'; btn.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'accept' })) { loadFriends(); } }; }
+  else { btn.textContent = 'אתגר'; btn.disabled = !online; btn.onclick = () => sendMsg({ type: 'challenge', toUserId: f.userId }); }
+  div.appendChild(btn);
+  return div;
+}
+function renderList(id, items, opts) { const el = document.getElementById(id); if (!el) return; el.innerHTML = ''; items.forEach((f) => el.appendChild(friendRow(f, opts))); }
+function renderFriends() { renderList('friend-list', FRIENDS, { kind: 'friend' }); }
+function renderSearch(items) { renderList('friend-search-results', items, { kind: 'search' }); }
+function renderRequests(items) { renderList('friend-requests', items, { kind: 'request' }); }
+
+function showChallengePrompt(challengeId, fromName) {
+  if (!confirm(`${fromName} מזמין אותך למשחק. לקבל?`)) { sendMsg({ type: 'challengeRespond', challengeId, accept: false }); return; }
+  sendMsg({ type: 'challengeRespond', challengeId, accept: true });
+}
+
+document.getElementById('friend-search')?.addEventListener('input', (e) => searchFriends(e.target.value.trim()));
+
+// --------------------------------------------------------------------------
 // Networking
 // --------------------------------------------------------------------------
 let pingIv = null;        // ping interval for the current socket (cleared on close)
@@ -1027,7 +1094,7 @@ function connect(name, avatar) {
   ws.binaryType = 'arraybuffer'; // snapshots arrive as compact binary frames
   ws.onopen = () => {
     setNet('connected');
-    ws.send(JSON.stringify({ type: 'join', name, avatar, cards: myCards(), cosmetic: myCosmetic, loadout: effectiveLoadout() }));
+    ws.send(JSON.stringify({ type: 'join', authToken: FOOTBALL_TOKEN, name, avatar, cards: myCards(), cosmetic: myCosmetic, loadout: effectiveLoadout() }));
     if (pingIv) clearInterval(pingIv);
     pingIv = setInterval(sendPing, 1500);
   };
@@ -1061,6 +1128,8 @@ function connect(name, avatar) {
     const msg = JSON.parse(e.data);
     if (msg.type === 'welcome') {
       myMemberId = msg.id; // our lobby identity; playerId + team arrive with matchStart
+      MY_USER_ID = msg.userId || null;
+      if (MY_USER_ID) loadFriends();
     } else if (msg.type === 'roster') {
       rosterVersion = msg.v; // slot->id/team map for the binary snapshots that follow
       slotIds = msg.slots.map((s) => s.id);
@@ -1089,6 +1158,17 @@ function connect(name, avatar) {
       exitToLobby();
     } else if (msg.type === 'pong') {
       ping = Math.round(performance.now() - msg.t);
+    } else if (msg.type === 'friendsPresence') {
+      ONLINE = new Set(msg.online || []);
+      renderFriends();
+    } else if (msg.type === 'challengeReceived') {
+      showChallengePrompt(msg.challengeId, msg.fromName);
+    } else if (msg.type === 'challengeDeclined') {
+      toast('היריב דחה את האתגר');
+    } else if (msg.type === 'challengeError') {
+      toast(msg.msg || 'האתגר נכשל');
+    } else if (msg.type === 'challengeSent') {
+      toast('אתגר נשלח');
     }
   };
 }
