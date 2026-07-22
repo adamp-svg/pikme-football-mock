@@ -2765,9 +2765,22 @@ function spreadPool(seats, pool) {
   const fill = P >= S ? S : P;
   for (let k = 0; k < fill; k++) { const st = seats[idx[k]], c = pool[k % P]; st.r = c.r; st.n = c.n; }
 }
+// The crowd = EVERY player's album in the match (mine + all roster players), rarity-first
+// so the rarest cards take the front seats. Seats filled ≈ total card count: with 800 seats,
+// e.g. players holding 100 cards each fill about half the bowl (no cycling to over-fill).
+function audiencePool() {
+  const bag = [];
+  const seen = new Set();
+  const add = (cards) => { for (const c of (cards || [])) { const k = c.r + '/' + c.n; if (seen.has(k)) continue; seen.add(k); bag.push(c); } };
+  for (const p of matchRoster) add(p.cards);   // all players in the match
+  add(myCards());                              // ensure my own album is in (roster may be empty in solo/dev)
+  // RARITY-first (then worth) so the front rows are strictly the rarest cards.
+  bag.sort((a, b) => (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) || (b.w || 0) - (a.w || 0) || (b.c || 0) - (a.c || 0));
+  return expandPool(bag); // one entry per copy, capped at capTotal (800 seats)
+}
 function buildAudienceSeats() {
   audSeats = [];
-  const pool = expandPool(rankCards(myCards())); // ONLY the user's own album; sparse if few
+  const pool = audiencePool(); // all players' albums, rarity-first; sparse if few cards → bowl fills partway
   const midX = FIELD.W / 2;
   const cA = teamColor('A'), cB = teamColor('B');
   // NO seats directly behind the net: clear the goal-mouth band plus a TWO-SEAT gap on each
