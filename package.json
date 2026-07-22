@@ -11,6 +11,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "jsonwebtoken": "^9.0.3",
     "ws": "^8.18.0"
   }
 }

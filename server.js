@@ -20,6 +20,7 @@ import {
 import { ARENA } from './shared/arena.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC } from './shared/cosmetics.js';
+import { verifyFootballToken } from './shared/football-auth.js';
 const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { PEN, CENTER, TRAIN_ARENA, penDummy, trainingDummyInput, createSentryMem, trainingSentryInput, leashSentry } from './shared/training.js';
@@ -66,6 +67,8 @@ const AFK_SECONDS = 10;      // no meaningful input for this long -> becomes a b
 const TEAM_CAP = 2;          // players per team in a 2v2 match
 
 const members = new Map();   // ws -> member (a connected client)
+const FOOTBALL_TOKEN_SECRET = process.env.FOOTBALL_TOKEN_SECRET || null;
+const onlineByUser = new Map(); // userId -> member (authenticated connections only)
 const rooms = new Map();     // roomId -> room
 let publicRoom = null;       // the current forming quick-match room (in lobby/countdown)
 let memberCounter = 0, roomCounter = 0;
@@ -493,6 +496,20 @@ function broadcastLobby(room) {
   for (const m of room.members) if (!m.inMatch) send(m.ws, payload);
 }
 
+// Presence: which of THIS member's friends are currently connected.
+function sendPresenceTo(member) {
+  if (!member) return;
+  const online = (member.friends || []).filter((uid) => onlineByUser.has(uid));
+  send(member.ws, { type: 'friendsPresence', online });
+}
+// When user `userId` connects/disconnects, refresh presence for everyone who has
+// them as a friend.
+function notifyFriendsOfPresence(userId) {
+  for (const m of members.values()) {
+    if (m.userId && Array.isArray(m.friends) && m.friends.includes(userId)) sendPresenceTo(m);
+  }
+}
+
 // 5Hz presence: home count to roomless clients, lobby state to waiting room members.
 function broadcastPresence() {
   const online = onlineCount();
@@ -610,13 +627,16 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'join') {
         if (member) return;
         const id = `m-${++memberCounter}`;
-        const name = (msg.name || 'Player').toString().slice(0, 16);
-        let avatar = (msg.avatar || '').toString().slice(0, 400) || null;
+        const ident = verifyFootballToken(msg.authToken, FOOTBALL_TOKEN_SECRET);
+        // Authenticated → use Pikme identity; guest → typed name, no userId.
+        let name = (ident?.nickName || msg.name || 'Player').toString().slice(0, 16);
+        let avatar = (ident?.image || msg.avatar || '').toString().slice(0, 400) || null;
         if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
         const cards = sanitizeCards(msg.cards);
-        member = { id, ws, name, avatar, cards, loadout: sanitizeLoadout(msg.loadout, cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null };
+        member = { id, ws, userId: ident?.userId || null, name, avatar, cards, loadout: sanitizeLoadout(msg.loadout, cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null, friends: [] };
         members.set(ws, member);
-        send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS });
+        if (member.userId) { onlineByUser.set(member.userId, member); notifyFriendsOfPresence(member.userId); }
+        send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS, userId: member.userId });
         send(ws, { type: 'home', online: onlineCount() });
         return;
       }
@@ -696,6 +716,10 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     if (!member) return;
     members.delete(ws);
+    if (member.userId && onlineByUser.get(member.userId) === member) {
+      onlineByUser.delete(member.userId);
+      notifyFriendsOfPresence(member.userId);
+    }
     leaveCurrentRoom(member);
   });
 });
