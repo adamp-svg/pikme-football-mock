@@ -656,6 +656,12 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'createRoom') { createPrivateRoom(member); return; }
       if (msg.type === 'joinRoom') { joinPrivateRoom(member, msg.code); return; }
+      if (msg.type === 'setFriends') {
+        const list = Array.isArray(msg.friends) ? msg.friends.filter((x) => typeof x === 'string').slice(0, 500) : [];
+        member.friends = list;
+        sendPresenceTo(member);
+        return;
+      }
       if (msg.type === 'leaveRoom') {
         leaveCurrentRoom(member);
         send(ws, { type: 'toHome', online: onlineCount() });
