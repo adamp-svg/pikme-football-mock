@@ -1004,6 +1004,7 @@ function startHomeDance() {
 
 // The user/home screen is shown first (no title gate): render identity + card
 // carousel, start the character dance, and connect straight away.
+let quickVs = false; // quick-match VS/countdown flag — MUST be declared before init runs, since showScreen() reads it for lobby music (was a startup TDZ crash)
 renderHomeCharacter();
 showScreen('home');
 startHomeDance();
@@ -1266,7 +1267,8 @@ let audienceReady = false;   // seat layout rebuilt per match (see drawAudience)
 const teamIntroEl = document.getElementById('team-intro');
 const tiCountEl = document.getElementById('ti-count');
 let introTimer = null;
-let quickVs = false; // true while the quick-match VS + countdown overlay drives the pre-match wait
+// quickVs is declared above the startup init block (hoisted to avoid a load-time TDZ:
+// showScreen('home') reads it for the lobby-music gate before this point would run).
 function hideVs() { if (tiCountEl) tiCountEl.classList.add('hidden'); hideTeamIntro(); }
 // Quick-match VS screen: HOME (my team) vs RIVALS from lobby members (bots fill empty
 // slots), with the big 5..0 countdown. Refreshed on every lobby payload.
