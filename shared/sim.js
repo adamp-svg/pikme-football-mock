@@ -10,7 +10,7 @@ import {
   OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_DIST, BOMB_WALL_COS,
-  BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE,
+  BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE, BOMB_LOB_RANGE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, BOMB_LAUNCH_DECAY, BOMB_LAUNCH_GLIDE, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
@@ -384,6 +384,7 @@ export function step(state, inputs, dt) {
     p.firing = false;
     p._fire = !!inp.fire;
     p._special = !!inp.special;
+    p._sax = inp.sax || 0; p._say = inp.say || 0; // special-aim offset, consumed by useSpecial below
     p._build = !!inp.build;
     // Wall-build windup: ramp while buildHold is held and a charge is available; a real
     // hit (knockback above BUILD_INTERRUPT_KV) cancels it; releasing without a commit
@@ -443,7 +444,7 @@ export function step(state, inputs, dt) {
       }
       p._charge = 0; // consume the wind-up on release
     }
-    if (p._special && p.specialCd <= 0) useSpecial(state, p, ch);
+    if (p._special && p.specialCd <= 0) useSpecial(state, p, ch, p._sax || 0, p._say || 0);
     if (p._build && p.buildCd <= 0 && p.buildAmmo >= 1 && p.buildWindup >= 1) { buildWall(state, p); p.buildWindup = 0; }
   }
 
@@ -562,12 +563,19 @@ function fireBullet(state, p, ch, charge, over = false) {
   });
 }
 
-// SPECIAL skill — plant a bomb (both characters).
-function useSpecial(state, p, ch) {
+// SPECIAL skill — plant a bomb. A tap (zero aim offset) plants at the planter's feet
+// (rocket-jump). A drag aims a short LOB up to BOMB_LOB_RANGE along the aim direction —
+// (sax,say) is a 0..1 fraction of that range in world direction, clamped here.
+function useSpecial(state, p, ch, sax = 0, say = 0) {
   p.specialCd = ch.specialCooldown * (p.cdMul || 1) * (p.cardUtil || 1);
+  const mag = Math.min(1, Math.hypot(sax, say));
+  const al = Math.hypot(p.aimX, p.aimY) || 1;
+  const len = mag * BOMB_LOB_RANGE;
+  const bx = clamp(p.x + (p.aimX / al) * len, 0, FIELD.W);
+  const by = clamp(p.y + (p.aimY / al) * len, 0, FIELD.H);
   state.bombs.push({
     id: state._nid++, owner: p.id, team: p.team,
-    x: p.x, y: p.y, fuse: BOMB.fuse,
+    x: bx, y: by, fuse: BOMB.fuse,
   });
 }
 
