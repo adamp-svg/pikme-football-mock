@@ -84,6 +84,7 @@ const SOUND_FILES = {
   hit: ['/audio/hit.mp3'], pickup: ['/audio/pickup.mp3'],
   shot: ['/audio/shot-gun-blop.mp3', '/audio/shot-shoot.mp3'],             // firing a normal bullet
   ui: ['/audio/ui-click.mp3'],
+  select: ['/audio/enter-room.mp3'],                                       // menu selection cue
   explosion: ['/audio/explosion-bomb.mp3', '/audio/explosion-bomb-large.mp3'], // bomb blast
   wallBreak: ['/audio/wall-break.mp3'],                                    // a built wall is destroyed
   wallBreakStrong: ['/audio/wall-break-strong.mp3'],                       // ...by a FULL-power shot (or bomb)
@@ -837,7 +838,7 @@ function renderPowerSlots() {
   });
   // "Pick best" — reset to the auto top-3 loadout (clears any manual picks).
   const best = document.createElement('button'); best.className = 'pslot-best'; best.textContent = '★ הטובים ביותר';
-  best.addEventListener('click', () => { myLoadout = null; saveLoadout(myLoadout); renderPowerSlots(); sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); playSound('ui', 0.5); });
+  best.addEventListener('click', () => { myLoadout = null; saveLoadout(myLoadout); renderPowerSlots(); sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); }); // select cue comes from the delegated menu listener
   powerSlotsEl.appendChild(best);
 }
 // Tap-a-slot info popup: what the power does + the equipped card's buff, with a remove action.
@@ -1013,6 +1014,15 @@ addEventListener('pointerdown', () => {
   unlockAudio();
   if (homeEl && !homeEl.classList.contains('hidden') && !quickVs) startHomeMusic();
 }, { once: true, capture: true });
+
+// A crisp "enter-room" cue whenever the user selects something in the menus — a button or a
+// card. Clicking empty space (the stadium canvas behind the UI) stays silent. Skipped during
+// gameplay (taps are game actions) and for the audio/settings controls, which keep their own cue.
+document.addEventListener('click', (e) => {
+  if (!gameEl.classList.contains('hidden')) return;                     // in a match → taps are gameplay
+  if (e.target.closest('#sound-btn, #music-btn, #settings')) return;    // these have their own click sound
+  if (e.target.closest('button:not([disabled]), .cf-card, [role="button"]')) playSound('select', 0.65);
+}, true);
 
 // Home actions.
 document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
@@ -1577,7 +1587,7 @@ function cancelBuild() { buildHolding = false; buildStart = null; buildHold = nu
 function releaseBuild(aim) { buildQueued = true; if (aim) buildHold = aim; playSound('ui', 0.5, 0.86); }
 
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
-function beginCharge() { if (!holding) { holding = true; chargeStart = performance.now(); } }
+function beginCharge() { if (!me.playerId) return; if (!holding) { holding = true; chargeStart = performance.now(); } } // no firing/charge (or shot sound) outside a live match — tapping the menu is silent
 function currentCharge() { return chargeStart === null ? 0 : Math.min(1, (performance.now() - chargeStart) / CHARGE_MS); }
 // Commit a shot: fire in the pulled-out direction. The SERVER owns the actual
 // charge (accumulated from the held trigger); we just flag the release.
