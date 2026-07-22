@@ -17,77 +17,189 @@
        #home-carousel, #pick-hero-btn [wardrobe opener], #quick-match-btn, #friends-btn). -->
   <div id="home" class="screen">
     <div class="start-shade"></div>
+    <!-- Brawl-style LANDSCAPE hub. Authored at a fixed 900x415 logical stage and scaled
+         uniformly to fit via a JS transform (fitHub in client.js), so the whole hub scales
+         as one unit and never clips — like a game canvas. Every JS hook is preserved. -->
     <div class="hub" dir="rtl">
+      <div class="hub-pitch" aria-hidden="true"></div>
 
-      <div class="hub-top">
-        <div class="hub-id">
-          <div id="home-face" class="hub-pfp"></div>
-          <div class="hub-idtext">
-            <div id="home-name" class="hub-name">שחקן</div>
-            <div id="hub-rank" class="hub-rank hidden"></div>
-          </div>
+      <!-- BAKED LOBBY LAYOUT (feat/lobby-redesign): EVERY control is now its own atomic box —
+           a DIRECT child of the fixed 900x415 .hub stage, positioned + sized in logical stage
+           px by style.css ("BAKED LOBBY LAYOUT" section). Holds WITHOUT the editor script and
+           without localStorage. In ?edit=1 every box is draggable AND resizable, and drags
+           from these baked positions. All JS hook ids/classes are preserved. -->
+
+      <!-- top-left controls (each its own box) -->
+      <button id="hub-exit" class="hub-icobtn" title="יציאה" aria-label="יציאה">✕</button>
+      <button id="hub-settings" class="hub-icobtn" title="הגדרות" aria-label="הגדרות">⚙</button>
+      <span class="hub-season">עונה 2</span>
+      <span class="hub-online"><i></i><span id="home-online">0</span> מחוברים</span>
+
+      <!-- profile pic + player name as separate boxes -->
+      <div id="home-face" class="hub-pfp"></div>
+      <div id="home-name" class="hub-name">שחקן</div>
+
+      <!-- XP horizontal bar (renderHubXp() fills #hub-xp) -->
+      <div class="hub-xpbar" aria-label="XP"><div id="hub-xp" class="hub-xp hidden"></div></div>
+
+      <!-- album stats: individual chips + collector badge, each its own box -->
+      <span id="chip-copies" class="hub-chip"><b id="hub-extra">0</b><small id="hub-extra-l">עותקים</small></span>
+      <span id="chip-worth" class="hub-chip gold"><b id="hub-worth">0</b><small>שווי</small></span>
+      <span id="chip-cards" class="hub-chip"><b id="hub-count">0</b><small>קלפים</small></span>
+      <div id="hub-rank" class="hub-rank hidden"></div>
+
+      <!-- edge controls (rails split into individual boxes) -->
+      <button class="hub-sat" data-open-screen="news"><span class="hub-sat-ic">📰</span><b>חדשות</b></button>
+      <button class="hub-sat" data-open-screen="shop"><span class="hub-sat-ic">🛒</span><b>חנות</b></button>
+      <button id="friends-btn" class="hub-sat"><span class="hub-sat-ic">👥</span><b>חברים</b></button>
+      <button class="hub-sat" data-open-screen="clubs"><span class="hub-sat-ic">🏰</span><b>מועדונים</b></button>
+
+      <!-- COMPACT carousel: one BIG front card + a couple of small ones -->
+      <div class="hub-cards"><div id="home-carousel" class="carousel hub-thumbs hidden"></div></div>
+
+      <!-- BIG hero. Tap opens the wardrobe (client.js binds open() to #pick-hero-btn). -->
+      <button id="pick-hero-btn" class="hub-hero" aria-label="הקש להחלפת מראה">
+        <canvas id="home-char" class="hub-char" width="200" height="210"></canvas>
+      </button>
+
+      <!-- Card powers: 3 equipped slots rendered by client.js into #power-slots. #power-slots
+           is a full-stage transparent overlay; the 3 .pslot-item boxes are positioned
+           individually (see .pslot-item nth-child rules) so each is its own movable box. -->
+      <div id="power-slots" class="power-slots" aria-label="כוחות מצוידים"></div>
+
+      <!-- Quick Match (primary, FIXED — never in the strip) -->
+      <button id="quick-match-btn" class="hub-mode quick">
+        <span class="hub-mic">⚽</span>
+        <span class="hub-mtx"><b>משחק מהיר</b><small>2 נגד 2 · התאמה אוטומטית</small></span>
+        <span class="hub-go">›</span>
+      </button>
+
+      <!-- Pick-best loadout (own box): resets to the album's top-3 (restored behavior). -->
+      <button id="select-best-btn" class="hub-mode hub-secondary hub-compact">
+        <span class="hub-mic">✨</span>
+        <span class="hub-mtx"><b>בחר הכי טוב</b></span>
+      </button>
+
+      <!-- BOTTOM SCROLLABLE STRIP (single editor box "playStrip"): secondary buttons in one
+           horizontal, horizontally-scrollable row. Order = training · arena · play-friends,
+           then the coming-soon ones (tournament · goal-brawl) revealed by scrolling. The big
+           yellow quick-match box above is NOT in the strip. dir=ltr so the strip scrolls
+           left→right from training. Each button keeps its id/class/handler. -->
+      <div id="play-strip" class="hub-strip" dir="ltr">
+        <div id="goal-brawl-btn" class="hub-cs" role="button" aria-disabled="true">
+          <span class="hub-mic">🥅</span>
+          <span class="hub-cs-tx"><b>קרב על השער</b></span>
+          <span class="hub-cs-soon">בקרוב</span>
         </div>
-        <!-- RESERVED for the experience agent: populate window.SALTIZ_XP and unhide #hub-xp -->
-        <div id="hub-xp" class="hub-xp hidden"></div>
-        <span class="hub-online"><i></i><span id="home-online">0</span> מחוברים</span>
+        <div id="tournament-btn" class="hub-cs" role="button" aria-disabled="true">
+          <span class="hub-mic">🏆</span>
+          <span class="hub-cs-tx"><b>טורניר</b></span>
+          <span class="hub-cs-soon">בקרוב</span>
+        </div>
+        <button id="training-btn" class="hub-mode hub-training">
+          <span class="hub-mic">🎯</span>
+          <span class="hub-mtx"><b>אימון</b></span>
+        </button>
+        <button id="play-friends-btn" class="hub-mode hub-secondary">
+          <span class="hub-mic">👥</span>
+          <span class="hub-mtx"><b>שחק עם חברים</b></span>
+        </button>
+        <button class="hub-arena" data-open-screen="arena">
+          <span class="hub-arena-ic">🏟️</span>
+          <span class="hub-arena-tx"><b>כדורגל · 2 נגד 2</b><small>אצטדיון הבלוקים · החלף מגרש</small></span>
+          <span class="hub-arena-chev">‹</span>
+        </button>
       </div>
+    </div>
+  </div>
 
-      <!-- Main row: loadout slots (left) · hero (center) · album stats (right).
-           Flex zones that scale — no absolute overlaps. -->
-      <div class="hub-main">
-        <div class="hub-left">
-          <!-- Card powers: 3 equipped slots + pick-best. Rendered by client.js; drag a
-               card up from the carousel into a slot to swap it (rarity sets the buff). -->
-          <div id="power-slots" class="power-slots" aria-label="כוחות מצוידים"></div>
+  <!-- ================= NEW SUB-SCREENS (arena / news / shop / clubs) ================= -->
+  <!-- .screen hidden divs; open/close via showScreen() (client.js registers them). -->
+  <div id="arena" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button class="subpage-back" data-home-back aria-label="חזרה">›</button>
+        <h2>בחר מגרש</h2>
+      </div>
+      <div class="subpage-body">
+        <button id="arena-2v2-btn" class="modecard">
+          <span class="mc-ic">⚽</span>
+          <span class="mc-tx"><b>כדורגל · 2 נגד 2</b><small>הקלאסי · אצטדיון הבלוקים</small></span>
+          <span class="mc-go">‹</span>
+        </button>
+        <div class="modecard lock">
+          <span class="mc-ic">⚽</span>
+          <span class="mc-tx"><b>כדורגל · 3 נגד 3</b><small>מגרש גדול · יותר טירוף</small></span>
+          <span class="mc-go soon">בקרוב</span>
         </div>
-        <div class="hub-center">
-          <!-- tapping the hero opens the wardrobe: hero-picker.js binds open() to #pick-hero-btn -->
-          <button id="pick-hero-btn" class="hub-hero" aria-label="הקש להחלפת מראה">
-            <canvas id="home-char" class="hub-char" width="200" height="210"></canvas>
-            <span class="hub-edit">✎</span>
-            <span class="hub-herohint">🎽 הקש להחלפת מראה</span>
-          </button>
+        <div class="modecard lock">
+          <span class="mc-ic">🏆</span>
+          <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים ופרסים</small></span>
+          <span class="mc-go soon">בקרוב</span>
         </div>
-        <div class="hub-right">
-          <span class="hub-chip"><b id="hub-count">0</b><small>קלפים</small></span>
-          <span class="hub-chip gold"><b id="hub-worth">0</b><small>שווי</small></span>
-          <span class="hub-chip"><b id="hub-extra">0</b><small id="hub-extra-l">עותקים</small></span>
+        <div class="modecard lock">
+          <span class="mc-ic">🥅</span>
+          <span class="mc-tx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
+          <span class="mc-go soon">בקרוב</span>
         </div>
       </div>
+    </div>
+  </div>
 
-      <div class="hub-cards">
-        <div id="home-carousel" class="carousel hub-thumbs hidden"></div>
+  <div id="news" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button class="subpage-back" data-home-back aria-label="חזרה">›</button>
+        <h2>חדשות</h2>
       </div>
-
-      <div class="hub-play">
-        <div class="hub-rail">
-          <button id="quick-match-btn" class="hub-mode quick">
-            <span class="hub-mic">⚽</span>
-            <span class="hub-mtx"><b>משחק מהיר</b><small>2 נגד 2 · התאמה אוטומטית</small></span>
-            <span class="hub-go">›</span>
-          </button>
-          <button id="friends-btn" class="hub-mode">
-            <span class="hub-mic">👥</span>
-            <span class="hub-mtx"><b>שחק עם חברים</b><small>צור חדר · קוד</small></span>
-          </button>
-          <button id="training-btn" class="hub-mode">
-            <span class="hub-mic">🎯</span>
-            <span class="hub-mtx"><b>אימון</b><small>מגרש תרגול · בול לתרגל בעיטות</small></span>
-            <span class="hub-go">›</span>
-          </button>
-          <button class="hub-mode soon" disabled>
-            <span class="hub-mic">🏆</span>
-            <span class="hub-mtx"><b>טורניר</b><small>סוללת משחקים</small></span>
-            <span class="hub-badge">בקרוב</span>
-          </button>
-          <button class="hub-mode soon" disabled>
-            <span class="hub-mic">🥅</span>
-            <span class="hub-mtx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
-            <span class="hub-badge">בקרוב</span>
-          </button>
-        </div>
+      <div class="subpage-body">
+        <div class="subpage-note"><b>📰 חדשות ואירועים</b><span>עדכוני עונה, אירועים ובאנרים</span></div>
       </div>
+    </div>
+  </div>
 
+  <div id="shop" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button class="subpage-back" data-home-back aria-label="חזרה">›</button>
+        <h2>חנות</h2>
+      </div>
+      <div class="subpage-body">
+        <div class="subpage-note"><b>🛒 חנות</b><span>מבצע יומי · ערכות · מטבעות ואבני חן</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="clubs" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button class="subpage-back" data-home-back aria-label="חזרה">›</button>
+        <h2>מועדונים</h2>
+      </div>
+      <div class="subpage-body">
+        <div class="subpage-note"><b>🏰 מועדונים</b><span>הצטרף או צור מועדון · צ׳אט ומלחמות מועדון</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cards / loadout page — opened by tapping a power slot on the home hub. Renders the
+       3 equipped slots (tap to select) + the album deck (tap a card to equip it). -->
+  <div id="cards" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button class="subpage-back" data-home-back aria-label="חזרה">›</button>
+        <h2>הקלפים שלי</h2>
+      </div>
+      <div class="subpage-body">
+        <div id="cards-slots" class="cards-slots"></div>
+        <div class="cards-hint">בחר חריץ ואז קלף מהאוסף כדי לצייד</div>
+        <div id="cards-deck" class="cards-deck"></div>
+      </div>
     </div>
   </div>
 
@@ -229,77 +341,86 @@
     <button id="music-btn" class="music-btn" aria-label="מוזיקה" title="מוזיקה">🎵</button>
     <!-- #17: always-available "back to lobby" — works in a match AND in the training ground -->
     <button id="leave-lobby-btn" class="leave-lobby-btn" aria-label="חזרה ללובי" title="חזרה ללובי">‹ לובי</button>
+    <!-- #settings moved OUT of #game to top level (below) so the hub Settings icon can open
+         it from the home screen too (a display:none ancestor would otherwise hide it). -->
+  </div>
 
-    <div id="settings" class="settings-panel hidden">
-      <div class="settings-card" dir="rtl">
-        <h2>הגדרות</h2>
-        <!-- #16: responsive grid so all controls fit on screen without a scrollbar -->
-        <div class="settings-grid">
-        <div class="setting">
-          <div class="setting-row"><span>🎵 עוצמת מוזיקה</span></div>
-          <input type="range" id="s-musicvol" min="0" max="1" step="0.05" />
+  <!-- Settings / pause panel — TOP-LEVEL overlay (opened in-match via #pause-btn and from
+       the home hub via #hub-settings). All ids unchanged so existing wiring is intact. -->
+  <div id="settings" class="settings-panel hidden">
+    <div class="settings-card" dir="rtl">
+      <h2>הגדרות</h2>
+      <!-- #16: responsive grid so all controls fit on screen without a scrollbar -->
+      <div class="settings-grid">
+      <div class="setting">
+        <div class="setting-row"><span>🎵 עוצמת מוזיקה</span></div>
+        <input type="range" id="s-musicvol" min="0" max="1" step="0.05" />
+      </div>
+      <div class="setting setting-wide">
+        <div class="setting-row"><span>רמת קושי (בוטים)</span></div>
+        <div id="difficulty" class="difficulty">
+          <button type="button" class="diff-btn" data-diff="easy">קל</button>
+          <button type="button" class="diff-btn" data-diff="normal">רגיל</button>
+          <button type="button" class="diff-btn" data-diff="hard">קשה</button>
+          <button type="button" class="diff-btn diff-extreme" data-diff="extreme">קטלני</button>
         </div>
-        <div class="setting setting-wide">
-          <div class="setting-row"><span>רמת קושי (בוטים)</span></div>
-          <div id="difficulty" class="difficulty">
-            <button type="button" class="diff-btn" data-diff="easy">קל</button>
-            <button type="button" class="diff-btn" data-diff="normal">רגיל</button>
-            <button type="button" class="diff-btn" data-diff="hard">קשה</button>
-            <button type="button" class="diff-btn diff-extreme" data-diff="extreme">קטלני</button>
-          </div>
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>מהירות שחקן</span><span id="v-speedMul"></span></div>
-          <input type="range" id="s-speedMul" min="0.3" max="1.8" step="0.05" />
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>גודל שחקן</span><span id="v-sizeMul"></span></div>
-          <input type="range" id="s-sizeMul" min="0.5" max="2" step="0.05" />
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>מהירות עם הכדור</span><span id="v-carrySpeedMul"></span></div>
-          <input type="range" id="s-carrySpeedMul" min="0.2" max="1" step="0.05" />
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>גודל כדור</span><span id="v-ballSizeMul"></span></div>
-          <input type="range" id="s-ballSizeMul" min="0.5" max="2.5" step="0.05" />
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>עוצמת בעיטה</span><span id="v-shotPower"></span></div>
-          <input type="range" id="s-shotPower" min="300" max="2500" step="20" />
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>מהירות ירי</span><span id="v-bulletSpeed"></span></div>
-          <input type="range" id="s-bulletSpeed" min="120" max="1300" step="10" />
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>הדיפת ירי (עוצמה מלאה)</span><span id="v-bulletKnockback"></span></div>
-          <input type="range" id="s-bulletKnockback" min="0" max="2500" step="10" />
-        </div>
-        <div class="setting">
-          <div class="setting-row"><span>הדיפת פצצה</span><span id="v-bombPower"></span></div>
-          <input type="range" id="s-bombPower" min="0" max="5000" step="20" />
-        </div>
-        </div><!-- /.settings-grid -->
-        <div class="settings-actions">
-          <button id="reset-settings" class="ghost-btn">איפוס</button>
-          <button id="resume" class="resume">המשך</button>
-        </div>
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>מהירות שחקן</span><span id="v-speedMul"></span></div>
+        <input type="range" id="s-speedMul" min="0.3" max="1.8" step="0.05" />
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>גודל שחקן</span><span id="v-sizeMul"></span></div>
+        <input type="range" id="s-sizeMul" min="0.5" max="2" step="0.05" />
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>מהירות עם הכדור</span><span id="v-carrySpeedMul"></span></div>
+        <input type="range" id="s-carrySpeedMul" min="0.2" max="1" step="0.05" />
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>גודל כדור</span><span id="v-ballSizeMul"></span></div>
+        <input type="range" id="s-ballSizeMul" min="0.5" max="2.5" step="0.05" />
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>עוצמת בעיטה</span><span id="v-shotPower"></span></div>
+        <input type="range" id="s-shotPower" min="300" max="2500" step="20" />
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>מהירות ירי</span><span id="v-bulletSpeed"></span></div>
+        <input type="range" id="s-bulletSpeed" min="120" max="1300" step="10" />
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>הדיפת ירי (עוצמה מלאה)</span><span id="v-bulletKnockback"></span></div>
+        <input type="range" id="s-bulletKnockback" min="0" max="2500" step="10" />
+      </div>
+      <div class="setting">
+        <div class="setting-row"><span>הדיפת פצצה</span><span id="v-bombPower"></span></div>
+        <input type="range" id="s-bombPower" min="0" max="5000" step="20" />
+      </div>
+      </div><!-- /.settings-grid -->
+      <div class="settings-actions">
+        <button id="reset-settings" class="ghost-btn">איפוס</button>
+        <button id="resume" class="resume">המשך</button>
       </div>
     </div>
   </div>
 
-  <!-- Hero picker overlay (hero grid + rarity tiers + live preview) -->
+  <!-- Wardrobe / character picker overlay — costumes carousel (top) · large hero (center) ·
+       hero-types carousel (bottom). All ids preserved so setupHeroPicker() wiring is intact. -->
   <div id="hero-picker" class="picker hidden" dir="rtl">
-    <div class="picker-panel">
-      <div class="picker-top">
-        <span class="picker-title">בחר דמות</span>
-        <!-- #15: no ✕ — tap outside the panel to close (handled in client.js) -->
+    <div class="picker-panel wardrobe">
+      <div class="wr-section wr-top">
+        <div class="wr-rail-label">חליפות</div>
+        <div id="pick-tiers" class="pick-tiers wr-carousel"></div>
       </div>
-      <canvas id="pick-preview" class="pick-preview" width="180" height="200"></canvas>
-      <div id="pick-name" class="pick-name"></div>
-      <div id="pick-tiers" class="pick-tiers"></div>
-      <div id="pick-heroes" class="pick-heroes"></div>
+      <div class="wr-center">
+        <canvas id="pick-preview" class="pick-preview" width="180" height="200"></canvas>
+        <div id="pick-name" class="pick-name"></div>
+      </div>
+      <div class="wr-section wr-bottom">
+        <div class="wr-rail-label">דמויות</div>
+        <div id="pick-heroes" class="pick-heroes wr-carousel"></div>
+      </div>
       <button id="pick-save" class="play">שמור ›</button>
     </div>
   </div>
@@ -309,5 +430,11 @@
   <div id="fp-toast" class="fp-toast hidden"></div>
 
   <script type="module" src="/client.js"></script>
+  <!-- DEV-ONLY visual layout editor (feat/lobby-redesign). Self-gating and purely
+       additive: it re-applies any saved lobby layout on every load (so the arrangement
+       shows in normal view and inside the iPhone iframe), and activates the drag/resize
+       editor UI ONLY when the URL has ?edit=1. No game logic is touched; a no-op when
+       nothing is saved and ?edit is absent. -->
+  <script defer src="/_layout-edit.js"></script>
 </body>
 </html>

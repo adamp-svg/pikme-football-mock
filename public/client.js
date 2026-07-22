@@ -4,9 +4,9 @@
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
-  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, BOMB_LOB_RANGE, clamp,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
-import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
+import { ARENA, resolveWalls, pointInBush, segBlockedByWall } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { drawHero, ACTION_DUR } from '/heroes.js';
@@ -658,7 +658,10 @@ function renderHubXp() {
 // (auto-advance + swipe). Hidden when the player has no cards.
 const carouselEl = document.getElementById('home-carousel');
 let cfCards = [], cfIndex = 0, cfTimer = null;
-const CF_SPACING = 60, CF_STEP = 0.2, CF_MAX = 2; // ±2 visible => 5 cards
+// DENSE carousel: one BIG front card, the rest progressively smaller and MOSTLY HIDDEN
+// behind it (just peeking) — a tight stack, not a spread. CF_MAX=5 => up to 11 cards shown
+// (front + 5 each side). CF_SPACING is the swipe sensitivity (px of drag per card).
+const CF_SPACING = 70, CF_STEP = 0.2, CF_MAX = 5;
 function renderCarousel() {
   cfCards = rankCards(myCards());
   carouselEl.innerHTML = '';
@@ -685,21 +688,27 @@ function renderCarousel() {
   startCarouselAuto();
 }
 function layoutCarousel() {
+  // Dense stack: the front card (a=0) is full size; each card further from front is a small
+  // step SMALLER and only slightly offset, so it tucks MOSTLY BEHIND the front and just peeks.
+  // STEP_X is intentionally small (tight stack, not spread); STEP_S shrinks them progressively.
+  const STEP_X = 14, STEP_S = 0.12;
   const kids = carouselEl.children, n = kids.length;
   for (let i = 0; i < n; i++) {
     let off = i - cfIndex;
-    if (off > n / 2) off -= n; else if (off < -n / 2) off += n; // wrap => symmetric coverflow
+    if (off > n / 2) off -= n; else if (off < -n / 2) off += n; // wrap => symmetric stack
     const a = Math.abs(off), el = kids[i];
-    if (a > CF_MAX) {
+    if (a > CF_MAX + 0.5) { // beyond the 11-card window: fully hidden
       el.style.opacity = '0'; el.style.pointerEvents = 'none';
-      el.style.transform = `translateX(${off * CF_SPACING * 1.4}px) scale(.4)`;
+      el.style.transform = `translateX(${off * STEP_X}px) scale(${Math.max(0.2, 1 - a * STEP_S)})`;
       continue;
     }
-    el.style.opacity = a === 0 ? '1' : a === 1 ? '.82' : '.5';
+    const k = Math.min(a, CF_MAX);
+    const scale = Math.max(0.34, 1 - k * STEP_S);   // front biggest; deeper cards smaller
+    el.style.opacity = String(Math.max(0.32, 1 - k * 0.12));
     el.style.pointerEvents = 'auto';
-    el.style.zIndex = String(10 - a);
-    el.style.transform = `translateX(${off * CF_SPACING}px) scale(${1 - a * CF_STEP})`;
-    el.classList.toggle('cf-center', a === 0);
+    el.style.zIndex = String(60 - Math.round(a * 5)); // front on top, deeper cards behind
+    el.style.transform = `translateX(${off * STEP_X}px) scale(${scale})`;
+    el.classList.toggle('cf-center', a < 0.5);
   }
 }
 function setCarousel(i) {
@@ -836,22 +845,55 @@ function renderPowerSlots() {
     const item = document.createElement('div'); item.className = 'pslot-item';
     const el = document.createElement('div');
     el.className = 'pslot' + (card ? ' rarity-' + card.r : ' pslot-empty');
-    el.dataset.slot = i;
-    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 42, 54));
-    const icon = document.createElement('span'); icon.className = 'pslot-icon'; icon.textContent = meta.icon;
-    const buff = document.createElement('span'); buff.className = 'pslot-buff';
-    buff.textContent = card ? '+' + (RARITY_PCT[card.r] || 0) + '%' : '—';
-    el.appendChild(icon); el.appendChild(buff);
-    // Tap a slot to see what its power does (and remove the card from there).
-    el.addEventListener('click', () => showSlotInfo(i));
-    const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label; // words: what each slot is
+    el.dataset.slot = i;                 // kept: carousel drag-to-equip drops onto this
+    // Slots now show ONLY the card art (or the slot's power glyph when empty) — no buff %.
+    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 52, 68));
+    else { const ic = document.createElement('span'); ic.className = 'pslot-emptyic'; ic.textContent = meta.icon; el.appendChild(ic); }
+    // Tap a slot -> open the cards page to pick/change the card in it.
+    el.addEventListener('click', () => { cardsSelSlot = i; renderCardsPage(); showScreen('cards'); });
+    const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label; // label text: what each slot is
     item.appendChild(el); item.appendChild(cap);
     powerSlotsEl.appendChild(item);
   });
-  // "Pick best" — reset to the auto top-3 loadout (clears any manual picks).
-  const best = document.createElement('button'); best.className = 'pslot-best'; best.textContent = '★ הטובים ביותר';
-  best.addEventListener('click', () => { myLoadout = null; saveLoadout(myLoadout); renderPowerSlots(); sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); }); // select cue comes from the delegated menu listener
-  powerSlotsEl.appendChild(best);
+  // Re-apply the baked/edited layout so equipping a card (which rebuilds these items) doesn't
+  // reset the slot positions. No-op in the shipped app (editor absent) — baked CSS nth-child holds.
+  if (window.__lobbyApplyLayout) window.__lobbyApplyLayout();
+}
+
+// ---- Cards page: equipped slots + album deck (opened by tapping a home slot) ----------
+// Tap a slot to select it, then tap a deck card to equip it there (reuses setSlotCard, so
+// it persists + tells the server, exactly like the home carousel drag-to-equip).
+let cardsSelSlot = 0;
+function renderCardsPage() {
+  const slotsEl = document.getElementById('cards-slots');
+  const deckEl = document.getElementById('cards-deck');
+  if (!slotsEl || !deckEl) return;
+  const eff = effectiveLoadout();
+  slotsEl.innerHTML = '';
+  eff.forEach((card, i) => {
+    const meta = SLOT_META[i];
+    const item = document.createElement('div'); item.className = 'pslot-item';
+    const el = document.createElement('div');
+    el.className = 'pslot' + (card ? ' rarity-' + card.r : ' pslot-empty') + (i === cardsSelSlot ? ' pslot-sel' : '');
+    el.dataset.slot = i;
+    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 62, 80));
+    else { const ic = document.createElement('span'); ic.className = 'pslot-emptyic'; ic.textContent = meta.icon; el.appendChild(ic); }
+    el.addEventListener('click', () => { cardsSelSlot = i; renderCardsPage(); });
+    const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label;
+    item.appendChild(el); item.appendChild(cap);
+    slotsEl.appendChild(item);
+  });
+  deckEl.innerHTML = '';
+  const cards = rankCards(myCards());
+  if (!cards.length) { deckEl.innerHTML = '<div class="subpage-note"><b>אין קלפים עדיין</b><span>הקלפים שלך יופיעו כאן</span></div>'; return; }
+  cards.forEach((c) => {
+    const el = document.createElement('div');
+    el.className = 'cards-deck-card rarity-' + c.r + (eff.some((s) => s && s.r === c.r && +s.n === +c.n) ? ' equipped' : '');
+    el.appendChild(slotCardEl(c, 'cards-deck-art', 66, 88));
+    if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
+    el.addEventListener('click', () => { setSlotCard(cardsSelSlot, { r: c.r, n: +c.n }); renderCardsPage(); });
+    deckEl.appendChild(el);
+  });
 }
 // Tap-a-slot info popup: what the power does + the equipped card's buff, with a remove action.
 let powerInfoEl = null;
@@ -941,12 +983,13 @@ function startHomeDance() {
   let sel = { hero: 'striker', skin: 'base' };
   let previewRAF = null;
 
-  // static thumbnail of a hero in the currently-selected tier
-  function drawThumb(cv, heroKey) {
+  // static thumbnail of a hero in a given skin (defaults to the currently-selected skin)
+  function drawThumb(cv, heroKey, skinKey) {
+    if (!cv) return;
     const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
     g.imageSmoothingEnabled = false;
     const sf = cv.height / 40, ox = cv.width / 2, feetY = cv.height - sf * 3;
-    drawHero(g, ox, feetY, sf, 1, 0, 0, false, `${heroKey}:${sel.skin}`, PREVIEW_KIT, 0);
+    drawHero(g, ox, feetY, sf, 1, 0, 0, false, `${heroKey}:${skinKey || sel.skin}`, PREVIEW_KIT, 0);
   }
   function refreshName() {
     const hn = HERO_NAMES[sel.hero];
@@ -962,12 +1005,19 @@ function startHomeDance() {
   function refreshTierSel() {
     tiersEl.querySelectorAll('.pick-tier').forEach((el) => el.classList.toggle('on', el.dataset.skin === sel.skin));
   }
+  // Costumes carousel: each skin swatch previews the CURRENT hero wearing that skin, so it
+  // re-draws whenever the selected hero changes.
+  function refreshSkinThumbs() {
+    tiersEl.querySelectorAll('.pick-tier').forEach((el) => drawThumb(el.querySelector('canvas'), sel.hero, el.dataset.skin));
+  }
 
-  // build tier chips + hero grid once
+  // build costume (skin) carousel + hero-type carousel once
   SKIN_KEYS.forEach((sk) => {
     const b = document.createElement('button');
     b.className = 'pick-tier r-' + SKIN_RARITY[sk]; b.dataset.skin = sk;
-    b.innerHTML = `<span class="dot"></span>${SKIN_NAMES[sk]}`;
+    const c = document.createElement('canvas'); c.width = 60; c.height = 72;
+    const lbl = document.createElement('span'); lbl.className = 'pick-lbl'; lbl.innerHTML = `<span class="dot"></span>${SKIN_NAMES[sk]}`;
+    b.appendChild(c); b.appendChild(lbl);
     b.addEventListener('click', () => { sel.skin = sk; refreshTierSel(); refreshHeroSel(); refreshName(); });
     tiersEl.appendChild(b);
   });
@@ -977,7 +1027,7 @@ function startHomeDance() {
     const c = document.createElement('canvas'); c.width = 66; c.height = 78;
     const lbl = document.createElement('span'); lbl.textContent = HERO_NAMES[hk];
     cell.appendChild(c); cell.appendChild(lbl);
-    cell.addEventListener('click', () => { sel.hero = hk; refreshHeroSel(); refreshName(); });
+    cell.addEventListener('click', () => { sel.hero = hk; refreshHeroSel(); refreshSkinThumbs(); refreshName(); });
     heroesEl.appendChild(cell);
   });
 
@@ -985,7 +1035,7 @@ function startHomeDance() {
     unlockAudio();
     const cut = myCosmetic.indexOf(':');
     sel = { hero: myCosmetic.slice(0, cut), skin: myCosmetic.slice(cut + 1) };
-    refreshTierSel(); refreshHeroSel(); refreshName();
+    refreshTierSel(); refreshHeroSel(); refreshSkinThumbs(); refreshName();
     overlay.classList.remove('hidden');
     if (!previewRAF) {
       const loop = () => {
@@ -1019,6 +1069,42 @@ renderHomeCharacter();
 showScreen('home');
 startHomeDance();
 connect(MY_NAME, MY_AVATAR);
+
+// ---- Lobby hub scale-to-fit -------------------------------------------------
+// The hub is authored at a fixed 900x415 logical stage; scale it uniformly to the
+// viewport so the whole hub grows/shrinks as one unit and never clips (like a canvas).
+const HUB_W = 900, HUB_H = 415;
+const hubStageEl = document.querySelector('#home .hub');
+function fitHub() {
+  if (!hubStageEl) return;
+  const s = Math.min(window.innerWidth / HUB_W, window.innerHeight / HUB_H);
+  hubStageEl.style.transform = 'translate(-50%,-50%) scale(' + s + ')';
+}
+addEventListener('resize', fitHub);
+fitHub();
+
+// ---- Lobby-redesign sub-screens (arena / news / shop / clubs) ---------------
+// Register the new .screen divs so the existing showScreen() drives open/close.
+for (const id of ['arena', 'news', 'shop', 'clubs', 'cards']) {
+  const el = document.getElementById(id);
+  if (el) screens[id] = el;
+}
+document.querySelectorAll('[data-open-screen]').forEach((el) => {
+  el.addEventListener('click', () => { if (!el.disabled) showScreen(el.dataset.openScreen); });
+});
+document.querySelectorAll('[data-home-back]').forEach((el) => {
+  el.addEventListener('click', () => showScreen('home'));
+});
+// Arena "2 נגד 2" launches the same quick match as the home Quick Match button.
+document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
+
+// Hub top-left: settings opens the shared settings/pause panel; exit asks the RN app host.
+document.getElementById('hub-settings')?.addEventListener('click', () => { unlockAudio(); openSettings(); });
+document.getElementById('hub-exit')?.addEventListener('click', () => {
+  // Exit the game: the React Native WebView host must handle {t:'exit'} (close/return to app).
+  // No-op in a plain browser (off-app dev), so nothing breaks when RN isn't present.
+  try { window.ReactNativeWebView?.postMessage(JSON.stringify({ t: 'exit' })); } catch { /* not in app */ }
+});
 // Cold load can't autoplay the menu theme (browser/iOS gesture policy), so kick it off on
 // the user's first interaction — but only if they're still on the home screen.
 addEventListener('pointerdown', () => {
@@ -1045,6 +1131,21 @@ document.getElementById('friends-btn').addEventListener('click', () => {
 });
 document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'training' }); });
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
+// Pick-best loadout (restored): null loadout => effectiveLoadout() auto-fills the album's
+// top-3 into the slots; persist, re-render the home slots, and tell the server live.
+document.getElementById('select-best-btn')?.addEventListener('click', () => {
+  unlockAudio();
+  myLoadout = null; saveLoadout(myLoadout);
+  renderPowerSlots();
+  sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() });
+});
+// Play with friends: same create/join private-room flow the #friends rail opens.
+document.getElementById('play-friends-btn')?.addEventListener('click', () => {
+  unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends');
+  const s = document.getElementById('friend-search'); if (s) s.value = '';
+  renderSearch([]);
+  loadFriends();
+});
 // Friends actions.
 document.getElementById('create-room-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'createRoom' }); });
 document.getElementById('join-room-btn').addEventListener('click', () => {
@@ -2730,14 +2831,22 @@ function drawBall(b) {
 
 // Current aim of the local player (for the aim-to-shoot indicator).
 function currentAim() {
-  // Returns a TRUE-world aim direction (the aim indicator is drawn inside the
-  // mirrored world for team B, so it must not be pre-flipped here).
+  // TRUE-world aim for the indicator (drawn inside the mirrored world for team B, so not
+  // pre-flipped here). A QUICK shot (charge below full) AUTO-TARGETS, so the indicator points
+  // where the shot will actually GO — nearest enemy in sight, or the goal when carrying. A
+  // FULL charge honours your manual aim. Auto-aim applies to quick shots ONLY.
+  const manual = manualAim();
+  if (manual.aiming && currentCharge() < FULL_CHARGE) {
+    const t = quickShotTarget();
+    if (t) return { aiming: true, ax: t.ax, ay: t.ay };
+  }
+  return manual;
+}
+// Raw manual aim from the stick / mouse (true-world).
+function manualAim() {
   if (usingTouch) {
     const m = Math.hypot(touchR.dx, touchR.dy);
-    if (touchR.id !== null && m > 12) {
-      const sx = flipView() ? -touchR.dx : touchR.dx;
-      return { aiming: true, ax: sx / m, ay: touchR.dy / m };
-    }
+    if (touchR.id !== null && m > 12) { const sx = flipView() ? -touchR.dx : touchR.dx; return { aiming: true, ax: sx / m, ay: touchR.dy / m }; }
     return { aiming: false };
   }
   if (!rendered) return { aiming: false };
@@ -2745,6 +2854,32 @@ function currentAim() {
   let ax = w.x - rendered.x, ay = w.y - rendered.y;
   const l = Math.hypot(ax, ay) || 1;
   return { aiming: true, ax: ax / l, ay: ay / l };
+}
+// Where a QUICK shot would go (mirrors the sim): the nearest point on the enemy goal when
+// carrying, else the nearest ENEMY in line of sight. Returns a true-world unit dir, or null.
+function quickShotTarget() {
+  if (!rendered || !latest) return null;
+  const carrying = latest.ball && latest.ball.owner === me.playerId;
+  if (carrying) {
+    const goalX = me.team === 'A' ? FIELD.W : 0;         // A attacks right, B attacks left
+    const m = BALL_RADIUS + POST_R;
+    const gy = clamp(rendered.y, GOAL_TOP + m, GOAL_BOTTOM - m);
+    const ax = goalX - rendered.x, ay = gy - rendered.y, l = Math.hypot(ax, ay) || 1;
+    return { ax: ax / l, ay: ay / l };
+  }
+  const walls = fieldArena().walls.concat(latest.walls || []);
+  let best = null, bestD = Infinity;
+  for (const t of (latest.players || [])) {
+    if (t.team === me.team) continue;
+    if (!canSeePlayer(t)) continue;
+    const dx = t.x - rendered.x, dy = t.y - rendered.y, d = dx * dx + dy * dy;
+    if (d > VISION_RANGE * VISION_RANGE || d >= bestD) continue;
+    if (walls.some((w) => segBlockedByWall(w, rendered.x, rendered.y, t.x, t.y, 0))) continue;
+    bestD = d; best = t;
+  }
+  if (!best) return null;
+  const ax = best.x - rendered.x, ay = best.y - rendered.y, l = Math.hypot(ax, ay) || 1;
+  return { ax: ax / l, ay: ay / l };
 }
 
 // Cast the aim from (x0,y0) along (ax,ay) to the FIELD EDGE. Never stops on a player

@@ -231,6 +231,17 @@ export const BUILD_INTERRUPT_KV = 300;  // incoming knockback speed that cancels
 export const FRAGILE_HP = 1;
 export const FRAGILE_PASS_SPEED = 900; // ball faster than this passes through (+ destroys) a fragile wall
 
+// --- Cover: a wall shields whoever stands behind it from blasts & shots ----------
+// Bombs: a STATIC (indestructible) wall between the blast and a player blocks the push
+// entirely; a BUILT wall softens it by its remaining HP. BLAST_WALL_PASS_MIN is the
+// fraction of knockback that leaks through a FULL-HP built wall (strong wall -> minor
+// push); a weaker wall passes more, ramping up to ~1.0 as its HP -> 0.
+export const BLAST_WALL_PASS_MIN = 0.15;
+// Shots: a built wall in the bullet's path absorbs ~one shot TIER per remaining HP as it
+// passes through (super -> full -> half -> blocked as HP climbs from 0 to full). Static
+// stone always blocks a shot outright. Tiers: 0 quick, 1 half/medium, 2 full, 3 super.
+export const COVER_PAD = 8; // body-radius forgiveness on the line-of-sight test (blast + shot)
+
 export const TEAM = {
   A: { key: 'A', name: 'Blue', color: '#3b82f6', attacksRight: true },
   B: { key: 'B', name: 'Red', color: '#ef4444', attacksRight: false },

@@ -16,10 +16,10 @@ import {
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
   WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
   BUILD_WINDUP, BUILD_WINDUP_SLOW, BUILD_INTERRUPT_KV,
-  SHOOT_CHARGE_TIME,
+  SHOOT_CHARGE_TIME, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
-import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall } from './arena.js';
+import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall } from './arena.js';
 
 // Built walls can be built at an ANGLE. Their orientation is quantized to WALL_ANGLE_STEPS
 // steps over a half-turn (a wall is 180°-symmetric) so it round-trips the wire exactly.
@@ -71,6 +71,19 @@ function clampXYToArea(x, y, r) {
   return d1 <= d2 ? { x: x1, y: y1 } : { x: x2, y: y2 };
 }
 function clampToArea(e, r) { const c = clampXYToArea(e.x, e.y, r); e.x = c.x; e.y = c.y; }
+// Like clampXYToArea, but for a CARRIED ball: only the holder's ATTACKING net pocket is
+// open (a dribble-in can score there). The OWN goal line stays SOLID — no own goals — as do
+// all four field walls. A push into any solid edge is detected by the caller and pops the
+// ball loose (rolls forward into the wall, bounces back). A attacks RIGHT, B attacks LEFT.
+function clampBallCarryXY(x, y, r, team) {
+  const x1 = clamp(x, r, FIELD.W - r), y1 = clamp(y, r, FIELD.H - r);                    // R1: the pitch
+  const lo = team === 'B' ? r - GOAL.depth : r;                                          // open left pocket only for B
+  const hi = team === 'A' ? FIELD.W - r + GOAL.depth : FIELD.W - r;                      // open right pocket only for A
+  const x2 = clamp(x, lo, hi), y2 = clamp(y, GOAL_TOP + r, GOAL_BOTTOM - r);             // R2: mouth band, into the ENEMY pocket
+  const d1 = (x - x1) * (x - x1) + (y - y1) * (y - y1);
+  const d2 = (x - x2) * (x - x2) + (y - y2) * (y - y2);
+  return d1 <= d2 ? { x: x1, y: y1 } : { x: x2, y: y2 };
+}
 
 // --- Quick-shot auto-aim targets (#6, server-authoritative) -----------------
 // Nearest enemy player to `p` — the auto-aim target for a quick BULLET. null if none.
@@ -101,6 +114,38 @@ function enemyGoalTarget(state, p) {
   // corner; otherwise go centre.
   const ty = (keeperY != null && near < PENALTY.depth) ? (keeperY > mid ? GOAL_TOP + m : GOAL_BOTTOM - m) : mid;
   return { x: goalX, y: ty };
+}
+
+// --- Auto-aim (server-authoritative) ----------------------------------------
+// The nearest point on the ENEMY goal mouth to `p` — where a CARRIER auto-aims.
+function nearestGoalPoint(state, p) {
+  const goalX = p.team === 'A' ? FIELD.W : 0;      // A attacks right, B attacks left
+  const m = ballRadius(state) + POST_R;            // keep the target inside the posts
+  return { x: goalX, y: clamp(p.y, GOAL_TOP + m, GOAL_BOTTOM - m) };
+}
+// Can `viewer` actually SEE enemy `t`? In range, no wall on the sight line, and not
+// hidden in a bush (unless close or firing). Mirrors the fog rule + adds wall LOS.
+function canSeeEnemy(state, viewer, t) {
+  const dx = t.x - viewer.x, dy = t.y - viewer.y, dist2 = dx * dx + dy * dy;
+  if (dist2 > VISION_RANGE * VISION_RANGE) return false;
+  for (const w of arenaOf(state).walls) if (segBlockedByWall(w, viewer.x, viewer.y, t.x, t.y, 0)) return false;
+  for (const w of state.builtWalls) if (segBlockedByWall(w, viewer.x, viewer.y, t.x, t.y, 0)) return false;
+  const bushes = arenaOf(state).bushes || [];
+  const inBush = bushes.some((g) => t.x > g.x && t.x < g.x + g.w && t.y > g.y && t.y < g.y + g.h);
+  if (inBush && !t.firing && dist2 >= BUSH_REVEAL_DIST * BUSH_REVEAL_DIST) return false;
+  return true;
+}
+// Nearest enemy `p` currently has in line of sight — the auto-aim target when NOT carrying.
+function nearestVisibleEnemy(state, p) {
+  let best = null, bestD = Infinity;
+  for (const id in state.players) {
+    const t = state.players[id];
+    if (t.team === p.team) continue;
+    if (!canSeeEnemy(state, p, t)) continue;
+    const d = (t.x - p.x) * (t.x - p.x) + (t.y - p.y) * (t.y - p.y);
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  return best;
 }
 
 // OVERCHARGE is a consumable meter (p.powerMeter 0..1). A FORCEFUL hit adds `amt` —
@@ -289,18 +334,18 @@ function handleBallBounds(state) {
   const inMouth = b.y > GOAL_TOP && b.y < GOAL_BOTTOM;
 
   if (inMouth) {
-    // In the mouth the ball can cross the line into the net (behind the pitch).
-    // A goal counts ONLY from the FRONT: crossing the line while moving inward,
-    // between the posts, last touched by the ATTACKING team (no own goals).
-    if (b.x < 0) {                                   // left net — B attacks
-      if (b.lastTouch === 'B' && b.vx < 0) return goal(state, 'B');
-      b.x = R; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; return; // no goal
+    // A goal counts ONLY for the ATTACKING team (no own goals): B scores in the LEFT net,
+    // A in the RIGHT net. For anyone else the goal line is a SOLID WALL — the ball bounces
+    // off it AT the line and never enters, so an own-goal shot is impossible.
+    if (b.vx < 0 && b.x < R) {                       // approaching / crossing the left line
+      if (b.lastTouch === 'B') { if (b.x < 0) return goal(state, 'B'); }      // B attacks left — may cross & score
+      else { b.x = R; b.vx = Math.abs(b.vx) * WALL_RESTITUTION; return; }     // A / neutral — solid wall at the line
     }
-    if (b.x > FIELD.W) {                             // right net — A attacks
-      if (b.lastTouch === 'A' && b.vx > 0) return goal(state, 'A');
-      b.x = FIELD.W - R; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; return;
+    if (b.vx > 0 && b.x > FIELD.W - R) {             // approaching / crossing the right line
+      if (b.lastTouch === 'A') { if (b.x > FIELD.W) return goal(state, 'A'); } // A attacks right — may cross & score
+      else { b.x = FIELD.W - R; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; return; }
     }
-    return; // inside the mouth, not yet at the line — let it fly
+    return; // inside the mouth, not yet at a line — let it fly
   }
 
   // Solid end walls outside the goal mouth.
@@ -472,10 +517,11 @@ export function step(state, inputs, dt) {
         // #11 SNOOKER STRIKE + #6 AUTO-AIM: pick a target, then strike the ball cleanly ALONG
         // the vector from the BALL's centre to it — no offset/tangential skew, so the ball's
         // velocity direction == the intended aim exactly. A QUICK shot (anything short of a full
-        // aimed charge) auto-aims at the enemy goal; a FULL aimed shot honours the player's aim.
+        // aimed charge) auto-aims at the nearest point on the enemy goal; a FULL aimed shot
+        // honours the player's aim.
         let dx = p.aimX, dy = p.aimY;
         if (!isFull) {
-          const tgt = enemyGoalTarget(state, p);
+          const tgt = nearestGoalPoint(state, p);
           dx = tgt.x - b.x; dy = tgt.y - b.y;
           const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
         }
@@ -492,10 +538,11 @@ export function step(state, inputs, dt) {
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
         // A FULL bullet strips a carrier; an OVERCHARGE bullet (isOver) strips AND pushes
         // harder — and spends the meter, same as an overcharge kick.
-        // #6: a QUICK bullet (not a full aimed shot) auto-aims at the NEAREST enemy.
+        // #6: a QUICK bullet (not a full aimed shot) auto-aims at the nearest enemy IN LINE OF
+        // SIGHT (no wall / bush between); if none is visible it honours the manual aim.
         let ax = p.aimX, ay = p.aimY;
         if (!isFull) {
-          const foe = nearestEnemy(state, p);
+          const foe = nearestVisibleEnemy(state, p);
           if (foe) { const ex = foe.x - p.x, ey = foe.y - p.y, el = Math.hypot(ex, ey) || 1; ax = ex / el; ay = ey / el; }
         }
         fireBullet(state, p, ch, eff, isOver, ax, ay);
@@ -515,28 +562,33 @@ export function step(state, inputs, dt) {
     const h = state.players[b.owner];
     const ballR = ballRadius(state);
     const off = radiusOf(h, state) + ballR;
-    // Where the ball WANTS to glue (in front). Clamped to the walkable area (#10): it stays
-    // inside the pitch on every SOLID edge (accounting for ballR), but MAY cross a goal line
-    // into the net pocket THROUGH the mouth — which is exactly how a dribble-in scores (#9).
-    const glued = clampXYToArea(h.x + h.aimX * off, h.y + h.aimY * off, ballR);
+    // Desired glue spot (in front of the holder, UNCLAMPED) and where it can legally sit:
+    // the pitch + the holder's ATTACKING pocket only. The own goal line + all field walls
+    // are SOLID (#10), so the desired spot gets pulled back off any of them.
+    const dx = h.x + h.aimX * off, dy = h.y + h.aimY * off;
+    const glued = clampBallCarryXY(dx, dy, ballR, h.team);
     const gx = glued.x, gy = glued.y;
-    // If that spot is inside a wall (you walked the ball INTO cover), it can't stay there
-    // — pop it loose off the holder so it rolls forward into the wall and bounces back.
-    const walls = arenaOf(state).walls.concat(state.builtWalls || []);
-    const blocked = walls.some((w) => circleHitsBox(gx, gy, ballR * 0.6, w));
-    if (blocked) {
-      b.owner = null; b.lastTouch = h.team; clearKick(b); b.pickupCd = RELEASE_PICKUP_CD;
-      b.x = h.x; b.y = h.y; // holder centre is wall-resolved (safe), so the ball never spawns inside the wall
-      b.vx = h.aimX * BALL_WALL_POP_SPEED; b.vy = h.aimY * BALL_WALL_POP_SPEED;
-    } else {
-      b.x = gx; b.y = gy; b.vx = 0; b.vy = 0;
-      // #9 DRIBBLE-IN GOAL: the carrier walked the ball across the goal line into the net.
-      // Only the ATTACKING team scores (no own goals). The mouth clamp above is the ONLY way a
-      // CARRIED ball reaches x<0 / x>W, so this can't misfire in open play. The ball stays owned
-      // (frozen in the net through the goal hold); handleBallBounds is skipped for an owned ball.
-      const inMouthY = gy > GOAL_TOP && gy < GOAL_BOTTOM;
-      if (inMouthY && gx < 0 && h.team === 'B') walkInScored = goal(state, 'B');
-      else if (inMouthY && gx > FIELD.W && h.team === 'A') walkInScored = goal(state, 'A');
+    const inMouthY = gy > GOAL_TOP && gy < GOAL_BOTTOM;
+    // #9 DRIBBLE-IN GOAL: the carrier walked the ball across the ENEMY line into the net.
+    // clampBallCarryXY only opens the attacking pocket, so this can never be an own goal. The
+    // ball stays owned (frozen in the net through the hold); handleBallBounds is skipped.
+    if (inMouthY && gx > FIELD.W && h.team === 'A') { b.x = gx; b.y = gy; b.vx = 0; b.vy = 0; walkInScored = goal(state, 'A'); }
+    else if (inMouthY && gx < 0 && h.team === 'B') { b.x = gx; b.y = gy; b.vx = 0; b.vy = 0; walkInScored = goal(state, 'B'); }
+    else {
+      // Pop the ball LOOSE when the holder walks it into a solid edge — a built/static wall,
+      // the OWN goal line, or a field wall — so it rolls forward into the wall and bounces
+      // back (like a wall) instead of sticking. Entering the enemy mouth is NOT solid.
+      const walls = arenaOf(state).walls.concat(state.builtWalls || []);
+      const blockedByWall = walls.some((w) => circleHitsBox(gx, gy, ballR * 0.6, w));
+      const towardEnemyMouth = inMouthY && ((h.team === 'A' && dx > FIELD.W - ballR) || (h.team === 'B' && dx < ballR));
+      const pushedIntoWall = !towardEnemyMouth && Math.hypot(gx - dx, gy - dy) > ballR * 0.4; // clamp pulled it off a solid edge
+      if (blockedByWall || pushedIntoWall) {
+        b.owner = null; b.lastTouch = h.team; clearKick(b); b.pickupCd = RELEASE_PICKUP_CD;
+        b.x = h.x; b.y = h.y; // holder centre is inside the legal area (safe)
+        b.vx = h.aimX * BALL_WALL_POP_SPEED; b.vy = h.aimY * BALL_WALL_POP_SPEED;
+      } else {
+        b.x = gx; b.y = gy; b.vx = 0; b.vy = 0;
+      }
     }
   } else {
     b.owner = null;
@@ -711,6 +763,24 @@ function damageBuiltWallAt(state, x, y, dmg) {
   }
   return false;
 }
+// First built wall containing (x,y) that this bullet hasn't already pierced.
+function builtWallAt(state, x, y, pierced) {
+  for (const w of state.builtWalls) {
+    if (pierced && pierced.has(w.id)) continue;
+    if (pointInBox(x, y, w)) return w;
+  }
+  return null;
+}
+// A shot's power TIER: 0 quick, 1 half/medium, 2 full, 3 super (overcharge).
+function shotTier(pr) { return pr.over ? 3 : pr.charge >= FULL_CHARGE ? 2 : pr.charge >= QUICK_CHARGE ? 1 : 0; }
+// Rewrite a bullet to the given (lower) tier after a wall chips its power.
+function applyShotTier(pr, tier) {
+  if (tier >= 3) { pr.over = true; pr.charge = Math.max(pr.charge, 1); }
+  else if (tier === 2) { pr.over = false; pr.charge = FULL_CHARGE; }
+  else if (tier === 1) { pr.over = false; pr.charge = QUICK_CHARGE; }
+  else { pr.over = false; pr.charge = 0; }
+  pr.cmul = chargeMul(pr.charge);
+}
 
 function updateProjectiles(state, dt) {
   const b = state.ball;
@@ -726,13 +796,26 @@ function updateProjectiles(state, dt) {
       continue;
     }
 
-    // Walls stop bullets. Static stone is immune; a built wall takes charge-scaled
-    // damage — full-power = destroy (hp), mid = ~half (2 shots), tap = 1 (3 shots).
-    let hitWall = false;
-    for (const w of arenaOf(state).walls) { if (pointInBox(pr.x, pr.y, w)) { hitWall = true; break; } }
-    const wallDmg = pr.charge >= FULL_CHARGE ? BUILT_WALL.hp : pr.charge >= QUICK_CHARGE ? BUILT_WALL.hp / 2 : 1;
-    if (!hitWall && damageBuiltWallAt(state, pr.x, pr.y, wallDmg)) hitWall = true;
-    if (hitWall) { addImpact(state, pr, 'wall', pr.x, pr.y); continue; }
+    // Static stone fully blocks any shot (indestructible cover).
+    let blockedStatic = false;
+    for (const w of arenaOf(state).walls) { if (pointInBox(pr.x, pr.y, w)) { blockedStatic = true; break; } }
+    if (blockedStatic) { addImpact(state, pr, 'wall', pr.x, pr.y); continue; }
+    // A BUILT wall CHIPS the shot as it passes through: it absorbs ~one shot tier per
+    // remaining HP. A strong (full-HP) wall stops a super shot; a weakened wall lets a
+    // downgraded shot (super -> full -> half) reach whoever is behind it. Either way the
+    // wall takes the usual charge-scaled damage (full = destroy, mid = half, tap = 1).
+    const bw = builtWallAt(state, pr.x, pr.y, pr.pierced);
+    if (bw) {
+      (pr.pierced || (pr.pierced = new Set())).add(bw.id);
+      const absorb = Math.round(bw.hp); // remaining HP tiers this wall soaks up
+      const wallDmg = pr.charge >= FULL_CHARGE ? BUILT_WALL.hp : pr.charge >= QUICK_CHARGE ? BUILT_WALL.hp / 2 : 1;
+      bw.hp -= wallDmg;
+      if (bw.hp <= 0) state.builtWalls = state.builtWalls.filter((q) => q.hp > 0);
+      addImpact(state, pr, 'wall', pr.x, pr.y);
+      const passed = shotTier(pr) - absorb;
+      if (passed < 1) continue;      // fully absorbed — the bullet dies at the wall
+      applyShotTier(pr, passed);     // downgrade the bullet; it flies on to the target behind
+    }
 
     // A LOOSE ball is nudged by any bullet.
     if (!b.owner) {
@@ -909,9 +992,20 @@ function explode(state, bomb, stack = 1) {
     const dx = t.x - bomb.x, dy = t.y - bomb.y;
     const d = Math.hypot(dx, dy) || 0.0001;
     if (d < radius) {
+      // COVER: a STATIC wall between the blast and this player blocks the push entirely;
+      // a BUILT wall softens it by its remaining HP (strong wall = minor push, weak =
+      // most of the push). Behind an indestructible wall you feel nothing.
+      if (arenaOf(state).walls.some((w) => segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD))) continue;
+      let coverPass = 1;
+      for (const w of state.builtWalls) {
+        if (segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD)) {
+          const pass = BLAST_WALL_PASS_MIN + (1 - BLAST_WALL_PASS_MIN) * (1 - w.hp / w.maxHp);
+          if (pass < coverPass) coverPass = pass; // the strongest blocker wins
+        }
+      }
       const ux = dx / d, uy = dy / d;
       const enemyMul = bomber && t.team !== bomber.team ? BOMB_ENEMY_MUL : 1;
-      let power = P * (1 - d / radius) * enemyMul * knockMul(t);
+      let power = P * (1 - d / radius) * enemyMul * knockMul(t) * coverPass;
       power *= wallCannonMul(state, bomb.x, bomb.y, ux, uy);
       power = Math.min(power, BOMB_LAUNCH_MAX); // same cap as the self-launch — stack+wall can't screen-clear
       t.kvx += ux * power;
