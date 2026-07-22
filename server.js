@@ -69,6 +69,8 @@ const TEAM_CAP = 2;          // players per team in a 2v2 match
 const members = new Map();   // ws -> member (a connected client)
 const FOOTBALL_TOKEN_SECRET = process.env.FOOTBALL_TOKEN_SECRET || null;
 const onlineByUser = new Map(); // userId -> member (authenticated connections only)
+const challenges = new Map(); // challengeId -> { fromUserId, toUserId }
+let challengeCounter = 0;
 const rooms = new Map();     // roomId -> room
 let publicRoom = null;       // the current forming quick-match room (in lobby/countdown)
 let memberCounter = 0, roomCounter = 0;
@@ -250,6 +252,23 @@ function startTraining(member) {
   send(member.ws, { type: 'roomJoined', mode: 'training', code: null });
   send(member.ws, { type: 'matchStart', mode: 'training', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
   room.rosterVersion++; broadcastRoster(room);
+}
+
+// A challenge accept drops both players into a fresh private room on opposite teams
+// and starts the normal countdown → match. Reuses the private-room lifecycle.
+function startChallengeMatch(a, b) {
+  leaveCurrentRoom(a);
+  leaveCurrentRoom(b);
+  const room = makeRoom(genCode(), true);
+  rooms.set(room.id, room);
+  addToRoom(a, room);
+  addToRoom(b, room);
+  a.team = 'A';
+  b.team = 'B';
+  send(a.ws, { type: 'roomJoined', mode: 'private', code: room.id });
+  send(b.ws, { type: 'roomJoined', mode: 'private', code: room.id });
+  startCountdown(room);
+  broadcastLobby(room);
 }
 
 function createPrivateRoom(member) {
@@ -660,6 +679,28 @@ wss.on('connection', (ws, req) => {
         const list = Array.isArray(msg.friends) ? msg.friends.filter((x) => typeof x === 'string').slice(0, 500) : [];
         member.friends = list;
         sendPresenceTo(member);
+        return;
+      }
+      if (msg.type === 'challenge') {
+        const toUserId = (msg.toUserId || '').toString();
+        if (!member.userId) { send(ws, { type: 'challengeError', msg: 'לא מחובר' }); return; }
+        if (!member.friends.includes(toUserId)) { send(ws, { type: 'challengeError', msg: 'לא חבר' }); return; }
+        const target = onlineByUser.get(toUserId);
+        if (!target) { send(ws, { type: 'challengeError', msg: 'לא מחובר כרגע' }); return; }
+        const challengeId = `c-${++challengeCounter}`;
+        challenges.set(challengeId, { fromUserId: member.userId, toUserId });
+        send(target.ws, { type: 'challengeReceived', challengeId, fromUserId: member.userId, fromName: member.name });
+        send(ws, { type: 'challengeSent', toUserId });
+        return;
+      }
+      if (msg.type === 'challengeRespond') {
+        const c = challenges.get((msg.challengeId || '').toString());
+        if (!c || c.toUserId !== member.userId) return;
+        challenges.delete(msg.challengeId);
+        const challenger = onlineByUser.get(c.fromUserId);
+        if (!msg.accept) { if (challenger) send(challenger.ws, { type: 'challengeDeclined', byUserId: member.userId }); return; }
+        if (!challenger) { send(ws, { type: 'challengeError', msg: 'היריב התנתק' }); return; }
+        startChallengeMatch(challenger, member);
         return;
       }
       if (msg.type === 'leaveRoom') {

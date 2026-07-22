@@ -45,7 +45,32 @@ async function main() {
   assert.ok(p.online.includes('B'), 'A sees B online');
   console.log('✅ presence PASS');
 
-  // (Task 6 challenge assertions get appended here.)
+  // A challenges B; B receives it.
+  A.send({ type: 'challenge', toUserId: 'B' });
+  const recv = await B.waitFor((m) => m.type === 'challengeReceived' && m.fromUserId === 'A');
+  assert.ok(recv.challengeId, 'B receives challenge from A');
+
+  // B accepts → both get roomJoined (private) then matchStart.
+  B.send({ type: 'challengeRespond', challengeId: recv.challengeId, accept: true });
+  const [ja, jb] = await Promise.all([
+    A.waitFor((m) => m.type === 'roomJoined' && m.mode === 'private'),
+    B.waitFor((m) => m.type === 'roomJoined' && m.mode === 'private'),
+  ]);
+  assert.strictEqual(ja.code, jb.code, 'both joined the same room code');
+  const [ma, mb] = await Promise.all([
+    A.waitFor((m) => m.type === 'matchStart', 9000),
+    B.waitFor((m) => m.type === 'matchStart', 9000),
+  ]);
+  assert.strictEqual(ma.matchId, mb.matchId, 'both entered the same match');
+  console.log('✅ challenge PASS');
+
+  // Non-friend challenge is rejected.
+  const C = await connect('C', 'Carol', []); // C has no friends
+  C.send({ type: 'challenge', toUserId: 'A' });
+  const err = await C.waitFor((m) => m.type === 'challengeError');
+  assert.ok(err, 'challenge to non-friend rejected');
+  console.log('✅ challenge-guard PASS');
+  C.close();
   A.close(); B.close(); srv.kill(); process.exit(0);
 }
 main().catch((e) => { console.error('❌', e.message); srv.kill(); process.exit(1); });
