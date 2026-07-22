@@ -230,9 +230,9 @@ function proximity(x, y) {
 // the pre-match lobby countdown. Muting the SFX button mutes music too.
 // --------------------------------------------------------------------------
 const MUSIC_TRACKS = [   // real matches: one of these picked at random and looped
-  '/audio/music/pixel-kickoff.mp3',
-  '/audio/music/pixel-rush.mp3', '/audio/music/stadium-pulse.mp3',
+  '/audio/music/pixel-kickoff.mp3', '/audio/music/pixel-rush.mp3',
 ];
+const HOME_MUSIC = '/audio/music/stadium-pulse.mp3';     // the main-lobby (home) theme, looped
 const TRAINING_MUSIC = '/audio/music/goooaaall-good.mp3'; // the training ground's own theme
 const LOBBY_MUSIC = '/audio/music/lobby-waiting-countdown.mp3'; // full 9s clip; cut at kickoff when the countdown is shorter
 let musicEl = null;      // ONE reused <audio> element, blessed once by a user gesture
@@ -311,6 +311,12 @@ function startLobbyCountdownMusic() {
   if (musicKind === 'lobby') return; // countdown payloads repeat every tick; start once
   musicKind = 'lobby';
   playMusic(LOBBY_MUSIC, false, 0.5);
+}
+function startHomeMusic() {
+  if (musicKind === 'home') return;  // already looping the menu theme
+  if (!audioCtx) return;             // not unlocked yet — retried on the first tap (see below)
+  musicKind = 'home';
+  playMusic(HOME_MUSIC, true, 0.32);
 }
 
 // Haptics. The web Vibration API covers Android/desktop; iOS WKWebView ignores
@@ -457,8 +463,11 @@ const lobbyEl = document.getElementById('lobby');
 const gameEl = document.getElementById('game');
 const screens = { start: startEl, home: homeEl, friends: friendsEl, lobby: lobbyEl, game: gameEl };
 function showScreen(name) {
-  // Leaving both the pitch and the lobby/countdown kills any music (home/start/friends are silent).
-  if (name !== 'game' && name !== 'lobby') stopMusic();
+  // Home loops the menu theme; the pitch + pre-match lobby keep their own music; anything
+  // else (friends, etc.) is silent. Quick-match shows 'home' UNDER the VS overlay, so leave
+  // music alone then — the lobby countdown music owns that moment and replaces whatever plays.
+  if (name === 'home') { if (!quickVs) startHomeMusic(); }
+  else if (name !== 'game' && name !== 'lobby') stopMusic();
   for (const k in screens) screens[k].classList.toggle('hidden', k !== name);
 }
 
@@ -998,6 +1007,12 @@ renderHomeCharacter();
 showScreen('home');
 startHomeDance();
 connect(MY_NAME, MY_AVATAR);
+// Cold load can't autoplay the menu theme (browser/iOS gesture policy), so kick it off on
+// the user's first interaction — but only if they're still on the home screen.
+addEventListener('pointerdown', () => {
+  unlockAudio();
+  if (homeEl && !homeEl.classList.contains('hidden') && !quickVs) startHomeMusic();
+}, { once: true, capture: true });
 
 // Home actions.
 document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
