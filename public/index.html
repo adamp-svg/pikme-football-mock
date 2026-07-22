@@ -103,9 +103,9 @@
         <h4 class="friends-h">החברים שלי</h4>
         <div id="friend-list" class="friend-list"></div>
       </div>
-      <button id="create-room-btn" class="play"><span>צור חדר</span><b>›</b></button>
+      <button id="create-room-btn" class="play compact-room"><span>צור חדר</span><b>›</b></button>
       <div class="join-row">
-        <input id="join-code" class="code-input" dir="ltr" maxlength="4" placeholder="קוד" autocapitalize="characters" autocomplete="off" />
+        <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
         <button id="join-room-btn" class="play join-btn">הצטרף</button>
       </div>
       <p id="room-error" class="room-error hidden"></p>
@@ -125,6 +125,8 @@
           <div class="count-pill"><strong id="lobby-online">0</strong><small>מחוברים</small></div>
         </div>
       </div>
+      <!-- #14: HOST-only pending join requests (accept/reject), rendered by client.js -->
+      <div id="room-requests" class="room-requests hidden" dir="rtl"></div>
       <div class="teams">
         <div class="team-panel team1">
           <div class="team-title">קבוצה 1</div>
@@ -142,6 +144,17 @@
       <p id="lobby-hint" class="hint">בחרו קבוצה כדי להיות עם חבר, ואז <b>שחקו עכשיו</b> — המשחק מתחיל אחרי ספירה של 5 שניות; מקומות פנויים מתמלאים בבוטים.</p>
     </div>
     <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
+  </div>
+
+  <!-- #14: joiner "waiting for host approval" overlay (top-level). Closes on cancel or a
+       backdrop click (client.js withdraws the request). -->
+  <div id="room-wait" class="room-wait hidden" dir="rtl">
+    <div class="room-wait-card">
+      <div class="room-wait-spin"></div>
+      <div class="room-wait-title">ממתין לאישור המארח…</div>
+      <div class="room-wait-sub">הבקשה נשלחה · קוד חדר <b class="room-wait-code">···</b></div>
+      <button id="room-wait-cancel" class="play ghost small">ביטול</button>
+    </div>
   </div>
 
   <!-- Team intro / quick-match VS + countdown screen (top-level overlay) -->
@@ -214,15 +227,19 @@
     <button id="pause-btn" class="pause-btn">⏸</button>
     <button id="sound-btn" class="sound-btn" aria-label="השתקת אפקטים" title="אפקטים">🔊</button>
     <button id="music-btn" class="music-btn" aria-label="מוזיקה" title="מוזיקה">🎵</button>
+    <!-- #17: always-available "back to lobby" — works in a match AND in the training ground -->
+    <button id="leave-lobby-btn" class="leave-lobby-btn" aria-label="חזרה ללובי" title="חזרה ללובי">‹ לובי</button>
 
     <div id="settings" class="settings-panel hidden">
       <div class="settings-card" dir="rtl">
         <h2>הגדרות</h2>
+        <!-- #16: responsive grid so all controls fit on screen without a scrollbar -->
+        <div class="settings-grid">
         <div class="setting">
           <div class="setting-row"><span>🎵 עוצמת מוזיקה</span></div>
           <input type="range" id="s-musicvol" min="0" max="1" step="0.05" />
         </div>
-        <div class="setting">
+        <div class="setting setting-wide">
           <div class="setting-row"><span>רמת קושי (בוטים)</span></div>
           <div id="difficulty" class="difficulty">
             <button type="button" class="diff-btn" data-diff="easy">קל</button>
@@ -263,6 +280,7 @@
           <div class="setting-row"><span>הדיפת פצצה</span><span id="v-bombPower"></span></div>
           <input type="range" id="s-bombPower" min="0" max="5000" step="20" />
         </div>
+        </div><!-- /.settings-grid -->
         <div class="settings-actions">
           <button id="reset-settings" class="ghost-btn">איפוס</button>
           <button id="resume" class="resume">המשך</button>
@@ -276,7 +294,7 @@
     <div class="picker-panel">
       <div class="picker-top">
         <span class="picker-title">בחר דמות</span>
-        <button id="pick-close" class="picker-x" aria-label="סגור">✕</button>
+        <!-- #15: no ✕ — tap outside the panel to close (handled in client.js) -->
       </div>
       <canvas id="pick-preview" class="pick-preview" width="180" height="200"></canvas>
       <div id="pick-name" class="pick-name"></div>

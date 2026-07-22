@@ -99,19 +99,29 @@ function makeRoom(id, isPrivate, mode = 'match') {
     botMem: createBotMemory(), // persistent bot-AI memory (roles, aim, beliefs)
     botCounter: 0,
     matchCounter: 0,         // increments each match — feeds the stable per-match id
+    hostId: null,            // member.id of a private room's creator/HOST — only they may accept/reject/kick
+    pending: new Map(),      // memberId -> member awaiting the host's approval to join (private rooms)
     members: new Set(),      // member objects
     slotIds: null, slotTeam: null, rosterVersion: 0, // binary-snapshot slot->id/team mapping
   };
 }
 
-const CODE_CHARS = 'ACDEFHJKLMNPRTUVWXY34679'; // no ambiguous chars (0/O/1/I…)
+// Private-room codes are 3-digit numeric strings "000".."999" (zero-padded), unique among ALL active
+// rooms (public "pub-*" / training "train-*" ids can never collide with a 3-digit code). Returns null
+// only if all 1000 codes are somehow taken.
 function genCode() {
-  let code;
-  do {
-    code = '';
-    for (let i = 0; i < 4; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
-  } while (rooms.has(code));
-  return code;
+  for (let tries = 0; tries < 4000; tries++) {
+    const code = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+    if (!rooms.has(code)) return code;
+  }
+  return null;
+}
+// Normalize a user-typed join code to the stored 3-digit form: keep digits, pad to 3 ("7" -> "007").
+// Empty -> '' (never matches). A >3-digit string is returned as-is (also won't match a real code).
+function normalizeRoomCode(raw) {
+  const digits = String(raw == null ? '' : raw).replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.length <= 3 ? digits.padStart(3, '0') : digits;
 }
 
 function emptyInput() {
@@ -144,21 +154,36 @@ function balancedTeam(room) {
   return A <= B ? 'A' : 'B';
 }
 
-function fillBots(room) {
+function fillBots(room, rosterOut) {
   if (room.mode === 'training') return; // training has its own fixed dummy + sentry — no backfill
   const teamCount = (t) => Object.values(room.state.players).filter((p) => p.team === t).length;
   const usedSlots = (t) => new Set(Object.values(room.state.players).filter((p) => p.team === t).map((p) => p.slot));
+  // #18 — consume the countdown PREVIEW plan (room.botPlan) so the bots that actually spawn keep the
+  // team/slot/loadout/cosmetic the VS/countdown already showed (preview == match). Matched by
+  // (team,slot); a leftover entry is reused in order, and with no plan we fall back to generating.
+  const plan = Array.isArray(room.botPlan) ? room.botPlan.slice() : [];
+  const takePlanned = (team, slot) => { let i = plan.findIndex((p) => p.team === team && p.slot === slot); if (i < 0) i = plan.length ? 0 : -1; return i >= 0 ? plan.splice(i, 1)[0] : null; };
   while (Object.keys(room.state.players).length < MAX_PLAYERS) {
     const team = teamCount('A') <= teamCount('B') ? 'A' : 'B';
     const slot = usedSlots(team).has(0) ? 1 : 0;
     const id = `bot-${room.id}-${++room.botCounter}`;
-    // EXTREME bots get a movement-SPEED cheat (+ a little extra shot/tool power that STACKS on
-    // the skill preset's chargeRate/cdMul) via the same card-buff path — no wire change.
-    const buffs = room.botDifficulty === 'extreme'
-      ? { cardShot: 1.4, speedBuff: 1.30, cardUtil: 0.65 }
-      : randomBotBuffs(room.botBuffTarget);
-    addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic: randomBotCosmetic(), buffs });
+    const planned = takePlanned(team, slot);
+    const cosmetic = (planned && planned.cosmetic) || randomBotCosmetic();
+    // Task 18 — a bot's CARDS mirror the humans: EXTREME bots keep a fixed strong 3-card loadout +
+    // their movement-SPEED/power cheat; every other bot reuses its PREVIEWED loadout (or a fresh
+    // RANDOM 1..human-equipped-count when no preview exists), and its buffs are DERIVED from that
+    // same loadout (buffsFromLoadout) so what the intro/countdown shows == what the bot plays with.
+    let loadout, buffs;
+    if (room.botDifficulty === 'extreme') {
+      loadout = extremeBotLoadout();
+      buffs = { cardShot: 1.4, speedBuff: 1.30, cardUtil: 0.65 };
+    } else {
+      loadout = planned ? planned.loadout : randomBotLoadout(room.botLoadoutParams);
+      buffs = buffsFromLoadout(loadout);
+    }
+    addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic, buffs });
     room.inputs.set(id, emptyInput());
+    if (rosterOut) rosterOut.push({ id, name: 'Bot', avatar: null, team, cards: loadoutToCards(loadout), cosmetic, loadout, isBot: true });
   }
 }
 
@@ -188,6 +213,38 @@ function addToRoom(member, room) {
   member.team = balancedTeam(room);
   member.inMatch = false; member.afk = false;
   room.members.add(member);
+}
+
+// --- Host approval helpers (private rooms) --------------------------------------------------------
+// The HOST is the member whose id === room.hostId. Only they may accept/reject/kick (enforced in the
+// message handlers, never trusted from the client).
+function hostMember(room) {
+  if (!room || !room.hostId) return null;
+  for (const m of room.members) if (m.id === room.hostId) return m;
+  return null;
+}
+function notifyHost(room, payload) {
+  const h = hostMember(room);
+  if (h) send(h.ws, payload);
+}
+// A pending (un-admitted) joiner is dropped from its room's pending map + the host is told to remove
+// the request row. Safe to call for a member with no pending request.
+function clearPending(member) {
+  const room = member.pendingRoom;
+  if (!room) return;
+  member.pendingRoom = null;
+  room.pending.delete(member.id);
+  notifyHost(room, { type: 'joinRequestCancelled', joinerId: member.id });
+}
+// The host left a still-populated room: hand host to any remaining member and repopulate that new
+// host's pending-request UI so waiting joiners aren't stranded.
+function transferHost(room) {
+  const next = room.members.values().next().value;
+  if (!next) return;
+  room.hostId = next.id;
+  for (const p of room.pending.values()) {
+    send(next.ws, { type: 'joinRequest', joinerId: p.id, userId: p.userId || null, name: p.name, avatar: p.avatar || null, cosmetic: p.cosmetic || DEFAULT_COSMETIC, cards: p.cards || [] });
+  }
 }
 
 function quickMatch(member) {
@@ -259,43 +316,55 @@ function startTraining(member) {
 function startChallengeMatch(a, b) {
   leaveCurrentRoom(a);
   leaveCurrentRoom(b);
-  const room = makeRoom(genCode(), true);
+  const code = genCode();
+  if (!code) { send(a.ws, { type: 'challengeError', msg: 'אין קודי חדר פנויים' }); send(b.ws, { type: 'challengeError', msg: 'אין קודי חדר פנויים' }); return; }
+  const room = makeRoom(code, true);
   rooms.set(room.id, room);
+  room.hostId = a.id; // challenger nominally hosts; both are auto-admitted (a challenge IS mutual consent — no approval step)
   addToRoom(a, room);
   addToRoom(b, room);
   a.team = 'A';
   b.team = 'B';
-  send(a.ws, { type: 'roomJoined', mode: 'private', code: room.id });
-  send(b.ws, { type: 'roomJoined', mode: 'private', code: room.id });
+  send(a.ws, { type: 'roomJoined', mode: 'private', code: room.id, host: true });
+  send(b.ws, { type: 'roomJoined', mode: 'private', code: room.id, host: false });
   startCountdown(room);
   broadcastLobby(room);
 }
 
 function createPrivateRoom(member) {
   leaveCurrentRoom(member);
-  const room = makeRoom(genCode(), true);
+  const code = genCode();
+  if (!code) { send(member.ws, { type: 'roomError', msg: 'אין קודי חדר פנויים, נסו שוב' }); return; }
+  const room = makeRoom(code, true);
   rooms.set(room.id, room);
+  room.hostId = member.id; // the creator is the HOST — only they may accept/reject/kick
   addToRoom(member, room);
-  send(member.ws, { type: 'roomJoined', mode: 'private', code: room.id });
+  send(member.ws, { type: 'roomJoined', mode: 'private', code: room.id, host: true });
   broadcastLobby(room);
 }
 
+// Join-by-code: the joiner does NOT enter the room yet — they go PENDING and the HOST is notified.
+// The host's joinDecision (accept) admits them; reject/leave/disconnect drops them.
 function joinPrivateRoom(member, code) {
-  const room = rooms.get((code || '').toUpperCase());
+  const room = rooms.get(normalizeRoomCode(code));
   if (!room || !room.isPrivate) { send(member.ws, { type: 'roomError', msg: 'החדר לא נמצא' }); return; }
   if (room.phase === 'match') { send(member.ws, { type: 'roomError', msg: 'המשחק כבר התחיל' }); return; }
   if (room.members.size >= MAX_PLAYERS) { send(member.ws, { type: 'roomError', msg: 'החדר מלא' }); return; }
-  leaveCurrentRoom(member);
-  addToRoom(member, room);
-  send(member.ws, { type: 'roomJoined', mode: 'private', code: room.id });
-  broadcastLobby(room);
+  if (room.pending.size >= MAX_PLAYERS) { send(member.ws, { type: 'roomError', msg: 'יותר מדי בקשות, נסו שוב' }); return; }
+  leaveCurrentRoom(member); // leaves any current room AND clears a prior pending request (clearPending runs first)
+  member.pendingRoom = room;
+  room.pending.set(member.id, member);
+  send(member.ws, { type: 'joinPending', code: room.id });
+  notifyHost(room, { type: 'joinRequest', joinerId: member.id, userId: member.userId || null, name: member.name, avatar: member.avatar || null, cosmetic: member.cosmetic || DEFAULT_COSMETIC, cards: member.cards || [] });
 }
 
 // Remove a member from their room; clean up / keep the match alive as needed.
 function leaveCurrentRoom(member) {
+  clearPending(member); // if this member had an outstanding join request, drop it + tell that host
   const room = member.room;
   if (!room) return;
   const wasInMatch = member.inMatch;
+  const wasHost = room.hostId === member.id;
   room.members.delete(member);
   member.room = null; member.inMatch = false;
   if (wasInMatch && room.phase === 'match') {
@@ -305,12 +374,17 @@ function leaveCurrentRoom(member) {
     else if (room.phase === 'match') { room.rosterVersion++; broadcastRoster(room); } // a bot backfilled a slot
   }
   if (room.members.size === 0) destroyRoom(room);
-  else broadcastLobby(room);
+  else { if (wasHost) transferHost(room); broadcastLobby(room); } // host disconnect/leave -> hand off to a remaining member
 }
 
 function destroyRoom(room) {
   rooms.delete(room.id);
   if (publicRoom === room) publicRoom = null;
+  // Any joiners still waiting on this (now gone) room's host must be returned to the lobby.
+  if (room.pending) {
+    for (const p of room.pending.values()) { p.pendingRoom = null; send(p.ws, { type: 'joinRejected', code: room.id, reason: 'closed' }); }
+    room.pending.clear();
+  }
 }
 
 function startCountdown(room) {
@@ -346,17 +420,25 @@ function startMatch(room) {
   // whole process — a reused private-room code can't collide with an earlier room's matchId — and
   // identical if the same matchStart is resent. Feeds matchResult idempotency downstream (app -> backend).
   const matchId = `${room.id}-${++matchSeq}`;
-  // Roster for the team-intro overlay: every human, their team + album (cards).
-  const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [], cosmetic: m.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(m.loadout, m.cards) }));
   const introMs = Math.round(INTRO_PROMO * 1000);
+  // Roster for the team-intro overlay: EACH participant's team + album (cards) + equipped card-powers
+  // (loadout). Built BEFORE matchStart is sent, and bots are APPENDED below (Task 18) so the countdown/
+  // intro payload carries bot cards too — the client reads players[].loadout to render them.
+  const roster = assigned.map(([m, team]) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team, cards: m.cards || [], cosmetic: m.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(m.loadout, m.cards), isBot: false }));
   for (const [m, team, slot] of assigned) {
     addPlayer(room.state, m.id, { name: m.name, char: DEFAULT_CHAR, team, slot, isBot: false, cosmetic: m.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(m.loadout) });
     room.inputs.set(m.id, emptyInput());
     m.team = team; m.inMatch = true; m.afk = false; m.lastInputAt = nowMs();
+  }
+  // Size this match's bots to the humans: total card-power target + equipped-count ceiling + a pool of
+  // the humans' real card numbers (for valid bot card art), then fill empty slots — collecting each
+  // bot's synthesized loadout into `roster` so the intro shows bot cards too (Task 18).
+  room.botBuffTarget = humanBuffTarget(assigned);
+  room.botLoadoutParams = botLoadoutParamsFromHumans(assigned);
+  fillBots(room, roster);
+  for (const [m, team] of assigned) {
     send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs });
   }
-  room.botBuffTarget = humanBuffTarget(assigned); // size this match's bot card-powers to the humans
-  fillBots(room);
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0;
   room.introT = INTRO_PROMO;   // hold the sim frozen while the client plays the promo (see tickRoom)
@@ -500,7 +582,15 @@ function broadcastSnapshots() {
 }
 
 function lobbyPayload(room) {
+  ensureBotPlan(room); // #18: keep the previewed bot fill fresh for the matchmaking VS/countdown
   const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cards: m.cards || [] }));
+  // #18: on the quick-match VS, show the bots that WILL fill the empty slots (with their cards) while
+  // you wait. Private rooms also backfill bots at kickoff, but their lobby is for real friends, so we
+  // don't preview bots there — they still appear at the pre-kickoff reveal.
+  const showBots = !room.isPrivate && room.phase !== 'match';
+  const bots = (showBots && Array.isArray(room.botPlan))
+    ? room.botPlan.map((b, i) => ({ id: `botprev-${room.id}-${i}`, name: 'Bot', avatar: null, team: b.team, isBot: true, cards: b.cards, loadout: b.loadout }))
+    : [];
   return {
     type: 'lobby',
     mode: room.isPrivate ? 'private' : 'quick',
@@ -508,7 +598,9 @@ function lobbyPayload(room) {
     phase: room.phase,
     countdown: room.phase === 'countdown' ? Math.max(0, Math.ceil(room.countdownT)) : 0,
     online: onlineCount(),
+    host: room.hostId || null, // member.id of the HOST; a client shows host controls when host === its own welcome id
     members: list,
+    bots,
   };
 }
 function broadcastLobby(room) {
@@ -631,6 +723,92 @@ function randomBotBuffs(targetTotal) {
   return { cardShot: 1 / (1 - shot), speedBuff: 1 + speed, cardUtil: 1 - util };
 }
 
+// --- Bot DISPLAY loadouts (Task 18): match the humans' card COUNT + rarities, shown in the intro -----
+// Non-empty slots in a sanitized loadout = a player's equipped card count.
+function equippedCount(loadout) {
+  const L = Array.isArray(loadout) ? loadout : [];
+  return (L[0] ? 1 : 0) + (L[1] ? 1 : 0) + (L[2] ? 1 : 0);
+}
+// Inverse of RARITY_BUFF_PCT: a rarity-step pct -> its rarity name.
+const PCT_TO_RARITY = { 0.03: 'common', 0.07: 'rare', 0.12: 'epic', 0.20: 'legendary' };
+// Per-match bot sizing derived from the assigned humans: the MAX equipped count (ceiling for a bot's
+// random card count), the per-slot rarity target (human avg total / 3), and a pool of the humans' REAL
+// card numbers per rarity (so a bot's shown cards use real art).
+function botLoadoutParamsFromHumans(assigned) {
+  const humans = (assigned || []).filter((a) => a && a[0]);
+  let maxCount = 0;
+  const pool = { common: [], rare: [], epic: [], legendary: [] };
+  for (const a of humans) {
+    maxCount = Math.max(maxCount, equippedCount(sanitizeLoadout(a[0].loadout, a[0].cards)));
+    for (const c of (Array.isArray(a[0].cards) ? a[0].cards : [])) if (pool[c.r]) pool[c.r].push(c.n);
+  }
+  return { maxCount, perSlotTarget: humanBuffTarget(assigned) / 3, pool };
+}
+// A random bot loadout: k = random 1..maxCount cards (humans equip N -> bot gets 1..N), each dropped in
+// a random slot at a rarity roughly matching the humans (a chosen slot is never empty — >= common),
+// its NUMBER drawn from the humans' real cards of that rarity when available. Same [s0,s1,s2] shape as
+// sanitizeLoadout, so buffsFromLoadout consumes it directly (display == gameplay).
+function randomBotLoadout(params) {
+  const p = params || {};
+  const maxCount = Math.max(0, Math.floor(Number(p.maxCount) || 0));
+  const out = [null, null, null];
+  if (maxCount < 1) return out; // humans have no cards -> bot has none either
+  const perSlotTarget = Math.max(0, Number(p.perSlotTarget) || 0);
+  const pool = p.pool || {};
+  const k = 1 + Math.floor(Math.random() * maxCount); // 1..maxCount
+  for (const s of shuffle([0, 1, 2]).slice(0, k)) {
+    let pct = pickRarityPct(perSlotTarget);
+    if (!pct) pct = 0.03; // a chosen slot always holds a real card (>= common)
+    const r = PCT_TO_RARITY[pct] || 'common';
+    const nums = pool[r] || [];
+    const n = nums.length ? nums[Math.floor(Math.random() * nums.length)] : (1 + Math.floor(Math.random() * 60));
+    out[s] = { r, n };
+  }
+  return out;
+}
+// EXTREME bots show 3 fixed legendary cards (matching their fixed strong buffs).
+function extremeBotLoadout() { return [{ r: 'legendary', n: 1 }, { r: 'legendary', n: 2 }, { r: 'legendary', n: 3 }]; }
+// A loadout -> the compact [{r,n,c,w}] card list the roster/album UI expects.
+function loadoutToCards(loadout) {
+  return (Array.isArray(loadout) ? loadout : []).filter(Boolean).map((s) => ({ r: s.r, n: s.n, c: 1, w: 0 }));
+}
+// #18 — preview the bots that will fill this room's empty slots (team/slot/loadout/cosmetic) so the
+// quick-match VS/countdown can show opponent bots + their cards BEFORE kickoff. Mirrors startMatch's
+// human team/slot assignment + fillBots' balancing so the (team,slot) keys line up, and reuses the
+// same rarity-matching as match time. fillBots then consumes this plan verbatim (preview == match).
+function computeBotPlan(room) {
+  const humans = [...room.members].filter((m) => !m.inMatch).slice(0, MAX_PLAYERS);
+  const teamSlots = { A: [0, 1], B: [0, 1] };
+  const assigned = [];
+  for (const m of humans) { const t = m.team === 'B' ? 'B' : 'A'; if (teamSlots[t].length) assigned.push([m, t, teamSlots[t].shift()]); else assigned.push([m, null, null]); }
+  for (const a of assigned) { if (a[1]) continue; const t = teamSlots.A.length ? 'A' : 'B'; a[1] = t; a[2] = teamSlots[t].shift(); }
+  const params = botLoadoutParamsFromHumans(assigned);
+  const plan = [];
+  const countT = (t) => assigned.filter((a) => a[1] === t).length + plan.filter((b) => b.team === t).length;
+  const usedT = (t) => new Set([...assigned.filter((a) => a[1] === t).map((a) => a[2]), ...plan.filter((b) => b.team === t).map((b) => b.slot)]);
+  while (humans.length + plan.length < MAX_PLAYERS) {
+    const team = countT('A') <= countT('B') ? 'A' : 'B';
+    const slot = usedT(team).has(0) ? 1 : 0;
+    const loadout = room.botDifficulty === 'extreme' ? extremeBotLoadout() : randomBotLoadout(params);
+    plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: randomBotCosmetic() });
+  }
+  return plan;
+}
+// Signature of the human roster (+ difficulty) — the bot plan is re-rolled only when this changes, so
+// previewed cards stay STABLE across the 5Hz countdown ticks instead of flickering every frame.
+function humanSignature(room) {
+  const hs = [...room.members].filter((m) => !m.inMatch)
+    .map((m) => `${m.id}:${m.team || ''}:${equippedCount(sanitizeLoadout(m.loadout, m.cards))}`).sort();
+  return `${room.botDifficulty}|${hs.join(',')}`;
+}
+function ensureBotPlan(room) {
+  if (!room || room.mode === 'training' || room.phase === 'match') { room.botPlan = null; room.botPlanSig = null; return; }
+  const sig = humanSignature(room);
+  if (room.botPlanSig === sig && Array.isArray(room.botPlan)) return; // unchanged roster -> keep stable cards
+  room.botPlanSig = sig;
+  room.botPlan = computeBotPlan(room);
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket handling
 // ---------------------------------------------------------------------------
@@ -653,7 +831,7 @@ wss.on('connection', (ws, req) => {
         let avatar = (ident?.image || msg.avatar || '').toString().slice(0, 400) || null;
         if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
         const cards = sanitizeCards(msg.cards);
-        member = { id, ws, userId: ident?.userId || null, name, avatar, cards, loadout: sanitizeLoadout(msg.loadout, cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null, friends: [] };
+        member = { id, ws, userId: ident?.userId || null, name, avatar, cards, loadout: sanitizeLoadout(msg.loadout, cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null, pendingRoom: null, friends: [] };
         members.set(ws, member);
         if (member.userId) { onlineByUser.set(member.userId, member); notifyFriendsOfPresence(member.userId); }
         send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS, userId: member.userId });
@@ -676,6 +854,35 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'createRoom') { createPrivateRoom(member); return; }
       if (msg.type === 'joinRoom') { joinPrivateRoom(member, msg.code); return; }
+      if (msg.type === 'joinDecision') { // HOST accepts/rejects a pending joiner (host-only, enforced server-side)
+        const r = member.room;
+        if (!r || !r.isPrivate || r.hostId !== member.id) return;
+        const joinerId = (msg.joinerId || '').toString();
+        const joiner = r.pending.get(joinerId);
+        if (!joiner) return; // already resolved / left
+        r.pending.delete(joinerId);
+        joiner.pendingRoom = null;
+        if (msg.accept && r.members.size < MAX_PLAYERS && r.phase !== 'match') {
+          addToRoom(joiner, r);
+          send(joiner.ws, { type: 'roomJoined', mode: 'private', code: r.id, host: false });
+          broadcastLobby(r); // updated roster to everyone waiting in the room
+        } else {
+          send(joiner.ws, { type: 'joinRejected', code: r.id, reason: msg.accept ? 'full' : 'rejected' });
+        }
+        return;
+      }
+      if (msg.type === 'kick') { // HOST removes an already-joined member (host-only, enforced server-side)
+        const r = member.room;
+        if (!r || r.hostId !== member.id) return;
+        const targetId = (msg.memberId || '').toString();
+        if (!targetId || targetId === r.hostId) return; // a host can't kick themselves
+        let target = null;
+        for (const t of r.members) if (t.id === targetId) { target = t; break; }
+        if (!target) return;
+        send(target.ws, { type: 'kicked', code: r.id });
+        leaveCurrentRoom(target); // drops them (+ bot backfill if mid-match) and re-broadcasts the lobby
+        return;
+      }
       if (msg.type === 'setFriends') {
         const list = Array.isArray(msg.friends) ? msg.friends.filter((x) => typeof x === 'string').slice(0, 500) : [];
         member.friends = list;

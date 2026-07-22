@@ -232,9 +232,9 @@ html, body {
   display: flex; align-items: center; justify-content: center;
 }
 .settings-card {
-  width: min(92vw, 440px); max-height: 88vh; overflow-y: auto;
+  width: min(94vw, 560px); max-height: 90vh; overflow-y: auto; /* #16: wider for the 2-col grid */
   background: #182019; border: 4px solid #667061; border-radius: 2px;
-  padding: 18px 20px; box-shadow: inset 0 0 0 3px #0d120e, 0 10px 0 rgba(0,0,0,.65);
+  padding: 16px 18px; box-shadow: inset 0 0 0 3px #0d120e, 0 10px 0 rgba(0,0,0,.65);
 }
 .settings-card h2 { font-size: 18px; margin-bottom: 12px; text-align: center; }
 .setting { margin: 12px 0; }
@@ -860,3 +860,90 @@ html, body {
   .power-slots { gap: 6px; }
   .match-powers { right: 104px; }
 }
+
+/* ============================================================================
+   Parallel-edit batch — #13 compact room controls · #14 room requests/kick/waiting ·
+   #15 (✕ removed in markup; outside-click in client.js) · #16 no scrollbars + fit ·
+   #17 leave-to-lobby button · #3 friends states
+   ============================================================================ */
+
+/* #16 — hide scrollbars everywhere; content is laid out to fit, bars never show. */
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
+* { scrollbar-width: none; -ms-overflow-style: none; }
+
+/* #13 — "play with friends": compact create/join controls (were oversized). */
+.play.compact-room { padding: 11px 16px; font-size: 15px; }
+.play.compact-room b { font-size: 22px; right: 14px; top: 2px; }
+#friends .code-input { font: 900 18px "Arial Black", sans-serif; letter-spacing: 5px; padding: 8px 10px; }
+#friends .play.join-btn { padding: 9px 16px; font-size: 14px; }
+
+/* #17 — in-match / training "back to lobby" button (left edge, below the native close). */
+.leave-lobby-btn {
+  position: fixed; left: 12px; top: 58px; height: 34px; padding: 0 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: #182019e8; border: 2px solid #667061; box-shadow: 0 4px 0 rgba(0,0,0,.4);
+  color: #ffd76a; font: 900 12px "Arial Black", sans-serif; letter-spacing: 1px;
+  border-radius: 2px; cursor: pointer; z-index: 7; touch-action: manipulation;
+}
+.leave-lobby-btn:active { transform: scale(.94); }
+
+/* #14 — HOST pending join requests (accept/reject) above the team panels. */
+.room-requests { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.room-requests.hidden { display: none !important; }
+.room-req-h { color: #ffd76a; font: 900 11px "Arial Black", sans-serif; letter-spacing: 1px; }
+.room-req {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  background: rgba(12,18,13,.92); border: 2px solid #39463b; border-left: 4px solid var(--gold);
+}
+.room-req-av {
+  width: 30px; height: 30px; flex: none; background: #26332a center/cover no-repeat;
+  border: 2px solid #3c4a3e; color: #e7dcae; font: 900 11px "Arial Black", sans-serif;
+  display: flex; align-items: center; justify-content: center;
+}
+.room-req-name { flex: 1; min-width: 0; color: #eef2e6; font-weight: 800; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-req-ok, .room-req-no { border: 0; border-radius: 6px; padding: 7px 12px; font: 900 12px "Arial Black", sans-serif; cursor: pointer; }
+.room-req-ok { background: #35d06a; color: #04240f; }
+.room-req-no { background: #3a2626; color: #ff9a8f; border: 1px solid #6b2033; }
+.room-req-ok:active, .room-req-no:active { transform: translateY(2px); }
+
+/* #14 — host kick control on a joined member row. */
+.member-kick {
+  flex: none; width: 24px; height: 24px; margin-inline-start: auto; border-radius: 6px; cursor: pointer;
+  background: #3a2626; border: 1px solid #6b2033; color: #ff9a8f;
+  font: 900 12px "Arial Black", sans-serif; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.member-kick:active { transform: scale(.9); }
+.member-kick.hidden { display: none !important; }
+
+/* #14 — joiner "waiting for host approval" overlay. */
+.room-wait {
+  position: fixed; inset: 0; z-index: 85; display: flex; align-items: center; justify-content: center;
+  background: rgba(4,8,10,.78); backdrop-filter: blur(4px); padding: 16px;
+}
+.room-wait.hidden { display: none !important; }
+.room-wait-card {
+  width: min(90vw, 340px); text-align: center; padding: 22px 20px;
+  background: rgba(19,27,22,.98); border: 3px solid #4a5a4c; border-radius: 2px;
+  box-shadow: inset 0 0 0 3px #182018, 0 14px 40px rgba(0,0,0,.6);
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.room-wait-spin {
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 4px solid rgba(255,203,67,.25); border-top-color: var(--gold);
+  animation: roomSpin .9s linear infinite;
+}
+@keyframes roomSpin { to { transform: rotate(360deg); } }
+.room-wait-title { color: #fff4ca; font: 900 16px "Arial Black", sans-serif; letter-spacing: .5px; }
+.room-wait-sub { color: #c8d4bf; font-size: 12px; font-weight: 800; }
+.room-wait-sub b { color: var(--gold); letter-spacing: 3px; }
+.room-wait .play.ghost.small { width: auto; padding: 9px 20px; }
+
+/* #16 — settings panel: responsive grid so every control fits (no scroll). */
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 2px 16px; }
+.settings-grid .setting { margin: 6px 0; }
+.settings-grid .setting-wide { grid-column: 1 / -1; }
+.settings-grid .setting input[type=range] { height: 24px; }
+
+/* #3 — friends panel loading / empty / error placeholder (+ tap-to-retry). */
+.friend-empty { color: #8aa08c; font-size: 12px; text-align: center; padding: 10px 6px; }
+.friend-retry { cursor: pointer; color: #ffd76a; text-decoration: underline; }

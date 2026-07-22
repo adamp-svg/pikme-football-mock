@@ -55,6 +55,54 @@ function inOwnPenalty(t) {
 // would earn overcharge off a fast ball they never actually kicked.
 function clearKick(b) { b.kickTier = 0; b.overSpent = false; b.lastKicker = null; }
 
+// --- Walkable area: the pitch PLUS the two goal-net pockets ------------------
+// The pitch is [0,W]x[0,H]. Each goal adds a NET POCKET GOAL.depth deep behind its line,
+// spanning the mouth (GOAL_TOP..GOAL_BOTTOM). Players (#8) and the CARRIED ball (#10) may
+// move INTO a pocket THROUGH the mouth, but the net's back + sides — and the whole rest of
+// the boundary — stay solid. Modelled as: project the circle centre to the nearest point in
+// (pitch-rect UNION mouth-band-rect-extended-into-both-pockets). The nearest point in a
+// union of two rects is the closer of the two per-rect clamps — continuous, so there is no
+// teleport at the concave mouth corners that a naive per-axis clamp would produce.
+function clampXYToArea(x, y, r) {
+  const x1 = clamp(x, r, FIELD.W - r), y1 = clamp(y, r, FIELD.H - r);                                         // R1: the pitch
+  const x2 = clamp(x, r - GOAL.depth, FIELD.W - r + GOAL.depth), y2 = clamp(y, GOAL_TOP + r, GOAL_BOTTOM - r); // R2: mouth band, into both pockets
+  const d1 = (x - x1) * (x - x1) + (y - y1) * (y - y1);
+  const d2 = (x - x2) * (x - x2) + (y - y2) * (y - y2);
+  return d1 <= d2 ? { x: x1, y: y1 } : { x: x2, y: y2 };
+}
+function clampToArea(e, r) { const c = clampXYToArea(e.x, e.y, r); e.x = c.x; e.y = c.y; }
+
+// --- Quick-shot auto-aim targets (#6, server-authoritative) -----------------
+// Nearest enemy player to `p` — the auto-aim target for a quick BULLET. null if none.
+function nearestEnemy(state, p) {
+  let best = null, bestD = Infinity;
+  for (const id in state.players) {
+    const t = state.players[id];
+    if (t.team === p.team) continue;
+    const d = (t.x - p.x) * (t.x - p.x) + (t.y - p.y) * (t.y - p.y);
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  return best;
+}
+// Auto-aim target inside the ENEMY goal for a quick SHOT (carrier): a point on the goal
+// line — the open corner AWAY from the nearest defender guarding that line, else dead centre.
+function enemyGoalTarget(state, p) {
+  const goalX = p.team === 'A' ? FIELD.W : 0;   // A attacks right, B attacks left
+  const m = ballRadius(state) + POST_R + 4;     // keep the aim point off the posts
+  const mid = (GOAL_TOP + GOAL_BOTTOM) / 2;
+  let keeperY = null, near = Infinity;
+  for (const id in state.players) {
+    const t = state.players[id];
+    if (t.team === p.team) continue;
+    const dx = Math.abs(t.x - goalX);
+    if (dx < near) { near = dx; keeperY = t.y; }
+  }
+  // A defender within the penalty depth of the line is the de-facto keeper → shoot the far
+  // corner; otherwise go centre.
+  const ty = (keeperY != null && near < PENALTY.depth) ? (keeperY > mid ? GOAL_TOP + m : GOAL_BOTTOM - m) : mid;
+  return { x: goalX, y: ty };
+}
+
 // OVERCHARGE is a consumable meter (p.powerMeter 0..1). A FORCEFUL hit adds `amt` —
 // a full-power hit/strip/bomb fills it (1.0), a lower-power hit fills half (0.5), so it
 // takes ONE full hit OR TWO partials. When it fills, the player is READY (p.power) for
@@ -204,12 +252,8 @@ function separatePlayers(state) {
     }
     if (!moved) break;
   }
-  // Keep everyone inside the pitch after separation.
-  for (const p of arr) {
-    const r = radiusOf(p, state);
-    p.x = clamp(p.x, r, FIELD.W - r);
-    p.y = clamp(p.y, r, FIELD.H - r);
-  }
+  // Keep everyone inside the walkable area (pitch + goal-net pockets) after separation.
+  for (const p of arr) clampToArea(p, radiusOf(p, state));
 }
 
 // Bounce the (free) ball off a circular goal post at (px,py).
@@ -333,8 +377,9 @@ export function step(state, inputs, dt) {
     const rad = radiusOf(p, state);
     const pSteps = Math.max(1, Math.ceil(Math.hypot((p.vx + p.kvx) * dt, (p.vy + p.kvy) * dt) / (BUILT_WALL.thick * 0.5)));
     for (let s = 0; s < pSteps; s++) {
-      p.x = clamp(p.x + (p.vx + p.kvx) * dt / pSteps, rad, FIELD.W - rad);
-      p.y = clamp(p.y + (p.vy + p.kvy) * dt / pSteps, rad, FIELD.H - rad);
+      p.x += (p.vx + p.kvx) * dt / pSteps;
+      p.y += (p.vy + p.kvy) * dt / pSteps;
+      clampToArea(p, rad); // pitch + goal-net pockets (#8): the mouth is a legal opening; the rest of the boundary is solid
       resolveWalls(p, rad, state.builtWalls, undefined, arenaOf(state).walls); // slide along static + built walls each substep
     }
     const kdec = p.launchGlide > 0 ? BOMB_LAUNCH_DECAY : KNOCKBACK_DECAY; // gentle glide while launched → smooth arc
@@ -424,20 +469,36 @@ export function step(state, inputs, dt) {
       const isOver = isFull && p.power;    // OVERCHARGE = full + earned meter
       if (b.owner === p.id) {
         const cm = chargeMul(eff); // charged shot = further/faster
+        // #11 SNOOKER STRIKE + #6 AUTO-AIM: pick a target, then strike the ball cleanly ALONG
+        // the vector from the BALL's centre to it — no offset/tangential skew, so the ball's
+        // velocity direction == the intended aim exactly. A QUICK shot (anything short of a full
+        // aimed charge) auto-aims at the enemy goal; a FULL aimed shot honours the player's aim.
+        let dx = p.aimX, dy = p.aimY;
+        if (!isFull) {
+          const tgt = enemyGoalTarget(state, p);
+          dx = tgt.x - b.x; dy = tgt.y - b.y;
+          const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        }
         b.owner = null;
         b.lastTouch = p.team;
         b.lastKicker = p.id; // who launched it — refills power if this kick bumps an enemy
         b.kickTier = isOver ? 2 : isFull ? 1 : 0; // how it behaves hitting an enemy (see the bump handler)
         b.overSpent = isOver; // an overcharge kick's ball can't re-farm the meter (any later bump)
-        b.vx = p.aimX * state.settings.shotPower * cm;
-        b.vy = p.aimY * state.settings.shotPower * cm;
+        b.vx = dx * state.settings.shotPower * cm;
+        b.vy = dy * state.settings.shotPower * cm;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
         if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; } // an OVERCHARGE kick spends the meter
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
         // A FULL bullet strips a carrier; an OVERCHARGE bullet (isOver) strips AND pushes
         // harder — and spends the meter, same as an overcharge kick.
-        fireBullet(state, p, ch, eff, isOver);
+        // #6: a QUICK bullet (not a full aimed shot) auto-aims at the NEAREST enemy.
+        let ax = p.aimX, ay = p.aimY;
+        if (!isFull) {
+          const foe = nearestEnemy(state, p);
+          if (foe) { const ex = foe.x - p.x, ey = foe.y - p.y, el = Math.hypot(ex, ey) || 1; ax = ex / el; ay = ey / el; }
+        }
+        fireBullet(state, p, ch, eff, isOver, ax, ay);
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
         if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; }
@@ -449,14 +510,16 @@ export function step(state, inputs, dt) {
   }
 
   // --- Ball: glued to a holder, or free physics + pickup ---
+  let walkInScored; // #9: set to the scoring team if a carrier dribbles the ball into the net this tick
   if (b.owner && state.players[b.owner]) {
     const h = state.players[b.owner];
     const ballR = ballRadius(state);
     const off = radiusOf(h, state) + ballR;
-    // where the ball WANTS to glue (in front) — kept inside the pitch so a carrier at the
-    // line can't park the ball past the goal line (a free release would then tap in).
-    const gx = clamp(h.x + h.aimX * off, ballR, FIELD.W - ballR);
-    const gy = clamp(h.y + h.aimY * off, ballR, FIELD.H - ballR);
+    // Where the ball WANTS to glue (in front). Clamped to the walkable area (#10): it stays
+    // inside the pitch on every SOLID edge (accounting for ballR), but MAY cross a goal line
+    // into the net pocket THROUGH the mouth — which is exactly how a dribble-in scores (#9).
+    const glued = clampXYToArea(h.x + h.aimX * off, h.y + h.aimY * off, ballR);
+    const gx = glued.x, gy = glued.y;
     // If that spot is inside a wall (you walked the ball INTO cover), it can't stay there
     // — pop it loose off the holder so it rolls forward into the wall and bounces back.
     const walls = arenaOf(state).walls.concat(state.builtWalls || []);
@@ -467,6 +530,13 @@ export function step(state, inputs, dt) {
       b.vx = h.aimX * BALL_WALL_POP_SPEED; b.vy = h.aimY * BALL_WALL_POP_SPEED;
     } else {
       b.x = gx; b.y = gy; b.vx = 0; b.vy = 0;
+      // #9 DRIBBLE-IN GOAL: the carrier walked the ball across the goal line into the net.
+      // Only the ATTACKING team scores (no own goals). The mouth clamp above is the ONLY way a
+      // CARRIED ball reaches x<0 / x>W, so this can't misfire in open play. The ball stays owned
+      // (frozen in the net through the goal hold); handleBallBounds is skipped for an owned ball.
+      const inMouthY = gy > GOAL_TOP && gy < GOAL_BOTTOM;
+      if (inMouthY && gx < 0 && h.team === 'B') walkInScored = goal(state, 'B');
+      else if (inMouthY && gx > FIELD.W && h.team === 'A') walkInScored = goal(state, 'A');
     }
   } else {
     b.owner = null;
@@ -537,16 +607,18 @@ export function step(state, inputs, dt) {
   updateBlasts(state, dt);
   updateImpacts(state, dt);
 
-  // Goals only count for a free (unheld) ball.
-  const scored = state.ball.owner ? undefined : handleBallBounds(state);
+  // Goals: a dribble-in by a carrier (#9, detected above while the ball is still owned), OR a
+  // free (unheld) ball crossing the line (handleBallBounds). Owned ball => handleBallBounds skipped.
+  const scored = walkInScored || (state.ball.owner ? undefined : handleBallBounds(state));
   state.tick++;
   return scored;
 }
 
 // --- Weapons -------------------------------------------------------------
 
-// PRIMARY attack — fire a bullet in the aim direction, scaled by charge.
-function fireBullet(state, p, ch, charge, over = false) {
+// PRIMARY attack — fire a bullet along `aimX,aimY` (defaults to the player's aim; a quick
+// shot passes an auto-aim direction toward the nearest enemy, see #6), scaled by charge.
+function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY) {
   p.shootCd = ch.shootCooldown;
   p.firing = true;
   const cm = chargeMul(charge);
@@ -554,8 +626,8 @@ function fireBullet(state, p, ch, charge, over = false) {
   const spd = state.settings.bulletSpeed * cm;
   state.projectiles.push({
     id: state._nid++, owner: p.id, team: p.team,
-    x: p.x + p.aimX * off, y: p.y + p.aimY * off,
-    vx: p.aimX * spd, vy: p.aimY * spd,
+    x: p.x + aimX * off, y: p.y + aimY * off,
+    vx: aimX * spd, vy: aimY * spd,
     dist: 0,            // travelled distance -> proximity knockback
     charge: charge || 0, // 0..1 (a full charge ignores the point-blank rule)
     over: !!over,       // OVERCHARGE bullet — strips/pushes harder (see hitEnemy)

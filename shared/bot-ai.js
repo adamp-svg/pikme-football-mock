@@ -30,6 +30,11 @@ const PEN_BOT = (FIELD.H + PENALTY.width) / 2;
 const enemyGoalX = (team) => (team === 'A' ? FIELD.W : 0);
 const ownGoalX = (team) => (team === 'A' ? 0 : FIELD.W);
 
+// Anti-omniscience memory (task #4): after a NON-EXTREME bot loses sight of an enemy it was
+// tracking, it keeps aiming at that enemy's dead-reckoned last-seen spot for this long, then
+// just holds on the stale spot (searches) — it never re-locks onto the live, unseen position.
+const LOST_SIGHT_MEMORY = 0.9; // seconds of last-seen aim memory before a bot "gives up" and searches
+
 // ---- difficulty skill vectors ----
 // easy/normal/hard have HUMAN-like attributes (reaction latency + noisy aim stay in
 // a human band — no superhuman reflexes, no wallhack). Difficulty scales reaction/
@@ -118,6 +123,21 @@ export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, marg
     for (const f of foes) if (hyp(f.x - x, f.y - y) < er) return false;
   }
   return true;
+}
+
+// ---- INDESTRUCTIBLE line-of-sight (task #5): does a STATIC stone wall block the straight
+// segment (x0,y0)->(x1,y1)? Used to VETO a shot/tackle aimed AT an enemy sitting behind stone —
+// a bullet or rocket-jump can't reach through an indestructible wall. Player-BUILT (destructible)
+// walls are intentionally IGNORED here: the sim lets shots chip/kill those, so they must NOT
+// suppress the attempt (that stays "per existing behavior", handled by laneClear elsewhere).
+// Step count scales with length so a ~120px wall is never stepped over on a long line. ----
+function indestructibleBlocks(x0, y0, x1, y1) {
+  const steps = Math.max(6, Math.ceil(hyp(x1 - x0, y1 - y0) / 40));
+  for (let i = 1; i <= steps; i++) {
+    const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
+    for (const w of ARENA.walls) if (pointInBox(x, y, w)) return true;
+  }
+  return false;
 }
 
 // ---- distance from point (px,py) to segment (ax,ay)-(bx,by) ----
@@ -220,6 +240,26 @@ export function botCanSee(viewer, target, state, sk) {
   if (target.firing) return true;                        // muzzle flash reveals
   if (dist < BUSH_REVEAL_DIST) return true;              // close enough to spot in the bush
   return false;                                          // off-ball, bushed, not close, not firing = HIDDEN
+}
+
+// ---- PER-BOT PERCEPTION MEMORY (task #4): where may THIS bot AIM at an enemy it is tracking? ----
+// A NON-EXTREME bot must not perceive a player it can't see. While the enemy is in sight
+// (`canSee`, which already bakes in tier VISION_RANGE/BALL_VISION), track it live and remember
+// {pos, vel, when}. After sight is lost, dead-reckon that last-seen point forward for
+// LOST_SIGHT_MEMORY seconds, then FREEZE on the spot (the bot searches where it vanished) — it
+// never snaps back onto the live position. Returns null if this bot has no memory of the target
+// at all (callers then simply don't aim at it). EXTREME (`sk.cheat`) always tracks live, exactly
+// as before — its sanctioned x-ray of OPEN enemies is left intact (bushed foes still fail
+// `canSee`, so the SHOT gate keeps them safe from EXTREME too).
+function perceivedPos(bm, tgt, canSee, sk, mem) {
+  if (canSee || (sk && sk.cheat)) {
+    bm.seen = { id: tgt.id, x: tgt.x, y: tgt.y, vx: tgt.vx || 0, vy: tgt.vy || 0, t: mem.t };
+    return { x: tgt.x, y: tgt.y, vx: tgt.vx || 0, vy: tgt.vy || 0, live: true };
+  }
+  const s = bm.seen;
+  if (!s || s.id !== tgt.id) return null;                 // no memory of THIS enemy — don't reveal it
+  const adv = clamp(mem.t - s.t, 0, LOST_SIGHT_MEMORY);   // dead-reckon during the window, then freeze
+  return { x: s.x + s.vx * adv, y: s.y + s.vy * adv, vx: s.vx, vy: s.vy, live: false };
 }
 
 // ---- CONTEXT STEERING: pick a movement dir toward `tgt`, avoiding walls/bombs/bullets ----
@@ -672,11 +712,18 @@ function decideBot(p, role, state, mem, sk, dt) {
     // ===== ENEMY CARRIES: press (onBall) or cover (support) =====
     const c = carrier, distC = hyp(c.x - p.x, c.y - p.y);
     const seeC = botCanSee(p, c, state, sk);
+    // Anti-omniscience (non-EXTREME): only AIM at the carrier while THIS bot can actually see it;
+    // after losing sight, aim at its dead-reckoned last-seen spot briefly, then search there —
+    // never swing the reticle onto a live position it can't see. `tgt` still chases the ball (the
+    // shared objective / belief) exactly as before. EXTREME keeps its live x-ray aim.
+    const pc = perceivedPos(bm, c, seeC, sk, mem);
     const lane = laneClear(p.x, p.y, c.x, c.y, state, team, { enemies: false });
     if (isOnBall) {
       tgt = { x: c.x, y: c.y };
-      const [ax, ay] = quadraticIntercept(p.x, p.y, c.x, c.y, c.vx || 0, c.vy || 0, bulletSpeed);
-      aim = { x: ax, y: ay };
+      if (pc) {
+        const [ax, ay] = quadraticIntercept(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed);
+        aim = { x: ax, y: ay };
+      }
       // a FULL-charge bullet strips the ball even INSIDE the box (only knockback is cut there)
       if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; charge = 1; if (distC < 260) closeShot = true; }
       // bomb tackle-steal: only if the blast will actually REACH the carrier at detonation
@@ -694,7 +741,8 @@ function decideBot(p, role, state, mem, sk, dt) {
       // strip (shoot) or abort an in-progress wind-up (bm.charging); doing so was what froze
       // the bot on a plant while the carrier drove past. So the tackle only commits when we
       // AREN'T already stripping and the blast will genuinely reach (willReach ~195px).
-      if (!shoot && !bm.charging && bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe && mem.t > (bm.nextBombAt || 0)) {
+      if (!shoot && !bm.charging && bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe
+          && !indestructibleBlocks(p.x, p.y, c.x, c.y) && mem.t > (bm.nextBombAt || 0)) {
         const [cdx, cdy] = unit(c.x - p.x, c.y - p.y);
         const cannon = sk.toolSkill >= 0.85 ? staticCannonSpot(p.x, p.y, cdx, cdy) : null; // wall-backed plant right beside us?
         const plantX = cannon ? cannon.x : p.x, plantY = cannon ? cannon.y : p.y;
@@ -737,7 +785,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         // LURK: wait at the bush edge (hidden) facing the carrier's approach
         const [dx, dy] = unit(c.x - ambush.x, c.y - ambush.y);
         tgt = { x: ambush.x + dx * (ambush.hw - 25), y: ambush.y + dy * (ambush.hh - 25) };
-        aim = { x: c.x - p.x, y: c.y - p.y }; bm.lastTrick = 'ambushLurk';
+        if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y }; bm.lastTrick = 'ambushLurk';
       } else if (ambush && !bm.trap && distC > 130 && distC <= 340
                  && Math.abs(p.x - ogX) < Math.abs(c.x - ogX)             // goal-side of the carrier
                  && (ogX - c.x) * (c.vx || (ogX - c.x)) >= 0              // carrier driving at our goal
@@ -757,14 +805,16 @@ function decideBot(p, role, state, mem, sk, dt) {
       } else if (bm.trap) {
         // STRIP: burst out and full-charge strip the wall-blocked carrier
         tgt = { x: c.x, y: c.y };
-        const [ax, ay] = quadraticIntercept(p.x, p.y, c.x, c.y, c.vx || 0, c.vy || 0, bulletSpeed);
-        aim = { x: ax, y: ay };
+        if (pc) {
+          const [ax, ay] = quadraticIntercept(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed);
+          aim = { x: ax, y: ay };
+        }
         if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; charge = 1; bm.lastTrick = 'ambushStrip'; if (distC < 260) closeShot = true; }
       } else {
         // plain cover fallback: shadow / mark the 2nd enemy + opportunistic screen-wall or strip
         if (other && botCanSee(p, other, state, sk)) tgt = { x: (other.x + ogX) / 2, y: (other.y + GY) / 2 };
         else { const bush = nearestBushCenter(shadowX, shadowY, 300); tgt = bush || { x: shadowX, y: shadowY }; }
-        aim = { x: c.x - p.x, y: c.y - p.y };
+        if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y };
         const liningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 240 && Math.abs(c.x - ogX) < FIELD.W * 0.4;
         const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
         if (buildReady && liningUp && goalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)) {

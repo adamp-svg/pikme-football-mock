@@ -166,10 +166,21 @@ function updateMusicButton() {
   applyMusicVol();
 }
 // Effective music volume = the track's own base level × the user's music-volume slider.
+// #2 iOS control: SFX (AudioBufferSource->masterGain) prove WebAudio GAIN attenuates on this
+// device, so the music GainNode is the authoritative volume knob — iOS/WKWebView ignores
+// <audio>.volume once the element is captured by a MediaElementSource. We also set
+// musicEl.muted, which iOS honours regardless, as a guaranteed hard mute. Element.volume is
+// only the pre-graph (desktop) fallback, so the gain and element level never stack into v*v.
 function applyMusicVol() {
-  const v = musicEnabled ? musicVol * musicUserVol : 0;
-  if (musicGain) musicGain.gain.value = v;          // iOS + desktop: the real volume knob
-  else if (musicEl) musicEl.volume = v;             // fallback before the graph exists (desktop)
+  const on = musicEnabled;
+  const v = clamp(on ? musicVol * musicUserVol : 0, 0, 1);
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  if (musicGain) {
+    musicGain.gain.value = v;                                 // the working volume knob (same path as SFX)
+    if (musicEl) { musicEl.volume = 1; musicEl.muted = !on; } // gain owns the level; muted = guaranteed cut on iOS
+  } else if (musicEl) {
+    musicEl.muted = !on; musicEl.volume = v;                  // pre-graph fallback (desktop honours .volume)
+  }
 }
 
 function unlockAudio() {
@@ -247,20 +258,18 @@ function ensureMusicEl() {
   if (!musicEl) { musicEl = new Audio(); musicEl.preload = 'auto'; musicEl.volume = 1; }
   return musicEl;
 }
-// iOS/WKWebView IGNORES HTMLMediaElement.volume (only the hardware buttons change <audio>
-// level), so mute/volume must go through the WebAudio graph. Route the music element via a
-// MediaElementSource -> GainNode -> destination; the GainNode is controllable on iOS and
-// shares the gesture-unlocked audio session. Same-origin media, so no CORS silencing. The
-// source node can only be created ONCE per element, hence the guard.
+// The music element plays through a MediaElementSource -> GainNode -> destination graph so
+// it shares the gesture-unlocked audio session (same-origin media, no CORS silencing) and so
+// the GAIN can set loudness on iOS (where <audio>.volume is ignored). The source node can be
+// created ONCE per element, hence the guard. applyMusicVol() then drives musicGain.gain.
 function ensureMusicGraph() {
   if (musicGain || !audioCtx || !musicEl) return;
   try {
     musicSrcNode = audioCtx.createMediaElementSource(musicEl);
     musicGain = audioCtx.createGain();
     musicSrcNode.connect(musicGain).connect(audioCtx.destination);
-    musicEl.volume = 1;   // the GainNode owns the level from here on
-    applyMusicVol();
-  } catch { /* already connected / unsupported → fall back to musicEl.volume */ }
+    applyMusicVol();   // gain now owns the level (musicGain.gain = v)
+  } catch { /* already connected / unsupported → element.volume/.muted fallback still applies */ }
 }
 // iOS/WKWebView silently DROPS the first html-audio play when it races AudioContext
 // startup — which is exactly the lobby countdown (it fires right after the Quick Match
@@ -308,10 +317,13 @@ function startTrainingMusic() {
   musicKind = 'training';
   playMusic(TRAINING_MUSIC, true, 0.32);
 }
-function startLobbyCountdownMusic() {
-  if (musicKind === 'lobby') return; // countdown payloads repeat every tick; start once
+// #12: the lobby/waiting theme starts the instant you enter a lobby (not only at the
+// countdown) and LOOPS for the whole wait, so entering feels instant. Idempotent — the
+// repeating lobby/countdown payloads call it every tick; it actually starts exactly once.
+function startLobbyMusic() {
+  if (musicKind === 'lobby') return;
   musicKind = 'lobby';
-  playMusic(LOBBY_MUSIC, false, 0.5);
+  playMusic(LOBBY_MUSIC, true, 0.5);
 }
 function startHomeMusic() {
   if (musicKind === 'home') return;  // already looping the menu theme
@@ -856,15 +868,14 @@ function showSlotInfo(i) {
   const box = powerInfoEl.querySelector('.pinfo-card');
   box.className = 'pinfo-card' + (card ? ' rarity-' + card.r : '');
   box.innerHTML =
-    '<button class="pinfo-x" aria-label="סגור">✕</button>'
-    + '<div class="pinfo-head"><span class="pinfo-icon">' + meta.icon + '</span><b>' + meta.label + '</b></div>'
+    // #15: no ✕ — the popup closes on an outside/backdrop click (handler bound above).
+    '<div class="pinfo-head"><span class="pinfo-icon">' + meta.icon + '</span><b>' + meta.label + '</b></div>'
     + '<p class="pinfo-desc">' + meta.desc + '</p>'
     + (card
       ? '<div class="pinfo-eq">קלף מצויד: ' + (HEB_RAR[card.r] || '') + ' · <span class="pinfo-pct">+' + (RARITY_PCT[card.r] || 0) + '% חוזק</span></div>'
       : '<p class="pinfo-empty">חריץ ריק — גררו קלף מהאוסף לכאן כדי לצייד את הכוח.</p>')
     + '<div class="pinfo-tiers">נדירות הקלף קובעת את החוזק: נפוץ +3% · נדיר +7% · אדיר +12% · אגדי +20%</div>'
     + (card ? '<button class="pinfo-remove">הסר קלף מהחריץ</button>' : '');
-  box.querySelector('.pinfo-x').addEventListener('click', hidePowerInfo);
   const rm = box.querySelector('.pinfo-remove');
   if (rm) rm.addEventListener('click', () => { setSlotCard(i, null); hidePowerInfo(); });
   powerInfoEl.classList.remove('hidden');
@@ -997,9 +1008,8 @@ function startHomeDance() {
   }
 
   btnOpen.addEventListener('click', open);
-  document.getElementById('pick-close').addEventListener('click', close);
   document.getElementById('pick-save').addEventListener('click', saveAndClose);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }); // #15: outside-click closes (no ✕)
 })();
 
 // The user/home screen is shown first (no title gate): render identity + card
@@ -1027,7 +1037,12 @@ document.addEventListener('click', (e) => {
 
 // Home actions.
 document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
-document.getElementById('friends-btn').addEventListener('click', () => { unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends'); });
+document.getElementById('friends-btn').addEventListener('click', () => {
+  unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends');
+  const s = document.getElementById('friend-search'); if (s) s.value = '';
+  renderSearch([]);
+  loadFriends(); // #3: refresh on open (also self-heals a failed initial load / WS reconnect)
+});
 document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'training' }); });
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Friends actions.
@@ -1039,8 +1054,15 @@ document.getElementById('join-room-btn').addEventListener('click', () => {
   sendMsg({ type: 'joinRoom', code });
 });
 document.getElementById('friends-back').addEventListener('click', () => showScreen('home'));
+// #14/#15: joiner "waiting for approval" overlay — the cancel button withdraws the pending
+// request (leaveRoom -> server drops it + returns us home). The outside/backdrop-click handler
+// is registered further down, right after `roomWaitEl` is declared (referencing it up here is a
+// top-level TDZ that halts the whole module).
+document.getElementById('room-wait-cancel')?.addEventListener('click', () => { sendMsg({ type: 'leaveRoom' }); hideRoomWait(); });
 // Lobby actions.
-document.getElementById('lobby-leave').addEventListener('click', () => { sendMsg({ type: 'leaveRoom' }); showScreen('home'); });
+document.getElementById('lobby-leave').addEventListener('click', leaveToLobby); // #17
+// #17: leave-to-lobby button, available in-match AND in the training ground.
+document.getElementById('leave-lobby-btn')?.addEventListener('click', leaveToLobby);
 joinBtn.A.addEventListener('click', () => sendMsg({ type: 'setTeam', team: 'A' }));
 joinBtn.B.addEventListener('click', () => sendMsg({ type: 'setTeam', team: 'B' }));
 playNowBtn.addEventListener('click', () => {
@@ -1060,17 +1082,82 @@ function clearLobbyLists() {
 }
 
 // --------------------------------------------------------------------------
+// Private-room membership (#14) — host approval, kick, joiner "waiting" state.
+// EXACT wire contract is owned by the server agent; kept here as constants so it's
+// trivial to reconcile. Verified against server.js:
+//   S->C  joinRequest {joinerId,userId,name,avatar,cosmetic,cards}  (to HOST, one per joiner)
+//         joinRequestCancelled {joinerId}                            (to HOST — joiner left)
+//         joinPending {code}                                         (to JOINER — awaiting approval)
+//         joinRejected {code,reason}   reason: rejected|full|closed  (to JOINER)
+//         kicked {code}                                              (to the removed member)
+//         roomJoined {mode,code,host:<bool>}                         (host flag on entry)
+//         lobby {... host:<hostMemberId|null>, members:[...]}        (host === myMemberId => I host)
+//   C->S  joinDecision {joinerId,accept}   |  kick {memberId}   |  leaveRoom {}
+const ROOM_MSG = {
+  JOIN_REQUEST: 'joinRequest', JOIN_CANCELLED: 'joinRequestCancelled',
+  PENDING: 'joinPending', REJECTED: 'joinRejected', KICKED: 'kicked',
+  DECIDE: 'joinDecision', KICK: 'kick',
+};
+let isRoomHost = false;                 // am I this room's host? (roomJoined.host / lobby.host === myMemberId)
+const pendingReqs = new Map();          // joinerId -> request, awaiting my (host) accept/reject
+const roomRequestsEl = document.getElementById('room-requests');
+const roomWaitEl = document.getElementById('room-wait');
+// #14/#15: outside/backdrop click on the "waiting for approval" overlay withdraws the request.
+// Registered HERE (not with the other top-level listeners above) so it runs AFTER roomWaitEl is
+// declared — a reference before this line is a TDZ that halts module evaluation.
+roomWaitEl?.addEventListener('click', (e) => { if (e.target === roomWaitEl) { sendMsg({ type: 'leaveRoom' }); hideRoomWait(); } });
+
+function clearRoomRequests() { pendingReqs.clear(); renderRoomRequests(); }
+function renderRoomRequests() {
+  if (!roomRequestsEl) return;
+  const reqs = isRoomHost ? [...pendingReqs.values()] : [];
+  roomRequestsEl.innerHTML = '';
+  roomRequestsEl.classList.toggle('hidden', reqs.length === 0);
+  if (!reqs.length) return;
+  const h = document.createElement('div'); h.className = 'room-req-h'; h.textContent = 'בקשות הצטרפות';
+  roomRequestsEl.appendChild(h);
+  for (const r of reqs) {
+    const row = document.createElement('div'); row.className = 'room-req';
+    const av = document.createElement('div'); av.className = 'room-req-av';
+    if (r.avatar) av.style.backgroundImage = `url("${r.avatar}")`; else av.textContent = memberInitials(r.name);
+    const nm = document.createElement('div'); nm.className = 'room-req-name'; nm.textContent = r.name || 'שחקן';
+    const ok = document.createElement('button'); ok.className = 'room-req-ok'; ok.textContent = 'אישור';
+    const no = document.createElement('button'); no.className = 'room-req-no'; no.textContent = 'דחייה';
+    ok.addEventListener('click', () => decideRequest(r.joinerId, true));
+    no.addEventListener('click', () => decideRequest(r.joinerId, false));
+    row.append(av, nm, ok, no);
+    roomRequestsEl.appendChild(row);
+  }
+}
+function decideRequest(joinerId, accept) {
+  sendMsg({ type: ROOM_MSG.DECIDE, joinerId, accept });
+  pendingReqs.delete(joinerId);         // resolved locally; the server won't re-notify for this one
+  renderRoomRequests();
+}
+function kickMember(memberId) { sendMsg({ type: ROOM_MSG.KICK, memberId }); }
+
+function showRoomWait(code) {
+  if (!roomWaitEl) return;
+  const c = roomWaitEl.querySelector('.room-wait-code');
+  if (c) c.textContent = code || roomCode || '···';
+  roomWaitEl.classList.remove('hidden');
+}
+function hideRoomWait() { if (roomWaitEl) roomWaitEl.classList.add('hidden'); }
+
+// --------------------------------------------------------------------------
 // Friends & Challenges (Slice 1) — pikme-server REST (Task 3) + WS presence/
 // challenge messages (Tasks 4-6). Only reachable for authenticated (Pikme)
 // connections: MY_USER_ID is set from `welcome`, which fires loadFriends().
 // --------------------------------------------------------------------------
 function apiHeaders() { return { 'content-type': 'application/json', 'football-auth': FOOTBALL_TOKEN || '' }; }
+// #3: returns null on FAILURE (so callers can show an inline error/retry state) vs an
+// array/object on success — a silent [] used to hide "couldn't load" behind "no friends".
 async function apiGet(path) {
   try {
     const r = await fetch(`${PIKME_API}${path}`, { headers: apiHeaders() });
-    if (!r.ok) { toast('החיבור נכשל, נסה שוב'); return []; }
-    return r.json();
-  } catch { toast('החיבור נכשל, נסה שוב'); return []; }
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
 }
 async function apiPost(path, body) {
   try {
@@ -1082,20 +1169,50 @@ async function apiPost(path, body) {
 
 let FRIENDS = [];          // [{userId, nickName, image}]
 let ONLINE = new Set();    // userIds currently online (from friendsPresence)
+let friendsBusy = false;   // in-flight guard so the friends fetch isn't stacked
+let searchSeq = 0;         // drops out-of-order search responses
+
+// A small placeholder row (loading / empty / error) inside a friend list. `onClick`, if
+// given, makes it a tap-to-retry row.
+function listMsg(id, text, onClick) {
+  const el = document.getElementById(id); if (!el) return;
+  el.innerHTML = '';
+  const d = document.createElement('div');
+  d.className = 'friend-empty' + (onClick ? ' friend-retry' : '');
+  d.textContent = text;
+  if (onClick) d.addEventListener('click', onClick);
+  el.appendChild(d);
+}
 
 async function loadFriends() {
-  FRIENDS = await apiGet('/handle-friends');
+  // No app identity (web/dev, or token not injected) -> say so instead of showing a blank,
+  // silently-broken panel.
+  if (!FOOTBALL_TOKEN || !MY_USER_ID) { listMsg('friend-list', 'התחברו דרך האפליקציה כדי לראות חברים'); return; }
+  if (friendsBusy) return;
+  friendsBusy = true;
+  listMsg('friend-list', 'טוען חברים…');
+  const res = await apiGet('/handle-friends');
+  friendsBusy = false;
+  if (res === null) { listMsg('friend-list', 'טעינת החברים נכשלה — הקישו לניסיון חוזר', loadFriends); return; }
+  FRIENDS = Array.isArray(res) ? res : [];
   sendMsg({ type: 'setFriends', friends: FRIENDS.map((f) => f.userId) });
   renderFriends();
   loadRequests();
 }
 async function loadRequests() {
-  const reqs = await apiGet('/handle-friends/requests');
-  renderRequests(reqs);
+  const reqs = await apiGet('/handle-friends/requests');       // secondary list — stay silent on error
+  renderRequests(Array.isArray(reqs) ? reqs : []);
 }
 async function searchFriends(q) {
   if (!q || q.length < 2) { renderSearch([]); return; }
-  renderSearch(await apiGet(`/handle-friends/search?q=${encodeURIComponent(q)}`));
+  if (!MY_USER_ID) { listMsg('friend-search-results', 'התחברו דרך האפליקציה כדי לחפש'); return; }
+  const seq = ++searchSeq;
+  listMsg('friend-search-results', 'מחפש…');
+  const res = await apiGet(`/handle-friends/search?q=${encodeURIComponent(q)}`);
+  if (seq !== searchSeq) return;                                // a newer query already fired
+  if (res === null) { listMsg('friend-search-results', 'החיפוש נכשל — נסו שוב'); return; }
+  if (!Array.isArray(res) || !res.length) { listMsg('friend-search-results', 'לא נמצאו תוצאות'); return; }
+  renderSearch(res);
 }
 
 function friendRow(f, opts = {}) {
@@ -1116,8 +1233,13 @@ function friendRow(f, opts = {}) {
   div.appendChild(btn);
   return div;
 }
-function renderList(id, items, opts) { const el = document.getElementById(id); if (!el) return; el.innerHTML = ''; items.forEach((f) => el.appendChild(friendRow(f, opts))); }
-function renderFriends() { renderList('friend-list', FRIENDS, { kind: 'friend' }); }
+function renderList(id, items, opts, emptyText) {
+  const el = document.getElementById(id); if (!el) return;
+  el.innerHTML = '';
+  if (!items || !items.length) { if (emptyText) listMsg(id, emptyText); return; }
+  items.forEach((f) => el.appendChild(friendRow(f, opts)));
+}
+function renderFriends() { renderList('friend-list', FRIENDS, { kind: 'friend' }, 'עדיין אין חברים — חפשו כינוי כדי להוסיף'); }
 function renderSearch(items) { renderList('friend-search-results', items, { kind: 'search' }); }
 function renderRequests(items) { renderList('friend-requests', items, { kind: 'request' }); }
 
@@ -1185,17 +1307,41 @@ function connect(name, avatar) {
       homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
     } else if (msg.type === 'roomJoined') {
       roomMode = msg.mode; roomCode = msg.code || null;
+      isRoomHost = !!msg.host;                 // #14: host gets approval + kick controls
+      clearRoomRequests(); hideRoomWait();     // fresh room: no stale pending UI / waiting overlay
       clearLobbyLists(); resetPlayNow();
-      if (msg.mode === 'quick') { quickVs = true; showScreen('home'); } // VS + countdown overlay drives the wait
-      else { quickVs = false; hideVs(); showScreen('lobby'); }
+      if (msg.mode === 'quick') { quickVs = true; showScreen('home'); startLobbyMusic(); } // VS + countdown overlay drives the wait
+      else { quickVs = false; hideVs(); showScreen('lobby'); startLobbyMusic(); }           // #12: lobby theme instantly
     } else if (msg.type === 'toHome') {
       if (msg.online != null) homeOnlineEl.textContent = msg.online;
       me = { playerId: null, team: null, char: chosenChar };
+      clearRoomRequests(); hideRoomWait();   // #14: no stale host/joiner room UI back home
       quickVs = false; hideVs(); showScreen('home');
     } else if (msg.type === 'roomError') {
-      quickVs = false; hideVs();
+      quickVs = false; hideVs(); hideRoomWait();
       showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
       showScreen('friends');
+    } else if (msg.type === ROOM_MSG.PENDING) {          // #14 joiner: waiting for host approval
+      roomCode = msg.code || roomCode;
+      showRoomWait(msg.code);
+    } else if (msg.type === ROOM_MSG.REJECTED) {         // #14 joiner: host declined / room full/closed
+      hideRoomWait();
+      toast(msg.reason === 'full' ? 'החדר מלא' : msg.reason === 'closed' ? 'החדר נסגר' : 'המארח דחה את הבקשה');
+      showScreen('friends');
+    } else if (msg.type === ROOM_MSG.KICKED) {           // #14: host removed me from the room
+      hideRoomWait(); clearRoomRequests();
+      me = { playerId: null, team: null, char: chosenChar };
+      latest = null; snaps = []; predicted = null; rendered = null;
+      quickVs = false; hideVs(); hideTeamIntro(); resetPlayNow(); stopMusic();
+      toast('הוסרת מהחדר על ידי המארח');
+      showScreen('home');
+    } else if (msg.type === ROOM_MSG.JOIN_REQUEST) {     // #14 host: someone wants to join
+      pendingReqs.set(msg.joinerId, { joinerId: msg.joinerId, userId: msg.userId || null, name: msg.name || 'שחקן', avatar: msg.avatar || null, cosmetic: msg.cosmetic, cards: msg.cards || [] });
+      renderRoomRequests();
+      toast('בקשת הצטרפות חדשה');
+    } else if (msg.type === ROOM_MSG.JOIN_CANCELLED) {   // #14 host: that pending joiner left
+      pendingReqs.delete(msg.joinerId);
+      renderRoomRequests();
     } else if (msg.type === 'lobby') {
       if (quickVs) updateVsCountdown(msg); else updateLobbyUI(msg);
     } else if (msg.type === 'matchStart') {
@@ -1224,6 +1370,7 @@ function connect(name, avatar) {
 // --------------------------------------------------------------------------
 function enterMatch(msg) {
   me = { playerId: msg.playerId, team: msg.team, char: chosenChar };
+  clearRoomRequests(); hideRoomWait();   // #14: drop any host/joiner room UI as the match starts
   if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
   // apply this player's saved bot-difficulty to the match room
   if (botDifficulty && botDifficulty !== 'normal' && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', botDifficulty }));
@@ -1256,9 +1403,24 @@ function enterMatch(msg) {
 function exitToLobby() {
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
-  stopMusic();
+  clearRoomRequests();
+  startLobbyMusic(); // #12: rematch lobby gets the waiting theme right away (was silent)
   showScreen('lobby');
   resetPlayNow();
+}
+
+// #17: always-available "back to lobby" (חזרה ללובי). Leave the current match / room /
+// training cleanly and return to the home hub. `leaveRoom` is the server's catch-all (it
+// removes me from the room/match and answers with `toHome`); we also navigate locally so
+// the exit feels instant even before that reply lands.
+function leaveToLobby() {
+  sendMsg({ type: 'leaveRoom' });
+  quickVs = false; hideVs(); hideTeamIntro(); hideRoomWait(); clearRoomRequests();
+  me = { playerId: null, team: null, char: chosenChar };
+  latest = null; snaps = []; predicted = null; rendered = null;
+  resetPlayNow();
+  stopMusic();
+  showScreen('home'); // startHomeMusic() fires here (quickVs is false)
 }
 
 // ---- Team intro overlay + match roster --------------------------------------
@@ -1274,13 +1436,18 @@ function hideVs() { if (tiCountEl) tiCountEl.classList.add('hidden'); hideTeamIn
 // slots), with the big 5..0 countdown. Refreshed on every lobby payload.
 function updateVsCountdown(msg) {
   if (!teamIntroEl) return;
-  const mine = (msg.members.find((m) => m.id === myMemberId) || {}).team || 'A';
+  // #18: the server previews the bots that will fill the empty slots (msg.bots — each with team +
+  // loadout + cards), so opponents show WITH their power cards during the wait/countdown, not only at
+  // the pre-kickoff reveal. fillIntroCol already renders isBot rows + loadout art.
+  const roster = (msg.members || []).concat(msg.bots || []);
+  const mine = (roster.find((m) => m.id === myMemberId) || {}).team || 'A';
   const cols = teamIntroEl.querySelectorAll('.ti-col');
-  fillIntroCol(cols[0], msg.members, mine);
-  fillIntroCol(cols[1], msg.members, mine === 'A' ? 'B' : 'A');
-  preloadCards(msg.members.flatMap((m) => m.cards || []));
-  if (msg.phase === 'countdown' && msg.countdown > 0) { tiCountEl.textContent = msg.countdown; tiCountEl.classList.remove('hidden'); startLobbyCountdownMusic(); }
-  else { tiCountEl.classList.add('hidden'); if (musicKind === 'lobby') stopMusic(); }
+  fillIntroCol(cols[0], roster, mine);
+  fillIntroCol(cols[1], roster, mine === 'A' ? 'B' : 'A');
+  preloadCards(roster.flatMap((m) => introCardsFor(m)));
+  startLobbyMusic(); // #12: lobby theme plays for the whole wait (starts on entry, loops through the countdown)
+  if (msg.phase === 'countdown' && msg.countdown > 0) { tiCountEl.textContent = msg.countdown; tiCountEl.classList.remove('hidden'); }
+  else { tiCountEl.classList.add('hidden'); }
   teamIntroEl.classList.remove('hidden');
   requestAnimationFrame(() => teamIntroEl.classList.add('show'));
 }
@@ -1293,20 +1460,30 @@ function introCardEl(c) {
   el.appendChild(img);
   return el;
 }
+// #18: the intro/countdown power cards for ONE participant. Prefer their EQUIPPED loadout
+// (what they're actually running) — the server includes each BOT's synthesized loadout in
+// the matchStart roster (players[].loadout, with isBot:true), so bots show their cards too —
+// and fall back to a human's album top-3 if no loadout came through.
+function introCardsFor(p) {
+  if (!p) return [];
+  if (Array.isArray(p.loadout)) return p.loadout.filter(Boolean).map((s) => ({ r: s.r, n: +s.n }));
+  return rankCards(p.cards || []).slice(0, 3);
+}
 function fillIntroCol(colEl, players, team) {
   const rows = colEl.querySelector('.ti-rows'); rows.innerHTML = '';
-  const humans = players.filter((p) => p.team === team);
+  const roster = players.filter((p) => p.team === team);
   for (let i = 0; i < 2; i++) {
-    const p = humans[i];
+    const p = roster[i];
     const row = document.createElement('div'); row.className = 'ti-row';
     const av = document.createElement('div'); av.className = 'ti-av';
     const nm = document.createElement('div'); nm.className = 'ti-name';
     const cw = document.createElement('div'); cw.className = 'ti-cards';
     if (p) {
-      if (p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
-      else av.textContent = memberInitials(p.name);
-      nm.textContent = p.id === myMemberId ? `${p.name} (אני)` : p.name;
-      rankCards(p.cards).slice(0, 3).forEach((c) => cw.appendChild(introCardEl(c)));
+      const isBot = !!(p.isBot || p.bot) || !p.name;
+      if (!isBot && p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
+      else av.textContent = isBot ? '🤖' : memberInitials(p.name);
+      nm.textContent = isBot ? (p.name || 'בוט') : (p.id === myMemberId ? `${p.name} (אני)` : p.name);
+      introCardsFor(p).forEach((c) => cw.appendChild(introCardEl(c))); // bots included (#18)
     } else { av.textContent = '🤖'; nm.textContent = 'בוט'; }
     row.append(av, nm, cw);
     rows.appendChild(row);
@@ -1318,7 +1495,7 @@ function showTeamIntro(players) {
   const cols = teamIntroEl.querySelectorAll('.ti-col');
   fillIntroCol(cols[0], players, mine);                       // home column = my team
   fillIntroCol(cols[1], players, mine === 'A' ? 'B' : 'A');   // away column = rivals
-  preloadCards(players.flatMap((p) => p.cards || []));
+  preloadCards(players.flatMap((p) => introCardsFor(p)));     // #18: bots' loadout art too
   teamIntroEl.classList.remove('hidden');
   requestAnimationFrame(() => teamIntroEl.classList.add('show'));
   clearTimeout(introTimer);
@@ -1452,7 +1629,10 @@ function buildMemberRow(m, listEl) {
   const av = document.createElement('div'); av.className = 'member-av';
   const nm = document.createElement('div'); nm.className = 'member-name';
   const st = document.createElement('div'); st.className = 'member-status';
-  row.append(av, nm, st);
+  // #14: host-only kick control (shown/wired per-update in updateLobbyUI). 4th child —
+  // the [av,nm,st] destructure below stays valid.
+  const kick = document.createElement('button'); kick.className = 'member-kick hidden'; kick.textContent = '✕'; kick.setAttribute('aria-label', 'הסרה מהחדר');
+  row.append(av, nm, st, kick);
   memberRows.set(m.id, row);
   listEl.appendChild(row);
   return row;
@@ -1461,6 +1641,9 @@ function updateLobbyUI(msg) {
   roomMode = msg.mode || roomMode;
   if (msg.code) roomCode = msg.code;
   const isPrivate = msg.mode === 'private';
+  const wasHost = isRoomHost;
+  isRoomHost = !!(isPrivate && msg.host && msg.host === myMemberId); // #14: host controls (approval + kick), tracks host hand-off
+  if (isRoomHost !== wasHost) renderRoomRequests();                  // re-render only when host status flips (not every 5Hz tick)
   lobbyOnlineEl.textContent = msg.online;
   lobbyTitleEl.innerHTML = `<span></span> ${isPrivate ? 'חדר פרטי' : 'משחק מהיר'} <span></span>`;
   lobbyCodeWrap.classList.toggle('hidden', !isPrivate);
@@ -1473,13 +1656,12 @@ function updateLobbyUI(msg) {
     ? 'בחרו קבוצה ואז שחקו עכשיו. מקומות פנויים יתמלאו בבוטים.'
     : 'מחפש שחקנים… המשחק יתחיל אוטומטית.';
 
+  startLobbyMusic(); // #12: lobby theme plays for the whole wait (starts on entry, loops through the countdown)
   if (msg.phase === 'countdown' && msg.countdown > 0) {
     countdownEl.textContent = msg.countdown;
     countdownEl.classList.remove('hidden');
-    startLobbyCountdownMusic();
   } else {
     countdownEl.classList.add('hidden');
-    if (musicKind === 'lobby') stopMusic();
   }
 
   const seen = new Set();
@@ -1504,6 +1686,12 @@ function updateLobbyUI(msg) {
     if (nm.textContent !== label) nm.textContent = label;
     st.textContent = m.inMatch ? '● במשחק' : '';
     row.classList.toggle('is-me', m.id === myMemberId);
+    const kick = row.children[3];
+    if (kick) {
+      const canKick = isRoomHost && m.id !== myMemberId;   // #14: host removes already-joined players
+      kick.classList.toggle('hidden', !canKick);
+      kick.onclick = canKick ? () => kickMember(m.id) : null;
+    }
     if (m.id === myMemberId) myLobbyTeam = m.team === 'B' ? 'B' : 'A';
   }
   for (const [id, row] of memberRows) {
@@ -1531,6 +1719,16 @@ function ownSpeed() {
 }
 function ownRadius() { return (CHARACTERS[me.char]?.radius || 21) * settings.sizeMul; }
 
+// #8: mirror shared/sim.js clampXYToArea — the walkable area is the pitch PLUS the two goal
+// net-pockets reachable through the mouth, so the local prediction lets the player walk INTO
+// the goal instead of rubber-banding at the goal line. Keep in sync with the sim.
+function clampToPlayArea(x, y, r) {
+  const x1 = clamp(x, r, FIELD.W - r), y1 = clamp(y, r, FIELD.H - r);                                          // the pitch
+  const x2 = clamp(x, r - GOAL.depth, FIELD.W - r + GOAL.depth), y2 = clamp(y, GOAL_TOP + r, GOAL_BOTTOM - r); // mouth band into both pockets
+  const d1 = (x - x1) * (x - x1) + (y - y1) * (y - y1);
+  const d2 = (x - x2) * (x - x2) + (y - y2) * (y - y2);
+  return d1 <= d2 ? { x: x1, y: y1 } : { x: x2, y: y2 };
+}
 // Advance the local prediction one input step, easing velocity like the sim.
 function stepPrediction(moveX, moveY, dt) {
   let mx = moveX, my = moveY;
@@ -1540,8 +1738,8 @@ function stepPrediction(moveX, moveY, dt) {
   predVel.x += (tvx - predVel.x) * MOVE_ACCEL;
   predVel.y += (tvy - predVel.y) * MOVE_ACCEL;
   const r = ownRadius();
-  predicted.x = clamp(predicted.x + predVel.x * dt, r, FIELD.W - r);
-  predicted.y = clamp(predicted.y + predVel.y * dt, r, FIELD.H - r);
+  const c = clampToPlayArea(predicted.x + predVel.x * dt, predicted.y + predVel.y * dt, r);
+  predicted.x = c.x; predicted.y = c.y;
   // Keep the prediction out of walls (built walls arrive in the snapshot) so the
   // local player slides along cover instead of clipping through then rubber-banding.
   const e = { x: predicted.x, y: predicted.y, vx: predVel.x, vy: predVel.y };
@@ -1627,18 +1825,26 @@ addEventListener('keyup', (e) => {
 
 let mouse = { x: 0, y: 0, down: false };
 const canvas = document.getElementById('canvas');
-canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+// #1 ROOT CAUSE of the "quick shot out of nowhere": iOS/WKWebView synthesises mouse
+// events (mousedown/mouseup) ~300ms AFTER a touch that didn't preventDefault. Those
+// phantom clicks land on the right half of the pitch, so mousedown->beginCharge() +
+// mouseup->(aimPulled? releaseShot()) fired a real bullet with no deliberate input.
+// Touch drives its own charge/aim path (see the joystick handlers), so on a touch
+// device the mouse listeners must NOT run at all. Desktop never sets usingTouch.
+canvas.addEventListener('mousemove', (e) => { if (usingTouch) return; mouse.x = e.clientX; mouse.y = e.clientY; });
 canvas.addEventListener('mousedown', (e) => {
+  if (usingTouch) return;                                                     // ignore synthesized-from-touch mouse events
   if (e.button === 2) { specialQueued = true; specialAim = { x: 0, y: 0 }; }   // right-click = special, feet plant
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
-addEventListener('mouseup', (e) => { if (mouse.down && e.button !== 2) { if (aimPulled()) releaseShot(); else cancelCharge(); } mouse.down = false; });
+addEventListener('mouseup', (e) => { if (usingTouch) return; if (mouse.down && e.button !== 2) { if (aimPulled()) releaseShot(); else cancelCharge(); } mouse.down = false; });
 addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Special-skill button (touch + click)
 const specialBtn = document.getElementById('special');
 const pauseBtn = document.getElementById('pause-btn');
 const soundBtn = document.getElementById('sound-btn');
+const leaveLobbyBtn = document.getElementById('leave-lobby-btn'); // #17
 const settingsPanel = document.getElementById('settings');
 // Bomb: a TAP plants at your feet (rocket-jump). A press-and-DRAG aims a short lob;
 // release past the deadzone throws it, release back inside the deadzone (after having
@@ -1791,6 +1997,8 @@ function closeSettings() {
 }
 pauseBtn.addEventListener('click', openSettings);
 document.getElementById('resume').addEventListener('click', closeSettings);
+// #15: click the dark backdrop (outside the settings card) to close — no ✕ button.
+settingsPanel.addEventListener('click', (e) => { if (e.target === settingsPanel) closeSettings(); });
 document.getElementById('reset-settings').addEventListener('click', () => {
   settings.speedMul = 0.8; settings.sizeMul = 1.25;
   settings.carrySpeedMul = 0.9; settings.ballSizeMul = 2; settings.shotPower = 1850;
@@ -1828,7 +2036,7 @@ addEventListener('touchstart', (e) => {
   usingTouch = true;
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   for (const t of e.changedTouches) {
-    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target))) continue; // buttons aren't sticks
+    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target))) continue; // buttons aren't sticks
     const left = t.clientX < innerWidth / 2;
     if (left && touchL.id === null) {
       touchL.id = t.identifier; touchL.cx = t.clientX; touchL.cy = t.clientY; touchL.dx = 0; touchL.dy = 0;
@@ -1919,6 +2127,10 @@ function sampleInput() {
   if (aimHold) { aimX = flip ? -aimHold.x : aimHold.x; aimY = aimHold.y; aimHold = null; }
   // A build-button drag aims the wall the same way; overrides aim for this frame.
   if (buildHold) { aimX = flip ? -buildHold.x : buildHold.x; aimY = buildHold.y; buildHold = null; }
+  // #6/#11: the client sends its aim vector (needed for CHARGED shots + the aim line + wall
+  // build). For a QUICK shot the SIM decides the aim server-side (goal if carrying, else the
+  // nearest enemy, with the snooker-angle impulse) and may IGNORE this vector. We deliberately
+  // do NOT compute quick-shot aim here — leaving that to the sim agent (do not add it client-side).
   const fire = fireQueued; fireQueued = false;
   const special = specialQueued; specialQueued = false;
   const sax = special ? specialAim.x : 0, say = special ? specialAim.y : 0;
@@ -1948,6 +2160,7 @@ const mainCtx = canvas.getContext('2d');
 // That single up-scale is what turns every edge into a chunky, aliased block.
 // The HUD/overlays are drawn straight onto the crisp full-res main canvas after.
 const ART_PX = 3.25;                 // device px per art-pixel (bigger = chunkier)
+const CAM_ZOOM = 1.65;               // #7: world-view zoom (ART px/world, before ART_PX). Lower = wider view so the goal NET is framed when near a goal. Was 1.85.
 const worldBuf = document.createElement('canvas');
 const wbCtx = worldBuf.getContext('2d');
 let wbW = 1, wbH = 1;                 // world-buffer dims (art px)
@@ -1973,7 +2186,9 @@ function resize() {
   wbCtx.imageSmoothingEnabled = false;
   // Tighter zoom (Brawl-Stars-like): player renders large, camera scrolls both
   // axes. `scale` is now ART px/world-unit; ×ART_PX keeps on-screen zoom ~same.
-  scale = 1.85 * wbW / FIELD.W;
+  // #7: eased the zoom out a touch (CAM_ZOOM 1.85 -> 1.65) so the goal net/area frames
+  // in view when a player is near a goal instead of sitting clipped at the screen edge.
+  scale = CAM_ZOOM * wbW / FIELD.W;
   bgCanvas.width = Math.ceil((FIELD.W + 2 * NET) * scale);
   bgCanvas.height = Math.ceil((FIELD.H + 2 * BAND) * scale);
   bgCtx.imageSmoothingEnabled = false;
