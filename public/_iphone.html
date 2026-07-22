@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lobby on iPhone 17</title>
+<style>
+  /* Dev-only viewer: runs the real localhost lobby inside an iPhone 17 landscape chassis at
+     the phone's true logical resolution (874x402pt), scaled to fit the browser window. */
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%}
+  body{background:radial-gradient(120% 120% at 50% 20%,#191d21,#0a0c0d 70%);
+    display:grid;place-items:center;overflow:hidden;font-family:system-ui,sans-serif}
+  .fitwrap{position:relative}
+  .device{width:898px;height:426px;                 /* 874x402 screen + 12px bezel */
+    background:linear-gradient(150deg,#4a4e54,#26282c 40%,#16181b);border-radius:58px;padding:12px;
+    box-shadow:0 40px 90px #000c,inset 0 0 0 2px #61656b,inset 0 0 4px 5px #0009;
+    transform-origin:center center}
+  .screen{position:relative;width:874px;height:402px;border-radius:46px;overflow:hidden;background:#000;
+    box-shadow:0 0 0 3px #000}
+  iframe{width:874px;height:402px;border:0;display:block;background:#0c120e}
+  .island{position:absolute;top:9px;left:50%;transform:translateX(-50%);width:108px;height:26px;background:#000;
+    border-radius:15px;z-index:9;pointer-events:none;box-shadow:inset 0 0 0 1px #141414}
+  .island::after{content:"";position:absolute;right:11px;top:50%;transform:translateY(-50%);width:10px;height:10px;
+    border-radius:50%;background:#0b1a26;box-shadow:inset 0 0 0 2px #071219}
+  .home-ind{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:150px;height:5px;border-radius:3px;
+    background:#fff9;z-index:9;pointer-events:none}
+  .cap{position:fixed;bottom:10px;left:0;right:0;text-align:center;color:#5c6b58;font-size:12px}
+  .cap b{color:#9fb09a}
+</style></head><body>
+  <div class="fitwrap">
+    <div class="device" id="device">
+      <div class="screen">
+        <iframe id="game" title="lobby"></iframe>
+        <div class="island"></div>
+        <div class="home-ind"></div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">iPhone 17 · landscape · locked at 874×402pt — <b>the real localhost lobby</b></div>
+  <script>
+    // FIXED display size: locked at a chosen scale so growing the window does NOT rescale it.
+    // Only shrinks if the window is too small to fit, so it never overflows.
+    // forward ?edit=1 (and name) into the game iframe so the layout editor works in the frame too
+    var edit=/[?&]edit=1/.test(location.search);
+    document.getElementById('game').src='/?name=Player'+(edit?'&edit=1':'');
+    var d=document.getElementById('device'),LOCK=1.3;
+    function fit(){var s=Math.min(LOCK,(innerWidth-24)/898,(innerHeight-48)/426);d.style.transform='scale('+s+')';}
+    addEventListener('resize',fit);fit();
+  </script>
+</body></html>

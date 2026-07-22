@@ -84,7 +84,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hint b { color: #e7dcae; }
 
 /* ---- Game ---- */
-#canvas { display: block; width: 100vw; height: 100vh; }
+#canvas { display: block; width: 100vw; height: 100vh; touch-action: none; -webkit-user-select: none; user-select: none; }
 #hud {
   position: fixed; top: 0; left: 0; right: 0; padding: 10px 16px;
   display: flex; align-items: center; justify-content: center; gap: 18px;
@@ -592,117 +592,217 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .pick-hero.on span { color: var(--ink); }
 .picker-panel .play { width: 100%; margin-top: 2px; }
 
-/* ================= Home hub (landscape, immersive) =================
-   Full-bleed single screen over the real stadium bg. All classes are
-   namespaced hub-* so they never collide with the wardrobe/experience agents. */
-.screen#home { align-items: stretch; justify-content: stretch; }
+/* ================= Home hub (Brawl-style LANDSCAPE) =================
+   Authored at a fixed 900x415 logical stage and scaled uniformly to fit the
+   viewport via a JS transform (fitHub in client.js) — so the whole hub scales
+   as one unit and never clips, like a game canvas. Every size here is in px
+   against that fixed stage. All classes are namespaced hub-* so they never
+   collide with the wardrobe/experience agents. */
+.screen#home { align-items: center; justify-content: center; overflow: hidden; }
 .hub {
-  position: relative; z-index: 1;
-  width: 100%; height: 100%;
-  display: flex; flex-direction: column; gap: clamp(2px, 1vh, 7px); overflow: hidden;
-  padding: calc(6px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px))
-           calc(7px + env(safe-area-inset-bottom, 0px)) calc(10px + env(safe-area-inset-left, 0px));
+  position: absolute; left: 50%; top: 50%; z-index: 1;
+  width: 900px; height: 415px; transform-origin: center center;
+  transform: translate(-50%, -50%);       /* fitHub() appends scale() */
+  display: flex; flex-direction: column; overflow: hidden;
 }
-.hub-top { flex: 0 0 auto; }
-/* top bar: identity (right) · xp slot (center, reserved) · online (left) */
-.hub-top { display: flex; align-items: center; gap: 12px; padding: 2px 2px 0; }
-.hub-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.hub-pfp {
-  width: 46px; height: 46px; flex: none; border: 3px solid #ffe49a;
-  background: #26332a center/cover no-repeat; color: #e7dcae;
-  font: 900 18px "Arial Black", sans-serif; display: flex; align-items: center; justify-content: center;
-  box-shadow: 4px 4px 0 #050705;
+/* Perspective pitch stripes at the foot of the hub (matches the mockup) */
+.hub-pitch {
+  position: absolute; left: -14%; right: -14%; bottom: -4%; height: 40%; z-index: 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, #123a20 0 46px, #0f2f19 46px 92px);
+  transform: perspective(460px) rotateX(60deg); transform-origin: bottom center; opacity: .4;
+  -webkit-mask-image: linear-gradient(0deg, #000 26%, transparent); mask-image: linear-gradient(0deg, #000 26%, transparent);
 }
-.hub-idtext { min-width: 0; }
-.hub-name {
-  color: #fff4ca; font: 900 20px "Arial Black", sans-serif; letter-spacing: .5px; line-height: 1;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw;
+
+/* --- TOP BAR: friends/season/rank (physical left) · profile+XP (physical right) --- */
+.hub-top { flex: 0 0 auto; position: relative; z-index: 4; display: flex; direction: ltr; justify-content: space-between; align-items: flex-start; padding: 8px 22px 0; gap: 8px; }
+.hub-cluster { display: flex; direction: rtl; }
+.hub-cluster.left { flex-direction: row; align-items: center; gap: 7px; }
+.hub-cluster.right { flex-direction: column; align-items: flex-end; gap: 6px; }
+/* compact icon buttons (exit, settings) */
+.hub-icobtn {
+  appearance: none; width: 38px; height: 38px; flex: none; cursor: pointer; display: grid; place-items: center;
+  font: 900 17px "Arial Black", sans-serif; color: #eef3ea;
+  background: rgba(19,27,22,.9); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08;
+}
+.hub-icobtn:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
+.hub-online {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font: 900 10px "Arial Black", sans-serif; letter-spacing: .5px; color: #c8d4bf;
+  background: rgba(11,16,12,.85); border: 3px solid #3a473c; padding: 6px 9px; box-shadow: 0 4px 0 #070b08;
+}
+.hub-online i { width: 9px; height: 9px; border-radius: 50%; background: #57e08a; box-shadow: 0 0 8px #57e08a; }
+.hub-season {
+  font: 900 10px "Arial Black", sans-serif; color: #2a1c05; padding: 6px 9px;
+  background: linear-gradient(180deg, #ffe08a, #ffcb43); border: 2px solid #fff4ca; box-shadow: 0 3px 0 #a56a16;
 }
 .hub-rank {
-  display: inline-flex; align-items: center; gap: 5px; margin-top: 5px;
-  font: 900 11px "Arial Black", sans-serif; color: #2a1c06;
-  background: linear-gradient(180deg, #ffe27a, #e0a92a); padding: 2px 9px; box-shadow: 2px 2px 0 #050705;
+  display: inline-flex; align-items: center; gap: 4px;
+  font: 900 10px "Arial Black", sans-serif; color: #2a1c06;
+  background: linear-gradient(180deg, #ffe27a, #e0a92a); padding: 4px 8px; box-shadow: 0 3px 0 #070b08;
 }
-/* football XP bar — experience agent owns the numbers (window.SALTIZ_XP); hub renders it */
-.hub-xp { flex: 1; min-width: 40px; max-width: 320px; }
+/* profile pill: face (right) + name/XP (left) */
+.hub-id { display: flex; direction: rtl; align-items: center; gap: 8px; background: rgba(19,27,22,.85); border: 3px solid #3a473c; box-shadow: 0 4px 0 #070b08; padding: 5px 7px; }
+.hub-idtext { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; }
+.hub-name { color: #fff4ca; font: 900 14px "Arial Black", sans-serif; letter-spacing: .3px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.hub-pfp {
+  width: 40px; height: 40px; flex: none; border: 3px solid #ffe49a;
+  background: #26332a center/cover no-repeat; color: #e7dcae;
+  font: 900 15px "Arial Black", sans-serif; display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 2px #0c1322;
+}
+/* inline XP bar beside the name (renderHubXp injects .hub-xp-top / .hub-xp-bar) */
+.hub-xp { width: 158px; }
 .hub-xp.hidden { display: none !important; }
-.hub-xp-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 900 11px "Arial Black", sans-serif; color: #c8d4bf; }
-.hub-xp-lvl b { color: var(--gold); font-size: 13px; }
-.hub-xp-amt { color: #8aa08c; font-variant-numeric: tabular-nums; letter-spacing: .3px; direction: ltr; unicode-bidi: isolate; }
-.hub-xp-bar { height: 9px; margin-top: 5px; background: rgba(0,0,0,.45); border: 2px solid #39463b; overflow: hidden; }
-.hub-xp-bar b { display: block; height: 100%; background: linear-gradient(90deg, #4ea0ff, #7b3ad0); box-shadow: 0 0 10px rgba(78,160,255,.7); }
-.hub-online {
-  margin-right: auto; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
-  font: 900 11px "Arial Black", sans-serif; letter-spacing: 1px; color: #c8d4bf;
-  background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: 6px 11px;
-}
-.hub-online i { width: 8px; height: 8px; border-radius: 50%; background: #57e08a; box-shadow: 0 0 8px #57e08a; }
+.hub-xp-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; font: 900 9px "Arial Black", sans-serif; color: #c8d4bf; }
+.hub-xp-lvl b { color: var(--gold); font-size: 11px; }
+.hub-xp-amt { color: #8aa08c; font-variant-numeric: tabular-nums; letter-spacing: .2px; direction: ltr; unicode-bidi: isolate; }
+.hub-xp-bar { height: 8px; margin-top: 3px; background: rgba(0,0,0,.5); border: 2px solid #34413a; overflow: hidden; }
+.hub-xp-bar b { display: block; height: 100%; background: linear-gradient(90deg, #4ea0ff, #7b3ad0); box-shadow: 0 0 8px rgba(78,160,255,.7); }
+/* album chips + collector badge — a row below the profile pic */
+.hub-albumbar { display: flex; direction: rtl; align-items: center; gap: 5px; }
+.hub-chip { background: rgba(11,16,12,.8); border: 2px solid #34413a; padding: 2px 7px; text-align: center; }
+.hub-chip b { display: block; color: #fff4ca; font: 900 11px "Arial Black", sans-serif; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.hub-chip.gold b { color: var(--gold); }
+.hub-chip small { display: block; color: #8aa08c; font-size: 7px; font-weight: 900; letter-spacing: .4px; }
 
-/* --- main row: loadout slots (left) · hero (center) · album stats (right) --- */
-/* Row lays zones LEFT->RIGHT (slots · hero · stats); each zone keeps RTL text. */
-.hub-main { flex: 1 1 auto; display: flex; direction: ltr; align-items: stretch; gap: clamp(6px, 2vw, 18px); min-height: 0; }
-.hub-left, .hub-right { flex: 0 0 auto; direction: rtl; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(3px, 1.2vh, 8px); align-self: stretch; min-height: 0; overflow: hidden; }
-.hub-center { flex: 1 1 auto; direction: rtl; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; position: relative; }
+/* --- EDGE RAILS (absolute, vertically centered) --- */
+.hub-siderail { position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; display: flex; flex-direction: column; gap: 12px; }
+.hub-siderail.left { left: 18px; }
+.hub-siderail.right { right: 18px; }
+.hub-sat {
+  appearance: none; width: 62px; height: 62px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: rgba(19,27,22,.9); border: 3px solid #46543f; color: #eef3ea; box-shadow: 0 5px 0 #070b08;
+}
+.hub-sat .hub-sat-ic { font-size: 22px; line-height: 1; }
+.hub-sat b { font: 900 9px "Arial Black", sans-serif; letter-spacing: .3px; }
+.hub-sat:active { transform: translateY(3px); box-shadow: 0 2px 0 #070b08; }
+
+/* --- CENTER STAGE: small carousel (top) + bottom band (arena + play row).
+   The big hero + card slots are absolute overlays anchored to .hub (below). --- */
+.hub-stage { flex: 1 1 auto; position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 2px; padding: 2px 100px 6px; min-height: 0; }
+
+/* card carousel — a COMPACT card strip, lifted UP as an absolute overlay so it sits on the
+   same vertical line as the album-stats row (.hub-albumbar). Anchored to the 900x415 stage. */
+.hub-cards { position: absolute; left: 50%; top: 70px; transform: translateX(-50%); z-index: 2; height: 28px; width: 420px; overflow: visible; display: flex; }
+.hub-cards .carousel { flex: 1; height: 100%; width: 100%; }
+.hub-cards .cf-card { --cfw: 23px; --cfh: 31px; width: var(--cfw); height: var(--cfh); margin: calc(var(--cfh) / -2) 0 0 calc(var(--cfw) / -2); border-width: 2px; border-radius: 4px; }
+
+/* bottom band wrapper (legacy) — content relocated to absolute overlays below. */
+.hub-bottom { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 5px; width: 100%; }
+
+/* ---- BIG HERO — absolute overlay anchored to the 900x415 stage ----
+   Height ≈ 240px (~58% of 415); feet sit at ~80% down (bottom:80 → feet ≈ 335px),
+   head reaches up toward the carousel. It's the biggest thing on screen and can
+   overlap the carousel/arena band for depth. */
 .hub-hero {
   appearance: none; background: none; border: none; cursor: pointer; padding: 0;
-  position: relative; display: flex; align-items: center; justify-content: center; max-height: 100%; max-width: 100%;
+  position: absolute; left: 50%; bottom: 42px; transform: translateX(-50%); z-index: 4;
+  display: flex; align-items: flex-end; justify-content: center; pointer-events: auto;
 }
-/* soft translucent disc behind the character so it reads against the busy stadium */
 .hub-hero::before {
-  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 128%; height: 116%; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(closest-side, rgba(5,10,7,.72), rgba(5,10,7,.4) 55%, transparent 74%);
+  content: ''; position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
+  width: 78%; height: 26%; border-radius: 50%; pointer-events: none; z-index: 0;
+  background: radial-gradient(closest-side, rgba(5,10,7,.75), rgba(5,10,7,.4) 60%, transparent 76%);
 }
 .hub-char {
-  position: relative;                                  /* paint above the backing disc */
-  height: clamp(78px, 26vh, 158px); width: auto; max-width: 100%; image-rendering: pixelated;
-  filter: drop-shadow(0 10px 8px rgba(0,0,0,.5));
-}
-.hub-edit {
-  position: absolute; top: 2px; right: 2px; width: 30px; height: 30px; display: grid; place-items: center;
-  font-size: 14px; color: #2a1c06; background: linear-gradient(180deg, #ffe27a, #e0a92a); box-shadow: 2px 2px 0 #050705;
+  position: relative; z-index: 1; height: 360px; width: auto; image-rendering: pixelated;
+  filter: drop-shadow(0 12px 10px rgba(0,0,0,.6));
 }
 .hub-herohint {
-  position: absolute; bottom: -4px; white-space: nowrap;
-  font: 900 10px "Arial Black", sans-serif; letter-spacing: .5px; color: #ffcb43; opacity: .92;
+  position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+  font: 900 9px "Arial Black", sans-serif; letter-spacing: .4px; color: #ffcb43; opacity: .9;
 }
 
-/* album stat chips — now the right column of the main row */
-.hub-chip { background: rgba(11,16,12,.7); border: 2px solid #39463b; padding: clamp(3px,1vh,6px) clamp(6px,1.2vw,10px); text-align: center; min-width: clamp(46px, 12vw, 62px); }
-.hub-chip b { display: block; color: #fff4ca; font: 900 clamp(13px,3.4vh,16px) "Arial Black", sans-serif; line-height: 1; font-variant-numeric: tabular-nums; }
-.hub-chip.gold b { color: var(--gold); }
-.hub-chip small { display: block; margin-top: 2px; color: #8aa08c; font-size: clamp(7px,1.8vh,9px); font-weight: 900; letter-spacing: .5px; }
-/* card carousel — a thin bottom strip that scales with the screen */
-.hub-cards { flex: 0 0 auto; height: clamp(52px, 14vh, 90px); overflow: hidden; display: flex; }
-.hub-cards .carousel { flex: 1; height: 100%; width: 100%; }
-.hub-cards .cf-card { --cfw: clamp(46px, 12vh, 64px); --cfh: clamp(62px, 16vh, 88px); width: var(--cfw); height: var(--cfh); margin: calc(var(--cfh) / -2) 0 0 calc(var(--cfw) / -2); }
+/* arena / mode button — compact pill that sits immediately beside Quick Match; matches the
+   Training button's height and is a bit wider than it. */
+.hub-arena {
+  appearance: none; flex: 0 0 auto; display: flex; direction: rtl; align-items: center; gap: 8px;
+  width: 168px; height: 46px; padding: 4px 12px; cursor: pointer; position: relative; z-index: 3;
+  background: rgba(15,22,17,.82); border: 2px solid #3a473c; color: #cdd8c8; box-shadow: 0 3px 0 #070b08;
+}
+.hub-arena:active { transform: translateY(2px); box-shadow: 0 1px 0 #070b08; }
+.hub-arena-ic { font-size: 18px; }
+.hub-arena-tx { flex: 1; text-align: right; }
+.hub-arena-tx b { display: block; font: 900 12px "Arial Black", sans-serif; color: #e7dcae; white-space: nowrap; }
+/* subtitle + chevron hidden in the compact pill so the arena reads as a single line (like Training) */
+.hub-arena-tx small { display: none; }
+.hub-arena-chev { display: none; }
 
-/* play rail: featured Quick Match + horizontal-scroll modes */
-.hub-play { flex: 0 0 auto; padding: 2px 0 0; }
-.hub-rail { display: flex; gap: clamp(6px,1.4vw,10px); overflow-x: auto; padding: 2px 2px 5px; scroll-snap-type: x proximity; scrollbar-width: none; }
-.hub-rail::-webkit-scrollbar { display: none; }
+/* --- Bottom-RIGHT action cluster: arena (mode) + Quick Match, aligned to the Clubs rail line --- */
+.hub-actions {
+  position: absolute; right: 88px; top: 192px; z-index: 5;
+  display: flex; direction: rtl; align-items: center; gap: 9px;
+}
+
+/* play row (legacy wrapper) — Quick Match is the dominant primary; Training is secondary */
+.hub-plays { flex: 0 0 auto; display: flex; direction: rtl; gap: 10px; align-items: stretch; justify-content: center; position: relative; z-index: 5; }
 .hub-mode {
-  flex: none; scroll-snap-align: end; cursor: pointer; text-align: right;
-  display: flex; align-items: center; gap: clamp(7px,1.4vw,11px); min-width: clamp(140px,30vw,172px); padding: clamp(7px,2vh,11px) clamp(10px,1.4vw,14px);
+  appearance: none; flex: none; cursor: pointer; text-align: right;
+  display: flex; direction: rtl; align-items: center; gap: 8px; padding: 5px 13px;
   background: rgba(19,27,22,.92); border: 3px solid #39463b; color: #e7dcae;
   box-shadow: inset 0 -5px #0b100c, 0 5px 0 rgba(0,0,0,.35);
 }
-.hub-mode .hub-mic { width: clamp(32px,7vh,40px); height: clamp(32px,7vh,40px); flex: none; display: grid; place-items: center; font-size: clamp(17px,4.4vh,21px); background: rgba(0,0,0,.28); }
+.hub-mode .hub-mic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; font-size: 16px; background: rgba(0,0,0,.28); }
 .hub-mtx { min-width: 0; }
-.hub-mtx b { display: block; font: 900 clamp(13px,3.4vh,15px) "Arial Black", sans-serif; }
-.hub-mtx small { display: block; color: #8aa08c; font-size: clamp(9px,2.4vh,10px); font-weight: 800; margin-top: 2px; }
-.hub-mode.quick {
-  min-width: clamp(184px,38vw,224px); background: #e3a92f; color: #302108; border-color: #fff09d;
-  box-shadow: inset 0 -6px #a66a18, 0 6px 0 #0b0f0b;
-}
-.hub-mode.quick .hub-mic { background: rgba(0,0,0,.14); }
-.hub-mode.quick .hub-mtx b { font-size: clamp(16px,4.4vh,19px); }
-.hub-mode.quick .hub-mtx small { color: #5c4410; }
-.hub-mode.quick .hub-go { margin-right: auto; font: 900 26px "Arial Black", sans-serif; }
+.hub-mtx b { display: block; font: 900 13px "Arial Black", sans-serif; }
+.hub-mtx small { display: block; color: #8aa08c; font-size: 9px; font-weight: 800; margin-top: 2px; }
+.hub-mode .hub-go { margin-right: auto; font: 900 20px "Arial Black", sans-serif; color: #8aa08c; }
 .hub-mode:active { transform: translateY(3px); box-shadow: inset 0 -3px #0b100c, 0 2px 0 rgba(0,0,0,.35); }
-.hub-mode.soon { opacity: .55; cursor: default; }
-.hub-mode.soon:active { transform: none; }
-.hub-badge { margin-right: auto; font: 900 9px "Arial Black", sans-serif; letter-spacing: .5px; color: #8aa08c; background: rgba(0,0,0,.3); padding: 4px 8px; }
+/* secondary (Training): smaller + quieter than the primary; sits bottom-left. */
+.hub-mode:not(.quick) { padding: 6px 12px; opacity: .96; }
+.hub-mode:not(.quick) .hub-mic { width: 26px; height: 26px; font-size: 14px; }
+.hub-mode:not(.quick) .hub-mtx b { font-size: 12px; }
+.hub-training {
+  position: absolute; left: 120px; bottom: 26px; z-index: 5;
+  width: 120px; height: 46px; justify-content: center;
+}
+/* PRIMARY — Quick Match: the brightest, chunkiest gold element. Now a compact, squarer
+   button (icon stacked over the label) rather than a long bar. */
+.hub-mode.quick {
+  flex-direction: column; justify-content: center; align-items: center; text-align: center;
+  width: 132px; min-width: 0; height: 104px; padding: 8px 8px; gap: 3px;
+  background: linear-gradient(180deg, #ffd53d, #f2b204); color: #2a1c05; border: 4px solid #fff2a0;
+  box-shadow: inset 0 -8px #b9760f, 0 8px 0 #0b0f0b, 0 10px 20px rgba(0,0,0,.5);
+}
+.hub-mode.quick .hub-mic { width: 38px; height: 38px; font-size: 22px; background: rgba(0,0,0,.12); }
+.hub-mode.quick .hub-mtx { text-align: center; }
+.hub-mode.quick .hub-mtx b { font-size: 18px; letter-spacing: .5px; line-height: 1; }
+.hub-mode.quick .hub-mtx small { color: #6a4a08; font-size: 8px; display: block; margin-top: 2px; }
+.hub-mode.quick .hub-go { display: none; }
+.hub-mode.quick:active { transform: translateY(4px); box-shadow: inset 0 -4px #b9760f, 0 4px 0 #0b0f0b, 0 6px 12px rgba(0,0,0,.5); }
+
+/* --- Sub-screens (arena / news / shop / clubs) --- */
+.screen#arena, .screen#news, .screen#shop, .screen#clubs {
+  background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
+  align-items: stretch; justify-content: stretch;
+}
+.subpage { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; padding: 14px 18px 20px; }
+.subpage-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.subpage-back {
+  appearance: none; width: 44px; height: 44px; flex: none; display: grid; place-items: center; cursor: pointer;
+  font: 900 22px "Arial Black", sans-serif; color: #fff4ca;
+  background: rgba(19,27,22,.85); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08;
+}
+.subpage-back:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
+.subpage-head h2 { font: 900 22px "Arial Black", sans-serif; letter-spacing: .5px; color: #fff4ca; text-shadow: 0 3px 0 #23281f; }
+.subpage-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.modecard {
+  appearance: none; display: flex; direction: rtl; align-items: center; gap: 12px; cursor: pointer;
+  width: 100%; max-width: 420px; padding: 14px;
+  background: rgba(19,27,22,.94); border: 3px solid #46543f; color: #e7dcae; box-shadow: 0 5px 0 #070b08;
+}
+.modecard:active { transform: translateY(2px); box-shadow: 0 3px 0 #070b08; }
+.modecard.lock { opacity: .55; cursor: not-allowed; }
+.modecard.lock:active { transform: none; box-shadow: 0 5px 0 #070b08; }
+.modecard .mc-ic { font-size: 30px; }
+.modecard .mc-tx { flex: 1; text-align: right; }
+.modecard .mc-tx b { display: block; font: 900 16px "Arial Black", sans-serif; color: #fff4ca; }
+.modecard .mc-tx small { font-size: 10px; color: #8ea08a; font-weight: 800; }
+.modecard .mc-go { font: 900 20px "Arial Black", sans-serif; color: var(--gold); }
+.modecard .mc-go.soon { font-size: 11px; color: #6b7a66; }
+.subpage-note { text-align: center; color: #8ea08a; font-size: 13px; margin-top: 24px; }
+.subpage-note b { display: block; font: 900 20px "Arial Black", sans-serif; color: #fff4ca; margin-bottom: 6px; }
 
 /* ================= Match-start promo cinematic ================= */
 .promo {
@@ -765,25 +865,27 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* ============================================================================
    CARD POWERS — home-screen equipped slots + in-match equipped HUD
    ============================================================================ */
-/* Anchor the slot column to the stage so the hero stays centred. */
-.hub-stage { position: relative; }
-/* Loadout: a small vertical column to the LEFT of the hero. Each slot is a raised 3D
-   tile with its power label beneath it, plus a "pick best" button under the column. */
+/* Loadout: a small, SECONDARY vertical column to the LEFT of the big hero. It's an
+   absolute overlay anchored to the 900x415 stage so it frames the hero without rivaling
+   it. Each slot is a raised 3D tile with its power label beneath it. */
 .power-slots {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(3px, 1.2vh, 7px);
-  height: 100%; max-height: 100%; pointer-events: auto;
+  position: absolute; left: 312px; top: 128px; z-index: 6; width: 56px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  height: 150px; max-height: 150px; pointer-events: auto;
 }
 /* The 3 slots flex-share the column's height, so they ALWAYS fit (capped at max) — no
    reliance on vh, no overflow. Caps + the pick-best button take fixed space. */
 .pslot-item { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
 .pslot {
-  position: relative; height: 100%; max-height: 54px; min-height: 0; aspect-ratio: 42 / 54; width: auto; cursor: pointer; border-radius: 5px; overflow: hidden; flex: 0 1 auto;
-  background: linear-gradient(180deg, #243228, #121b15); border: 2px solid #6a7a68;
-  display: flex; align-items: flex-end; justify-content: center;
+  position: relative; height: 100%; max-height: 60px; min-height: 0; aspect-ratio: 42 / 54; width: auto; cursor: pointer; border-radius: 6px; overflow: hidden; flex: 0 1 auto;
+  background: linear-gradient(180deg, #243228, #121b15); border: 3px solid #6a7a68;
+  display: flex; align-items: center; justify-content: center;
   box-shadow: inset 0 2px 0 rgba(255,255,255,.16), inset 0 -6px 0 rgba(0,0,0,.5), 0 5px 0 #0b120d, 0 7px 10px rgba(0,0,0,.5);
   transition: border-color .12s, box-shadow .12s, transform .1s;
 }
 .pslot:active { transform: translateY(3px); box-shadow: inset 0 2px 0 rgba(255,255,255,.12), inset 0 -3px 0 rgba(0,0,0,.5), 0 2px 0 #0b120d; }
+.pslot-sel { outline: 3px solid var(--gold); outline-offset: 2px; }
+.pslot-emptyic { position: relative; z-index: 2; font-size: 20px; opacity: .8; filter: grayscale(.2); }
 .pslot-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .pslot-icon {
   position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; z-index: 2; display: grid; place-items: center;
@@ -795,16 +897,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   font: 900 9px "Arial Black", sans-serif; color: #fff4ca; padding: 1px 0;
   background: linear-gradient(0deg, rgba(0,0,0,.85), transparent);
 }
-.pslot-cap { font: 900 8px "Arial Black", sans-serif; letter-spacing: .2px; color: #d3ddca; text-shadow: 0 1px 0 #050705; white-space: nowrap; }
+.pslot-cap { font: 900 9px "Arial Black", sans-serif; letter-spacing: .2px; color: #d3ddca; text-shadow: 0 1px 0 #050705; white-space: nowrap; }
 .pslot-empty { border-style: dashed; opacity: .9; }
-.pslot-empty .pslot-buff { color: #8aa08c; }
-.pslot-best {
-  margin-top: 3px; cursor: pointer; border: 2px solid #a56a16; border-radius: 5px; width: 100%;
-  background: linear-gradient(180deg, #ffd873, #e0a92a); color: #2a1c06;
-  font: 900 8px "Arial Black", sans-serif; letter-spacing: .2px; padding: 6px 3px;
-  box-shadow: inset 0 -3px 0 #a56a16, 0 3px 0 #0b0f0b;
-}
-.pslot-best:active { transform: translateY(2px); box-shadow: inset 0 -1px 0 #a56a16, 0 1px 0 #0b0f0b; }
 /* Very short landscape (e.g. iPhone SE ~320h): drop slot labels + the hero hint so the
    loadout column stays inside the main row without clipping. */
 @media (max-height: 400px) {
@@ -948,3 +1042,195 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* #3 — friends panel loading / empty / error placeholder (+ tap-to-retry). */
 .friend-empty { color: #8aa08c; font-size: 12px; text-align: center; padding: 10px 6px; }
 .friend-retry { cursor: pointer; color: #ffd76a; text-decoration: underline; }
+
+/* ============================================================================
+   WARDROBE (hero-picker) — costumes carousel (top) · big hero (center) · heroes (bottom)
+   ============================================================================ */
+/* Landscape-safe: the panel is a fixed-height flex column — costumes (top) and heroes
+   (bottom) take their natural height, the hero preview flex-grows to fill the middle
+   (object-fit keeps its aspect), and the Save button is always in view (no scrolling). */
+.picker-panel.wardrobe {
+  max-width: 560px; width: 100%; height: 94vh; max-height: 94vh; gap: 3px; padding: 9px 14px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.wr-section { width: 100%; flex: 0 0 auto; position: relative; }
+/* label overlays the section's top-right so it costs no vertical space */
+.wr-rail-label { position: absolute; top: -1px; right: 3px; z-index: 3; font: 900 8px "Arial Black", sans-serif; color: #9fb0a2; letter-spacing: 1px; opacity: .75; pointer-events: none; }
+.wr-carousel {
+  display: flex; flex-wrap: nowrap; gap: 7px; overflow-x: auto; overflow-y: hidden;
+  padding: 2px 2px 4px; scroll-snap-type: x proximity; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.wr-carousel::-webkit-scrollbar { display: none; }
+.wr-center { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.wardrobe .pick-preview { flex: 1 1 auto; min-height: 0; width: 100%; height: auto; object-fit: contain; }
+.wardrobe .pick-name { flex: 0 0 auto; font-size: 13px; min-height: 15px; }
+.picker-panel.wardrobe .play { flex: 0 0 auto; padding: 8px; }
+/* costume swatches — a hero thumbnail per skin */
+.wardrobe .pick-tiers.wr-carousel .pick-tier {
+  flex: 0 0 auto; scroll-snap-align: start; flex-direction: column; gap: 1px; border-radius: 10px;
+  padding: 3px 6px; min-width: 52px;
+}
+.wardrobe .pick-tier canvas { width: 36px; height: 44px; image-rendering: pixelated; }
+.wardrobe .pick-tier .pick-lbl { display: inline-flex; align-items: center; gap: 3px; font: 800 9px "Arial Black", sans-serif; }
+/* hero-type carousel (horizontal row instead of the old grid) */
+.wardrobe .pick-heroes.wr-carousel {
+  display: flex; grid-template-columns: none; width: 100%;
+}
+.wardrobe .pick-heroes .pick-hero { flex: 0 0 auto; scroll-snap-align: start; min-width: 62px; padding: 4px 2px 3px; }
+.wardrobe .pick-heroes .pick-hero canvas { width: 44px; height: 52px; }
+.wardrobe .pick-heroes .pick-hero span { font-size: 9px; }
+.picker-panel.wardrobe .play { margin-top: 0; padding: 9px; }
+
+/* ============================================================================
+   CARDS PAGE — equipped slots (tap to select) + album deck (tap to equip)
+   ============================================================================ */
+.cards-slots { display: flex; direction: rtl; gap: 14px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+.cards-slots .pslot-item { flex: 0 0 auto; gap: 4px; }
+.cards-slots .pslot { height: 84px; max-height: none; width: 66px; }
+.cards-slots .pslot-cap { font-size: 11px; }
+.cards-hint { font: 800 12px "Arial Black", sans-serif; color: #8aa08c; text-align: center; }
+.cards-deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 10px; width: 100%; max-width: 520px; }
+.cards-deck-card {
+  position: relative; aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden; cursor: pointer;
+  border: 3px solid #2c3830; background: #10192e; box-shadow: 0 4px 0 rgba(0,0,0,.45);
+}
+.cards-deck-card:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0,0,0,.45); }
+.cards-deck-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+.cards-deck-card.equipped { outline: 3px solid var(--gold); outline-offset: -3px; }
+.cards-deck-card.rarity-legendary { border-color: #ffb800; }
+.cards-deck-card.rarity-epic { border-color: #b46bff; }
+.cards-deck-card.rarity-rare { border-color: #4ea0ff; }
+.cards-deck-card.rarity-common { border-color: #9ab0c5; }
+.cards-deck-card .cf-badge {
+  position: absolute; bottom: 3px; left: 3px; z-index: 2; font: 900 10px "Arial Black", sans-serif;
+  color: #fff; background: rgba(0,0,0,.7); padding: 1px 5px; border-radius: 6px;
+}
+
+/* ============================================================================
+   BAKED LOBBY LAYOUT (feat/lobby-redesign) — PERMANENT default arrangement.
+   EVERY control is its own atomic box: a direct child of the fixed 900x415 .hub
+   stage, positioned + sized in logical px here — so the layout holds WITHOUT the
+   layout-edit script and WITHOUT any localStorage. In ?edit=1 every box is
+   draggable AND resizable (uniform transform:scale), and drags from these baked
+   positions. Values are the user's editor layout, POLISHED: related groups share
+   baselines / equal sizes, evenly spaced, legible, no content-hiding overlaps.
+   left/top/width/height are logical px on the stage.
+   ============================================================================ */
+/* Anchor every atomic box to the stage (0,0 = top-left of .hub). */
+.hub > .hub-icobtn,
+.hub > .hub-season,
+.hub > .hub-online,
+.hub > .hub-pfp,
+.hub > .hub-name,
+.hub > .hub-xpbar,
+.hub > .hub-chip,
+.hub > .hub-rank,
+.hub > .hub-sat,
+.hub > .hub-cards,
+.hub > .hub-hero,
+.hub > #power-slots,
+.hub > .hub-mode,
+.hub > #play-strip { position: absolute; right: auto; bottom: auto; margin: 0; }
+
+/* --- top row: exit · [copies·worth·cards] · XP bar · season · settings --- */
+/* exit + settings: equal squares on a shared top baseline */
+.hub > #hub-exit      { left: 40px;  top: 15px; width: 38px; height: 38px; z-index: 6; }
+.hub > #hub-settings  { left: 809px; top: 15px; width: 38px; height: 38px; z-index: 6; }
+.hub > .hub-season    { left: 743px; top: 13px; z-index: 6; }
+.hub > .hub-online    { left: 757px; top: 60px; z-index: 6; }
+
+/* profile pic (bigger) + name aligned on the left; name shadowed (pill is gone) */
+.hub > .hub-pfp       { left: 95px; top: 15px; width: 55px; height: 55px; z-index: 6; }
+.hub > .hub-name      { left: 95px; top: 80px; z-index: 6; max-width: none;
+  text-shadow: 0 2px 3px rgba(0,0,0,.9), 0 0 3px rgba(0,0,0,.85); }
+
+/* XP: clean horizontal top bar */
+.hub > .hub-xpbar {
+  left: 410px; top: 10px; width: 325px; z-index: 5;
+  background: rgba(11,16,12,.72); border: 2px solid #34413a; border-radius: 8px;
+  padding: 4px 10px; box-shadow: 0 3px 0 #070b08;
+}
+.hub-xpbar #hub-xp { width: 100%; }
+
+/* album stat chips: equal width (60), one row, evenly spaced (pitch 68) + rank below */
+.hub > #chip-copies   { left: 210px; top: 15px; width: 60px; z-index: 5; }
+.hub > #chip-worth    { left: 278px; top: 15px; width: 60px; z-index: 5; }
+.hub > #chip-cards    { left: 346px; top: 15px; width: 60px; z-index: 5; }
+.hub > #hub-rank      { left: 270px; top: 60px; z-index: 5; }
+
+/* edge controls: equal 52px squares; symmetric — news/shop left (x95), friends/clubs right (x795) */
+.hub > .hub-sat { width: 52px; height: 52px; }
+.hub > .hub-sat[data-open-screen="shop"]  { left: 95px;  top: 110px; z-index: 6; }
+.hub > .hub-sat[data-open-screen="news"]  { left: 95px;  top: 175px; z-index: 6; }
+.hub > #friends-btn                       { left: 795px; top: 110px; z-index: 6; }
+.hub > .hub-sat[data-open-screen="clubs"] { left: 795px; top: 175px; z-index: 6; }
+
+/* carousel box (dense stack, sized per the user; front card big) */
+.hub > .hub-cards { left: 185px; top: 75px; width: 265px; height: 276px; transform: none; overflow: visible; }
+
+/* hero — scaled to the user's ~0.73; canvas width drives the box (250 -> ~262 tall) */
+.hub > .hub-hero { left: 490px; top: 75px; transform: none; }
+.hub > .hub-hero .hub-char { width: 250px; height: auto; }
+
+/* power slots: #power-slots is a full-stage transparent overlay; the 3 EQUAL slots
+   form a tidy column just beside the hero (survive JS re-render via nth-child). */
+.hub > #power-slots { left: 0; top: 0; width: 900px; height: 415px; max-height: none;
+  padding: 0; gap: 0; display: block; pointer-events: none; }
+#power-slots .pslot-item { position: absolute; left: 455px; width: 55px; height: 86px; pointer-events: auto; }
+#power-slots .pslot-item:nth-child(1) { top: 160px; }  /* slot0 */
+#power-slots .pslot-item:nth-child(2) { top: 255px; }  /* slot1 */
+#power-slots .pslot-item:nth-child(3) { top: 65px;  }  /* slot2 */
+
+/* quick match (primary, FIXED) + pick-best (own compact box) */
+.hub > .hub-mode.quick  { left: 720px; top: 290px; }
+.hub > #select-best-btn { left: 745px; top: 245px; width: 110px; height: 32px; z-index: 6; }
+
+/* --- BOTTOM SCROLLABLE STRIP (playStrip): one horizontal, horizontally-scrollable row of
+   secondary buttons along the bottom-left, up to just before the quick-match box. dir=ltr so
+   it scrolls left→right from training; the coming-soon buttons at the end are revealed by
+   scrolling. In the editor it is ONE box (movable+resizable); buttons scroll inside it. --- */
+.hub > #play-strip {
+  left: 12px; top: 343px; width: 685px; height: 52px; z-index: 5;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+  padding: 0; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
+  background: none; border: none; border-radius: 0;   /* clean: no box around the buttons */
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.hub > #play-strip::-webkit-scrollbar { display: none; }  /* clean swipe, no visible scrollbar */
+/* strip items: flow (override any absolute base), uniform height, natural width */
+#play-strip > * {
+  position: static; left: auto; top: auto; right: auto; bottom: auto;
+  flex: 0 0 auto; height: 44px; margin: 0; z-index: auto; transform: none;
+}
+#play-strip .hub-training { justify-content: center; }
+
+/* --- secondary play buttons (pick-best / play-friends) --- */
+.hub-secondary { justify-content: center; }
+.hub-secondary .hub-mtx b { white-space: nowrap; }
+/* compact variant (pick-best in its small fixed box) */
+.hub-compact { padding: 3px 8px; }
+.hub-compact .hub-mic { width: 20px; height: 20px; font-size: 12px; }
+.hub-compact .hub-mtx b { font-size: 11px; white-space: nowrap; }
+
+/* --- coming-soon locked pills (tournament / goal-brawl) --- */
+.hub-cs {
+  display: flex; direction: rtl; align-items: center; gap: 7px; cursor: not-allowed;
+  padding: 5px 9px; opacity: .62; color: #cdd8c8; overflow: hidden;
+  background: rgba(15,22,17,.82); border: 2px solid #39463b; box-shadow: 0 3px 0 #070b08;
+}
+.hub-cs .hub-mic { width: 22px; height: 22px; flex: none; display: grid; place-items: center; font-size: 14px; background: rgba(0,0,0,.28); }
+.hub-cs .hub-cs-tx { flex: 1; min-width: 0; }
+.hub-cs .hub-cs-tx b { display: block; font: 900 11px "Arial Black", sans-serif; color: #e7dcae; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-cs .hub-cs-soon { flex: none; font: 900 8px "Arial Black", sans-serif; color: #2a1c05; background: #8ea08a; padding: 2px 5px; border-radius: 4px; }
+
+/* --- DENSE carousel: one BIG front card, the rest progressively smaller + mostly hidden
+   behind it (see layoutCarousel in client.js). Front card sized big; the box overflows so
+   the peeking stack shows. --- */
+.hub-cards .carousel { height: 100%; width: 100%; }
+.hub-cards .cf-card {
+  --cfw: 150px; --cfh: 205px;
+  width: var(--cfw); height: var(--cfh);
+  margin: calc(var(--cfh) / -2) 0 0 calc(var(--cfw) / -2);
+  border-width: 3px; border-radius: 10px;
+}
+.hub-cards .cf-badge { font-size: 11px; padding: 1px 6px; }
