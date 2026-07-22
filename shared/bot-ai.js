@@ -850,9 +850,9 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   if (opts.hold) bm.charging = null; // standing on a bomb plant — never charge a shot
   const isBallRelease = state.ball.owner === p.id;
 
-  // Bomb aim offset: useSpecial() always throws along the player's aim direction and
-  // reads hypot(sax,say) as a 0..1 fraction of BOMB_LOB_RANGE — it ignores sax/say's own
-  // direction. Every bomb this bot plants today (cornered-finish rocket-jump, tackle-steal,
+  // Bomb aim offset: useSpecial() throws along the (sax,say) VECTOR direction, distance =
+  // min(hypot(sax,say),1) × BOMB_LOB_RANGE. We build (sax,say) along the bot's aim, so for a
+  // bot the lob direction equals its aim. Every bomb this bot plants today (cornered-finish rocket-jump, tackle-steal,
   // double-bomb join) is a FEET plant: bm.bombHold.x/y (the intended plant anchor) is set to
   // the bomber's OWN position at commit time, so the offset is naturally 0 — exactly the
   // "feet/rocket-jump bomb stays 0,0" rule. The one case where the anchor differs from the
