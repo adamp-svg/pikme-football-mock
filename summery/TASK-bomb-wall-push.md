@@ -2,7 +2,24 @@
 
 **Owner:** opus-build78 (orchestration id 08470aa8…). Lock: `football-mock:task-bomb-wall-push` + `football-mock:shared/sim.js`.
 **Repo/branch:** football-mock @ `feat/build-bomb-cancel`. All work LOCAL (localhost:3012). opus-game parked (user's instruction).
-**Status:** INVESTIGATING — root cause not yet confirmed.
+**Status:** ROOT CAUSE FOUND (2026-07-23) — awaiting design decision.
+
+## ROOT CAUSE (confirmed via live :3012 capture)
+Connected repro logged exactly ONE bomb event:
+- `[EXPLODE] bomb(789,1002) owner=m-2 bomberOnCenter=true training=true`
+- `[SELF-LAUNCH] m-2 launched by own bomb: launch=1600 dir=(-1.00,0.06)`
+- COVER=0, FLY-HIT=0 (no enemy blast victim, no tackle).
+
+The "push behind the wall" is the player's **own bomb-jump self-launch** (`explode` bomberOnCenter branch, sim.js ~987). launch 1600 = bombPower 2000 × BOMB_CENTER_LAUNCH_MUL 0.80; wallCannonMul = 1.0 (NO amplification), under BOMB_LAUNCH_MAX 3000. It's a NORMAL bomb-jump.
+- Self-launch has **NO wall cover by design** (movement mechanic off your own bomb).
+- The ENEMY-blast cover path (`[COVER]`, sim.js ~1014) works correctly — verified in mocks + never fired here.
+- Likely the user tested SOLO by dropping their own bomb → always self-launches regardless of walls. Enemy bombs behind the wall ARE shielded.
+
+## DECISION NEEDED
+Should an indestructible wall the player is tucked behind suppress/reduce their OWN bomb-jump launch? Options:
+- A) Leave as-is (self bomb-jump is intended; cover only vs enemy bombs).
+- B) Zero/greatly reduce self-launch when a static wall sits between the bomber and their launch direction (or adjacent).
+- C) Let the wall collision simply stop the launched body (may already partly happen via resolveWalls).
 
 ## User requests (verbatim log, for handoff)
 1. "the bomb still pushes back behind wall lets focus on fixing only that"

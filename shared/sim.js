@@ -974,6 +974,7 @@ function wallCannonMul(state, bx, by, dx, dy) {
 function explode(state, bomb, stack = 1) {
   const bomber = state.players[bomb.owner];
   const bomberOnCenter = bomber && Math.hypot(bomber.x - bomb.x, bomber.y - bomb.y) < BOMB_CENTER_R;
+  if (process.env.DEBUG_COVER) console.log(`[EXPLODE] bomb(${bomb.x.toFixed(0)},${bomb.y.toFixed(0)}) owner=${bomb.owner} bomberOnCenter=${bomberOnCenter} stack=${stack} players=${Object.keys(state.players).length} training=${!!state.arena}`);
   // Stacked bombs (detonating together) make a bigger, farther-reaching blast.
   const P = state.settings.bombPower * (1 + (stack - 1) * BOMB_STACK_PER);
   const radius = BOMB.radius * (1 + (stack - 1) * BOMB_STACK_RADIUS);
@@ -995,6 +996,7 @@ function explode(state, bomb, stack = 1) {
     launch = Math.min(launch, BOMB_LAUNCH_MAX); // hard cap so wall/stack combos can't fling across the pitch
     bomber.kvx += dx * launch;
     bomber.kvy += dy * launch;
+    if (process.env.DEBUG_COVER) console.log(`[SELF-LAUNCH] ${bomb.owner} launched by own bomb: launch=${launch.toFixed(0)} dir=(${dx.toFixed(2)},${dy.toFixed(2)})`);
     bomber.bombLaunch = BOMB_LAUNCH_TTL;
     bomber.launchGlide = BOMB_LAUNCH_GLIDE; // gentle decay → smooth launch arc
   }
@@ -1087,7 +1089,9 @@ function resolveFlyingHits(state) {
       if (Math.hypot(t.x - p.x, t.y - p.y) < reach) {
         // A solid (indestructible) wall between them shields the tackle too — you can't
         // bomb-jump THROUGH a stone wall to push someone on the far side.
-        if (arenaOf(state).walls.some((w) => segBlockedByWall(w, p.x, p.y, t.x, t.y, 0))) continue;
+        const flyBlocked = arenaOf(state).walls.some((w) => segBlockedByWall(w, p.x, p.y, t.x, t.y, 0));
+        if (process.env.DEBUG_COVER) console.log(`[FLY-HIT] flyer ${id}(${p.x.toFixed(0)},${p.y.toFixed(0)}) -> tgt ${oid}(${t.x.toFixed(0)},${t.y.toFixed(0)}) launched=${launched} blocked=${flyBlocked} pad=0`);
+        if (flyBlocked) continue;
         const kb = (launched ? BOMB_TACKLE_KB : speed * FLY_HIT_SCALE) * knockMul(t);
         t.kvx += dirx * kb; t.kvy += diry * kb;
         p.kvx *= 0.5; p.kvy *= 0.5; // the flyer loses momentum on the hit
