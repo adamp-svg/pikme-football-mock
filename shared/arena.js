@@ -145,3 +145,52 @@ export function circleHitsBox(cx, cy, r, box) {
   const nx = clamp(cx, box.x, box.x + box.w), ny = clamp(cy, box.y, box.y + box.h);
   return (cx - nx) * (cx - nx) + (cy - ny) * (cy - ny) < r * r;
 }
+
+// --- Line-of-sight: does wall `w` block the straight segment A->B? --------------
+// Used for blast / shot COVER (a body behind a wall is shielded). `pad` inflates the
+// wall by a body radius so a target hugging directly behind it still counts as covered.
+// Handles both the AABB (static stone) and the capsule (angled built) wall shapes.
+export function segBlockedByWall(w, ax, ay, bx, by, pad = 0) {
+  if (w.angle != null) {
+    const ca = Math.cos(w.angle), sa = Math.sin(w.angle);
+    const c0x = w.cx - ca * w.hl, c0y = w.cy - sa * w.hl;
+    const c1x = w.cx + ca * w.hl, c1y = w.cy + sa * w.hl;
+    return segSegDist(ax, ay, bx, by, c0x, c0y, c1x, c1y) < (w.ht + pad);
+  }
+  return segHitsAabb(ax, ay, bx, by, w.x - pad, w.y - pad, w.x + w.w + pad, w.y + w.h + pad);
+}
+
+// Segment (ax,ay)->(bx,by) vs AABB [minx,miny]-[maxx,maxy] (Liang–Barsky slab clip).
+function segHitsAabb(ax, ay, bx, by, minx, miny, maxx, maxy) {
+  let t0 = 0, t1 = 1;
+  const dx = bx - ax, dy = by - ay;
+  const clip = (p, q) => {
+    if (p === 0) return q >= 0;            // parallel to this slab — inside iff q>=0
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+    else { if (r < t0) return false; if (r < t1) t1 = r; }
+    return true;
+  };
+  if (clip(-dx, ax - minx) && clip(dx, maxx - ax) && clip(-dy, ay - miny) && clip(dy, maxy - ay)) return t0 <= t1;
+  return false;
+}
+
+// Shortest distance between segments (ax,ay)-(bx,by) and (cx,cy)-(ex,ey).
+function segSegDist(ax, ay, bx, by, cx, cy, ex, ey) {
+  const ux = bx - ax, uy = by - ay, vx = ex - cx, vy = ey - cy, wx = ax - cx, wy = ay - cy;
+  const a = ux * ux + uy * uy, b = ux * vx + uy * vy, c = vx * vx + vy * vy;
+  const d = ux * wx + uy * wy, e = vx * wx + vy * wy, D = a * c - b * b;
+  let sN, sD = D, tN, tD = D;
+  if (D < 1e-9) { sN = 0; sD = 1; tN = e; tD = c; }               // near-parallel
+  else {
+    sN = b * e - c * d; tN = a * e - b * d;
+    if (sN < 0) { sN = 0; tN = e; tD = c; }
+    else if (sN > sD) { sN = sD; tN = e + b; tD = c; }
+  }
+  if (tN < 0) { tN = 0; if (-d < 0) sN = 0; else if (-d > a) sN = sD; else { sN = -d; sD = a; } }
+  else if (tN > tD) { tN = tD; if ((-d + b) < 0) sN = 0; else if ((-d + b) > a) sN = sD; else { sN = -d + b; sD = a; } }
+  const sc = Math.abs(sN) < 1e-9 ? 0 : sN / sD;
+  const tc = Math.abs(tN) < 1e-9 ? 0 : tN / tD;
+  const px = wx + sc * ux - tc * vx, py = wy + sc * uy - tc * vy;
+  return Math.hypot(px, py);
+}

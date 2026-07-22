@@ -4,9 +4,9 @@
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
-  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, BOMB_LOB_RANGE, clamp,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
-import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
+import { ARENA, resolveWalls, pointInBush, segBlockedByWall } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { drawHero, ACTION_DUR } from '/heroes.js';
@@ -112,6 +112,67 @@ const animState = {};                 // playerId -> { action, t0, dur, prio, ..
 let knownBombs = new Set();
 let knownWalls = new Map(); // wall id -> { cx, cy, hp, fragile, maxHp } (last snapshot it was seen)
 const firingPrev = {};                // playerId -> firing flag last snapshot
+// Object spawn timestamps (ms) so drawBuiltWall/drawBomb can play a short intro anim
+// (walls pop-in, bombs squash-land) from the moment the object first appears in a snapshot.
+const wallSpawnT = new Map();         // wall id -> performance.now() when first seen
+const bombSpawnT = new Map();         // bomb id -> performance.now() when first seen
+const bombLanded = new Set();         // bomb ids whose impact shockwave has already fired
+const WALL_BUILD_MS = 260;            // wall pop-in duration
+const BOMB_LAND_MS = 200;             // bomb squash-land duration
+
+// ---- Lightweight world-space particle FX (dust puffs + wood shards) --------
+// Stored in WORLD coords so they track the camera + team-B mirror; drawn via wx/wy/ws_.
+const fx = [];                        // { x,y,vx,vy,g,life,max,size,rot,vr,kind,col }
+let fxPrevT = 0;
+function spawnDust(x, y, n, opts = {}) {
+  const spd = opts.spd || 90, up = opts.up || 60, col = opts.col || '210,196,166';
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    fx.push({ x, y, vx: Math.cos(a) * spd * (0.4 + Math.random() * 0.8), vy: -Math.random() * up - 10,
+      g: 180, life: 0, max: 0.35 + Math.random() * 0.35, size: (opts.size || 5) * (0.6 + Math.random() * 0.8),
+      rot: 0, vr: 0, kind: 'dust', col });
+  }
+}
+function spawnShards(x, y, n, cols, fast) {
+  const base = fast ? 220 : 120, life = fast ? 0.42 : 0.55;   // "fast" = snappier burst, shorter fade
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.6, sp = base + Math.random() * 240;
+    fx.push({ x: x + (Math.random() - 0.5) * 44, y: y + (Math.random() - 0.5) * 26,
+      vx: Math.cos(a) * sp + (Math.random() - 0.5) * 130, vy: Math.sin(a) * sp - 70,
+      g: 700, life: 0, max: life + Math.random() * 0.4, size: 5 + Math.random() * 7,
+      rot: Math.random() * 7, vr: (Math.random() - 0.5) * 20, kind: 'shard',
+      col: cols[(Math.random() * cols.length) | 0] });
+  }
+}
+// A brief white burst flash (wall break) — no motion, fast fade.
+function spawnFlash(x, y, size) { fx.push({ x, y, vx: 0, vy: 0, g: 0, life: 0, max: 0.13, size, rot: 0, vr: 0, kind: 'flash' }); }
+// A ground shock ring (bomb land) — expands from r0 to r1 as it fades.
+function spawnRing(x, y, r0, r1) { fx.push({ x, y, vx: 0, vy: 0, g: 0, life: 0, max: 0.32, size: 0, r0, r1, kind: 'ring' }); }
+function updateFx(dt) {
+  for (const p of fx) { p.life += dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; }
+  for (let i = fx.length - 1; i >= 0; i--) if (fx[i].life >= fx[i].max) fx.splice(i, 1);
+}
+function drawFx() {
+  for (const p of fx) {
+    const k = 1 - p.life / p.max;
+    if (p.kind === 'dust') {
+      ctx.fillStyle = `rgba(${p.col},${(0.5 * k).toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(wx(p.x), wy(p.y), Math.max(1, ws_(p.size * (0.6 + 0.6 * k))), 0, 7); ctx.fill();
+    } else if (p.kind === 'flash') {
+      ctx.fillStyle = `rgba(255,240,200,${(k * 0.6).toFixed(3)})`;
+      ctx.beginPath(); ctx.arc(wx(p.x), wy(p.y), ws_(p.size * (1.2 - 0.4 * k)), 0, 7); ctx.fill();
+    } else if (p.kind === 'ring') {
+      const rr = p.r0 + (p.r1 - p.r0) * (1 - k);
+      ctx.save(); ctx.globalAlpha = k * 0.75; ctx.strokeStyle = '#fff2cf'; ctx.lineWidth = Math.max(1, ws_(3 * k));
+      ctx.beginPath(); ctx.arc(wx(p.x), wy(p.y), ws_(rr), 0, 7); ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+    } else {
+      ctx.save(); ctx.translate(wx(p.x), wy(p.y)); ctx.rotate(p.rot); ctx.globalAlpha = clamp(k * 1.5, 0, 1);
+      ctx.fillStyle = p.col; const s = ws_(p.size); ctx.fillRect(-s / 2, -s / 2, s, s * 0.72);
+      ctx.restore(); ctx.globalAlpha = 1;
+    }
+  }
+}
+function shake(strength, ms) { screenShakeStrength = Math.max(screenShakeStrength, strength); screenShakeUntil = Math.max(screenShakeUntil, performance.now() + (ms || 200)); }
 const ANIM_PRIO = { shoot: 2, kick: 2, bomb: 3, wall: 4, hit: 5, fly: 6 };
 function nearestPlayer(players, x, y, maxD, team) {
   let best = null, bd = maxD;
@@ -123,11 +184,19 @@ function triggerAnim(id, action, params) {
   if (cur && (now - cur.t0) < cur.dur * 1000 && prio < (cur.prio || 0)) return; // keep a higher-priority action
   animState[id] = Object.assign({ action, t0: now, dur: ACTION_DUR[action] || 0.5, prio }, params || {});
 }
-// Which animation a player is in right now: goal freeze > active timed action > run/idle by velocity.
+// Which animation a player is in right now: goal freeze > interrupt (hit/fly) > wall windup
+// (the winding channel pose) > active timed action > run/idle by velocity.
 function getAnim(p) {
   if (latest && latest.lastGoal) return { action: p.team === latest.lastGoal ? 'celebrate' : 'concede' };
   const s = animState[p.id], now = performance.now();
-  if (s && (now - s.t0) < s.dur * 1000) return Object.assign({ u: (now - s.t0) / (s.dur * 1000) }, s);
+  const timed = (s && (now - s.t0) < s.dur * 1000) ? Object.assign({ u: (now - s.t0) / (s.dur * 1000) }, s) : null;
+  // A knockback/flinch (which also INTERRUPTS the build server-side) overrides the channel pose.
+  if (timed && (timed.action === 'hit' || timed.action === 'fly')) return timed;
+  // Winding up a wall: server sends `winding` per player; the local player uses its own hold
+  // for zero-latency feedback. Show the braced channel pose until the wall commits.
+  const winding = p.winding || (p.id === me.playerId && buildHolding);
+  if (winding) return { action: 'buildwind', aimSign: (p.aimX || 0) >= 0 ? 1 : -1 };
+  if (timed) return timed;
   const sp = Math.hypot(p.vx || 0, p.vy || 0);
   if (sp < 12) return { action: 'idle', facing: 'front' };
   return { action: 'run', facing: (p.vy < 0 && -p.vy >= 0.5 * sp) ? 'back' : 'front' }; // back only in the 10→2 wedge
@@ -349,6 +418,7 @@ function processSnapshotSounds(snap) {
       playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
       haptic(ourGoal ? 'goal' : 'concede'); // melodic buzz when we score
       confettiBurst(ourGoal ? 90 : 45);      // the stands erupt on a goal
+      crowdHypeT = performance.now();          // crowd leaps up, then settles over ~2.5s
     }
     if (previousBallOwner === null && snap.ball.owner !== null) {
       playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
@@ -377,6 +447,13 @@ function processSnapshotSounds(snap) {
       if (!info.fragile && info.hp >= info.maxHp && !byBomb) brokeStrong = true;
     }
     if (brokeAny) playSound(brokeStrong ? 'wallBreakStrong' : 'wallBreak', 0.85 * breakProx, 0.94 + Math.random() * 0.12);
+    for (const info of brokenAt) {                          // V3 "Burst": white flash + fast shards + quick fade
+      if (info.fragile) { spawnFlash(info.cx, info.cy, 22); spawnDust(info.cx, info.cy, 8, { col: '150,180,120', spd: 90, up: 50, size: 4 }); continue; }
+      spawnFlash(info.cx, info.cy, brokeStrong ? 40 : 30);
+      spawnShards(info.cx, info.cy, brokeStrong ? 20 : 14, ['#7a4a24', '#9c6a30', '#c8963e'], true);
+      spawnDust(info.cx, info.cy, brokeStrong ? 12 : 8, { col: '120,86,52', spd: 130, up: 80 });
+    }
+    if (brokeAny) shake(clamp((brokeStrong ? 11 : 6) * breakProx, 2, 11), 200);
 
     for (const impact of snap.impacts || []) {
       if (knownImpacts.has(impact.id)) continue;
@@ -405,9 +482,13 @@ function processSnapshotSounds(snap) {
     }
     for (const b of snap.bombs || []) if (!knownBombs.has(b.id)) {            // planted a bomb
       const pl = nearestPlayer(players, b.x, b.y, 70, b.team); if (pl) triggerAnim(pl.id, 'bomb');
+      bombSpawnT.set(b.id, performance.now());                                // drop-in intro; ring/dust fire on impact (see drawBomb)
     }
     for (const w of snap.walls || []) if (!knownWalls.has(w.id)) {            // built a wall
       const pl = nearestPlayer(players, w.x, w.y, 130, w.team); if (pl) triggerAnim(pl.id, 'wall', { aimSign: (w.x - pl.x) >= 0 ? 1 : -1 });
+      wallSpawnT.set(w.id, performance.now());                                // pop-in intro (see drawBuiltWall)
+      spawnDust(w.x, w.y, 10, { col: '150,120,80', spd: 90, up: 55 });        // dust as the planks assemble in
+      shake(clamp(4 * proximity(w.x, w.y), 1, 4), 160);
     }
     for (const p of players) if (p.firing && !firingPrev[p.id]) {            // kick (had the ball) vs shoot
       const hadBall = snap.ball.owner === p.id || previousBallOwner === p.id;
@@ -420,6 +501,8 @@ function processSnapshotSounds(snap) {
   knownImpacts = impactIds;
   knownBombs = new Set((snap.bombs || []).map((b) => b.id));
   knownWalls = new Map((snap.walls || []).map((w) => [w.id, { cx: w.cx, cy: w.cy, hp: w.hp, fragile: w.fragile, maxHp: w.maxHp }]));
+  for (const id of wallSpawnT.keys()) if (!knownWalls.has(id)) wallSpawnT.delete(id); // prune intro timers for gone objects
+  for (const id of bombSpawnT.keys()) if (!knownBombs.has(id)) { bombSpawnT.delete(id); bombLanded.delete(id); }
   for (const p of (snap.players || [])) firingPrev[p.id] = !!p.firing;
   soundEventsReady = true;
 }
@@ -1401,6 +1484,7 @@ function leaveToLobby() {
 // ---- Team intro overlay + match roster --------------------------------------
 let matchRoster = [];        // [{id,name,avatar,team,cards}] from matchStart (humans)
 let audienceReady = false;   // seat layout rebuilt per match (see drawAudience)
+let crowdHypeT = -1e9;        // timestamp of the last goal — the crowd erupts (leaps) then settles
 const teamIntroEl = document.getElementById('team-intro');
 const tiCountEl = document.getElementById('ti-count');
 let introTimer = null;
@@ -1807,8 +1891,21 @@ const canvas = document.getElementById('canvas');
 // Touch drives its own charge/aim path (see the joystick handlers), so on a touch
 // device the mouse listeners must NOT run at all. Desktop never sets usingTouch.
 canvas.addEventListener('mousemove', (e) => { if (usingTouch) return; mouse.x = e.clientX; mouse.y = e.clientY; });
+// Tap an ad board (off-pitch perimeter) → ask the app to open its link. World-space
+// hit-test via the flip-aware screenToWorld, so it works for both teams' mirrored views.
+function adBoardAt(clientX, clientY) {
+  if (!_adBoardRects.length) return null;
+  const w = screenToWorld(clientX, clientY);
+  for (const b of _adBoardRects) if (w.x >= b.x0 && w.x <= b.x1 && w.y >= b.y0 && w.y <= b.y1) return b;
+  return null;
+}
+function openAd(board) {
+  playSound('ui', 0.5);
+  try { window.ReactNativeWebView?.postMessage(JSON.stringify({ t: 'openAd', link: board.link })); } catch { /* not in app */ }
+}
 canvas.addEventListener('mousedown', (e) => {
   if (usingTouch) return;                                                     // ignore synthesized-from-touch mouse events
+  const ad = adBoardAt(e.clientX, e.clientY); if (ad) { openAd(ad); return; } // board tap, not a shot
   if (e.button === 2) { specialQueued = true; specialAim = { x: 0, y: 0 }; }   // right-click = special, feet plant
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
@@ -2012,6 +2109,7 @@ addEventListener('touchstart', (e) => {
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   for (const t of e.changedTouches) {
     if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target))) continue; // buttons aren't sticks
+    const ad = adBoardAt(t.clientX, t.clientY); if (ad) { openAd(ad); continue; } // board tap, not a stick
     const left = t.clientX < innerWidth / 2;
     if (left && touchL.id === null) {
       touchL.id = t.identifier; touchL.cx = t.clientX; touchL.cy = t.clientY; touchL.dx = 0; touchL.dy = 0;
@@ -2146,8 +2244,25 @@ const bgCtx = bgCanvas.getContext('2d');
 let ctx = wbCtx;            // active draw target (world draws target the low-res buffer)
 let scale = 1, dpr = 1;     // scale = ART pixels per world unit
 let camX = 0, camY = 0;     // camera offset in ART px (subtracted in wx/wy)
-const NET = GOAL.depth;     // net depth behind each goal line
-const BAND = 380;           // depth (world units) of the top/bottom touchline terraces (~4 audience rows, packed pitch->edge)
+const NET = GOAL.depth;     // gameplay net-pocket depth (matches the sim: ball + players)
+const NET_VIS = 170;        // DEEPER visual net drawn behind the goal line (decoration only; must be <= BACK)
+// --- Stadium seating ----------------------------------------------------------
+// Every side of the bowl is exactly THREE rows of stadium seats deep. One card
+// spectator sits in one seat (some seats stay empty). These sizes drive the seat
+// grid, the terrace depth (draw), and how far the camera may pan past a wall.
+// Compact seat GRID (tight pitch) with a fixed, larger CARD drawn on top of each seat,
+// so the album packs a big ~800-seat bowl of overlapping card art. cardW/cardH is the
+// shared spectator size — the front-row PLAYER cards use the same size (see drawPlayerSeats).
+const AUD = { seatW: 46, seatH: 58, gapX: 6, gapY: 8, capPerCard: 12, capTotal: 800, cardW: 72, cardH: 92 };
+const ROWS = 5;                       // stand depth (rows of seats) per side
+const ROW_X = AUD.seatW + AUD.gapX;   // behind-goal row pitch (rows stack along X)
+const ROW_Y = AUD.seatH + AUD.gapY;   // touchline  row pitch (rows stack along Y)
+const LANE = 56;                      // clear perimeter lane (ad boards) between the pitch and the front seat row
+const BAND = ROWS * ROW_Y + LANE;     // touchline terrace depth = 3 rows + the board lane
+const BACK = ROWS * ROW_X + LANE;     // behind-goal terrace = 3 rows + lane, measured FROM the goal line
+// Camera limit: reveal the wall/net plus up to HALF of the third (back) row, then stop.
+const CAM_BAND = 2.5 * ROW_Y + LANE;
+const CAM_BACK = 2.5 * ROW_X + LANE;
 
 function resize() {
   dpr = Math.min(devicePixelRatio || 1, 2);
@@ -2164,7 +2279,7 @@ function resize() {
   // #7: eased the zoom out a touch (CAM_ZOOM 1.85 -> 1.65) so the goal net/area frames
   // in view when a player is near a goal instead of sitting clipped at the screen edge.
   scale = CAM_ZOOM * wbW / FIELD.W;
-  bgCanvas.width = Math.ceil((FIELD.W + 2 * NET) * scale);
+  bgCanvas.width = Math.ceil((FIELD.W + 2 * BACK) * scale);
   bgCanvas.height = Math.ceil((FIELD.H + 2 * BAND) * scale);
   bgCtx.imageSmoothingEnabled = false;
   renderBackground();
@@ -2176,10 +2291,10 @@ function resize() {
 function updateCamera() {
   const cx = rendered ? rendered.x : FIELD.W / 2;
   const cy = rendered ? rendered.y : FIELD.H / 2;
-  const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - wbW;
+  const minX = -CAM_BACK * scale, maxX = (FIELD.W + CAM_BACK) * scale - wbW;
   camX = clamp(cx * scale - wbW / 2, minX, Math.max(minX, maxX));
-  const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * BAND) * scale;
-  const minY = -BAND * scale, maxY = (FIELD.H + BAND) * scale - wbH;
+  const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * CAM_BAND) * scale;
+  const minY = -CAM_BAND * scale, maxY = (FIELD.H + CAM_BAND) * scale - wbH;
   if (worldHpx <= wbH) camY = (fieldHpx - wbH) / 2; // whole bowl fits — centre the pitch
   else camY = clamp(cy * scale - wbH / 2, minY, Math.max(minY, maxY));
 }
@@ -2202,13 +2317,14 @@ function screenToWorld(px, py) {
 }
 
 // Render the static field to the offscreen cache. Temporarily point the camera so
-// wx/wy produce bg-local coords (bg pixel 0,0 = world (-NET, -BAND)).
+// wx/wy produce bg-local coords (bg pixel 0,0 = world (-BACK, -BAND)).
 function renderBackground() {
   const sx = camX, sy = camY, sctx = ctx;
-  camX = -NET * scale; camY = -BAND * scale; ctx = bgCtx;
+  camX = -BACK * scale; camY = -BAND * scale; ctx = bgCtx;
   try {
     bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
     drawStands();
+    drawSeatChairs(); // empty stadium seats — static furniture; card spectators bob on top later
     drawField();
   } finally { ctx = sctx; camX = sx; camY = sy; }
 }
@@ -2269,13 +2385,13 @@ function hash(x, y) { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; re
 // bottom touchline terraces sit off-pitch and scroll in as you walk to the edges.
 function drawStands() {
   const cA = teamColor('A'), cB = teamColor('B'), midX = FIELD.W / 2;
-  drawFanWall(-NET, 0, 0, FIELD.H, cA);                          // behind A's (left) goal
-  drawFanWall(FIELD.W, 0, FIELD.W + NET, FIELD.H, cB);           // behind B's (right) goal
+  drawFanWall(-BACK, 0, 0, FIELD.H, cA);                          // behind A's (left) goal — deep end terrace
+  drawFanWall(FIELD.W, 0, FIELD.W + BACK, FIELD.H, cB);           // behind B's (right) goal — deep end terrace
   // Split each side terrace at halfway so every team's colours fill its own half.
-  drawFanWall(-NET, -BAND, midX, 0, cA);                         // top,    home half
-  drawFanWall(midX, -BAND, FIELD.W + NET, 0, cB);                // top,    away half
-  drawFanWall(-NET, FIELD.H, midX, FIELD.H + BAND, cA);          // bottom, home half
-  drawFanWall(midX, FIELD.H, FIELD.W + NET, FIELD.H + BAND, cB); // bottom, away half
+  drawFanWall(-BACK, -BAND, midX, 0, cA);                         // top,    home half
+  drawFanWall(midX, -BAND, FIELD.W + BACK, 0, cB);                // top,    away half
+  drawFanWall(-BACK, FIELD.H, midX, FIELD.H + BAND, cA);          // bottom, home half
+  drawFanWall(midX, FIELD.H, FIELD.W + BACK, FIELD.H + BAND, cB); // bottom, away half
 }
 function drawFanWall(x0, y0, x1, y1, color) {
   const ax0 = Math.round(wx(x0)), ay0 = Math.round(wy(y0));
@@ -2298,17 +2414,15 @@ function drawFanWall(x0, y0, x1, y1, color) {
 }
 
 // ---- Card audience -----------------------------------------------------------
-// Real album cards fill the terraces as a jumping crowd: the local player's own
-// cards on their side (home), the opposing team's cards pooled on the far side.
-// Seats are laid out once per match (buildAudienceSeats) then drawn per-frame with
-// a bob, inside the mirrored-world transform so home stays on the player's own side.
-const AUD = { seatW: 64, seatH: 86, gapX: 6, gapY: 9, capPerCard: 12, capTotal: 260 };
+// The empty stadium seats are baked into the STATIC background (drawSeatChairs); the
+// card spectators sit in those seats and BOB per-frame as animated layers on top —
+// the local player's own album on their side (home), pooled on the far side.
 // The crowd animates as N offscreen layers, each with its own rapid, out-of-phase
 // jitter — overlapping they read as a chaotic jumping mob, not one smooth wave.
 const N_LAYERS = 6;
 const LAYERS = Array.from({ length: N_LAYERS }, (_, i) => ({
-  fy: 8.5 + i * 1.7, phy: i * 1.9, ay: 6 + (i % 3) * 3,   // vertical jump: fast, varied
-  fx: 5.5 + i * 1.1, phx: i * 2.7 + 1, ax: 2 + (i % 2) * 3, // small side sway
+  fy: 9 + i * 1.8, phy: i * 1.9, ay: 18 + (i % 3) * 7,    // BIG vertical jump: fast, varied (cards leap out of their seats)
+  fx: 4.5 + i * 0.9, phx: i * 2.7 + 1, ax: 0.6 + (i % 2) * 0.8, // barely any side sway
 }));
 let audSeats = [];
 // Expand a ranked card list into one entry per copy (capped), best-worth first.
@@ -2320,44 +2434,115 @@ function expandPool(cards) {
   }
   return out;
 }
-// Spread `pool` across a section's seats: if there are more cards than seats, fill
-// every seat; if fewer, space the cards out so the album is visible among empty
-// seats (never clumped). Called PER section so top / bottom / goal all show the
-// same set. Only the user's own cards are used — few cards => mostly empty stands.
+// Scatter `pool` RANDOMLY across a section's seats: shuffle the seat order, then
+// occupy from the front — one card per seat. Fewer cards than seats => only that many
+// seats get a card, so the album sits scattered among empty seats (never a neat
+// block); more cards than seats => every seat filled, cycling the pool. Called PER
+// section so top / bottom / goal each show the same album. Marks r/n on the seat
+// (the seat itself is already in `audSeats` so empty seats still draw as chairs).
 function spreadPool(seats, pool) {
   const S = seats.length, P = pool.length;
   if (!S || !P) return;
-  const place = (st, c) => { st.r = c.r; st.n = c.n; audSeats.push(st); };
-  if (P >= S) { for (let i = 0; i < S; i++) place(seats[i], pool[i]); return; }
-  const step = S / P;
-  for (let k = 0; k < P; k++) place(seats[Math.min(S - 1, Math.round(k * step + step * 0.5))], pool[k]);
+  const idx = seats.map((_, i) => i);
+  for (let i = S - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; const t = idx[i]; idx[i] = idx[j]; idx[j] = t; } // Fisher–Yates
+  const fill = P >= S ? S : P;
+  for (let k = 0; k < fill; k++) { const st = seats[idx[k]], c = pool[k % P]; st.r = c.r; st.n = c.n; }
 }
 function buildAudienceSeats() {
   audSeats = [];
   const pool = expandPool(rankCards(myCards())); // ONLY the user's own album; sparse if few
-  if (!pool.length) return;                        // no cards -> empty stands (as requested)
   const midX = FIELD.W / 2;
-  const regions = [
-    [-NET, 0, 0, FIELD.H], [FIELD.W, 0, FIELD.W + NET, FIELD.H],           // behind each goal
-    [-NET, -BAND, midX, 0], [midX, -BAND, FIELD.W + NET, 0],               // top
-    [-NET, FIELD.H, midX, FIELD.H + BAND], [midX, FIELD.H, FIELD.W + NET, FIELD.H + BAND], // bottom
+  const cA = teamColor('A'), cB = teamColor('B');
+  // NO seats directly behind the net: clear the goal-mouth band plus a TWO-SEAT gap on each
+  // side, so behind-goal seats sit only on the FLANKS, next to the net (never behind it).
+  const gapY = 2 * ROW_Y;
+  const clrTop = GOAL_TOP - gapY, clrBot = GOAL_BOTTOM + gapY;
+  // Each section: [x0,y0,x1,y1, ax, ay, color]. ax/ay anchor the seat block in the region:
+  //   'lo' flush to x0/y0, 'hi' flush to x1/y1, 'mid' centred.
+  const sections = [
+    // TOUCHLINES (rows stack in Y): centred along X, anchored toward the pitch.
+    [-BACK, -BAND, midX, 0, 'mid', 'hi', cA], [midX, -BAND, FIELD.W + BACK, 0, 'mid', 'hi', cB],                                  // top
+    [-BACK, FIELD.H, midX, FIELD.H + BAND, 'mid', 'lo', cA], [midX, FIELD.H, FIELD.W + BACK, FIELD.H + BAND, 'mid', 'lo', cB],     // bottom
+    // BEHIND-GOAL FLANKS (rows stack in X): flush to the goal line, anchored TOWARD the net
+    // (the 2-seat gap to the net is held by clrTop/clrBot). None sit behind the net.
+    [-BACK, 0, 0, clrTop, 'hi', 'hi', cA], [-BACK, clrBot, 0, FIELD.H, 'hi', 'lo', cA],                                           // left goal flanks
+    [FIELD.W, 0, FIELD.W + BACK, clrTop, 'lo', 'hi', cB], [FIELD.W, clrBot, FIELD.W + BACK, FIELD.H, 'lo', 'lo', cB],             // right goal flanks
   ];
-  for (const [x0, y0, x1, y1] of regions) {
+  const gap = 2;
+  for (const [x0, y0, x1, y1, ax, ay, color] of sections) {
     const rw = x1 - x0, rh = y1 - y0;
-    const cols = Math.max(1, Math.floor(rw / (AUD.seatW + AUD.gapX)));
-    const rows = Math.max(1, Math.floor(rh / (AUD.seatH + AUD.gapY)));
+    if (rw < ROW_X * 0.6 || rh < ROW_Y * 0.6) continue; // skip a flank too thin for even one row
+    // Depth from the pitch: touchlines stack in rows (Y), flanks in cols (X).
+    const isEnd = x1 <= 0 || x0 >= FIELD.W;
+    // Rows deep = the SEATABLE depth (region minus the board LANE) / pitch → still ~3 rows.
+    const cols = Math.max(1, Math.round((isEnd ? rw - LANE : rw) / ROW_X));
+    const rows = Math.max(1, Math.round((isEnd ? rh : rh - LANE) / ROW_Y));
     const usedW = cols * AUD.seatW + (cols - 1) * AUD.gapX;
     const usedH = rows * AUD.seatH + (rows - 1) * AUD.gapY;
-    const gap = 2;
-    const ox = x1 <= 0 ? x1 - usedW - gap : x0 >= FIELD.W ? x0 + gap : x0 + (rw - usedW) / 2;
-    const oy = y1 <= 0 ? y1 - usedH - gap : y0 >= FIELD.H ? y0 + gap : y0 + (rh - usedH) / 2;
+    // The anchor (ax/ay) points TOWARD the pitch, so the anchored end holds the front row.
+    const depthN = isEnd ? cols : rows;
+    const nearHigh = isEnd ? ax === 'hi' : ay === 'hi';
+    // Hold the front row back from the pitch by LANE, so the perimeter LED boards sit in a
+    // clean lane BETWEEN the field and the crowd (not on top of the front seats).
+    const gx = isEnd ? LANE : gap;   // flanks are depth-in-X → inset toward the goal line
+    const gy = isEnd ? gap : LANE;   // touchlines are depth-in-Y → inset toward the touchline
+    const ox = ax === 'lo' ? x0 + gx : ax === 'hi' ? x1 - usedW - gx : x0 + (rw - usedW) / 2;
+    const oy = ay === 'lo' ? y0 + gy : ay === 'hi' ? y1 - usedH - gy : y0 + (rh - usedH) / 2;
     const seats = [];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      seats.push({ x: ox + c * (AUD.seatW + AUD.gapX), y: oy + r * (AUD.seatH + AUD.gapY), r: null, n: null, layer: (r * cols + c) % N_LAYERS });
+      const idx = isEnd ? c : r;
+      const rank = nearHigh ? idx : depthN - 1 - idx;   // 0 = back row, depthN-1 = front (nearest pitch)
+      const nf = depthN > 1 ? rank / (depthN - 1) : 1;  // 0 far .. 1 near
+      // Front rows draw LAST (higher layer = on top) and brick-stagger by half a pitch on
+      // alternate rows → a packed stand receding upward, not a flat grid.
+      let sx = ox + c * ROW_X, sy = oy + r * ROW_Y;
+      if (rank % 2 === 1) { if (isEnd) sy += ROW_Y * 0.5; else sx += ROW_X * 0.5; }
+      audSeats.push({ x: sx, y: sy, r: null, n: null, color, nf,
+        layer: clamp(Math.round(nf * (N_LAYERS - 1)), 0, N_LAYERS - 1) });
     }
-    spreadPool(seats, pool); // every section shows the user's cards spread among empty seats
   }
+  // Seat the album by TIER → DEPTH: the ranked pool (best worth/rarity first) fills the
+  // seats NEAREST the pitch first, so higher-tier cards sit closest to the field — but with
+  // a jitter so it's a random-ish gradient, not a perfect sorted wall. Duplicates are their
+  // own pool entries, so a card owned ×N takes N seats (fills gaps instead of leaving them).
+  const order = audSeats.map((_, i) => i).sort((a, b) => (audSeats[b].nf + Math.random() * 0.28) - (audSeats[a].nf + Math.random() * 0.28));
+  for (let k = 0; k < order.length && k < pool.length; k++) { const s = audSeats[order[k]]; s.r = pool[k].r; s.n = pool[k].n; }
+  audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
   preloadCards(pool);
+}
+// The seated card's rect INSIDE a seat cell (px,py,cellW,cellH), in whatever pixel
+// space the caller is in. Shared by drawSeat (the empty well) and bakeAudience (the
+// card), so a spectator lands exactly in its seat.
+function seatCardRect(px, py, cw, ch) {
+  const padX = Math.round(cw * 0.15), padTop = Math.round(ch * 0.14), padBot = Math.round(ch * 0.12);
+  return { x: px + padX, y: py + padTop, w: Math.max(2, cw - padX * 2), h: Math.max(2, ch - padTop - padBot) };
+}
+// One stadium seat: a moulded plastic bucket (team-coloured shell + darker well),
+// drawn into the STATIC background. Card spectators bob on top of the well later.
+// One moulded stadium seat, pixel-art style: a team-coloured BACKREST (upper) with a
+// darker padded insert + rim light, a small seam, and a SEAT BASE below with its own
+// highlight and under-shadow. Reads as a real flip-up bucket even when no card sits in it.
+function drawSeat(x, y, w, h, col) {
+  const ix = Math.round(x), iy = Math.round(y), cw = Math.max(3, Math.round(w)), ch = Math.max(3, Math.round(h));
+  const g = Math.max(1, Math.round(cw * 0.12));                 // gap to the neighbouring seat
+  const sx = ix + g, sy = iy + g, sw = cw - g * 2, sh = ch - g * 2;
+  if (sw < 3 || sh < 3) return;
+  const R = (a, b, ww, hh, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(a), Math.round(b), Math.max(1, Math.round(ww)), Math.max(1, Math.round(hh))); };
+  const backH = Math.max(2, Math.round(sh * 0.58));
+  // Backrest
+  R(sx, sy, sw, backH, shade(col, 0.72));                                          // shell
+  R(sx + sw * 0.15, sy + backH * 0.16, sw * 0.7, backH * 0.66, shade(col, 0.92));  // padded insert
+  R(sx, sy, sw, sh * 0.05, 'rgba(255,255,255,.22)');                               // top rim light
+  R(sx, sy + backH * 0.16, sw * 0.08, backH * 0.66, 'rgba(255,255,255,.10)');      // left edge sheen
+  R(sx, sy + backH - sh * 0.04, sw, sh * 0.04, 'rgba(0,0,0,.30)');                 // seam under the backrest
+  // Seat base
+  const padY = sy + backH + Math.max(1, Math.round(sh * 0.03)), padH = sy + sh - padY;
+  R(sx, padY, sw, padH, shade(col, 0.56));
+  R(sx, padY, sw, padH * 0.22, 'rgba(255,255,255,.12)');                           // front-lip light
+  R(sx, padY + padH - padH * 0.28, sw, padH * 0.28, 'rgba(0,0,0,.34)');            // under-shadow
+}
+function drawSeatChairs() {
+  for (const s of audSeats) drawSeat(wx(s.x), wy(s.y), ws_(AUD.seatW), ws_(AUD.seatH), s.color || '#8a97a8');
 }
 // Perf: the audience is baked into two offscreen layers (even/odd seats), sized like
 // the field cache. Each frame we blit those TWO images with opposite vertical bob — a
@@ -2368,23 +2553,27 @@ function bakeAudience() {
   const W = bgCanvas.width, H = bgCanvas.height;
   audLayers = Array.from({ length: N_LAYERS }, () => document.createElement('canvas'));
   const gx = audLayers.map((c) => { c.width = W; c.height = H; const g = c.getContext('2d'); g.imageSmoothingEnabled = false; return g; });
-  const sw = Math.ceil(ws_(AUD.seatW)), sh = Math.ceil(ws_(AUD.seatH));
+  // Every spectator card is the SAME fixed size (matches the front-row player cards). The
+  // seat grid is tighter than the card, so cards overlap into a packed wall of album art.
+  const cardW = Math.round(ws_(AUD.cardW)), cardH = Math.round(ws_(AUD.cardH));
+  const halfW = ws_(AUD.seatW / 2), halfH = ws_(AUD.seatH / 2);
   for (const s of audSeats) {
-    if (!s.r) continue;
+    if (!s.r) continue; // empty seat — the chair is already in the background
     const g = gx[s.layer % N_LAYERS];
-    const px = Math.round((s.x + NET) * scale), py = Math.round((s.y + BAND) * scale); // bg-cache coords
+    const ccx = (s.x + BACK) * scale + halfW, ccy = (s.y + BAND) * scale + halfH; // seat centre, bg-cache coords
+    const rect = { x: Math.round(ccx - cardW / 2), y: Math.round(ccy - cardH / 2), w: cardW, h: cardH };
     const img = cardImage(s.r, s.n);
-    if (img.ready) g.drawImage(img, px, py, sw, sh);
-    else { g.fillStyle = RARITY_GLOW[s.r] || '#8a97a8'; g.fillRect(px, py, sw, sh); }
-    g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 1; g.strokeRect(px + 0.5, py + 0.5, sw - 1, sh - 1);
+    if (img.ready) g.drawImage(img, rect.x, rect.y, rect.w, rect.h);
+    else { g.fillStyle = RARITY_GLOW[s.r] || '#8a97a8'; g.fillRect(rect.x, rect.y, rect.w, rect.h); }
+    g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 1; g.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
   }
 }
 function drawAudience() {
   if (me.team == null) return;
-  if (!audienceReady) { buildAudienceSeats(); audienceReady = true; audNeedsRebake = true; }
+  if (!audienceReady) { buildAudienceSeats(); renderBackground(); audienceReady = true; audNeedsRebake = true; } // re-bake bg so the empty seats appear
   if (audNeedsRebake || !audLayers || audLayers[0].width !== bgCanvas.width) { bakeAudience(); audNeedsRebake = false; }
   const t = performance.now() * 0.001;
-  const ox = -(camX + NET * scale), oy = -(camY + BAND * scale);
+  const ox = -(camX + BACK * scale), oy = -(camY + BAND * scale);
   ctx.save();
   // Clip to OUTSIDE the pitch so the crowd is cut cleanly at the touchlines (fans
   // behind the boards) instead of spilling onto the grass.
@@ -2392,13 +2581,102 @@ function drawAudience() {
   ctx.rect(0, 0, wbW, wbH);
   ctx.rect(wx(0), wy(0), ws_(FIELD.W), ws_(FIELD.H));
   ctx.clip('evenodd');
+  // Goal eruption: for ~2.5s after a goal the whole crowd bobs harder AND leaps up in
+  // sync (jump). Layers are depth-ordered (front rows = higher index) so their phase
+  // offset already rolls the ambient bob back-to-front like a lazy wave.
+  const hype = clamp(1 - (performance.now() - crowdHypeT) / 2500, 0, 1);
+  const amp = 1 + hype * 1.8, jump = hype * ws_(30) * Math.abs(Math.sin(t * 9));
   for (let L = 0; L < audLayers.length; L++) {
     const p = LAYERS[L];
-    const dx = Math.sin(t * p.fx + p.phx) * ws_(p.ax);
-    const dy = Math.sin(t * p.fy + p.phy) * ws_(p.ay);
+    const dx = Math.sin(t * p.fx + p.phx) * ws_(p.ax) * (1 + hype * 0.6);
+    const dy = Math.sin(t * p.fy + p.phy) * ws_(p.ay) * amp - jump;
     ctx.drawImage(audLayers[L], ox + dx, oy + dy);
   }
   ctx.restore();
+}
+
+// ---- Stadium props: perimeter ad boards + team benches -----------------------
+// Ad content is fed by the app (or CMS) via window.PIKME_STADIUM = { ads:[{img,text,
+// bg,fg,link}] }; falls back to house banners so the boards are never blank. Tapping a
+// board asks the RN shell to open the link (reuses the postMessage bridge).
+const _adImgs = new Map();
+function adImage(url) {
+  let img = _adImgs.get(url);
+  if (!img) { img = new Image(); img.onload = () => { img.ready = true; }; img.onerror = () => { img.failed = true; }; img.src = url; _adImgs.set(url, img); }
+  return img;
+}
+function stadiumAds() {
+  const cfg = (typeof window !== 'undefined' && window.PIKME_STADIUM) || null;
+  if (cfg && Array.isArray(cfg.ads) && cfg.ads.length) return cfg.ads;
+  return [
+    { text: 'PIKME', bg: '#1b2a4a', fg: '#ffd27a' },
+    { text: 'COLLECT · PLAY · WIN', bg: '#3a1b4a', fg: '#ffffff' },
+    { text: 'YOUR AD HERE', bg: '#123a2a', fg: '#7ee08a' },
+  ];
+}
+let _adBoardRects = [];            // {x,y,w,h,link} SCREEN px — for tap hit-testing
+const BOARD_H = 44;                // world-units thickness of the LED perimeter boards (must stay < LANE)
+function drawAdBoards() {
+  const ads = stadiumAds(); if (!ads.length) return;
+  _adBoardRects = [];
+  const idxBase = Math.floor(performance.now() / 5000); // rotate the boards every 5s
+  // Boards hug the pitch just OUTSIDE the boundary, in the lane held clear of the crowd.
+  // Goal-line boards are split ABOVE and BELOW the goal mouth so they never cross the net.
+  const sides = [
+    [0, -BOARD_H, FIELD.W, 0, 0, false],                                            // top touchline
+    [0, FIELD.H, FIELD.W, FIELD.H + BOARD_H, 1, false],                             // bottom touchline
+    [-BOARD_H, 0, 0, GOAL_TOP, 2, true], [-BOARD_H, GOAL_BOTTOM, 0, FIELD.H, 3, true],                             // left goal line (flanks)
+    [FIELD.W, 0, FIELD.W + BOARD_H, GOAL_TOP, 4, true], [FIELD.W, GOAL_BOTTOM, FIELD.W + BOARD_H, FIELD.H, 5, true], // right goal line (flanks)
+  ];
+  for (const [x0, y0, x1, y1, oi, vertical] of sides) {
+    const ad = ads[(idxBase + oi) % ads.length];
+    const sx = Math.round(wx(x0)), sy = Math.round(wy(y0)), sw = Math.round(ws_(x1 - x0)), sh = Math.round(ws_(y1 - y0));
+    ctx.fillStyle = '#0b0f14'; ctx.fillRect(sx, sy, sw, sh);                    // frame
+    ctx.fillStyle = ad.bg || '#16233c'; ctx.fillRect(sx + 1, sy + 1, sw - 2, sh - 2);
+    if (ad.img) { const im = adImage(ad.img); if (im.ready) { ctx.save(); ctx.beginPath(); ctx.rect(sx, sy, sw, sh); ctx.clip(); ctx.drawImage(im, sx, sy, sw, sh); ctx.restore(); } }
+    else {
+      ctx.save(); ctx.translate(sx + sw / 2, sy + sh / 2); if (vertical) ctx.rotate(-Math.PI / 2);
+      const fs = Math.max(7, ws_((vertical ? (x1 - x0) : (y1 - y0)) * 0.46));
+      ctx.fillStyle = ad.fg || '#fff'; ctx.font = `800 ${fs}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(ad.text || 'PIKME', 0, 0); ctx.restore();
+    }
+    ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(sx, sy, sw, Math.max(1, ws_(2.5))); // top gloss
+    if (ad.link) _adBoardRects.push({ x0, y0, x1, y1, link: ad.link }); // WORLD rect for tap hit-test
+  }
+}
+// Covered team dugout on the bottom touchline. The player's own team bench shows their
+// three loadout POWER CARDS; the opponent bench shows coaching-staff silhouettes.
+// The two players' POWER CARDS get their own front-row seats — 3 per player, CLOSEST to
+// the field (front of the crowd), same size as the crowd cards. My loadout sits on the near
+// (bottom) touchline; the opponent's on the far (top). Missing loadout slots draw as empty
+// seats. (Opponent loadout isn't sent to the client yet, so that row shows empty for now.)
+function drawPlayerSeats() {
+  const cw = AUD.cardW, ch = AUD.cardH, gap = 16, n = 3;
+  const rowW = n * cw + (n - 1) * gap, x0 = FIELD.W / 2 - rowW / 2;
+  const home = effectiveLoadout();
+  const myTeam = me.team === 'B' ? 'B' : 'A', oppTeam = myTeam === 'A' ? 'B' : 'A';
+  const seatRow = (topY, cards, col) => {
+    for (let i = 0; i < n; i++) {
+      const sx = wx(x0 + i * (cw + gap)), sy = wy(topY), sW = ws_(cw), sH = ws_(ch);
+      ctx.fillStyle = 'rgba(0,0,0,.32)'; ctx.fillRect(sx + ws_(3), sy + ws_(5), sW, sH); // drop shadow
+      const c = cards[i];
+      if (c) {
+        const im = cardImage(c.r, c.n);
+        if (im.ready) ctx.drawImage(im, sx, sy, sW, sH);
+        else { ctx.fillStyle = RARITY_GLOW[c.r] || '#8a97a8'; ctx.fillRect(sx, sy, sW, sH); }
+        ctx.lineWidth = Math.max(1, ws_(2.5)); ctx.strokeStyle = shade(col, 0.95); ctx.strokeRect(sx, sy, sW, sH); // team frame
+      } else {
+        drawSeat(sx, sy, sW, sH, col); // empty player seat (loadout slot not filled)
+      }
+    }
+  };
+  seatRow(FIELD.H + BOARD_H + 6, home, teamColor(myTeam));                    // near touchline = my power cards
+  seatRow(-BOARD_H - 6 - ch, [null, null, null], teamColor(oppTeam));         // far touchline = opponent (empty)
+}
+function drawStadiumProps() {
+  drawAdBoards();
+  drawPlayerSeats();
 }
 
 // ---- Confetti: fans throwing colour into the air, ambient + goal bursts --------
@@ -2420,7 +2698,7 @@ function spawnConfetti(x, y, up) {
 function confettiBurst(n) {
   for (let i = 0; i < n; i++) {
     const top = Math.random() < 0.5;
-    const x = -NET + Math.random() * (FIELD.W + 2 * NET);
+    const x = -BACK + Math.random() * (FIELD.W + 2 * BACK);
     const y = top ? -Math.random() * BAND : FIELD.H + Math.random() * BAND;
     spawnConfetti(x, y, true);
   }
@@ -2430,7 +2708,7 @@ function updateConfetti(dt) {
   // ambient: a light trickle thrown up from random stand spots (goals add big bursts)
   if (Math.random() < 0.3) {
     const top = Math.random() < 0.5;
-    spawnConfetti(-NET + Math.random() * (FIELD.W + 2 * NET), top ? -Math.random() * BAND : FIELD.H + Math.random() * BAND, true);
+    spawnConfetti(-BACK + Math.random() * (FIELD.W + 2 * BACK), top ? -Math.random() * BAND : FIELD.H + Math.random() * BAND, true);
   }
   for (let i = confetti.length - 1; i >= 0; i--) {
     const p = confetti[i];
@@ -2527,8 +2805,8 @@ function drawField() {
     pxi(wx(fx), wy(fy), s, s, c);
     pxi(wx(fx) + Math.round(s / 3), wy(fy) + s, Math.max(1, Math.round(s / 3)), s, '#3f7a2a'); // stem
   }
-  drawGoal(0, -NET);              // left: line at x=0, net behind (to -NET)
-  drawGoal(FIELD.W, FIELD.W + NET); // right: line at x=W, net behind (to W+NET)
+  drawGoal(0, -NET_VIS);              // left: line at x=0, DEEP net behind (to -NET_VIS)
+  drawGoal(FIELD.W, FIELD.W + NET_VIS); // right: line at x=W, DEEP net behind
   if (training) drawPenZone();    // training: outline the dummy's confinement box
 }
 
@@ -2705,14 +2983,22 @@ function drawBall(b) {
 
 // Current aim of the local player (for the aim-to-shoot indicator).
 function currentAim() {
-  // Returns a TRUE-world aim direction (the aim indicator is drawn inside the
-  // mirrored world for team B, so it must not be pre-flipped here).
+  // TRUE-world aim for the indicator (drawn inside the mirrored world for team B, so not
+  // pre-flipped here). A QUICK shot (charge below full) AUTO-TARGETS, so the indicator points
+  // where the shot will actually GO — nearest enemy in sight, or the goal when carrying. A
+  // FULL charge honours your manual aim. Auto-aim applies to quick shots ONLY.
+  const manual = manualAim();
+  if (manual.aiming && currentCharge() < FULL_CHARGE) {
+    const t = quickShotTarget();
+    if (t) return { aiming: true, ax: t.ax, ay: t.ay };
+  }
+  return manual;
+}
+// Raw manual aim from the stick / mouse (true-world).
+function manualAim() {
   if (usingTouch) {
     const m = Math.hypot(touchR.dx, touchR.dy);
-    if (touchR.id !== null && m > 12) {
-      const sx = flipView() ? -touchR.dx : touchR.dx;
-      return { aiming: true, ax: sx / m, ay: touchR.dy / m };
-    }
+    if (touchR.id !== null && m > 12) { const sx = flipView() ? -touchR.dx : touchR.dx; return { aiming: true, ax: sx / m, ay: touchR.dy / m }; }
     return { aiming: false };
   }
   if (!rendered) return { aiming: false };
@@ -2720,6 +3006,32 @@ function currentAim() {
   let ax = w.x - rendered.x, ay = w.y - rendered.y;
   const l = Math.hypot(ax, ay) || 1;
   return { aiming: true, ax: ax / l, ay: ay / l };
+}
+// Where a QUICK shot would go (mirrors the sim): the nearest point on the enemy goal when
+// carrying, else the nearest ENEMY in line of sight. Returns a true-world unit dir, or null.
+function quickShotTarget() {
+  if (!rendered || !latest) return null;
+  const carrying = latest.ball && latest.ball.owner === me.playerId;
+  if (carrying) {
+    const goalX = me.team === 'A' ? FIELD.W : 0;         // A attacks right, B attacks left
+    const m = BALL_RADIUS + POST_R;
+    const gy = clamp(rendered.y, GOAL_TOP + m, GOAL_BOTTOM - m);
+    const ax = goalX - rendered.x, ay = gy - rendered.y, l = Math.hypot(ax, ay) || 1;
+    return { ax: ax / l, ay: ay / l };
+  }
+  const walls = fieldArena().walls.concat(latest.walls || []);
+  let best = null, bestD = Infinity;
+  for (const t of (latest.players || [])) {
+    if (t.team === me.team) continue;
+    if (!canSeePlayer(t)) continue;
+    const dx = t.x - rendered.x, dy = t.y - rendered.y, d = dx * dx + dy * dy;
+    if (d > VISION_RANGE * VISION_RANGE || d >= bestD) continue;
+    if (walls.some((w) => segBlockedByWall(w, rendered.x, rendered.y, t.x, t.y, 0))) continue;
+    bestD = d; best = t;
+  }
+  if (!best) return null;
+  const ax = best.x - rendered.x, ay = best.y - rendered.y, l = Math.hypot(ax, ay) || 1;
+  return { ax: ax / l, ay: ay / l };
 }
 
 // Cast the aim from (x0,y0) along (ax,ay) to the FIELD EDGE. Never stops on a player
@@ -2771,6 +3083,22 @@ function drawBomb(bomb) {
   ctx.setLineDash([ws_(6), ws_(6)]);
   ctx.strokeStyle = 'rgba(239,68,68,.5)'; ctx.lineWidth = Math.max(1, ws_(2)); ctx.stroke();
   ctx.setLineDash([]);
+  // Land intro: for BOMB_LAND_MS the bomb drops the last bit and squash-bounces on impact.
+  // Transform the BODY only (danger ring above stays put); anchor the squash at the base (y+r).
+  // V3 "Drop + shockring": the bomb falls straight in; on impact it kicks a ground shock
+  // ring + dust (spawned once, in world coords), no squash.
+  const lt0 = bombSpawnT.get(bomb.id);
+  ctx.save();
+  if (lt0 != null) {
+    const p = clamp((performance.now() - lt0) / BOMB_LAND_MS, 0, 1);
+    if (p < 0.5) { const q = p / 0.5; ctx.translate(0, -(1 - q * q) * r * 3); }   // accelerating fall-in
+    else if (!bombLanded.has(bomb.id)) {                                          // impact frame → shockwave
+      bombLanded.add(bomb.id);
+      spawnRing(bomb.x, bomb.y, 12, 58);
+      spawnDust(bomb.x, bomb.y, 10, { col: '200,188,160', spd: 95, up: 55, size: 4 });
+      shake(clamp(4 * proximity(bomb.x, bomb.y), 1, 4), 130);
+    }
+  }
   const t = bomb.fuse / BOMB.fuse;
   const blink = t < 0.35 ? (Math.floor(bomb.fuse * 12) % 2 === 0) : true;
   const red = '#b3352a', redD = '#8f2a20', redHi = '#cf4636';
@@ -2787,6 +3115,7 @@ function drawBomb(bomb) {
   pxi(x + r * .5, T - r * .55, r * .22, r * .55, '#5b4a2c');                                                    // fuse
   if (blink) { pxi(x + r * .42, T - r * .98, r * .48, r * .48, '#ffe27a'); pxi(x + r * .55, T - r * .86, r * .22, r * .22, '#fff'); }
   else pxi(x + r * .48, T - r * .78, r * .28, r * .28, '#f0792c');
+  ctx.restore(); // end land-intro transform
 }
 
 // TNT detonation: fat pixel fire core -> flung embers -> blocky smoke -> flash.
@@ -3007,8 +3336,13 @@ function drawBuiltWall(w) {
   const g = Math.round(60 + 46 * f);
   const top = `rgb(190,${g + 26},72)`, face = `rgb(120,${Math.round(52 * f) + 26},36)`, hi = 'rgba(255,224,170,.35)';
   const s = wallSlab(w), lift = Math.max(2, ws_(5));
+  // Build-in "Assemble" (V3): for the first WALL_BUILD_MS the planks reveal left→right
+  // (a clip that sweeps along the wall's length), so it reads as being built.
+  const bt0 = wallSpawnT.get(w.id); let bp = 1, flash = 0;
+  if (bt0 != null) { bp = clamp((performance.now() - bt0) / WALL_BUILD_MS, 0, 1); flash = (1 - bp) * 0.5; }
   ctx.save();
   ctx.translate(s.cx, s.cy); ctx.rotate(s.angle);
+  if (bp < 1) { const rv = 1 - Math.pow(1 - bp, 3); ctx.beginPath(); ctx.rect(-s.L / 2, -s.T / 2 - ws_(6), s.L * rv, s.T + ws_(12)); ctx.clip(); }
   ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fillRect(-s.L / 2 + ws_(3), -s.T / 2 + ws_(4), s.L, s.T); // drop shadow
   ctx.fillStyle = face; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T);                                 // body
   ctx.fillStyle = top; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T - lift);                           // lit top
@@ -3016,6 +3350,7 @@ function drawBuiltWall(w) {
   ctx.fillStyle = 'rgba(30,14,0,.35)';                                                              // plank lines
   for (let x = -s.L / 2 + ws_(26); x < s.L / 2; x += Math.max(4, ws_(26))) ctx.fillRect(Math.round(x), -s.T / 2, 1, s.T);
   if (f < 0.99) { ctx.strokeStyle = 'rgba(20,8,0,.7)'; ctx.lineWidth = Math.max(1, ws_(2)); const n = f < 0.34 ? 4 : 2; for (let i = 0; i < n; i++) { const a = i * 2.2 + w.id; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * s.L * 0.35, Math.sin(a) * s.T * 0.5); ctx.stroke(); } }
+  if (flash > 0) { ctx.fillStyle = `rgba(255,240,200,${(flash * 0.6).toFixed(3)})`; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T); } // build-in flash
   ctx.restore();
   // HP pips: screen-space above the centre (unrotated, easy to read).
   const pipY = s.cy - s.T / 2 - Math.max(2, ws_(9));
@@ -3169,10 +3504,12 @@ function renderFrame() {
   // Team B sees a horizontally-mirrored pitch so they too attack left->right.
   ctx.save();
   if (flipView()) { ctx.translate(wbW, 0); ctx.scale(-1, 1); }
-  ctx.drawImage(bgCanvas, -(camX + NET * scale), -(camY + BAND * scale)); // cached field at camera offset
+  ctx.drawImage(bgCanvas, -(camX + BACK * scale), -(camY + BAND * scale)); // cached field at camera offset
   drawAudience(); // card-art crowd (dynamic, jumping) on top of the cached terraces
+  drawStadiumProps(); // perimeter ad boards + team benches (in front of the crowd, off-pitch)
   { const cn = performance.now(); const cdt = confPrevT ? Math.min(0.05, (cn - confPrevT) / 1000) : 0.016; confPrevT = cn; updateConfetti(cdt); drawConfetti(); }
   drawObstacles(); // walls / bushes / trampolines (static layout + built walls)
+  { const fn = performance.now(); const fdt = fxPrevT ? Math.min(0.05, (fn - fxPrevT) / 1000) : 0.016; fxPrevT = fn; updateFx(fdt); drawFx(); } // dust + wood-shard particles
 
   const view = interpolated();
   if (view) {

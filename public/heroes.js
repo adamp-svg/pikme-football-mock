@@ -169,6 +169,13 @@ function bombPose(u) {                                // Quick drop
   return { rot, bob: 0, pt: { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-6.5, 17], Rh: rh } };
 }
 
+function buildWindPose(time) {                        // Channel — braced, both hands up-forward, trembling
+  const tr = Math.sin(time * 34) * 0.5;              // effort tremble
+  const brace = Math.sin(time * 6) * 0.5;            // slow strain sway
+  return { rot: Math.sin(time * 26) * 0.02, bob: 2.2,
+    pt: { Lf: [-3.5, 27], Rf: [3.5, 27], Lh: [-7.5 + tr, 9 + brace], Rh: [7.5 + tr, 9 + brace] } };
+}
+
 function wallPose(u) {                                // Stomp
   let lh, rh, bob = 0, rot = 0;
   if (u < 0.42) { const p = u / 0.42; lh = [lerp(-6.5, -7, p), lerp(17, 6, p)]; rh = [lerp(6.5, 7, p), lerp(17, 6, p)]; bob = lerp(0, 2.5, p); }
@@ -232,6 +239,7 @@ function resolvePose(anim, walkPhase, moving, time, dir) {
     case 'kick': return { ...base, flip: aimFlip, exSign: 1, ...kickPose(u, a.power) };
     case 'shoot': return { ...base, flip: aimFlip, exSign: 1, ...shootPose(u, a.power) };
     case 'bomb': return { ...base, ...bombPose(u) };
+    case 'buildwind': return { ...base, flip: aimFlip, exSign: 1, ...buildWindPose(time) };
     case 'wall': return { ...base, flip: aimFlip, exSign: 1, ...wallPose(u) };
     case 'fly': return { ...base, ...flyPose(u, a.strength == null ? 0.6 : a.strength, a.dir || [0, -1]) };
     case 'hit': return { ...base, ...hitPose(u, a.force || 0, a.dir || [-1, 0]) };

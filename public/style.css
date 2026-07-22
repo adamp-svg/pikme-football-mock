@@ -1,4 +1,4 @@
-* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; -webkit-touch-callout: none; }
 :root {
   --a: #2e70df;
   --b: #e84b3c;
@@ -16,6 +16,7 @@ html, body {
   user-select: none;
   touch-action: none;
 }
+input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
 .hidden { display: none !important; }
 

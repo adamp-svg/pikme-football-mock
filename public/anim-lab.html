@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animation Lab — wall build / break / bomb</title>
+<style>
+  :root{--bg:#0d1512;--panel:#13201b;--panel2:#1a2a23;--line:#294036;--ink:#e9f0ea;--muted:#8fa89b;--accent:#ffd27a;--good:#7ee08a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+  .wrap{max-width:1080px;margin:0 auto;padding:26px 18px 60px}
+  h1{font-size:clamp(21px,3.4vw,28px);font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+  .sub{color:var(--muted);margin:0 0 8px;max-width:70ch}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .row-h{display:flex;align-items:center;gap:10px;margin:30px 0 12px;font-family:ui-monospace,monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+  .row-h::after{content:"";flex:1;height:1px;background:var(--line)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .cell{background:var(--panel);border:2px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;transition:border-color .15s,transform .12s;display:flex;flex-direction:column}
+  .cell:hover{transform:translateY(-2px)}
+  .cell.sel{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+  .cell canvas{width:100%;display:block;background:radial-gradient(120% 90% at 50% 30%,#3f8f43,#245b2a)}
+  .meta{padding:10px 13px}
+  .tag{display:flex;align-items:center;gap:8px;font-weight:700}
+  .tag .k{font-family:ui-monospace,monospace;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:12px;color:var(--accent)}
+  .desc{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .pick{margin-top:8px;font-size:12px;font-weight:700;color:var(--muted)}
+  .cell.sel .pick{color:var(--good)}
+  .bar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);padding:10px 0;margin-bottom:6px}
+  .bar .in{max-width:1080px;margin:0 auto;padding:0 18px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .chip{font-family:ui-monospace,monospace;font-size:12.5px;color:var(--muted)}
+  .chip b{color:var(--ink)}
+  button{font:inherit;font-weight:700;cursor:pointer;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);padding:7px 13px}
+  button:hover{border-color:var(--accent)}
+  footer{margin-top:34px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="bar"><div class="in">
+  <span class="chip">Wall build: <b id="s-build">V1</b></span>
+  <span class="chip">Wall break: <b id="s-break">V1</b></span>
+  <span class="chip">Bomb land: <b id="s-bomb">V1</b></span>
+  <span style="flex:1"></span>
+  <button id="replay">↻ Replay all</button>
+</div></div>
+
+<div class="wrap">
+  <h1>Animation Lab</h1>
+  <p class="sub">Real game graphics — the actual <span class="mono">drawHero</span> athlete + the real wood-slab / TNT pixel art. Three redesign options per animation, looping. Click one in each row to choose; your picks show in the top bar.</p>
+
+  <div class="row-h">Wall build — hero channels 0.5s, then the wall appears</div>
+  <div class="grid" id="row-build"></div>
+
+  <div class="row-h">Wall break</div>
+  <div class="grid" id="row-break"></div>
+
+  <div class="row-h">Bomb land</div>
+  <div class="grid" id="row-bomb"></div>
+
+  <footer>Tell me your pick per row (e.g. “build V2, break V1, bomb V3”) and I’ll wire the chosen ones into the game. Want a variant tweaked or a different idea? Say so.</footer>
+</div>
+
+<script type="module">
+import { drawHero } from '/heroes.js';
+import { DEFAULT_COSMETIC } from '/shared/cosmetics.js';
+
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const easeOut=t=>1-Math.pow(1-t,3);
+const KIT={J:'#3f7bd6',JS:'#2c5aa6'};
+const COS=DEFAULT_COSMETIC;
+
+// ---------- faithful wood slab (copied recipe from client.js drawBuiltWall) ----------
+function woodSlab(ctx,L,T,f,flash){
+  const g=Math.round(150+46*f);
+  const face=`rgb(120,${Math.round(52*f)+26},36)`, top=`rgb(190,${g-90},72)`, hi='rgba(255,224,170,.35)';
+  const lift=Math.max(2,T*0.14);
+  ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(-L/2+3,-T/2+4,L,T);      // drop shadow
+  ctx.fillStyle=face;ctx.fillRect(-L/2,-T/2,L,T);                        // body
+  ctx.fillStyle=top;ctx.fillRect(-L/2,-T/2,L,T-lift);                    // lit top
+  ctx.fillStyle=hi;ctx.fillRect(-L/2,-T/2,L,Math.max(2,T*0.09));         // highlight
+  ctx.fillStyle='rgba(30,14,0,.35)';                                     // plank lines
+  for(let x=-L/2+L*0.16;x<L/2;x+=L*0.16)ctx.fillRect(Math.round(x),-T/2,1,T);
+  if(flash>0){ctx.fillStyle=`rgba(255,240,200,${(flash*0.6).toFixed(3)})`;ctx.fillRect(-L/2,-T/2,L,T);}
+}
+function woodChunk(ctx,x,y,w,h,rot,alpha){
+  ctx.save();ctx.globalAlpha=alpha;ctx.translate(x,y);ctx.rotate(rot);
+  ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(-w/2+2,-h/2+3,w,h);
+  ctx.fillStyle='#7a4a24';ctx.fillRect(-w/2,-h/2,w,h);
+  ctx.fillStyle='rgb(190,150,72)';ctx.fillRect(-w/2,-h/2,w,h*0.7);
+  ctx.fillStyle='rgba(255,224,170,.3)';ctx.fillRect(-w/2,-h/2,w,3);
+  ctx.restore();
+}
+
+// ---------- faithful TNT (copied recipe from client.js drawBomb) ----------
+function tnt(ctx,x,y,r,blink){
+  const px=(a,b,w,h,c)=>{ctx.fillStyle=c;ctx.fillRect(Math.round(a),Math.round(b),Math.max(1,Math.round(w)),Math.max(1,Math.round(h)));};
+  const red='#b3352a',redD='#8f2a20',redHi='#cf4636';
+  const L=x-r,T=y-r,W=r*2,H=r*2;
+  px(L,T-r*.42,W,r*.42,'#7d5a34');px(L,T-r*.42,W,r*.13,'#8f6a40');
+  px(L,T,W,H,red);px(L,T,W,r*.28,redHi);px(L,T,r*.28,H,redHi);
+  px(L+W-r*.28,T,r*.28,H,redD);px(L,T+H-r*.28,W,r*.28,redD);
+  px(L,y-r*.34,W,r*.68,'#efe7d2');px(L,y-r*.34,W,r*.13,'#fff8e6');px(L,y+r*.22,W,r*.12,'#cabfa6');
+  const lc='#7a2018',u=Math.max(1,Math.round(r*.16));
+  px(x-r*.62,y-r*.16,u*3,u,lc);px(x-r*.62+u,y-r*.16,u,u*3,lc);
+  px(x-r*.06,y-r*.16,u,u*3,lc);px(x-r*.06+u*2,y-r*.16,u,u*3,lc);px(x-r*.06+u,y-r*.16+u,u,u,lc);
+  px(x+r*.34,y-r*.16,u*3,u,lc);px(x+r*.34+u,y-r*.16,u,u*3,lc);
+  px(x+r*.5,T-r*.55,r*.22,r*.55,'#5b4a2c');
+  if(blink){px(x+r*.42,T-r*.98,r*.48,r*.48,'#ffe27a');px(x+r*.55,T-r*.86,r*.22,r*.22,'#fff');}
+  else px(x+r*.48,T-r*.78,r*.28,r*.28,'#f0792c');
+}
+
+// ---------- particles ----------
+function P(){return[];}
+function dust(ps,x,y,n,col,spd,up){for(let i=0;i<n;i++){const a=Math.random()*7;ps.push({x,y,vx:Math.cos(a)*spd*(.4+Math.random()*.8),vy:-Math.random()*up-8,g:520,life:0,max:.35+Math.random()*.35,size:3+Math.random()*4,rot:0,vr:0,kind:'d',col});}}
+function shards(ps,x,y,n,fast){for(let i=0;i<n;i++){const a=-Math.PI/2+(Math.random()-.5)*2.6,sp=(fast?200:120)+Math.random()*220;ps.push({x:x+(Math.random()-.5)*44,y:y+(Math.random()-.5)*16,vx:Math.cos(a)*sp+(Math.random()-.5)*120,vy:Math.sin(a)*sp-60,g:900,life:0,max:.5+Math.random()*.45,size:4+Math.random()*6,rot:Math.random()*7,vr:(Math.random()-.5)*20,kind:'s',col:['#7a4a24','#9c6a30','#c8963e'][(Math.random()*3)|0]});}}
+function upd(ps,dt){for(const p of ps){p.life+=dt;p.vy+=p.g*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=p.vr*dt;}for(let i=ps.length-1;i>=0;i--)if(ps[i].life>=ps[i].max)ps.splice(i,1);}
+function drw(ctx,ps){for(const p of ps){const k=1-p.life/p.max;if(p.kind==='d'){ctx.fillStyle=`rgba(${p.col},${(0.5*k).toFixed(3)})`;ctx.beginPath();ctx.arc(p.x,p.y,p.size*(.6+.6*k),0,7);ctx.fill();}else{ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.globalAlpha=clamp(k*1.5,0,1);ctx.fillStyle=p.col;ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size*.72);ctx.restore();ctx.globalAlpha=1;}}}
+
+// ---------- scene rig ----------
+function mkCanvas(host){
+  const cv=document.createElement('canvas');host.appendChild(cv);
+  return cv;
+}
+function fit(cv){const dpr=Math.min(2,devicePixelRatio||1);const w=cv.clientWidth,h=Math.round(w*0.66);cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);return{ctx,w,h};}
+
+// draw the real hero at a screen spot; anim = drawHero anim object
+function hero(ctx,x,groundY,scale,anim,dir){
+  const sf=scale*1.15, feetY=groundY, ox=Math.round(x);
+  drawHero(ctx,ox,feetY,sf,dir==null?1:dir,0,0,false,COS,KIT,performance.now()/1000,anim);
+}
+
+// wall geometry in screen space
+function wallDims(w){return{L:w*0.42,T:w*0.42*0.28};}
+
+// ============ BUILD variants ============
+const BUILD=[
+  {k:'V1',name:'Slam',desc:'Squash → overshoot pop, dust puff + white flash. (current)'},
+  {k:'V2',name:'Rise',desc:'Grows upward out of the ground, dust at the base. Reads as “raised”.'},
+  {k:'V3',name:'Assemble',desc:'Planks snap in left→right like it’s being built.'},
+];
+function renderBuild(cv,variant,clock){
+  const {ctx,w,h}=fit(cv);ctx.clearRect(0,0,w,h);
+  const ps=cv._ps||(cv._ps=P());
+  const groundY=h-24, scale=w/300, wcx=w*0.62, hx=w*0.30;
+  const {L,T}=wallDims(w);
+  ctx.strokeStyle='rgba(255,255,255,.10)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,groundY);ctx.lineTo(w,groundY);ctx.stroke();
+  const CYC=2.8,t=clock%CYC;
+  if(t<0.05){ps.length=0;cv._spawn=false;}
+  let anim,dir=1;
+  if(t<0.4){anim={action:'idle',facing:'front'};}
+  else if(t<0.9){const u=(t-0.4)/0.5;anim={action:'buildwind',aimSign:1};
+    ctx.save();ctx.globalAlpha=.18+.3*u;ctx.translate(wcx,groundY-T*1.4);woodSlab(ctx,L,T,1,0);ctx.restore();
+  } else {
+    const pt=t-0.9;const bp=clamp(pt/0.3,0,1);
+    anim={action:'wall',u:clamp(pt/0.5,0,1),aimSign:1};
+    if(!cv._spawn){cv._spawn=true;dust(ps,wcx,groundY,14,'150,120,80',95,60);}
+    const flash=1-bp;
+    ctx.save();ctx.translate(wcx,groundY-T*1.4);
+    if(variant==='V1'){const c=2.4,e=1+(c+1)*Math.pow(bp-1,3)+c*Math.pow(bp-1,2);ctx.scale(0.35+0.65*e,0.55+0.45*e);woodSlab(ctx,L,T,1,flash);}
+    else if(variant==='V2'){const rv=easeOut(bp);ctx.translate(0,(1-rv)*T*2.2);ctx.scale(1,0.2+0.8*rv);woodSlab(ctx,L,T,1,flash*0.6);}
+    else{ctx.beginPath();ctx.rect(-L/2,-T*1.2,L*easeOut(bp),T*2.4);ctx.clip();woodSlab(ctx,L,T,1,flash*0.4);}
+    ctx.restore();
+  }
+  hero(ctx,hx,groundY,scale,anim,dir);
+  upd(ps,1/60);drw(ctx,ps);
+}
+
+// ============ BREAK variants ============
+const BREAK=[
+  {k:'V1',name:'Shatter',desc:'Plank shards fly out + dust burst. (current)'},
+  {k:'V2',name:'Crumble',desc:'Splits into 3 chunks that topple, tumble and fade.'},
+  {k:'V3',name:'Burst',desc:'White flash + fast shards + quick fade. Snappier, less debris.'},
+];
+function renderBreak(cv,variant,clock){
+  const {ctx,w,h}=fit(cv);ctx.clearRect(0,0,w,h);
+  const ps=cv._ps||(cv._ps=P());
+  const groundY=h-24, scale=w/300, wcx=w*0.62, hx=w*0.30;
+  const {L,T}=wallDims(w);
+  ctx.strokeStyle='rgba(255,255,255,.10)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,groundY);ctx.lineTo(w,groundY);ctx.stroke();
+  const CYC=2.5,t=clock%CYC,cy=groundY-T*1.4;
+  if(t<0.05){ps.length=0;cv._done=false;}
+  hero(ctx,hx,groundY,scale,{action:'idle',facing:'front'},1);
+  const hitT=0.9;
+  if(t<hitT){
+    ctx.save();ctx.translate(wcx,cy);woodSlab(ctx,L,T,t>0.5?0.5:1,0);ctx.restore(); // cracks appear late
+  } else if(!cv._done){
+    cv._done=true;
+    if(variant==='V1'){shards(ps,wcx,cy,12);dust(ps,wcx,cy,14,'120,86,52',100,70);}
+    else if(variant==='V3'){shards(ps,wcx,cy,18,true);dust(ps,wcx,cy,10,'120,86,52',130,80);cv._flash=performance.now();}
+    else {dust(ps,wcx,cy,12,'120,86,52',80,50);} // crumble draws chunks below
+  }
+  if(t>=hitT){
+    if(variant==='V2'){ // crumble: 3 chunks fall + tumble
+      const bt=t-hitT;const cw=L/3;
+      for(let i=0;i<3;i++){const cxk=wcx-L/2+cw*(i+0.5);const fall=0.5*900*bt*bt*0.6;const rot=(i-1)*1.2*bt;const al=clamp(1-bt/0.9,0,1);
+        if(al>0)woodChunk(ctx,cxk+(i-1)*30*bt,cy+fall,cw*0.9,T,rot,al);}
+    }
+    if(variant==='V3'&&cv._flash){const fk=clamp(1-(performance.now()-cv._flash)/120,0,1);if(fk>0){ctx.save();ctx.globalAlpha=fk*0.6;ctx.fillStyle='#fff';ctx.fillRect(wcx-L/2,cy-T*1.2,L,T*2.4);ctx.restore();}}
+  }
+  upd(ps,1/60);drw(ctx,ps);
+}
+
+// ============ BOMB variants ============
+const BOMB=[
+  {k:'V1',name:'Squash bounce',desc:'Drops the last bit, squashes wide then settles + dust. (current)'},
+  {k:'V2',name:'Lob arc',desc:'Arcs in from the side, lands with a small settle + dust. Thrown feel.'},
+  {k:'V3',name:'Drop + shockring',desc:'Straight drop, expanding shock ring on impact + dust.'},
+];
+function renderBomb(cv,variant,clock){
+  const {ctx,w,h}=fit(cv);ctx.clearRect(0,0,w,h);
+  const ps=cv._ps||(cv._ps=P());
+  const groundY=h-24, scale=w/300, hx=w*0.28, bx=w*0.60, r=w*0.05;
+  ctx.strokeStyle='rgba(255,255,255,.10)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,groundY);ctx.lineTo(w,groundY);ctx.stroke();
+  const CYC=2.4,t=clock%CYC,by=groundY-r-6;
+  if(t<0.05){ps.length=0;cv._land=false;cv._ring=0;}
+  hero(ctx,hx,groundY,scale,t<0.55?{action:'bomb',u:clamp(t/0.42,0,1)}:{action:'idle',facing:'front'},1);
+  const blink=(Math.floor(t*10)%2===0);
+  const fly=0.5;
+  if(variant==='V1'){
+    if(t<fly){const u=t/fly;const drop=-(1-u*u)*r*3;tnt(ctx,bx,by+drop,r,blink);}
+    else{const q=(t-fly)/0.5;let sx=1,sy=1;if(q<1){const b=Math.sin(clamp(q,0,1)*Math.PI)*(1-clamp(q,0,1));sy=1-0.45*b;sx=1+0.45*b;}
+      if(!cv._land){cv._land=true;dust(ps,bx,groundY,10,'200,188,160',80,45);}
+      ctx.save();ctx.translate(bx,by+r);ctx.scale(sx,sy);ctx.translate(-bx,-(by+r));tnt(ctx,bx,by,r,blink);ctx.restore();}
+  } else if(variant==='V2'){
+    if(t<fly){const u=t/fly;const x=lerp(hx+r,bx,u);const arc=Math.sin(u*Math.PI)*r*4;tnt(ctx,x,by-arc,r,blink);}
+    else{const q=(t-fly)/0.4;const bob=q<1?Math.sin(q*Math.PI)*r*0.5*(1-q):0;
+      if(!cv._land){cv._land=true;dust(ps,bx,groundY,8,'200,188,160',70,40);}
+      tnt(ctx,bx,by-bob,r,blink);}
+  } else {
+    if(t<fly){const u=t/fly;const drop=-(1-u*u)*r*4;tnt(ctx,bx,by+drop,r,blink);}
+    else{if(!cv._land){cv._land=true;cv._ring=performance.now();dust(ps,bx,groundY,10,'200,188,160',90,50);}
+      tnt(ctx,bx,by,r,blink);
+      const rt=(performance.now()-cv._ring)/300;if(rt<1){ctx.save();ctx.globalAlpha=(1-rt)*0.7;ctx.strokeStyle='#fff2cf';ctx.lineWidth=3*(1-rt);ctx.beginPath();ctx.arc(bx,groundY,r*0.8+rt*r*3,0,7);ctx.stroke();ctx.restore();}}
+  }
+  upd(ps,1/60);drw(ctx,ps);
+}
+
+// ---------- build the grid ----------
+const sel={build:'V1',break:'V1',bomb:'V1'};
+function makeRow(hostId,items,kind){
+  const host=document.getElementById(hostId);const cvs=[];
+  items.forEach(it=>{
+    const el=document.createElement('div');el.className='cell'+(it.k===sel[kind]?' sel':'');el.dataset.k=it.k;
+    el.innerHTML=`<canvas></canvas><div class="meta"><div class="tag"><span class="k">${it.k}</span><span>${it.name}</span></div><div class="desc">${it.desc}</div><div class="pick">${it.k===sel[kind]?'✓ selected':'click to select'}</div></div>`;
+    el.addEventListener('click',()=>{sel[kind]=it.k;for(const c of host.children){const on=c.dataset.k===sel[kind];c.classList.toggle('sel',on);c.querySelector('.pick').textContent=on?'✓ selected':'click to select';}
+      document.getElementById('s-'+kind).textContent=sel[kind];});
+    host.appendChild(el);cvs.push({cv:el.querySelector('canvas'),k:it.k});
+  });
+  return cvs;
+}
+const rowBuild=makeRow('row-build',BUILD,'build');
+const rowBreak=makeRow('row-break',BREAK,'break');
+const rowBomb=makeRow('row-bomb',BOMB,'bomb');
+
+let t0=performance.now();
+document.getElementById('replay').addEventListener('click',()=>{t0=performance.now();});
+function loop(now){
+  const clock=(now-t0)/1000;
+  for(const c of rowBuild)renderBuild(c.cv,c.k,clock);
+  for(const c of rowBreak)renderBreak(c.cv,c.k,clock);
+  for(const c of rowBomb)renderBomb(c.cv,c.k,clock);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
