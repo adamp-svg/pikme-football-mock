@@ -721,6 +721,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   position: relative; z-index: 1; height: 360px; width: auto; image-rendering: pixelated;
   filter: drop-shadow(0 12px 10px rgba(0,0,0,.6));
 }
+/* Drag-a-card-onto-the-hero hover cue: glowing ring + lifted sprite. */
+.hub-hero.hub-hero-over .hub-char {
+  filter: drop-shadow(0 0 14px #ffd34e) drop-shadow(0 12px 10px rgba(0,0,0,.6));
+  transform: translateY(-6px) scale(1.04); transition: transform .12s ease;
+}
+.hub-hero.hub-hero-over::before {
+  background: radial-gradient(closest-side, rgba(255,190,60,.55), rgba(255,190,60,.22) 60%, transparent 78%);
+}
 .hub-herohint {
   position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); white-space: nowrap;
   font: 900 9px "Arial Black", sans-serif; letter-spacing: .4px; color: #ffcb43; opacity: .9;
@@ -1207,7 +1215,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   padding: 0; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
   background: none; border: none; border-radius: 0;   /* clean: no box around the buttons */
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;   /* clean swipe: settles on a button, not mid-gap */
 }
+#play-strip > * { scroll-snap-align: start; }
 .hub > #play-strip::-webkit-scrollbar { display: none; }  /* clean swipe, no visible scrollbar */
 /* strip items: flow (override any absolute base), uniform height, natural width */
 #play-strip > * {

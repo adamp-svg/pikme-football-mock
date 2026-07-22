@@ -86,30 +86,32 @@
            then the coming-soon ones (tournament · goal-brawl) revealed by scrolling. The big
            yellow quick-match box above is NOT in the strip. dir=ltr so the strip scrolls
            left→right from training. Each button keeps its id/class/handler. -->
+      <!-- Order = 2v2 arena FIRST (primary, flush at the start limit / most visible), then
+           play-friends · training, then the coming-soon pills revealed by swiping. -->
       <div id="play-strip" class="hub-strip" dir="ltr">
-        <div id="goal-brawl-btn" class="hub-cs" role="button" aria-disabled="true">
-          <span class="hub-mic">🥅</span>
-          <span class="hub-cs-tx"><b>קרב על השער</b></span>
-          <span class="hub-cs-soon">בקרוב</span>
-        </div>
-        <div id="tournament-btn" class="hub-cs" role="button" aria-disabled="true">
-          <span class="hub-mic">🏆</span>
-          <span class="hub-cs-tx"><b>טורניר</b></span>
-          <span class="hub-cs-soon">בקרוב</span>
-        </div>
-        <button id="training-btn" class="hub-mode hub-training">
-          <span class="hub-mic">🎯</span>
-          <span class="hub-mtx"><b>אימון</b></span>
-        </button>
-        <button id="play-friends-btn" class="hub-mode hub-secondary">
-          <span class="hub-mic">👥</span>
-          <span class="hub-mtx"><b>שחק עם חברים</b></span>
-        </button>
         <button class="hub-arena" data-open-screen="arena">
           <span class="hub-arena-ic">🏟️</span>
           <span class="hub-arena-tx"><b>כדורגל · 2 נגד 2</b><small>אצטדיון הבלוקים · החלף מגרש</small></span>
           <span class="hub-arena-chev">‹</span>
         </button>
+        <button id="play-friends-btn" class="hub-mode hub-secondary">
+          <span class="hub-mic">👥</span>
+          <span class="hub-mtx"><b>שחק עם חברים</b></span>
+        </button>
+        <button id="training-btn" class="hub-mode hub-training">
+          <span class="hub-mic">🎯</span>
+          <span class="hub-mtx"><b>אימון</b></span>
+        </button>
+        <div id="tournament-btn" class="hub-cs" role="button" aria-disabled="true">
+          <span class="hub-mic">🏆</span>
+          <span class="hub-cs-tx"><b>טורניר</b></span>
+          <span class="hub-cs-soon">בקרוב</span>
+        </div>
+        <div id="goal-brawl-btn" class="hub-cs" role="button" aria-disabled="true">
+          <span class="hub-mic">🥅</span>
+          <span class="hub-cs-tx"><b>קרב על השער</b></span>
+          <span class="hub-cs-soon">בקרוב</span>
+        </div>
       </div>
     </div>
   </div>

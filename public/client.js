@@ -57,6 +57,16 @@ const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' }; // home/picker preview kit 
 function loadCosmetic() { try { return normalizeCosmetic(localStorage.getItem('pikme_cosmetic')); } catch { return DEFAULT_COSMETIC; } }
 function saveCosmetic(c) { try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } }
 let myCosmetic = loadCosmetic();          // this player's chosen "hero:skin"
+// Re-skin the current hero by a card's rarity (keeps hero TYPE, swaps the tier). Mirrors
+// the picker's save path; the home preview (drawDancer) reads myCosmetic live so it updates.
+function setHeroSkinByRarity(rarity) {
+  const skin = RARITY_SKIN[rarity]; if (!skin) return;
+  const hero = (myCosmetic.split(':')[0]) || 'striker';
+  myCosmetic = normalizeCosmetic(`${hero}:${skin}`);
+  saveCosmetic(myCosmetic);
+  sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
+  toast('מראה הגיבור עודכן לפי נדירות הקלף');
+}
 // Card powers: 3 equipped slots (0 Shot / 1 Speed / 2 Utility), each an owned card
 // {r,n} whose RARITY sets the buff strength. Persisted like myCosmetic. null => the
 // slot auto-fills from the album's top-3; the server derives the actual buff %.
@@ -547,7 +557,13 @@ function showScreen(name) {
   // Home loops the menu theme; the pitch + pre-match lobby keep their own music; anything
   // else (friends, etc.) is silent. Quick-match shows 'home' UNDER the VS overlay, so leave
   // music alone then — the lobby countdown music owns that moment and replaces whatever plays.
-  if (name === 'home') { if (!quickVs) startHomeMusic(); }
+  if (name === 'home') {
+    if (!quickVs) startHomeMusic();
+    // Always land the play strip on the primary 2v2 button (flush at the start), so it's the
+    // most-visible mode; swiping reveals play-friends/training/coming-soon. dir=ltr -> start = 0.
+    const strip = document.getElementById('play-strip');
+    if (strip) strip.scrollLeft = 0;
+  }
   else if (name !== 'game' && name !== 'lobby') stopMusic();
   for (const k in screens) screens[k].classList.toggle('hidden', k !== name);
 }
@@ -596,6 +612,9 @@ let MY_USER_ID = null; // filled from the welcome message (authenticated connect
 const CARD_ART_BASE = 'https://pxsjmychuxwufcvqixgu.supabase.co/storage/v1/object/public/cards';
 const RARITY_GLOW = { common: '#9ab0c5', rare: '#4ea0ff', epic: '#b46bff', legendary: '#ffb800' };
 const RARITY_RANK = { legendary: 3, epic: 2, rare: 1, common: 0 };
+// Dropping a card on the hero re-skins it by the card's rarity (SKIN_RARITY tiers):
+// common→base, rare→gold, epic→holo, legendary→sig. Hero TYPE is kept; only the tier changes.
+const RARITY_SKIN = { common: 'base', rare: 'gold', epic: 'holo', legendary: 'sig' };
 // Local-dev only: without the app there's no injected album, so the hub/carousel
 // look empty. On localhost we preview a small sample; on any real host (device or
 // Render) we NEVER fake it — return the injected cards or nothing.
@@ -615,6 +634,15 @@ function rankCards(cards) {
     (b.w || 0) - (a.w || 0) ||
     (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) ||
     (b.c || 0) - (a.c || 0));
+}
+// "Best" loadout ranking: RARITY first, then DUPLICATION (copies), then worth as a
+// tiebreak. Distinct from rankCards (worth-first) which drives the carousel — the
+// #select-best-btn uses this so the equipped powers are the rarest/most-owned cards.
+function rankForLoadout(cards) {
+  return [...(cards || [])].sort((a, b) =>
+    (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) ||
+    (b.c || 0) - (a.c || 0) ||
+    (b.w || 0) - (a.w || 0));
 }
 // Lazily-loaded card-front <img>s, keyed "rarity_number". crossOrigin left unset so the
 // public Supabase art loads without a CORS handshake (the game never reads canvas pixels).
@@ -792,11 +820,14 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
   // grabbed card onto a power slot. Intent locks on the first meaningful movement.
   let sx = null, sy = null, mode = null, dragCard = null, ghost = null;
   let cfStart = 0, lastX = 0, lastT = 0, vel = 0;
+  const heroBtn = document.getElementById('pick-hero-btn');
   const clearGhost = () => {
     if (ghost) { ghost.remove(); ghost = null; }
     document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+    if (heroBtn) heroBtn.classList.remove('hub-hero-over');
   };
   const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
+  const heroUnder = (x, y) => { const el = document.elementFromPoint(x, y); return !!(el && el.closest && el.closest('#pick-hero-btn')); };
   carouselEl.addEventListener('pointerdown', (e) => {
     sx = e.clientX; sy = e.clientY; mode = null; dragCard = null;
     cfStart = cfIndex; lastX = e.clientX; lastT = performance.now(); vel = 0;
@@ -832,6 +863,7 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
       const slot = slotUnder(e.clientX, e.clientY);
       document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
       if (slot) slot.classList.add('pslot-over');
+      if (heroBtn) heroBtn.classList.toggle('hub-hero-over', !slot && heroUnder(e.clientX, e.clientY));
     }
   });
   const end = (e) => {
@@ -843,6 +875,7 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
     } else if (mode === 'drag' && dragCard) {
       const slot = slotUnder(e.clientX, e.clientY);
       if (slot && slot.dataset.slot != null) setSlotCard(+slot.dataset.slot, dragCard); // drop ANY grabbed card into the slot
+      else if (heroUnder(e.clientX, e.clientY)) setHeroSkinByRarity(dragCard.r);        // drop on the hero -> re-skin by rarity
     }
     clearGhost();
     sx = sy = null; mode = null; dragCard = null;
@@ -1203,9 +1236,13 @@ document.getElementById('reset-ball-btn').addEventListener('click', () => { send
 // top-3 into the slots; persist, re-render the home slots, and tell the server live.
 document.getElementById('select-best-btn')?.addEventListener('click', () => {
   unlockAudio();
-  myLoadout = null; saveLoadout(myLoadout);
+  // Equip the 3 best cards by rarity, then duplication (see rankForLoadout).
+  const top = rankForLoadout(myCards()).slice(0, 3);
+  myLoadout = [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
+  saveLoadout(myLoadout);
   renderPowerSlots();
-  sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() });
+  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+  toast('צוידו הקלפים הטובים ביותר');
 });
 // Play with friends: same create/join private-room flow the #friends rail opens.
 document.getElementById('play-friends-btn')?.addEventListener('click', () => {
