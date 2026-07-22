@@ -20,6 +20,17 @@ NOT touching lobby/power-slot region (owned by opus-lobby).
 - [x] Req1: goal-lead — target pushed toward goal over final 32% of pitch, LEAD_MAX=NET+0.6*CAM_BACK, bounded by clamp. client.js:2456-2467
 - [x] Req4: 6 special seats already present (drawPlayerSeats n=3 home loadout + 3 opp empty). No change needed. client.js:2819
 
+## Round 2 — audience (committed locally)
+User req: (1) fill ∝ card count assuming 800-seat stadium; (2) audience = players' albums;
+(3) rarest cards in front; (4) async jumping + a wave.
+Decision (user): keep seats as-is (~228), scale fill as a RATIO vs the conceptual 800.
+- [x] audiencePool(): every player's album (matchRoster + mine, no cross-player dedup), 1 seat/card, rarity-first. client.js ~2768
+- [x] Fill ratio = cards/800 × actual seats (400 cards => 114/228 ≈ half). client.js ~2836
+- [x] Rarest → nearest-pitch seats (front rows). client.js ~2842
+- [x] Wave: seat.layer bucketed by world-X; drawAudience adds one-sided travelling crest (Mexican wave) + existing async per-layer bob. client.js ~2830, ~2922
+Verified: node -c OK; ratio table 50→400 cards→114 seats (50%).
+Note: seat geometry yields ~228 seats total (3 card-sized rows) — 800 is conceptual only.
+
 ## Verification
 - node -c public/client.js => SYNTAX OK.
 - BACK/BAND (full 3-row depth) still drive bgCanvas/renderBackground/drawStands/bakeAudience — only the CAMERA clamp uses CAM_*. Whole bowl still renders; camera just stops at half the 3rd row.

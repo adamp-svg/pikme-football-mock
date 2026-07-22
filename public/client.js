@@ -2769,14 +2769,16 @@ function spreadPool(seats, pool) {
 // so the rarest cards take the front seats. Seats filled ≈ total card count: with 800 seats,
 // e.g. players holding 100 cards each fill about half the bowl (no cycling to over-fill).
 function audiencePool() {
+  // ONE seat per album card, and every player's album counts SEPARATELY (no cross-player
+  // dedup) so the fill scales with the total card count: 800 seats, e.g. four players each
+  // holding 100 cards => ~400 seats => about HALF the bowl full. Capped at capTotal.
   const bag = [];
-  const seen = new Set();
-  const add = (cards) => { for (const c of (cards || [])) { const k = c.r + '/' + c.n; if (seen.has(k)) continue; seen.add(k); bag.push(c); } };
-  for (const p of matchRoster) add(p.cards);   // all players in the match
-  add(myCards());                              // ensure my own album is in (roster may be empty in solo/dev)
-  // RARITY-first (then worth) so the front rows are strictly the rarest cards.
+  const rosterHasMe = matchRoster.some((p) => p.id === myMemberId);
+  for (const p of matchRoster) for (const c of (p.cards || [])) bag.push(c);
+  if (!rosterHasMe) for (const c of myCards()) bag.push(c); // solo/dev: roster may not list me
+  // RARITY-first (then worth) so the front rows hold the rarest cards.
   bag.sort((a, b) => (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) || (b.w || 0) - (a.w || 0) || (b.c || 0) - (a.c || 0));
-  return expandPool(bag); // one entry per copy, capped at capTotal (800 seats)
+  return bag.slice(0, AUD.capTotal);
 }
 function buildAudienceSeats() {
   audSeats = [];
@@ -2827,16 +2829,23 @@ function buildAudienceSeats() {
       // alternate rows → a packed stand receding upward, not a flat grid.
       let sx = ox + c * ROW_X, sy = oy + r * ROW_Y;
       if (rank % 2 === 1) { if (isEnd) sy += ROW_Y * 0.5; else sx += ROW_X * 0.5; }
-      audSeats.push({ x: sx, y: sy, r: null, n: null, color, nf,
-        layer: clamp(Math.round(nf * (N_LAYERS - 1)), 0, N_LAYERS - 1) });
+      // Seat cells are ~card-sized with a gap (negligible overlap), so the crowd LAYER no
+      // longer needs to encode depth for front-on-top. Instead bucket by WORLD-X: shifting a
+      // whole layer vertically then rolls a Mexican WAVE across the stands (see drawAudience).
+      const wcol = clamp(Math.round((sx + BACK) / (FIELD.W + 2 * BACK) * (N_LAYERS - 1)), 0, N_LAYERS - 1);
+      audSeats.push({ x: sx, y: sy, r: null, n: null, color, nf, layer: wcol });
     }
   }
-  // Seat the album by TIER → DEPTH: the ranked pool (best worth/rarity first) fills the
-  // seats NEAREST the pitch first, so higher-tier cards sit closest to the field — but with
-  // a jitter so it's a random-ish gradient, not a perfect sorted wall. Duplicates are their
-  // own pool entries, so a card owned ×N takes N seats (fills gaps instead of leaving them).
-  const order = audSeats.map((_, i) => i).sort((a, b) => (audSeats[b].nf + Math.random() * 0.28) - (audSeats[a].nf + Math.random() * 0.28));
-  for (let k = 0; k < order.length && k < pool.length; k++) { const s = audSeats[order[k]]; s.r = pool[k].r; s.n = pool[k].n; }
+  // FILL RATIO: the bowl only physically holds ~audSeats.length seats, but the crowd size is
+  // scaled against a CONCEPTUAL 800-seat stadium — so total cards / 800 gives the fraction of
+  // the real seats we fill. E.g. players holding 400 cards total => ~half the bowl occupied.
+  const ratio = clamp(pool.length / AUD.capTotal, 0, 1);
+  const fillCount = Math.min(pool.length, Math.round(ratio * audSeats.length));
+  // Seat by TIER → DEPTH: the rarity-sorted pool (rarest first) fills the seats NEAREST the
+  // pitch first, so the highest-rarity cards sit in the FRONT rows — with a small jitter so
+  // it's a gradient, not a perfectly sorted wall.
+  const order = audSeats.map((_, i) => i).sort((a, b) => (audSeats[b].nf + Math.random() * 0.2) - (audSeats[a].nf + Math.random() * 0.2));
+  for (let k = 0; k < fillCount; k++) { const s = audSeats[order[k]]; s.r = pool[k].r; s.n = pool[k].n; }
   audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
   preloadCards(pool);
 }
@@ -2911,15 +2920,20 @@ function drawAudience() {
   ctx.rect(0, 0, wbW, wbH);
   ctx.rect(wx(0), wy(0), ws_(FIELD.W), ws_(FIELD.H));
   ctx.clip('evenodd');
-  // Goal eruption: for ~2.5s after a goal the whole crowd bobs harder AND leaps up in
-  // sync (jump). Layers are depth-ordered (front rows = higher index) so their phase
-  // offset already rolls the ambient bob back-to-front like a lazy wave.
+  // Goal eruption: for ~2.5s after a goal the whole crowd bobs harder AND leaps up in sync.
   const hype = clamp(1 - (performance.now() - crowdHypeT) / 2500, 0, 1);
   const amp = 1 + hype * 1.8, jump = hype * ws_(30) * Math.abs(Math.sin(t * 9));
+  // Layers are bucketed by WORLD-X (see buildAudienceSeats). Two motions combine:
+  //  1) ASYNC bob — each layer has its own frequency/phase (LAYERS[L]) so neighbouring
+  //     columns jump out of sync, reading as a chaotic individually-jumping crowd.
+  //  2) A travelling MEXICAN WAVE — a raised band that rolls left→right across the columns:
+  //     a phase term that steps with the layer index L, so the crest sweeps the stands.
+  const WAVE_SPEED = 2.2, WAVE_STEP = (Math.PI * 2) / audLayers.length * 1.5, WAVE_AMP = 26;
   for (let L = 0; L < audLayers.length; L++) {
     const p = LAYERS[L];
+    const wave = Math.max(0, Math.sin(t * WAVE_SPEED - L * WAVE_STEP)) ** 2 * ws_(WAVE_AMP); // one-sided crest (fans stand then sit)
     const dx = Math.sin(t * p.fx + p.phx) * ws_(p.ax) * (1 + hype * 0.6);
-    const dy = Math.sin(t * p.fy + p.phy) * ws_(p.ay) * amp - jump;
+    const dy = Math.sin(t * p.fy + p.phy) * ws_(p.ay) * amp - jump - wave;
     ctx.drawImage(audLayers[L], ox + dx, oy + dy);
   }
   ctx.restore();
