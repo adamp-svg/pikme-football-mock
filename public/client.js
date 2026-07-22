@@ -1076,7 +1076,12 @@ function friendRow(f, opts = {}) {
   const online = ONLINE.has(f.userId);
   const div = document.createElement('div');
   div.className = 'friend-row' + (online ? ' online' : '');
-  div.innerHTML = `<span class="friend-dot"></span><img class="friend-pfp" src="${f.image || ''}"/><span class="friend-name">${f.nickName}</span>`;
+  const dot = document.createElement('span'); dot.className = 'friend-dot';
+  const pfp = document.createElement('img'); pfp.className = 'friend-pfp';
+  const imgUrl = (f.image || '').toString();
+  if (/^https?:\/\//i.test(imgUrl)) pfp.src = imgUrl;
+  const nm = document.createElement('span'); nm.className = 'friend-name'; nm.textContent = f.nickName || '';
+  div.append(dot, pfp, nm);
   const btn = document.createElement('button');
   btn.className = 'friend-act';
   if (opts.kind === 'search') { btn.textContent = 'הוסף'; btn.onclick = async () => { if (await apiPost('/handle-friends/request', { toUserId: f.userId })) { btn.textContent = 'נשלח'; btn.disabled = true; } }; }
