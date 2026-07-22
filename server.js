@@ -115,7 +115,7 @@ function genCode() {
 }
 
 function emptyInput() {
-  return { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, hold: false, fire: false, special: false, build: false };
+  return { seq: 0, moveX: 0, moveY: 0, aimX: 0, aimY: 0, hold: false, fire: false, special: false, build: false, buildHold: false, sax: 0, say: 0 };
 }
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
@@ -723,7 +723,7 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'input') {
         if (!room || !member.inMatch) return;
-        const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.hold || !!msg.fire || !!msg.special || !!msg.build;
+        const active = (Math.abs(msg.moveX || 0) + Math.abs(msg.moveY || 0) > 0.1) || !!msg.hold || !!msg.fire || !!msg.special || !!msg.build || !!msg.buildHold;
         if (active) {
           member.lastInputAt = nowMs();
           if (member.afk) {
@@ -745,6 +745,7 @@ wss.on('connection', (ws, req) => {
           // sticky until the next tick consumes it so a fire between ticks isn't lost.
           hold: !!msg.hold, fire: prev.fire || !!msg.fire,
           special: prev.special || !!msg.special, build: prev.build || !!msg.build,
+          buildHold: !!msg.buildHold, sax: msg.sax || 0, say: msg.say || 0,
         });
         return;
       }
