@@ -4,7 +4,7 @@
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
-  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, clamp,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, BOMB_LOB_RANGE, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
@@ -1547,6 +1547,10 @@ let aimHold = null;        // aim captured at right-stick release (fire directio
 let chargeStart = null;    // timestamp the hold began — LOCAL charge estimate for the HUD only
 const AIM_DEADZONE_PX = 12; // stick/cursor pull past this = a real shot; inside it = cancel
 
+let specialAim = { x: 0, y: 0 };   // captured lob offset (0..1 of BOMB_LOB_RANGE, true-world dir) for the next special edge
+let bombDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
+const MAX_LOB_DRAG_PX = 90;        // screen drag that maps to a full-range lob
+
 let buildHolding = false;  // build control currently HELD (windup ramps server-side)
 let buildStart = null;     // timestamp the build hold began — LOCAL windup estimate for the HUD
 const BUILD_MS = BUILD_WINDUP * 1000;
@@ -1598,7 +1602,7 @@ let mouse = { x: 0, y: 0, down: false };
 const canvas = document.getElementById('canvas');
 canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 canvas.addEventListener('mousedown', (e) => {
-  if (e.button === 2) { specialQueued = true; }   // right-click = special
+  if (e.button === 2) { specialQueued = true; specialAim = { x: 0, y: 0 }; }   // right-click = special, feet plant
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
 addEventListener('mouseup', (e) => { if (mouse.down && e.button !== 2) { if (aimPulled()) releaseShot(); else cancelCharge(); } mouse.down = false; });
@@ -1609,14 +1613,38 @@ const specialBtn = document.getElementById('special');
 const pauseBtn = document.getElementById('pause-btn');
 const soundBtn = document.getElementById('sound-btn');
 const settingsPanel = document.getElementById('settings');
-function triggerSpecial(e) {
-  if (e) e.preventDefault();
-  specialQueued = true;
-  playSound('hit', 0.5, 0.82);
-  flashSpecialCooldown();
+// Bomb: a TAP plants at your feet (rocket-jump). A press-and-DRAG aims a short lob;
+// release past the deadzone throws it, release back on the button cancels.
+if (specialBtn) {
+  specialBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    try { specialBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
+    bombDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0 };
+  });
+  specialBtn.addEventListener('pointermove', (e) => {
+    if (!bombDrag.active || e.pointerId !== bombDrag.id) return;
+    bombDrag.dx = e.clientX - bombDrag.cx; bombDrag.dy = e.clientY - bombDrag.cy;
+  });
+  const endBombDrag = (e) => {
+    if (!bombDrag.active || e.pointerId !== bombDrag.id) return;
+    const len = Math.hypot(bombDrag.dx, bombDrag.dy);
+    if (len <= AIM_DEADZONE_PX) {
+      // No meaningful drag = a tap = feet plant (rocket-jump). Snappy, like before.
+      specialAim = { x: 0, y: 0 };
+      specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
+    } else {
+      // A real drag = aimed lob. Map drag magnitude to a 0..1 fraction of the range.
+      const frac = Math.min(1, len / MAX_LOB_DRAG_PX);
+      let dx = bombDrag.dx / len, dy = bombDrag.dy / len;
+      if (flipView()) dx = -dx; // screen -> true-world for team B's mirrored view
+      specialAim = { x: dx * frac, y: dy * frac };
+      specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
+    }
+    bombDrag.active = false; bombDrag.id = null; bombDrag.dx = 0; bombDrag.dy = 0;
+  };
+  specialBtn.addEventListener('pointerup', endBombDrag);
+  specialBtn.addEventListener('pointercancel', endBombDrag);
 }
-specialBtn.addEventListener('touchstart', triggerSpecial, { passive: false });
-specialBtn.addEventListener('mousedown', triggerSpecial);
 
 // Build button — press and DRAG to aim the wall (pull-to-build), release to place.
 // A plain tap builds in the direction you're facing. Pointer events cover mouse+touch.
@@ -1829,6 +1857,7 @@ function sampleInput() {
     // Paused: drop any charge/queued edges so nothing accumulates and fires on resume.
     holding = false; chargeStart = null; fireQueued = false; specialQueued = false; buildQueued = false; aimHold = null; buildHold = null;
     buildHolding = false; buildStart = null;
+    bombDrag.active = false; specialAim = { x: 0, y: 0 };
     return { moveX: 0, moveY: 0, aimX: 0, aimY: 0, hold: false, fire: false, special: false, build: false };
   }
   let moveX = 0, moveY = 0, aimX = 0, aimY = 0;
@@ -1860,8 +1889,10 @@ function sampleInput() {
   if (buildHold) { aimX = flip ? -buildHold.x : buildHold.x; aimY = buildHold.y; buildHold = null; }
   const fire = fireQueued; fireQueued = false;
   const special = specialQueued; specialQueued = false;
+  const sax = special ? specialAim.x : 0, say = special ? specialAim.y : 0;
+  if (special) specialAim = { x: 0, y: 0 };
   const build = buildQueued; buildQueued = false;
-  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build, buildHold: buildHolding, sax: 0, say: 0 };
+  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build, buildHold: buildHolding, sax, say };
 }
 
 // Send inputs + advance prediction at a fixed rate.
@@ -2861,6 +2892,21 @@ function drawObstacles() {
     // a thin progress bar under the ghost so the 0.5s read is unambiguous
     if (wind < 1) { ctx.globalAlpha = 0.9; ctx.fillStyle = '#fff'; ctx.fillRect(-L / 2, T / 2 + 3, L * wind, 3); }
     ctx.globalAlpha = 1; ctx.restore();
+  }
+  // Ghost marker while aiming a bomb lob.
+  if (bombDrag.active && rendered) {
+    const len = Math.hypot(bombDrag.dx, bombDrag.dy);
+    if (len > AIM_DEADZONE_PX) {
+      const frac = Math.min(1, len / MAX_LOB_DRAG_PX);
+      let dx = bombDrag.dx / len, dy = bombDrag.dy / len;
+      if (flipView()) dx = -dx;
+      const tx = rendered.x + dx * frac * BOMB_LOB_RANGE;
+      const ty = rendered.y + dy * frac * BOMB_LOB_RANGE;
+      ctx.save(); ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ff5a4d';
+      ctx.beginPath(); ctx.arc(wx(tx), wy(ty), ws_(26), 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1; ctx.restore();
+    }
   }
 }
 
