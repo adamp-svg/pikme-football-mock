@@ -51,6 +51,7 @@ ok(d.impacts.length === 1 && d.impacts[0].type === 'wall' && near(d.impacts[0].d
 // Windup progress rides the free flag bit + the buildFrac byte.
 {
   const p = mkP('m-1', 900, 400, 123.4);
+  p.buildFrac = 0.9; // differs from buildWindup, so assertion proves encoder picked buildWindup, not reload fraction
   p.buildWindup = 0.5; p.buildAmmo = 2; // winding, mag full so reloadFrac path is idle
   const s2 = { ...snap, players: [p, ...snap.players.slice(1)] };
   const buf2 = encodeKeyframe(s2, slotId, 7);
