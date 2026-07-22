@@ -53,10 +53,13 @@ const LOST_SIGHT_MEMORY = 0.9; // seconds of last-seen aim memory before a bot "
 // NOT a robotic aimbot — it usually punishes you but occasionally slips, giving a
 // skilled player a window. Bushed enemies stay hidden even to EXTREME.
 export const BOT_SKILL = {
-  easy:    { react: 0.30, aimSigma: 0.11,  aimTau: 0.55, turnRate: 8.0,  leadGain: 0.80, decisionHz: 8,  toolSkill: 0.50, evade: 0.60, aggro: 0.80, chargeRate: 0.88, cdMul: 1.20, visionMul: 1.00 },
-  normal:  { react: 0.22, aimSigma: 0.05,  aimTau: 0.30, turnRate: 13.0, leadGain: 0.95, decisionHz: 12, toolSkill: 0.75, evade: 0.85, aggro: 0.92, chargeRate: 1.00, cdMul: 1.00, visionMul: 1.05 },
-  hard:    { react: 0.10, aimSigma: 0.022, aimTau: 0.20, turnRate: 22.0, leadGain: 1.00, decisionHz: 22, toolSkill: 0.92, evade: 0.97, aggro: 1.00, chargeRate: 1.70, cdMul: 0.65, visionMul: 1.75 },
-  extreme: { react: 0.05, aimSigma: 0.020, aimTau: 0.16, turnRate: 34.0, leadGain: 1.10, decisionHz: 30, toolSkill: 1.00, evade: 1.00, aggro: 1.15, chargeRate: 3.00, cdMul: 0.40, visionMul: 2.00, cheat: true, preCharge: true, cheatFlub: 0.22 },
+  // Buffed 2026-07-22 (bots "not strong enough"): faster reaction, tighter aim, higher charge-rate
+  // (reach fire charge sooner -> shoot more, dribble less), more aggression + quicker tools + turn.
+  // Kept fair: non-extreme still no wallhack (visionMul is open-carrier tracking only); only extreme cheats.
+  easy:    { react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00 },
+  normal:  { react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10 },
+  hard:    { react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.90 },
+  extreme: { react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 2.20, cheat: true, preCharge: true, cheatFlub: 0.16 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -517,7 +520,7 @@ function decideBot(p, role, state, mem, sk, dt) {
   const COVER_STRIP  = 120 + 200 * AGG; // plain-cover strip range   (easy~280 / normal~304 / hard 320 / extreme~350)
   const FINISH_RANGE = 560 + 220 * AGG; // carrier shot-on-goal range (easy~736 / normal~762 / hard 780 / extreme~813)
   const LINEUP_PAD   = 180 + 100 * AGG; // how far off-axis a carrier still tries the drive-finish
-  const CARRY_IDLE   = 1.1 - 0.5 * AGG; // seconds holding before the anti-idle blast (hard 0.6 / easy 0.7)
+  const CARRY_IDLE   = 0.9 - 0.5 * AGG; // seconds holding before the anti-idle blast — lower = finish sooner, dribble less (buffed 2026-07-22: hard ~0.34 / normal ~0.39 / easy ~0.47)
 
   // target point to move toward, plus button intents (decided at decisionHz)
   let tgt = { x: p.x, y: p.y };
