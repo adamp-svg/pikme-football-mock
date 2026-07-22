@@ -2765,24 +2765,10 @@ function spreadPool(seats, pool) {
   const fill = P >= S ? S : P;
   for (let k = 0; k < fill; k++) { const st = seats[idx[k]], c = pool[k % P]; st.r = c.r; st.n = c.n; }
 }
-// The crowd = EVERY player's album in the match (mine + all roster players), rarity-first
-// so the rarest cards take the front seats. Seats filled ≈ total card count: with 800 seats,
-// e.g. players holding 100 cards each fill about half the bowl (no cycling to over-fill).
-function audiencePool() {
-  // ONE seat per album card, and every player's album counts SEPARATELY (no cross-player
-  // dedup) so the fill scales with the total card count: 800 seats, e.g. four players each
-  // holding 100 cards => ~400 seats => about HALF the bowl full. Capped at capTotal.
-  const bag = [];
-  const rosterHasMe = matchRoster.some((p) => p.id === myMemberId);
-  for (const p of matchRoster) for (const c of (p.cards || [])) bag.push(c);
-  if (!rosterHasMe) for (const c of myCards()) bag.push(c); // solo/dev: roster may not list me
-  // RARITY-first (then worth) so the front rows hold the rarest cards.
-  bag.sort((a, b) => (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) || (b.w || 0) - (a.w || 0) || (b.c || 0) - (a.c || 0));
-  return bag.slice(0, AUD.capTotal);
-}
+// The crowd is filled PER TEAM SIDE from each team's albums (see the fill block below +
+// teamAlbum): my half from my album (rarest in front), the away half always at least sprinkled.
 function buildAudienceSeats() {
   audSeats = [];
-  const pool = audiencePool(); // all players' albums, rarity-first; sparse if few cards → bowl fills partway
   const midX = FIELD.W / 2;
   const cA = teamColor('A'), cB = teamColor('B');
   // NO seats directly behind the net: clear the goal-mouth band plus a TWO-SEAT gap on each
@@ -2791,17 +2777,21 @@ function buildAudienceSeats() {
   const clrTop = GOAL_TOP - gapY, clrBot = GOAL_BOTTOM + gapY;
   // Each section: [x0,y0,x1,y1, ax, ay, color]. ax/ay anchor the seat block in the region:
   //   'lo' flush to x0/y0, 'hi' flush to x1/y1, 'mid' centred.
+  // Team 'A' owns the LEFT half of the bowl, 'B' the RIGHT half (split at midX). Each seat is
+  // tagged with its team so the fill can populate MY side from my album and the away side
+  // separately (see the fill block below).
   const sections = [
     // TOUCHLINES (rows stack in Y): centred along X, anchored toward the pitch.
-    [-BACK, -BAND, midX, 0, 'mid', 'hi', cA], [midX, -BAND, FIELD.W + BACK, 0, 'mid', 'hi', cB],                                  // top
-    [-BACK, FIELD.H, midX, FIELD.H + BAND, 'mid', 'lo', cA], [midX, FIELD.H, FIELD.W + BACK, FIELD.H + BAND, 'mid', 'lo', cB],     // bottom
+    [-BACK, -BAND, midX, 0, 'mid', 'hi', 'A'], [midX, -BAND, FIELD.W + BACK, 0, 'mid', 'hi', 'B'],                                  // top
+    [-BACK, FIELD.H, midX, FIELD.H + BAND, 'mid', 'lo', 'A'], [midX, FIELD.H, FIELD.W + BACK, FIELD.H + BAND, 'mid', 'lo', 'B'],     // bottom
     // BEHIND-GOAL FLANKS (rows stack in X): flush to the goal line, anchored TOWARD the net
     // (the 2-seat gap to the net is held by clrTop/clrBot). None sit behind the net.
-    [-BACK, 0, 0, clrTop, 'hi', 'hi', cA], [-BACK, clrBot, 0, FIELD.H, 'hi', 'lo', cA],                                           // left goal flanks
-    [FIELD.W, 0, FIELD.W + BACK, clrTop, 'lo', 'hi', cB], [FIELD.W, clrBot, FIELD.W + BACK, FIELD.H, 'lo', 'lo', cB],             // right goal flanks
+    [-BACK, 0, 0, clrTop, 'hi', 'hi', 'A'], [-BACK, clrBot, 0, FIELD.H, 'hi', 'lo', 'A'],                                           // left goal flanks
+    [FIELD.W, 0, FIELD.W + BACK, clrTop, 'lo', 'hi', 'B'], [FIELD.W, clrBot, FIELD.W + BACK, FIELD.H, 'lo', 'lo', 'B'],             // right goal flanks
   ];
   const gap = 2;
-  for (const [x0, y0, x1, y1, ax, ay, color] of sections) {
+  for (const [x0, y0, x1, y1, ax, ay, team] of sections) {
+    const color = team === 'A' ? cA : cB;
     const rw = x1 - x0, rh = y1 - y0;
     if (rw < ROW_X * 0.6 || rh < ROW_Y * 0.6) continue; // skip a flank too thin for even one row
     // Depth from the pitch: touchlines stack in rows (Y), flanks in cols (X).
@@ -2833,22 +2823,52 @@ function buildAudienceSeats() {
       // longer needs to encode depth for front-on-top. Instead bucket by WORLD-X: shifting a
       // whole layer vertically then rolls a Mexican WAVE across the stands (see drawAudience).
       const wcol = clamp(Math.round((sx + BACK) / (FIELD.W + 2 * BACK) * (N_LAYERS - 1)), 0, N_LAYERS - 1);
-      audSeats.push({ x: sx, y: sy, r: null, n: null, color, nf, layer: wcol });
+      audSeats.push({ x: sx, y: sy, r: null, n: null, color, team, nf, layer: wcol });
     }
   }
-  // FILL: show EVERY card the players hold, packed into the seats NEAREST the pitch first, so
-  // the crowd reads as full where the camera looks instead of a few cards scattered around the
-  // whole bowl. (An 800-based ratio was tried but starved the visible fill — a 60-card album
-  // only lit ~17 of ~228 seats spread bowl-wide, so you'd see ~2 on screen.) If cards exceed
-  // seats, the bowl fills completely; fewer cards => the front rows fill first, back rows empty.
-  const fillCount = Math.min(pool.length, audSeats.length);
-  // Seat by TIER → DEPTH: the rarity-sorted pool (rarest first) fills the nearest seats first,
-  // so the highest-rarity cards sit in the FRONT rows — small jitter so it's a gradient, not a
-  // perfectly sorted wall.
-  const order = audSeats.map((_, i) => i).sort((a, b) => (audSeats[b].nf + Math.random() * 0.2) - (audSeats[a].nf + Math.random() * 0.2));
-  for (let k = 0; k < fillCount; k++) { const s = audSeats[order[k]]; s.r = pool[k % pool.length].r; s.n = pool[k % pool.length].n; }
+  // PER-SIDE FILL. Each team's half fills from THAT team's album, scaled against a conceptual
+  // SIDE_CAP: 100 cards => half of your side. My side seats the rarest cards in the FRONT rows;
+  // the away side always gets at least a random sprinkle of fans (even vs a training dummy).
+  const SIDE_CAP = 200;         // 100 cards => 0.5 => half your side full
+  const MIN_OPP = 0.14;         // always ~14% of the away side occupied, however empty their album
+  const myTeam = me.team === 'B' ? 'B' : 'A', oppTeam = myTeam === 'A' ? 'B' : 'A';
+  const myPool = teamAlbum(myTeam), oppPool = teamAlbum(oppTeam);
+  const mySeats = audSeats.filter((s) => s.team === myTeam);
+  const oppSeats = audSeats.filter((s) => s.team === oppTeam);
+  // My side: proportional to my album, rarest cards packed into the seats nearest the pitch.
+  seatFill(mySeats, myPool, Math.round(Math.min(1, myPool.length / SIDE_CAP) * mySeats.length), 'front');
+  // Away side: proportional to their album but never empty — scatter a random sprinkle. If the
+  // opponent has no album (dummy/bot), borrow my card art so the far stand still shows fans.
+  const oppFrac = Math.min(1, oppPool.length / SIDE_CAP);
+  const oppCount = Math.max(Math.round(oppFrac * oppSeats.length), Math.round(MIN_OPP * oppSeats.length));
+  seatFill(oppSeats, oppPool.length ? oppPool : myPool, oppCount, 'random');
   audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
-  preloadCards(pool);
+  preloadCards([...myPool, ...(oppPool.length ? oppPool : myPool)]);
+}
+// Cards a TEAM brings to the crowd: every roster player on that team, rarity-first. Falls back
+// to my own album for MY team when the roster carries no cards (training/solo/dev).
+function teamAlbum(team) {
+  const bag = [];
+  for (const p of matchRoster) if (p.team === team) for (const c of (p.cards || [])) bag.push(c);
+  const myTeam = me.team === 'B' ? 'B' : 'A';
+  if (!bag.length && team === myTeam) for (const c of myCards()) bag.push(c);
+  bag.sort((a, b) => (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) || (b.w || 0) - (a.w || 0) || (b.c || 0) - (a.c || 0));
+  return bag;
+}
+// Seat `count` cards from `pool` into `seats`. mode 'front' = rarest into the nearest-pitch
+// seats first (a packed home end); 'random' = scattered across the stand (a sparse away crowd).
+// The pool cycles if it is smaller than `count`.
+function seatFill(seats, pool, count, mode) {
+  const P = pool.length, fill = Math.min(count, seats.length);
+  if (!P || fill <= 0) return;
+  let orderIdx;
+  if (mode === 'random') {
+    orderIdx = seats.map((_, i) => i);
+    for (let i = orderIdx.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; const t = orderIdx[i]; orderIdx[i] = orderIdx[j]; orderIdx[j] = t; }
+  } else {
+    orderIdx = seats.map((_, i) => i).sort((a, b) => (seats[b].nf + Math.random() * 0.2) - (seats[a].nf + Math.random() * 0.2));
+  }
+  for (let k = 0; k < fill; k++) { const s = seats[orderIdx[k]], c = pool[k % P]; s.r = c.r; s.n = c.n; }
 }
 // The seated card's rect INSIDE a seat cell (px,py,cellW,cellH), in whatever pixel
 // space the caller is in. Shared by drawSeat (the empty well) and bakeAudience (the
