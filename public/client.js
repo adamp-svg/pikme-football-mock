@@ -4,7 +4,7 @@
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
-  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, FULL_CHARGE, clamp,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
@@ -1547,6 +1547,13 @@ let aimHold = null;        // aim captured at right-stick release (fire directio
 let chargeStart = null;    // timestamp the hold began — LOCAL charge estimate for the HUD only
 const AIM_DEADZONE_PX = 12; // stick/cursor pull past this = a real shot; inside it = cancel
 
+let buildHolding = false;  // build control currently HELD (windup ramps server-side)
+let buildStart = null;     // timestamp the build hold began — LOCAL windup estimate for the HUD
+const BUILD_MS = BUILD_WINDUP * 1000;
+function beginBuild() { if (!buildHolding) { buildHolding = true; buildStart = performance.now(); } }
+function currentWindup() { return buildStart === null ? 0 : Math.min(1, (performance.now() - buildStart) / BUILD_MS); }
+function cancelBuild() { buildHolding = false; buildStart = null; buildHold = null; }
+
 // Build a wall — like a shot, you can drag to aim (pull-to-build) then release.
 function releaseBuild(aim) { buildQueued = true; if (aim) buildHold = aim; playSound('ui', 0.5, 0.86); }
 
@@ -1579,11 +1586,12 @@ addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()] = true;
   if (e.key === ' ' && !e.repeat) beginCharge();     // hold space to charge
   if (e.key.toLowerCase() === 'e') specialQueued = true;
-  if (e.key.toLowerCase() === 'q' && !e.repeat) releaseBuild(); // build a wall in the facing direction
+  if (e.key.toLowerCase() === 'q' && !e.repeat) beginBuild(); // hold Q to wind up a wall
 });
 addEventListener('keyup', (e) => {
   keys[e.key.toLowerCase()] = false;
   if (e.key === ' ') { if (aimPulled()) releaseShot(); else cancelCharge(); } // release fires; cursor on self cancels
+  if (e.key.toLowerCase() === 'q') { if (currentWindup() >= 1) releaseBuild(); else cancelBuild(); } // release builds in facing dir; early = cancel
 });
 
 let mouse = { x: 0, y: 0, down: false };
@@ -1619,6 +1627,7 @@ if (buildBtn) {
     e.preventDefault();
     try { buildBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
     buildDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0 };
+    beginBuild();
   });
   buildBtn.addEventListener('pointermove', (e) => {
     if (!buildDrag.active || e.pointerId !== buildDrag.id) return;
@@ -1626,9 +1635,13 @@ if (buildBtn) {
   });
   const endBuildDrag = (e) => {
     if (!buildDrag.active || e.pointerId !== buildDrag.id) return;
-    if (Math.hypot(buildDrag.dx, buildDrag.dy) > 12) releaseBuild({ x: buildDrag.dx, y: buildDrag.dy });
-    else releaseBuild();
+    // Release only COMMITS if the windup is full AND the aim is pulled out of the deadzone;
+    // otherwise it cancels (no wall, no charge). The server also gates on windup.
+    const pulled = Math.hypot(buildDrag.dx, buildDrag.dy) > AIM_DEADZONE_PX;
+    if (pulled && currentWindup() >= 1) releaseBuild({ x: buildDrag.dx, y: buildDrag.dy });
+    else cancelBuild();
     buildDrag.active = false; buildDrag.id = null; buildDrag.dx = 0; buildDrag.dy = 0;
+    buildHolding = false; buildStart = null;
   };
   buildBtn.addEventListener('pointerup', endBuildDrag);
   buildBtn.addEventListener('pointercancel', endBuildDrag);
@@ -1815,6 +1828,7 @@ function sampleInput() {
   if (!settingsPanel.classList.contains('hidden')) {
     // Paused: drop any charge/queued edges so nothing accumulates and fires on resume.
     holding = false; chargeStart = null; fireQueued = false; specialQueued = false; buildQueued = false; aimHold = null; buildHold = null;
+    buildHolding = false; buildStart = null;
     return { moveX: 0, moveY: 0, aimX: 0, aimY: 0, hold: false, fire: false, special: false, build: false };
   }
   let moveX = 0, moveY = 0, aimX = 0, aimY = 0;
@@ -1847,7 +1861,7 @@ function sampleInput() {
   const fire = fireQueued; fireQueued = false;
   const special = specialQueued; specialQueued = false;
   const build = buildQueued; buildQueued = false;
-  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build };
+  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build, buildHold: buildHolding, sax: 0, say: 0 };
 }
 
 // Send inputs + advance prediction at a fixed rate.
@@ -2838,9 +2852,14 @@ function drawObstacles() {
     ang = Math.round(ang / (Math.PI / 16)) * (Math.PI / 16);
     const cx = rendered.x + ax * BUILT_WALL.offset, cy = rendered.y + ay * BUILT_WALL.offset;
     const L = ws_(BUILT_WALL.len), T = ws_(BUILT_WALL.thick);
-    ctx.save(); ctx.globalAlpha = 0.4;
+    ctx.save();
+    const wind = currentWindup(); // 0..1 local estimate
+    ctx.globalAlpha = 0.25 + 0.6 * wind; // faint at start, near-solid at full
     ctx.translate(wx(cx), wy(cy)); ctx.rotate(ang);
-    ctx.fillStyle = '#ffd27a'; ctx.fillRect(-L / 2, -T / 2, L, T);
+    ctx.fillStyle = wind >= 1 ? '#ffd27a' : '#ffb347';
+    ctx.fillRect(-L / 2, -T / 2, L, T);
+    // a thin progress bar under the ghost so the 0.5s read is unambiguous
+    if (wind < 1) { ctx.globalAlpha = 0.9; ctx.fillStyle = '#fff'; ctx.fillRect(-L / 2, T / 2 + 3, L * wind, 3); }
     ctx.globalAlpha = 1; ctx.restore();
   }
 }
