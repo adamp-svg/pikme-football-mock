@@ -140,14 +140,16 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     buildAmmo: BUILD_MAG, // wall charges available
     buildAmmoT: 0,        // seconds accumulated toward the next wall charge
     buildCd: 0,           // min pacing between wall placements
-    // charge-ramp multiplier: bots on hard reach full sooner; a HUMAN's Shot-slot
-    // card powers it (rarity -> chargeRate). Bots ignore `buffs` and set it via bot-ai.
-    chargeRate: (buffs && buffs.chargeRate) || 1,
-    // movement multiplier from a HUMAN's Speed-slot card (default 1 = no buff / bots).
+    // DIFFICULTY multipliers (bots only): bot-ai rewrites chargeRate/cdMul from the skill preset
+    // every tick; humans keep 1. CARD buffs live in the separate card* fields so they stack ON TOP
+    // of difficulty for bots and apply cleanly for humans without bot-ai ever clobbering them.
+    chargeRate: 1,
+    cdMul: 1,
+    // Card-power multipliers (BOTH humans AND bots): Shot slot -> faster charge (cardShot), Speed slot
+    // -> faster move (speedBuff), Utility slot -> shorter bomb/wall cooldowns (cardUtil). Default 1.
+    cardShot: (buffs && buffs.cardShot) || 1,
     speedBuff: (buffs && buffs.speedBuff) || 1,
-    // bomb/build cooldown multiplier: bots on hard act faster; a HUMAN's Utility-slot
-    // card powers it (rarity -> cdMul). Bots ignore `buffs` and set it via bot-ai.
-    cdMul: (buffs && buffs.cdMul) || 1,
+    cardUtil: (buffs && buffs.cardUtil) || 1,
     firing: false, // fired/released this tick (flash)
     lastSeq: 0, // last input seq applied (for client reconciliation)
     _fire: false, _special: false, _build: false, _charge: 0,
@@ -364,7 +366,7 @@ export function step(state, inputs, dt) {
     p.buildCd = Math.max(0, p.buildCd - dt);
     if (p.buildAmmo < BUILD_MAG) {
       p.buildAmmoT += dt;
-      const buildReload = BUILD_RELOAD * (p.cdMul || 1);
+      const buildReload = BUILD_RELOAD * (p.cdMul || 1) * (p.cardUtil || 1);
       if (p.buildAmmoT >= buildReload) { p.buildAmmo = Math.min(BUILD_MAG, p.buildAmmo + 1); p.buildAmmoT -= buildReload; }
     }
     // Ammo: a fully-emptied mag reloads all at once after EMPTY_RELOAD; otherwise
@@ -384,7 +386,7 @@ export function step(state, inputs, dt) {
     // pay the same ~1s wind-up as humans (chargeRate lets harder bots reach full
     // sooner). A release (fire) consumes it; letting go WITHOUT firing (cancel)
     // resets it. Overcharge meter decays if unused.
-    if (inp.hold) p._charge = Math.min(1, p._charge + dt / SHOOT_CHARGE_TIME * (p.chargeRate || 1));
+    if (inp.hold) p._charge = Math.min(1, p._charge + dt / SHOOT_CHARGE_TIME * (p.chargeRate || 1) * (p.cardShot || 1));
     else if (!p._fire) p._charge = 0;
     if (p.powerT > 0) { p.powerT -= dt; if (p.powerT <= 0) { p.powerT = 0; p.power = false; } }
     p.lastSeq = inp.seq != null ? inp.seq : p.lastSeq;
@@ -550,7 +552,7 @@ function fireBullet(state, p, ch, charge, over = false) {
 
 // SPECIAL skill — plant a bomb (both characters).
 function useSpecial(state, p, ch) {
-  p.specialCd = ch.specialCooldown * (p.cdMul || 1);
+  p.specialCd = ch.specialCooldown * (p.cdMul || 1) * (p.cardUtil || 1);
   state.bombs.push({
     id: state._nid++, owner: p.id, team: p.team,
     x: p.x, y: p.y, fuse: BOMB.fuse,
@@ -599,7 +601,7 @@ function buildWall(state, p) {
   });
   if (state.builtWalls.length > MAX_BUILT_WALLS) state.builtWalls.shift(); // drop oldest
   p.buildAmmo -= 1;
-  p.buildCd = BUILD_COOLDOWN * (p.cdMul || 1);
+  p.buildCd = BUILD_COOLDOWN * (p.cdMul || 1) * (p.cardUtil || 1);
   p.firing = true;
 }
 
