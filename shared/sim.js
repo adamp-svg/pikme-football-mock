@@ -7,7 +7,7 @@ import {
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
   PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
   OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
-  OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, OVERCHARGE_QUICK_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
+  OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_CANNON_STATIC, BOMB_WALL_CANNON_BUILT, BOMB_WALL_DIST, BOMB_WALL_COS,
   BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE, BOMB_LOB_RANGE,
@@ -536,7 +536,7 @@ export function step(state, inputs, dt) {
         b.vy = dy * state.settings.shotPower * cm;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
-        if (eff < QUICK_CHARGE) earnPower(p, OVERCHARGE_QUICK_GAIN); // a quick shot slowly fills the super meter
+        // NOTE: firing does NOT fill the super meter — only HITTING an enemy does (see bump/hit handlers).
         if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; } // an OVERCHARGE kick spends the meter
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
         // A FULL bullet strips a carrier; an OVERCHARGE bullet (isOver) strips AND pushes
@@ -550,7 +550,7 @@ export function step(state, inputs, dt) {
           if (foe) { const ex = foe.x - p.x, ey = foe.y - p.y, el = Math.hypot(ex, ey) || 1; ax = ex / el; ay = ey / el; }
         }
         fireBullet(state, p, ch, eff, isOver, ax, ay);
-        if (eff < QUICK_CHARGE) earnPower(p, OVERCHARGE_QUICK_GAIN); // a quick shot slowly fills the super meter
+        // NOTE: firing does NOT fill the super meter — only a bullet HITTING an enemy does (see applyBulletHit).
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
         if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; }
@@ -652,9 +652,11 @@ export function step(state, inputs, dt) {
           b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
         }
         b.kickTier = 0; // consumed — never re-bumps a second enemy on the same tier
-        // A FULL+ kick that bumps an enemy earns overcharge (forceful connect); a weak kick
-        // does not farm it, and an overcharge kick's ball can't self-refill (b.overSpent).
-        if (tier >= 1 && !b.overSpent && b.lastKicker && state.players[b.lastKicker]) earnPower(state.players[b.lastKicker], OVERCHARGE_FULL_GAIN);
+        // Any kick that bumps an enemy earns overcharge: a FULL/OVERCHARGE kick fills it now,
+        // a quick kick fills 1/3 (three hits). An overcharge kick's ball can't self-refill (b.overSpent).
+        if (!b.overSpent && b.lastKicker && state.players[b.lastKicker]) {
+          earnPower(state.players[b.lastKicker], tier >= 1 ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
+        }
         // keep lastTouch as the shooter's (goal credit unchanged)
         continue; // keep checking other players
       }
@@ -926,7 +928,8 @@ function hitEnemy(state, t, pr) {
   }
 
   if (pr.charge < QUICK_CHARGE) {
-    t.slowTimer = SLOW_TIME; // quick shot: slow, don't push, doesn't earn
+    t.slowTimer = SLOW_TIME; // quick shot: slow, don't push
+    if (!pr.over) earnPower(shooter, OVERCHARGE_PARTIAL_GAIN); // a quick hit fills 1/3 (three quick hits = one super)
     return;
   }
   // medium & full: push the enemy along the bullet's travel direction (OVERCHARGE = more)

@@ -139,11 +139,11 @@ export const BALL_BUMP_SCALE = 0.5; // knockback = ball speed * this (a bit of a
 // DRIVES THROUGH, an OVERCHARGE kick breaks through HARDEST (a keeper in their own box
 // catches everything except an overcharge kick). OVERCHARGE is earned by forceful hits.
 export const OVERCHARGE_TTL = 4;     // seconds the overcharge (once READY) lasts if unused
-// Overcharge is a CONSUMABLE meter (0..1): a FULL-power hit fills it, or TWO lower-power
-// hits (partial each). Spent on ONE overcharge shot/kick. See earnPower() in sim.js.
-export const OVERCHARGE_FULL_GAIN = 1.0;    // a full-power hit / strip / bomb-catch fills the meter
-export const OVERCHARGE_PARTIAL_GAIN = 0.5; // a lower-power hit / bump — two of these fill it
-export const OVERCHARGE_QUICK_GAIN = 0.12;  // firing a QUICK shot slowly fills the meter (~9 quick shots = 1 super)
+// Overcharge is a CONSUMABLE meter (0..1) earned ONLY by hitting enemies (never by merely
+// firing): a FULL-power hit fills it immediately, a QUICK hit fills 1/3 (THREE quick hits =
+// one super). Spent on ONE overcharge shot/kick. See earnPower() in sim.js.
+export const OVERCHARGE_FULL_GAIN = 1.0;         // a full-power ENEMY HIT / strip / bomb-catch fills the meter now
+export const OVERCHARGE_PARTIAL_GAIN = 1 / 3;    // a QUICK enemy hit / bump — THREE of these fill it
 export const OVERCHARGE_MUL = 2.0;   // overcharge KICK shoves the enemy this much harder (vs a full kick)
 export const FULL_BUMP_MUL = 1.3;    // a FULL kick shoves a little harder than a quick/medium kick
 export const OVERCHARGE_BULLET_MUL = 1.6; // an overcharge BULLET pushes/strips this much harder than a full bullet
