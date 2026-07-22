@@ -165,22 +165,14 @@ function updateMusicButton() {
   }
   applyMusicVol();
 }
-// Effective music volume = the track's own base level × the user's music-volume slider.
-// #2 iOS control: SFX (AudioBufferSource->masterGain) prove WebAudio GAIN attenuates on this
-// device, so the music GainNode is the authoritative volume knob — iOS/WKWebView ignores
-// <audio>.volume once the element is captured by a MediaElementSource. We also set
-// musicEl.muted, which iOS honours regardless, as a guaranteed hard mute. Element.volume is
-// only the pre-graph (desktop) fallback, so the gain and element level never stack into v*v.
+// Music plays through the SAME proven path as SFX — a decoded AudioBuffer -> GainNode ->
+// destination. iOS ignores <audio>.volume AND its MediaElementSource capture is unreliable
+// (the volume knob did nothing and playback stuttered on/off), so we don't use an <audio>
+// element at all. A BufferSource's gain attenuates reliably on iOS, exactly like SFX do.
 function applyMusicVol() {
-  const on = musicEnabled;
-  const v = clamp(on ? musicVol * musicUserVol : 0, 0, 1);
+  const v = clamp(musicEnabled ? musicVol * musicUserVol : 0, 0, 1);
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
-  if (musicGain) {
-    musicGain.gain.value = v;                                 // the working volume knob (same path as SFX)
-    if (musicEl) { musicEl.volume = 1; musicEl.muted = !on; } // gain owns the level; muted = guaranteed cut on iOS
-  } else if (musicEl) {
-    musicEl.muted = !on; musicEl.volume = v;                  // pre-graph fallback (desktop honours .volume)
-  }
+  if (musicGain) musicGain.gain.value = v;
 }
 
 function unlockAudio() {
@@ -205,7 +197,7 @@ function unlockAudio() {
         soundBuffers.set(name, arr);
       })));
   }
-  primeMusic(); // bless the music element in this same gesture so iOS lets it autoplay later
+  ensureMusicGain(); // music (BufferSource) plays through this gain, unlocked by the same gesture
 }
 
 function playSound(name, volume = 1, rate = 1) {
@@ -247,66 +239,49 @@ const MUSIC_TRACKS = [   // real matches: one of these picked at random and loop
 const HOME_MUSIC = '/audio/music/stadium-pulse.mp3';     // the main-lobby (home) theme, looped
 const TRAINING_MUSIC = '/audio/music/goooaaall-good.mp3'; // the training ground's own theme
 const LOBBY_MUSIC = '/audio/music/lobby-waiting-countdown.mp3'; // full 9s clip; cut at kickoff when the countdown is shorter
-let musicEl = null;      // ONE reused <audio> element, blessed once by a user gesture
-let musicKind = null;    // 'match' | 'training' | 'lobby' | null — dedupes repeat start calls
+let musicKind = null;    // 'match' | 'training' | 'lobby' | 'home' | null — dedupes repeat starts
 let musicVol = 0;        // base volume of the current track (before the music slider)
-let musicPrimed = false; // has a tap "blessed" musicEl so iOS lets it autoplay later?
-let musicSrcNode = null; // MediaElementSource wrapping musicEl (created once)
-let musicGain = null;    // the knob we actually turn — iOS ignores <audio>.volume
+let musicGain = null;    // volume knob: BufferSource -> musicGain -> destination
+let musicSource = null;  // the currently-playing AudioBufferSourceNode
+let musicBuf = null;     // decoded buffer of the current track (one at a time → bounded memory)
+let musicBufSrc = '';    // which url musicBuf holds (skip re-decode when replaying the same track)
+let musicToken = 0;      // bumped on every start/stop to cancel an in-flight decode
 
-function ensureMusicEl() {
-  if (!musicEl) { musicEl = new Audio(); musicEl.preload = 'auto'; musicEl.volume = 1; }
-  return musicEl;
+function ensureMusicGain() {
+  if (!musicGain && audioCtx) { musicGain = audioCtx.createGain(); musicGain.connect(audioCtx.destination); applyMusicVol(); }
 }
-// The music element plays through a MediaElementSource -> GainNode -> destination graph so
-// it shares the gesture-unlocked audio session (same-origin media, no CORS silencing) and so
-// the GAIN can set loudness on iOS (where <audio>.volume is ignored). The source node can be
-// created ONCE per element, hence the guard. applyMusicVol() then drives musicGain.gain.
-function ensureMusicGraph() {
-  if (musicGain || !audioCtx || !musicEl) return;
-  try {
-    musicSrcNode = audioCtx.createMediaElementSource(musicEl);
-    musicGain = audioCtx.createGain();
-    musicSrcNode.connect(musicGain).connect(audioCtx.destination);
-    applyMusicVol();   // gain now owns the level (musicGain.gain = v)
-  } catch { /* already connected / unsupported → element.volume/.muted fallback still applies */ }
-}
-// iOS/WKWebView silently DROPS the first html-audio play when it races AudioContext
-// startup — which is exactly the lobby countdown (it fires right after the Quick Match
-// tap that creates the context). SFX are WebAudio so they're unaffected; match music only
-// works because it plays seconds later once the session has settled. Fix: reuse ONE <audio>
-// element and "bless" it inside the tap gesture with an unmuted-but-silent real play, so
-// every later track — including the very first countdown clip — is allowed to sound.
-function primeMusic() {
-  ensureMusicEl();
-  ensureMusicGraph();
-  if (musicPrimed) return;
-  try {
-    musicEl.loop = false;
-    musicVol = 0; applyMusicVol();      // silent via the gain, but a real UNMUTED play → blesses iOS
-    if (!musicEl.src) musicEl.src = LOBBY_MUSIC;
-    const p = musicEl.play();
-    const settle = () => { if (musicKind === null) { try { musicEl.pause(); musicEl.currentTime = 0; } catch { /* fine */ } } musicPrimed = true; };
-    if (p && p.then) p.then(settle).catch(() => { musicPrimed = true; }); else settle();
-  } catch { /* no audio support */ }
+function stopMusicSource() {
+  if (musicSource) { try { musicSource.stop(); } catch { /* not started */ } try { musicSource.disconnect(); } catch { /* fine */ } musicSource = null; }
 }
 function stopMusic() {
-  if (musicEl) { try { musicEl.pause(); } catch { /* already gone */ } }
-  musicKind = null; // keep the (blessed) element around for reuse
+  musicToken++;          // cancel any in-flight decode/start
+  stopMusicSource();
+  musicKind = null;
 }
-function playMusic(src, loop, volume) {
-  ensureMusicEl();
-  ensureMusicGraph();
-  musicVol = volume;
+// Decode the track (kept as the single current buffer) and play it looped through the gain.
+// Fire-and-forget; a newer start supersedes an in-flight one via musicToken. Buffer playback
+// is the same path SFX use — reliable volume + no stutter on iOS, unlike an <audio> element.
+async function playMusic(src, loop, volume) {
+  if (!audioCtx) return; // not unlocked yet — the caller retries after the first gesture
+  ensureMusicGain();
+  musicVol = volume; applyMusicVol();
+  const token = ++musicToken;
+  stopMusicSource();
   try {
-    const abs = new URL(src, location.href).href;
-    if (musicEl.src !== abs) musicEl.src = src;
-    musicEl.currentTime = 0;
-    musicEl.loop = !!loop;
-    applyMusicVol();                    // sets musicGain.gain (iOS) or musicEl.volume (fallback)
-    const p = musicEl.play();
-    if (p && p.catch) p.catch(() => { /* autoplay blocked until a gesture */ });
-  } catch { /* no audio support */ }
+    if (musicBufSrc !== src || !musicBuf) {
+      const resp = await fetch(src);
+      if (!resp.ok) return;
+      const buf = await audioCtx.decodeAudioData(await resp.arrayBuffer());
+      if (token !== musicToken) return;   // superseded while decoding
+      musicBuf = buf; musicBufSrc = src;
+    }
+    if (token !== musicToken) return;
+    const s = audioCtx.createBufferSource();
+    s.buffer = musicBuf; s.loop = !!loop;
+    s.connect(musicGain);
+    s.start();
+    musicSource = s;
+  } catch { /* fetch/decode failed → silent */ }
 }
 function startMatchMusic() {
   const src = MUSIC_TRACKS[Math.floor(Math.random() * MUSIC_TRACKS.length)];
