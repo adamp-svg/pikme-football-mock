@@ -620,10 +620,13 @@ const RARITY_SKIN = { common: 'base', rare: 'gold', epic: 'holo', legendary: 'si
 // look empty. On localhost we preview a small sample; on any real host (device or
 // Render) we NEVER fake it — return the injected cards or nothing.
 const DEV_LOCAL = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname);
+// Worth-order intentionally DIFFERS from rarity-order here so "select best" is visibly
+// distinct on localhost: the highest-worth card is a common, and the rarest (legendary)
+// cards have modest worth — so rarity-then-copies picks the two legendaries, not the common.
 const DEV_SAMPLE_CARDS = [
-  { r: 'legendary', n: 12, c: 1, w: 640000 }, { r: 'epic', n: 7, c: 3, w: 210000 },
-  { r: 'rare', n: 22, c: 1, w: 95000 }, { r: 'common', n: 3, c: 5, w: 30000 },
-  { r: 'rare', n: 31, c: 2, w: 88000 }, { r: 'legendary', n: 5, c: 1, w: 300000 },
+  { r: 'common', n: 3, c: 9, w: 900000 }, { r: 'rare', n: 22, c: 1, w: 800000 },
+  { r: 'epic', n: 7, c: 3, w: 210000 }, { r: 'legendary', n: 12, c: 1, w: 120000 },
+  { r: 'legendary', n: 5, c: 2, w: 90000 }, { r: 'common', n: 8, c: 5, w: 50000 },
 ];
 function myCards() {
   if (Array.isArray(window.SALTIZ_CARDS)) return window.SALTIZ_CARDS.slice(0, 256);
@@ -903,7 +906,7 @@ function validSlot(s) { return s && s.r && s.n != null && cardOwned(s.r, s.n) ? 
 // the current album) wins; otherwise auto-fill the album's top-3 into slots 0,1,2.
 function effectiveLoadout() {
   if (Array.isArray(myLoadout)) return [0, 1, 2].map((i) => validSlot(myLoadout[i]));
-  const top = rankCards(myCards()).slice(0, 3);
+  const top = rankForLoadout(myCards()).slice(0, 3); // default powers = best by rarity, then copies
   return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
 }
 // Drop `card` into `slotIdx` (evict any prior occupant + any other slot holding the same
@@ -1593,6 +1596,8 @@ function enterMatch(msg) {
   training = msg.mode === 'training';
   document.getElementById('train-tag').classList.toggle('hidden', !training);
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
+  document.getElementById('edit-controls-btn').classList.toggle('hidden', !training); // layout editor: training only
+  if (!training) closeControlsEditor(); // never leave the editor open outside training
   renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
   showScreen('game');
   resize();
@@ -2241,15 +2246,47 @@ for (const k of SETTING_KEYS) {
 // Touch joysticks
 const stickL = document.getElementById('stickL');
 const stickR = document.getElementById('stickR');
-const touchL = { id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
-const touchR = { id: null, cx: 0, cy: 0, dx: 0, dy: 0, active: false };
+const STICK_MAX = 52;              // knob travel for the default 120px stick box
+const STICK_RATIO = STICK_MAX / 120; // keep travel proportional when the stick is resized
+const touchL = { id: null, cx: 0, cy: 0, dx: 0, dy: 0, max: STICK_MAX };
+const touchR = { id: null, cx: 0, cy: 0, dx: 0, dy: 0, active: false, max: STICK_MAX };
 let usingTouch = false;
-const STICK_MAX = 52;
+
+// ---- Customisable control layout (Brawl-Stars-style "edit controls") --------
+// Persisted per control: {cx,cy = CENTER as fraction of viewport, size = px, locked}.
+// A `locked` control renders at a FIXED anchor and no longer floats to the touch.
+const CTL_DEFAULTS = { move: { size: 120 }, aim: { size: 120 }, bomb: { size: 82 }, wall: { size: 58 } };
+let ctlLayout = loadCtlLayout();
+function loadCtlLayout() { try { return JSON.parse(localStorage.getItem('fbControls')) || {}; } catch { return {}; } }
+function saveCtlLayout() { try { localStorage.setItem('fbControls', JSON.stringify(ctlLayout)); } catch { /* private mode */ } }
+// Resolve a locked control to live screen px, or null if it's still floating/default.
+function ctlPx(c) {
+  const L = ctlLayout[c]; if (!L || !L.locked) return null;
+  return { x: L.cx * innerWidth, y: L.cy * innerHeight, size: L.size || CTL_DEFAULTS[c].size };
+}
+function stickSize(c) { const p = ctlPx(c); return p ? p.size : CTL_DEFAULTS[c].size; }
+function stickMax(c) { return stickSize(c) * STICK_RATIO; }
+function stickLocked(c) { const L = ctlLayout[c]; return !!(L && L.locked); }
+
+// Apply the saved layout: size both sticks; position+size the two skill buttons.
+function applyCtlLayout() {
+  stickL.style.width = stickL.style.height = `${stickSize('move')}px`;
+  stickR.style.width = stickR.style.height = `${stickSize('aim')}px`;
+  for (const [c, el] of [['bomb', specialBtn], ['wall', buildBtn]]) {
+    const p = ctlPx(c); if (!p || !el) continue;
+    el.style.left = `${Math.round(p.x - p.size / 2)}px`;
+    el.style.top = `${Math.round(p.y - p.size / 2)}px`;
+    el.style.right = 'auto'; el.style.bottom = 'auto';
+    el.style.width = el.style.height = `${p.size}px`;
+    el.style.fontSize = `${Math.round(p.size * 0.48)}px`;
+  }
+}
 
 function placeStick(el, cx, cy, dx, dy) {
   el.classList.remove('hidden');
-  el.style.left = `${cx - 60}px`;
-  el.style.top = `${cy - 60}px`;
+  const half = el.offsetWidth / 2 || 60;
+  el.style.left = `${cx - half}px`;
+  el.style.top = `${cy - half}px`;
   el.querySelector('.knob').style.transform = `translate(${dx}px, ${dy}px)`;
 }
 
@@ -2260,20 +2297,36 @@ addEventListener('touchstart', (e) => {
   // the global joystick-claim + touchmove preventDefault was eating the #play-strip swipe.
   if (gameEl.classList.contains('hidden')) return;
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
+  if (editingControls) return; // the layout editor owns all touches while open
   for (const t of e.changedTouches) {
     if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target))) continue; // buttons aren't sticks
     const ad = adBoardAt(t.clientX, t.clientY); if (ad) { openAd(ad); continue; } // board tap, not a stick
-    const left = t.clientX < innerWidth / 2;
-    if (left && touchL.id === null) {
-      touchL.id = t.identifier; touchL.cx = t.clientX; touchL.cy = t.clientY; touchL.dx = 0; touchL.dy = 0;
+    const which = claimStick(t);
+    if (which === 'L' && touchL.id === null) {
+      // Locked move stick: snap the base to its fixed anchor (touch anywhere in the
+      // zone still drives it, delta measured from the anchor). Floating: base = touch.
+      const a = stickLocked('move') ? ctlPx('move') : null;
+      touchL.id = t.identifier; touchL.cx = a ? a.x : t.clientX; touchL.cy = a ? a.y : t.clientY;
+      touchL.dx = 0; touchL.dy = 0; touchL.max = stickMax('move');
       placeStick(stickL, touchL.cx, touchL.cy, 0, 0);
-    } else if (!left && touchR.id === null) {
-      touchR.id = t.identifier; touchR.cx = t.clientX; touchR.cy = t.clientY; touchR.dx = 0; touchR.dy = 0; touchR.active = true; touchR.aimedOut = false;
+    } else if (which === 'R' && touchR.id === null) {
+      const a = stickLocked('aim') ? ctlPx('aim') : null;
+      touchR.id = t.identifier; touchR.cx = a ? a.x : t.clientX; touchR.cy = a ? a.y : t.clientY;
+      touchR.dx = 0; touchR.dy = 0; touchR.active = true; touchR.aimedOut = false; touchR.max = stickMax('aim');
       placeStick(stickR, touchR.cx, touchR.cy, 0, 0);
       beginCharge(); // start charging as soon as you touch the aim stick
     }
   }
 }, { passive: false });
+
+// Which stick a fresh touch controls. A locked stick claims touches that land near
+// its fixed anchor; otherwise fall back to the screen-half rule (floating sticks).
+function claimStick(t) {
+  const near = (c) => { const p = ctlPx(c); return p && Math.hypot(t.clientX - p.x, t.clientY - p.y) <= p.size * 0.9; };
+  if (stickLocked('move') && near('move')) return 'L';
+  if (stickLocked('aim') && near('aim')) return 'R';
+  return t.clientX < innerWidth / 2 ? 'L' : 'R';
+}
 
 addEventListener('touchmove', (e) => {
   let gameTouch = false;
@@ -2287,7 +2340,8 @@ addEventListener('touchmove', (e) => {
 function updateStick(stick, el, t) {
   let dx = t.clientX - stick.cx, dy = t.clientY - stick.cy;
   const len = Math.hypot(dx, dy);
-  if (len > STICK_MAX) { dx = dx / len * STICK_MAX; dy = dy / len * STICK_MAX; }
+  const max = stick.max || STICK_MAX;
+  if (len > max) { dx = dx / len * max; dy = dy / len * max; }
   stick.dx = dx; stick.dy = dy;
   if (Math.hypot(dx, dy) > AIM_DEADZONE_PX) stick.aimedOut = true; // latch: player deliberately aimed
   el.querySelector('.knob').style.transform = `translate(${dx}px, ${dy}px)`;
@@ -2322,6 +2376,95 @@ addEventListener('touchcancel', (e) => {
   }
 }, { passive: false });
 
+// ---- Control-layout editor (training only, Brawl-Stars "edit controls") -----
+let editingControls = false;
+const editBtn = document.getElementById('edit-controls-btn');
+const ceOverlay = document.getElementById('controls-editor');
+const cePucks = ceOverlay ? [...ceOverlay.querySelectorAll('.ce-puck')] : [];
+let ceDraft = {}; // working copy while the editor is open
+
+// Where each control sits by default (as viewport fractions), used to seed the
+// editor before the player has customised anything. Mirrors the CSS defaults.
+function defaultCtlDraft(c) {
+  const s = CTL_DEFAULTS[c].size, w = innerWidth, h = innerHeight;
+  if (c === 'move') return { cx: 110 / w, cy: (h - 110) / h, size: s };
+  if (c === 'aim')  return { cx: (w - 110) / w, cy: (h - 110) / h, size: s };
+  if (c === 'bomb') return { cx: (w - 112 - 41) / w, cy: (h - 88 - 41) / h, size: s };
+  return { cx: (w - 124 - 29) / w, cy: (h - 182 - 29) / h, size: s }; // wall
+}
+function layoutPucks() {
+  for (const puck of cePucks) {
+    const d = ceDraft[puck.dataset.ctl];
+    puck.style.width = puck.style.height = `${d.size}px`;
+    puck.style.left = `${d.cx * innerWidth - d.size / 2}px`;
+    puck.style.top = `${d.cy * innerHeight - d.size / 2}px`;
+  }
+}
+function openControlsEditor() {
+  if (!ceOverlay) return;
+  editingControls = true;
+  ceDraft = {};
+  for (const c of ['move', 'aim', 'bomb', 'wall']) {
+    const p = ctlPx(c);
+    ceDraft[c] = p ? { cx: p.x / innerWidth, cy: p.y / innerHeight, size: p.size } : defaultCtlDraft(c);
+  }
+  layoutPucks();
+  ceOverlay.classList.remove('hidden');
+  stickL.classList.add('hidden'); stickR.classList.add('hidden'); // no live sticks during edit
+}
+function closeControlsEditor() { editingControls = false; if (ceOverlay) ceOverlay.classList.add('hidden'); }
+
+// Drag a puck to move; drag its corner handle to resize.
+for (const puck of cePucks) {
+  const c = puck.dataset.ctl;
+  const handle = puck.querySelector('.ce-resize');
+  let mode = null, sx = 0, sy = 0, sSize = 0, sCx = 0, sCy = 0;
+  puck.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    try { puck.setPointerCapture(e.pointerId); } catch { /* older webview */ }
+    mode = (e.target === handle) ? 'resize' : 'move';
+    sx = e.clientX; sy = e.clientY; sSize = ceDraft[c].size; sCx = ceDraft[c].cx; sCy = ceDraft[c].cy;
+    puck.classList.add('dragging');
+  });
+  puck.addEventListener('pointermove', (e) => {
+    if (!mode) return;
+    if (mode === 'move') {
+      const half = ceDraft[c].size / 2;
+      const nx = sCx * innerWidth + (e.clientX - sx), ny = sCy * innerHeight + (e.clientY - sy);
+      ceDraft[c].cx = clamp(nx, half, innerWidth - half) / innerWidth;
+      ceDraft[c].cy = clamp(ny, half, innerHeight - half) / innerHeight;
+    } else {
+      const isBtn = (c === 'bomb' || c === 'wall');
+      const d = Math.max(e.clientX - sx, e.clientY - sy);
+      ceDraft[c].size = clamp(sSize + d, isBtn ? 44 : 80, isBtn ? 130 : 190);
+    }
+    layoutPucks();
+  });
+  const end = () => { mode = null; puck.classList.remove('dragging'); };
+  puck.addEventListener('pointerup', end);
+  puck.addEventListener('pointercancel', end);
+}
+
+document.getElementById('ce-save')?.addEventListener('click', () => {
+  for (const c of ['move', 'aim', 'bomb', 'wall']) ctlLayout[c] = { ...ceDraft[c], locked: true };
+  saveCtlLayout(); applyCtlLayout(); closeControlsEditor();
+});
+document.getElementById('ce-cancel')?.addEventListener('click', closeControlsEditor);
+document.getElementById('ce-reset')?.addEventListener('click', () => {
+  ctlLayout = {}; saveCtlLayout();
+  // wipe inline styles so the CSS defaults (and floating sticks) come back
+  for (const el of [specialBtn, buildBtn]) {
+    if (!el) continue;
+    for (const p of ['left', 'top', 'right', 'bottom', 'width', 'height', 'fontSize']) el.style[p] = '';
+  }
+  stickL.style.width = stickL.style.height = ''; stickR.style.width = stickR.style.height = '';
+  closeControlsEditor();
+});
+editBtn?.addEventListener('click', openControlsEditor);
+
+applyCtlLayout();                       // apply any saved layout on load
+addEventListener('resize', applyCtlLayout); // keep locked px in sync with orientation
+
 // Build the current input from whichever control scheme is active.
 function sampleInput() {
   // Settings pause only this player. A realtime multiplayer room must never be
@@ -2340,8 +2483,8 @@ function sampleInput() {
   const flip = flipView();
   if (usingTouch) {
     // Left stick = move, right stick = aim (release to shoot).
-    moveX = touchL.dx / STICK_MAX; moveY = touchL.dy / STICK_MAX;
-    aimX = touchR.dx / STICK_MAX; aimY = touchR.dy / STICK_MAX;
+    moveX = touchL.dx / touchL.max; moveY = touchL.dy / touchL.max;
+    aimX = touchR.dx / touchR.max; aimY = touchR.dy / touchR.max;
     if (flip) { moveX = -moveX; aimX = -aimX; }
   } else {
     if (keys['w'] || keys['arrowup']) moveY -= 1;

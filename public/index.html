@@ -314,6 +314,23 @@
     <!-- Training-only: label + reset-ball button (shown only in the training ground) -->
     <div id="train-tag" class="train-tag hidden">🎯 אימון</div>
     <button id="reset-ball-btn" class="reset-ball-btn hidden">↺ אפס כדור</button>
+    <!-- Training-only: semi-translucent "edit controls" button (Brawl-Stars style layout editor) -->
+    <button id="edit-controls-btn" class="edit-controls-btn hidden" title="עריכת בקרות">🎛️ בקרות</button>
+
+    <!-- Control-layout editor overlay. Drag each puck to move, drag its corner handle to resize.
+         Saving LOCKS the controls to those spots (they stop floating). Training only. -->
+    <div id="controls-editor" class="controls-editor hidden">
+      <div class="ce-hint">גררו למיקום · פינה לשינוי גודל</div>
+      <div class="ce-puck" data-ctl="move"><span>נוע</span><i class="ce-resize"></i></div>
+      <div class="ce-puck" data-ctl="aim"><span>כיוון</span><i class="ce-resize"></i></div>
+      <div class="ce-puck ce-round" data-ctl="bomb"><span>💣</span><i class="ce-resize"></i></div>
+      <div class="ce-puck ce-round" data-ctl="wall"><span>🧱</span><i class="ce-resize"></i></div>
+      <div class="ce-bar">
+        <button id="ce-reset" class="ce-btn ce-reset">איפוס</button>
+        <button id="ce-cancel" class="ce-btn ce-cancel">ביטול</button>
+        <button id="ce-save" class="ce-btn ce-save">שמירה ונעילה</button>
+      </div>
+    </div>
 
     <div id="banner" class="banner hidden"></div>
 

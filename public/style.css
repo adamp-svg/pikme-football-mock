@@ -124,7 +124,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Bomb == Brawl "Super": the LARGE round primary-ability button, nearest the
    corner (easiest reach), and it PULSES when off-cooldown so you feel it's ready. */
 .special-btn {
-  position: fixed; right: 12px; bottom: 88px;
+  position: fixed; right: 112px; bottom: 88px;
   width: 82px; height: 82px; border-radius: 50%;
   background: #d69122; border: 3px solid #ffe49a; color: #1a1200;
   box-shadow: inset 0 -8px #8b5117, 0 8px 20px rgba(0,0,0,.45);
@@ -144,7 +144,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Wall == Brawl "Gadget": SMALLER round button tucked ABOVE + inset from the bomb,
    forming the up-left arc. Smaller = fewer accidental builds. Tap to build, drag to aim. */
 .build-btn {
-  position: fixed; right: 24px; bottom: 182px;
+  position: fixed; right: 124px; bottom: 182px;
   width: 58px; height: 58px; border-radius: 50%;
   background: #b06a34; border: 3px solid #e6b483; color: #1a1200;
   box-shadow: inset 0 -6px #6e3d17, 0 8px 20px rgba(0,0,0,.45);
@@ -159,6 +159,49 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .build-pips i { width: 13px; height: 5px; border-radius: 1px; background: rgba(0,0,0,.4); border: 1px solid rgba(0,0,0,.45); }
 .build-pips i.full { background: #ffd27a; border-color: #a86a1e; }
 .build-cd { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: #ffe49a; transform: scaleX(0); transform-origin: left; pointer-events: none; }
+
+/* ---- Control-layout editor (training only, Brawl-Stars style) ---- */
+/* Semi-translucent trigger button, top-left area so it clears the right-thumb cluster. */
+.edit-controls-btn {
+  position: fixed; left: 12px; top: 56px; z-index: 7;
+  padding: 7px 12px; border-radius: 999px;
+  background: rgba(18,32,22,.42); border: 1px solid rgba(240,228,185,.55);
+  color: #f0e4b9; font-size: 13px; font-weight: 800; letter-spacing: .04em;
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  cursor: pointer; touch-action: manipulation;
+}
+.edit-controls-btn:active { transform: scale(.95); }
+
+/* Full-screen editor overlay. Sits above the pitch; pucks are dragged to reposition. */
+.controls-editor { position: fixed; inset: 0; z-index: 40; background: rgba(6,12,8,.55); touch-action: none; }
+.ce-hint {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  color: #f0e4b9; font-size: 13px; font-weight: 700; letter-spacing: .06em;
+  background: rgba(0,0,0,.35); padding: 6px 14px; border-radius: 999px; pointer-events: none;
+}
+/* A puck represents one control; JS sets its left/top/width/height from the live layout. */
+.ce-puck {
+  position: absolute; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(226,201,126,.28); border: 2px dashed rgba(255,246,209,.9);
+  color: #fff6d1; font-size: 15px; font-weight: 800; border-radius: 12px;
+  touch-action: none; cursor: grab; user-select: none;
+}
+.ce-puck.ce-round { border-radius: 50%; }
+.ce-puck.dragging { cursor: grabbing; background: rgba(255,228,154,.42); }
+.ce-puck span { pointer-events: none; }
+/* Corner resize handle — drag to scale the control. */
+.ce-resize {
+  position: absolute; right: -9px; bottom: -9px; width: 26px; height: 26px;
+  border-radius: 50%; background: #d69122; border: 2px solid #fff6d1;
+  box-shadow: 0 2px 6px rgba(0,0,0,.5); cursor: nwse-resize;
+}
+/* Bottom action bar */
+.ce-bar { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
+.ce-btn { padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 800; border: 2px solid; cursor: pointer; }
+.ce-save   { background: #2f9e44; border-color: #b2f2bb; color: #fff; }
+.ce-cancel { background: #495057; border-color: #ced4da; color: #fff; }
+.ce-reset  { background: #a02020; border-color: #ffc9c9; color: #fff; }
 
 /* "You're hidden" cue — lights up while standing in a bush (not carrying the ball). */
 .stealth-cue {
