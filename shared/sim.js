@@ -15,6 +15,7 @@ import {
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
   WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
+  BUILD_WINDUP, BUILD_WINDUP_SLOW, BUILD_INTERRUPT_KV,
   SHOOT_CHARGE_TIME,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
@@ -140,6 +141,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     buildAmmo: BUILD_MAG, // wall charges available
     buildAmmoT: 0,        // seconds accumulated toward the next wall charge
     buildCd: 0,           // min pacing between wall placements
+    buildWindup: 0, // 0..1 hold-to-confirm progress for the current wall build
     // DIFFICULTY multipliers (bots only): bot-ai rewrites chargeRate/cdMul from the skill preset
     // every tick; humans keep 1. CARD buffs live in the separate card* fields so they stack ON TOP
     // of difficulty for bots and apply cleanly for humans without bot-ai ever clobbering them.
@@ -168,7 +170,7 @@ function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
-    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.launchGlide = 0;
+    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.launchGlide = 0; p.buildWindup = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
@@ -321,6 +323,7 @@ export function step(state, inputs, dt) {
     let spd = ch.speed * state.settings.speedMul * (p.speedBuff || 1); // Speed-slot card buff (human), 1 otherwise
     if (state.ball.owner === p.id) spd *= state.settings.carrySpeedMul; // slower while carrying
     if (p.slowTimer > 0) { spd *= SLOW_MUL; p.slowTimer -= dt; } // hit by a quick shot
+    if (inp.buildHold && p.buildAmmo >= 1 && p.buildCd <= 0) spd *= BUILD_WINDUP_SLOW; // slowed while winding up a wall
     if (p.bombLaunch > 0) p.bombLaunch -= dt; // rocket-jump tackle window
     const tvx = mx * spd, tvy = my * spd;
     p.vx += (tvx - p.vx) * MOVE_ACCEL;
@@ -382,6 +385,15 @@ export function step(state, inputs, dt) {
     p._fire = !!inp.fire;
     p._special = !!inp.special;
     p._build = !!inp.build;
+    // Wall-build windup: ramp while buildHold is held and a charge is available; a real
+    // hit (knockback above BUILD_INTERRUPT_KV) cancels it; releasing without a commit
+    // (no build edge, windup not full) resets it. Charge is spent only at commit.
+    if (Math.hypot(p.kvx, p.kvy) > BUILD_INTERRUPT_KV) p.buildWindup = 0;
+    else if (inp.buildHold && p.buildAmmo >= 1 && p.buildCd <= 0) {
+      p.buildWindup = Math.min(1, p.buildWindup + dt / BUILD_WINDUP);
+    } else if (!p._build) {
+      p.buildWindup = 0;
+    }
     // Sim-owned charge ramp: charge builds while the fire trigger is HELD, so bots
     // pay the same ~1s wind-up as humans (chargeRate lets harder bots reach full
     // sooner). A release (fire) consumes it; letting go WITHOUT firing (cancel)
@@ -432,7 +444,7 @@ export function step(state, inputs, dt) {
       p._charge = 0; // consume the wind-up on release
     }
     if (p._special && p.specialCd <= 0) useSpecial(state, p, ch);
-    if (p._build && p.buildCd <= 0 && p.buildAmmo >= 1) buildWall(state, p);
+    if (p._build && p.buildCd <= 0 && p.buildAmmo >= 1 && p.buildWindup >= 1) { buildWall(state, p); p.buildWindup = 0; }
   }
 
   // --- Ball: glued to a holder, or free physics + pickup ---
