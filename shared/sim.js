@@ -1011,7 +1011,9 @@ function explode(state, bomb, stack = 1) {
       // COVER: a STATIC wall between the blast and this player blocks the push entirely;
       // a BUILT wall softens it by its remaining HP (strong wall = minor push, weak =
       // most of the push). Behind an indestructible wall you feel nothing.
-      if (arenaOf(state).walls.some((w) => segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD))) continue;
+      const staticBlocked = arenaOf(state).walls.some((w) => segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD));
+      if (process.env.DEBUG_COVER) console.log(`[COVER] bomb(${bomb.x.toFixed(0)},${bomb.y.toFixed(0)}) tgt ${id}(${t.x.toFixed(0)},${t.y.toFixed(0)}) d=${d.toFixed(0)}/r=${radius.toFixed(0)} staticBlocked=${staticBlocked} nStatic=${arenaOf(state).walls.length} nBuilt=${state.builtWalls.length} training=${!!state.arena}`);
+      if (staticBlocked) continue;
       let coverPass = 1;
       for (const w of state.builtWalls) {
         if (segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD)) {
