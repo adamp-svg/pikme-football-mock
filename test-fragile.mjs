@@ -1,12 +1,12 @@
 // Fragile-wall mechanic: build in bush/penalty is allowed but fragile — any bullet
 // breaks it, a power kick smashes through, a slow ball still bounces. + wire round-trip.
 import { createState, addPlayer, step } from './shared/sim.js';
-import { DT, FIELD, FRAGILE_HP } from './shared/constants.js';
+import { DT, FIELD, FRAGILE_HP, BUILD_WINDUP } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
-const inp = (id, o) => ({ [id]: { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, ...o } });
+const inp = (id, o) => ({ [id]: { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, buildHold: false, sax: 0, say: 0, ...o } });
 // Sim-owned charge ramp: HOLD to build charge (~1s = full), then release (fire).
 function fireAt(s, id, charge, aim = [1, 0]) {
   const n = Math.max(0, Math.round(charge * 60));
@@ -18,7 +18,11 @@ function build(px, py, aimX, aimY) {
   const s = createState(); s.resetTimer = 0;
   addPlayer(s, 'P', { name: 'p', char: 'player', team: 'A', slot: 0, isBot: true });
   const p = s.players.P; p.x = px; p.y = py; p.aimX = aimX; p.aimY = aimY;
-  step(s, inp('P', { build: true, aimX, aimY }), DT);
+  // Windup model: HOLD buildHold for BUILD_WINDUP, then release with a build edge
+  // (mirrors test-build-windup.mjs's holdBuild helper) — a bare build:true is a no-op now.
+  const n = Math.round(BUILD_WINDUP / DT) + 1;
+  for (let i = 0; i < n; i++) step(s, inp('P', { buildHold: true, aimX, aimY }), DT);
+  step(s, inp('P', { buildHold: false, build: true, aimX, aimY }), DT);
   return s;
 }
 

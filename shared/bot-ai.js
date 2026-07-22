@@ -17,8 +17,8 @@
 //   - live tuning (bulletSpeed/bombPower/shotPower) comes from state.settings.
 
 import {
-  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
-  BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL,
+  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
+  BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, BUILD_WINDUP,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
 import { ARENA, pointInBox, pointInBush } from './arena.js';
@@ -387,7 +387,7 @@ function ballMode(state, team) {
 function bmemOf(mem, id) {
   return mem.bots[id] || (mem.bots[id] = {
     aimTheta: 0, mvx: 0, mvy: 0, wantMove: 1, stuck: 0,
-    reactUntil: 0, sitHash: '', decideAt: 0, action: null, bombHold: null,
+    reactUntil: 0, sitHash: '', decideAt: 0, action: null, bombHold: null, buildHold: null,
   });
 }
 // Read-only accessor for the measurement harness / tests (never creates state).
@@ -745,7 +745,13 @@ function decideBot(p, role, state, mem, sk, dt) {
         // WALL across the carrier's lane to OUR goal (aim ALONG the lane => capsule spans across
         // it), then commit to the strip. Stand on the lane, goal-side of the carrier.
         const [lux, luy] = unit(ogX - c.x, GY - c.y);
-        build = true; aim = { x: lux, y: luy };
+        // Windup model: HOLD buildHold for BUILD_WINDUP before the build edge actually
+        // commits a wall (a bare build:true edge is now a no-op — see sim.js buildWindup).
+        // Only ARM the deadline once — this branch keeps re-selecting itself every tick
+        // while the trap is still live, and re-stamping `until` from `mem.t` each time
+        // would perpetually push completion out of reach.
+        if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, until: mem.t + BUILD_WINDUP + 0.1 };
+        aim = { x: lux, y: luy };
         tgt = { x: c.x + lux * 150, y: c.y + luy * 150 };
         bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = 'ambushWall';
       } else if (bm.trap) {
@@ -762,7 +768,10 @@ function decideBot(p, role, state, mem, sk, dt) {
         const liningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 240 && Math.abs(c.x - ogX) < FIELD.W * 0.4;
         const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
         if (buildReady && liningUp && goalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)) {
-          build = true; aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
+          // Windup model: HOLD buildHold for BUILD_WINDUP, THEN emit the build edge. Only
+          // ARM the deadline once (see the ambush-wall branch above for why).
+          if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, until: mem.t + BUILD_WINDUP + 0.1 };
+          aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
         } else if (canShoot && seeC && lane && distC < COVER_STRIP) { shoot = true; charge = 1; if (distC < 260) closeShot = true; }
       }
     }
@@ -841,6 +850,24 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   if (opts.hold) bm.charging = null; // standing on a bomb plant — never charge a shot
   const isBallRelease = state.ball.owner === p.id;
 
+  // Bomb aim offset: useSpecial() always throws along the player's aim direction and
+  // reads hypot(sax,say) as a 0..1 fraction of BOMB_LOB_RANGE — it ignores sax/say's own
+  // direction. Every bomb this bot plants today (cornered-finish rocket-jump, tackle-steal,
+  // double-bomb join) is a FEET plant: bm.bombHold.x/y (the intended plant anchor) is set to
+  // the bomber's OWN position at commit time, so the offset is naturally 0 — exactly the
+  // "feet/rocket-jump bomb stays 0,0" rule. The one case where the anchor differs from the
+  // bomber's feet is the wall-cannon nudge (a wall-backed spot a short hop away): there this
+  // becomes a genuine aimed offset toward that spot, capped at BOMB_LOB_RANGE.
+  let sax = 0, say = 0;
+  if (special && bm.bombHold) {
+    const dist = hyp(bm.bombHold.x - p.x, bm.bombHold.y - p.y);
+    if (dist > 1) {
+      const frac = Math.min(1, dist / BOMB_LOB_RANGE);
+      const [ux, uy] = unit(aimVec.x, aimVec.y);
+      sax = ux * frac; say = uy * frac;
+    }
+  }
+
   // ---- SIM-OWNED CHARGE RAMP: the bot HOLDS the trigger to build power like a human, then
   // RELEASES (fire) once charge reaches `fireAt` AND aim is within `tol`. A FULL-power request
   // releases at FULL_CHARGE (enough to strip a carrier / drive through a defender) instead of
@@ -878,9 +905,22 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
     if (seededNoise(Math.floor(mem.t * 0.9) + idHash(p.id) * 0.019) > -0.45) hold = true;
   }
 
+  // Resolve a pending build-hold: hold the buildHold control until the windup completes,
+  // then emit the build edge once (this tick only) and clear the intent. Mirrors the
+  // bombHold hold-then-commit pattern above. The branch that armed bm.buildHold keeps
+  // re-selecting itself each tick (buildReady stays true until the wall actually commits)
+  // and re-supplies the same aim vector via aimVec, so the wall's orientation stays
+  // consistent for the whole hold without needing to be forced here.
+  let buildHold = false;
+  if (bm.buildHold) {
+    if (mem.t >= bm.buildHold.until) { build = true; bm.buildHold = null; }
+    else { buildHold = true; build = false; }
+  }
+
   return {
     seq: (bm.seq = (bm.seq || 0) + 1),
     moveX: mvx, moveY: mvy, aimX: ax, aimY: ay,
-    hold, fire, special, build,
+    hold, fire, special, build, buildHold,
+    sax, say,
   };
 }

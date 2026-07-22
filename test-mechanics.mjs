@@ -1,7 +1,7 @@
 // Sim unit tests for the arena mechanics (walls, bushes, trampolines, build).
 // Run: node test-mechanics.mjs   (exits non-zero on any failure)
 import { createState, addPlayer, attachBall, step } from './shared/sim.js';
-import { DT, BUILD_MAG, BUILD_RELOAD, BUILT_WALL, FIELD } from './shared/constants.js';
+import { DT, BUILD_MAG, BUILD_RELOAD, BUILD_WINDUP, BUILT_WALL, FIELD } from './shared/constants.js';
 import { ARENA, pointInBush } from './shared/arena.js';
 
 let fails = 0;
@@ -16,7 +16,13 @@ function fresh() {
   addPlayer(s, 'p2', { name: 'B', char: 'player', team: 'B', slot: 0 });
   return s;
 }
-function inp(o = {}) { return { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, ...o }; }
+function inp(o = {}) { return { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, buildHold: false, sax: 0, say: 0, ...o }; }
+// Hold buildHold for the windup, then release with a build edge (mirrors test-build-windup.mjs).
+function holdBuild(s, id, other, aim = [1, 0]) {
+  const n = Math.round(BUILD_WINDUP / DT) + 1;
+  for (let i = 0; i < n; i++) step(s, { [id]: inp({ buildHold: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
+  step(s, { [id]: inp({ buildHold: false, build: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
+}
 // Sim-owned charge ramp: HOLD the trigger to build charge (~1s = full), then release
 // (fire) to shoot at that charge. `other` carries co-players' idle inputs each tick.
 function shoot(s, id, charge, aim = [1, 0], other = {}) {
@@ -63,14 +69,14 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   const s = fresh();
   const p = s.players.p1;
   p.x = 1000; p.y = 200; p.aimX = 1; p.aimY = 0; // clear of the centre bush + penalty areas
-  step(s, { p1: inp({ build: true }), p2: inp() }, DT);
+  holdBuild(s, 'p1', { p2: inp() });
   ok(s.builtWalls.length === 1, `build placed a wall (${s.builtWalls.length})`);
   ok(p.buildAmmo === BUILD_MAG - 1, `one build charge spent (${p.buildAmmo}/${BUILD_MAG})`);
   const w = s.builtWalls[0];
   ok(w.x > p.x, `wall placed in front (aim +x): wall.x=${w.x.toFixed(0)} > ${p.x}`);
   ok(w.hp === BUILT_WALL.hp, `wall has full HP (${w.hp})`);
-  // immediate second build blocked by cooldown
-  step(s, { p1: inp({ build: true }), p2: inp() }, DT);
+  // immediate second build (full windup again) blocked by cooldown
+  holdBuild(s, 'p1', { p2: inp() });
   ok(s.builtWalls.length === 1, `build cooldown blocks instant re-build (${s.builtWalls.length})`);
 }
 
@@ -127,7 +133,7 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   const p = s.players.p1;
   const bush = ARENA.bushes[0];
   p.x = bush.x + bush.w / 2 - 90; p.y = bush.y + bush.h / 2; p.aimX = 1; p.aimY = 0; // build into the bush
-  step(s, { p1: inp({ build: true }), p2: inp() }, DT);
+  holdBuild(s, 'p1', { p2: inp() });
   const w = s.builtWalls[0];
   ok(w && w.fragile === true && w.hp === 1, `wall built in a bush is FRAGILE hp1 (${w ? w.fragile + '/' + w.hp : 'none'})`);
 }
@@ -135,7 +141,7 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   const s = fresh();
   const p = s.players.p1;
   p.x = 120; p.y = FIELD.H / 2; p.aimX = -1; p.aimY = 0; // inside team A's own penalty area
-  step(s, { p1: inp({ build: true }), p2: inp() }, DT);
+  holdBuild(s, 'p1', { p2: inp() }, [-1, 0]);
   ok(s.builtWalls[0] && s.builtWalls[0].fragile === true, `wall built in the penalty area is FRAGILE (${s.builtWalls[0] ? s.builtWalls[0].fragile : 'none'})`);
 }
 

@@ -6,7 +6,7 @@
 //  5. custom field: the steel wall blocks the player; the top-left bush makes builds fragile.
 // Run: node test-training.mjs
 import { createState, addPlayer, attachBall, step } from './shared/sim.js';
-import { DT, FIELD, MATCH_DURATION, FULL_CHARGE } from './shared/constants.js';
+import { DT, FIELD, MATCH_DURATION, FULL_CHARGE, BUILD_WINDUP } from './shared/constants.js';
 import {
   PEN, CENTER, SENTRY_LEASH, TRAIN_ARENA, TRAIN_WALLS, TRAIN_BUSHES,
   penDummy, trainingDummyInput, createSentryMem, trainingSentryInput, leashSentry,
@@ -36,7 +36,7 @@ function makeTraining() {
 // Advance one training tick the way the server does: bot inputs -> step -> clamps.
 function tick(s, meInput = {}, mem) {
   const inputs = {
-    me: { seq: 0, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, ...meInput },
+    me: { seq: 0, moveX: 0, moveY: 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false, buildHold: false, sax: 0, say: 0, ...meInput },
     dummy: trainingDummyInput(s, 'dummy'),
     sentry: trainingSentryInput(s, 'sentry', mem || (s._mem ||= createSentryMem()), DT),
   };
@@ -129,7 +129,11 @@ console.log('5) custom field — steel wall blocks the player, bush makes builds
     const s = makeTraining();
     const p = s.players.me;
     p.x = bush.x + bush.w / 2; p.y = bush.y + bush.h / 2; p.aimX = 0; p.aimY = -1;
-    tick(s, { build: true, aimX: 0, aimY: -1 });
+    // Windup model: HOLD buildHold for BUILD_WINDUP, then release with a build edge
+    // (a bare build:true with no prior hold is now a no-op — see test-build-windup.mjs).
+    const n = Math.round(BUILD_WINDUP / DT) + 1;
+    for (let i = 0; i < n; i++) tick(s, { buildHold: true, aimX: 0, aimY: -1 });
+    tick(s, { buildHold: false, build: true, aimX: 0, aimY: -1 });
     const built = s.builtWalls[0];
     check(!!built && built.fragile === true, `wall built in the bush is fragile (${built ? 'fragile=' + built.fragile : 'no wall built'})`);
   }
