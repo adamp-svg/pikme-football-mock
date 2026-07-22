@@ -83,7 +83,7 @@ html, body {
 .hint b { color: #e7dcae; }
 
 /* ---- Game ---- */
-#canvas { display: block; width: 100vw; height: 100vh; }
+#canvas { display: block; width: 100vw; height: 100vh; touch-action: none; -webkit-user-select: none; user-select: none; }
 #hud {
   position: fixed; top: 0; left: 0; right: 0; padding: 10px 16px;
   display: flex; align-items: center; justify-content: center; gap: 18px;

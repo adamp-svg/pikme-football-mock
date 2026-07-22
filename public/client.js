@@ -2025,10 +2025,12 @@ addEventListener('touchstart', (e) => {
 }, { passive: false });
 
 addEventListener('touchmove', (e) => {
+  let gameTouch = false;
   for (const t of e.changedTouches) {
-    if (t.identifier === touchL.id) updateStick(touchL, stickL, t);
-    else if (t.identifier === touchR.id) updateStick(touchR, stickR, t);
+    if (t.identifier === touchL.id) { updateStick(touchL, stickL, t); gameTouch = true; }
+    else if (t.identifier === touchR.id) { updateStick(touchR, stickR, t); gameTouch = true; }
   }
+  if (gameTouch) e.preventDefault(); // stop iOS text-selection/scroll during a stick drag (NOT slider/settings drags)
 }, { passive: false });
 
 function updateStick(stick, el, t) {
@@ -2177,11 +2179,15 @@ function updateCamera() {
   const cx = rendered ? rendered.x : FIELD.W / 2;
   const cy = rendered ? rendered.y : FIELD.H / 2;
   const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - wbW;
-  camX = clamp(cx * scale - wbW / 2, minX, Math.max(minX, maxX));
+  const tX = clamp(cx * scale - wbW / 2, minX, Math.max(minX, maxX));
   const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * BAND) * scale;
   const minY = -BAND * scale, maxY = (FIELD.H + BAND) * scale - wbH;
-  if (worldHpx <= wbH) camY = (fieldHpx - wbH) / 2; // whole bowl fits — centre the pitch
-  else camY = clamp(cy * scale - wbH / 2, minY, Math.max(minY, maxY));
+  const tY = worldHpx <= wbH ? (fieldHpx - wbH) / 2 : clamp(cy * scale - wbH / 2, minY, Math.max(minY, maxY)); // whole bowl fits -> centre
+  // Smooth camera follow: ease toward the target instead of hard-locking, so panning is fluid and
+  // filters snapshot jitter. Snap on a big jump (kickoff / respawn / resize) so we don't drift in.
+  const EASE = 0.22;
+  if (Math.abs(tX - camX) > wbW * 0.6 || Math.abs(tY - camY) > wbH * 0.6) { camX = tX; camY = tY; }
+  else { camX += (tX - camX) * EASE; camY += (tY - camY) * EASE; }
 }
 
 // World -> ART px (through the camera).
