@@ -411,6 +411,13 @@ html, body {
 .friend-act:disabled { background: #333; color: #888; }
 .friends-h { color: #aaa; margin: 8px 0 0; text-align: right; }
 
+/* Global toast (top-level, outside every .screen) — hidden by the shared .hidden rule. */
+.fp-toast {
+  position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 9999;
+  background: #17171b; color: #fff; padding: 10px 16px; border-radius: 10px;
+  direction: rtl; box-shadow: 0 4px 14px rgba(0,0,0,.4); max-width: 90vw; text-align: center;
+}
+
 /* ---- Home card carousel (coverflow) ---- */
 .carousel { position: relative; width: 100%; height: 116px; touch-action: none; }
 .carousel.hidden { display: none; }

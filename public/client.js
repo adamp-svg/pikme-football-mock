@@ -547,13 +547,16 @@ const specialIcon = () => '💣'; // special is Bomb
 function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
 function sendMsg(o) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(o)); }
 function showRoomError(msg) { roomErrorEl.textContent = msg; roomErrorEl.classList.remove('hidden'); }
-// Minimal toast: reuses the #room-error strip for ~2s (no dedicated toast UI in Slice 1).
+// Global toast: a top-level #fp-toast element (outside every .screen), so it's visible
+// regardless of which screen (home/lobby/game/friends) the user is on when it fires.
+const fpToastEl = document.getElementById('fp-toast');
 let _toastT = null;
 function toast(msg) {
-  if (!roomErrorEl) { alert(msg); return; }
-  showRoomError(msg);
+  if (!fpToastEl) { alert(msg); return; }
+  fpToastEl.textContent = msg;
+  fpToastEl.classList.remove('hidden');
   if (_toastT) clearTimeout(_toastT);
-  _toastT = setTimeout(() => roomErrorEl.classList.add('hidden'), 2000);
+  _toastT = setTimeout(() => fpToastEl.classList.add('hidden'), 2000);
 }
 
 // Show the player's character (their avatar as the face) on the home menu.
@@ -1036,8 +1039,20 @@ function clearLobbyLists() {
 // connections: MY_USER_ID is set from `welcome`, which fires loadFriends().
 // --------------------------------------------------------------------------
 function apiHeaders() { return { 'content-type': 'application/json', 'football-auth': FOOTBALL_TOKEN || '' }; }
-async function apiGet(path) { const r = await fetch(`${PIKME_API}${path}`, { headers: apiHeaders() }); return r.ok ? r.json() : []; }
-async function apiPost(path, body) { const r = await fetch(`${PIKME_API}${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) }); return r.ok; }
+async function apiGet(path) {
+  try {
+    const r = await fetch(`${PIKME_API}${path}`, { headers: apiHeaders() });
+    if (!r.ok) { toast('החיבור נכשל, נסה שוב'); return []; }
+    return r.json();
+  } catch { toast('החיבור נכשל, נסה שוב'); return []; }
+}
+async function apiPost(path, body) {
+  try {
+    const r = await fetch(`${PIKME_API}${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+    if (!r.ok) { toast('החיבור נכשל, נסה שוב'); return false; }
+    return true;
+  } catch { toast('החיבור נכשל, נסה שוב'); return false; }
+}
 
 let FRIENDS = [];          // [{userId, nickName, image}]
 let ONLINE = new Set();    // userIds currently online (from friendsPresence)
