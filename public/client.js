@@ -18,7 +18,7 @@ let slotIds = [], slotTeam = [], rosterVersion = -1; // binary-snapshot slot->id
 
 // TEMP diagnostic: a visible build tag so we can tell for certain whether the device is running
 // the freshly-deployed game. If you don't see this green tag bottom-left, you're on stale code.
-const BUILD_TAG = 'BUILD ✅ 23JUL-v2';
+const BUILD_TAG = 'BUILD ✅ 23JUL-v3';
 try {
   const _mk = () => { const d = document.createElement('div'); d.textContent = BUILD_TAG; d.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:999999;font:bold 12px monospace;color:#0f0;background:rgba(0,0,0,.6);padding:2px 6px;border-radius:3px;pointer-events:none'; document.body.appendChild(d); };
   if (document.body) _mk(); else addEventListener('DOMContentLoaded', _mk);
@@ -2414,10 +2414,11 @@ function updateCamera() {
   let cx = rendered ? rendered.x : FIELD.W / 2;
   const cy = rendered ? rendered.y : FIELD.H / 2;
   // Lead the camera toward the goal you're attacking so more of the attacking half is framed.
-  if (rendered) { const egX = flipView() ? 0 : FIELD.W; cx += (egX - cx) * 0.22; }
+  if (rendered) { const egX = flipView() ? 0 : FIELD.W; cx += (egX - cx) * 0.38; }
   // Camera: origin/main's SMOOTH follow (eases toward the target, snaps on big jumps) — kept over
   // the WIP hard-lock. Uses NET/BAND (widely referenced); CAM_BACK/CAM_BAND are now unused.
-  const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - wbW;
+  const CAM_FWD = 360; // let the camera reveal further past a goal line so the goal-lead ISN'T clamped away in the attacking third (NET=70 capped it ~530px short of the goal → lead did nothing where you actually play)
+  const minX = -CAM_FWD * scale, maxX = (FIELD.W + CAM_FWD) * scale - wbW;
   const tX = clamp(cx * scale - wbW / 2, minX, Math.max(minX, maxX));
   const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * BAND) * scale;
   const minY = -BAND * scale, maxY = (FIELD.H + BAND) * scale - wbH;

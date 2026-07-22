@@ -2,6 +2,7 @@
 // target" dummy. Kept separate from server.js so it's unit-testable and shared
 // with the client (the pen outline uses the same PEN box).
 import { FIELD, VISION_RANGE, BUSH_REVEAL_DIST } from './constants.js';
+import { segBlockedByWall } from './arena.js';
 
 // The box the dummy is confined to: in front of team B's (right) goal.
 export const PEN = {
@@ -155,7 +156,9 @@ const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 function sentrySees(sentry, target, state) {
   if (!target) return false;
   const dist = Math.hypot(sentry.x - target.x, sentry.y - target.y);
-  if (dist > VISION_RANGE) return false;                       // out of sight
+  if (dist > VISION_RANGE) return false;                       // out of sight (too far)
+  const walls = (state.arena && state.arena.walls) || [];
+  if (walls.some((w) => segBlockedByWall(w, sentry.x, sentry.y, target.x, target.y, 0))) return false; // a wall breaks line of sight — hide behind the steel wall
   const bushes = (state.arena && state.arena.bushes) || [];
   const inBush = bushes.some((g) => target.x > g.x && target.x < g.x + g.w && target.y > g.y && target.y < g.y + g.h);
   if (!inBush) return true;                                     // in the open + in view

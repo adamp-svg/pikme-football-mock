@@ -45,15 +45,15 @@ function bombKnock(bomb, tx, ty, walls) {
   ok(kStatic < kOpen * 0.05, `static wall BLOCKS the blast (|kv|=${kStatic.toFixed(0)} << open ${kOpen.toFixed(0)})`);
 }
 
-// 2) Built wall between bomb and target: strong (hp3) softens more than weak (hp1).
+// 2) Built wall between bomb and target: a FULL-HP wall fully shields; a DAMAGED wall leaks more.
 {
   const kOpen = bombKnock({ x: 1000, y: 560 }, 1000, 690, null);
   const bomb = { x: 1000, y: 560 };
   const mkWall = (hp) => [builtWall(1, 1000, 625, 0, hp)]; // horizontal capsule between bomb (y560) and target (y690)
   const kStrong = bombKnock(bomb, 1000, 690, mkWall(3));
   const kWeak = bombKnock(bomb, 1000, 690, mkWall(1));
-  ok(kStrong > 0 && kStrong < kOpen * 0.35, `STRONG built wall = minor pushback (|kv|=${kStrong.toFixed(0)}, open ${kOpen.toFixed(0)})`);
-  ok(kWeak > kStrong * 1.4, `WEAK built wall pushes back harder than a strong one (weak ${kWeak.toFixed(0)} > strong ${kStrong.toFixed(0)})`);
+  ok(kStrong < kOpen * 0.05, `FULL-HP built wall fully shields the blast (|kv|=${kStrong.toFixed(0)} << open ${kOpen.toFixed(0)})`);
+  ok(kWeak > kStrong, `a DAMAGED built wall leaks more than a full-HP one (weak ${kWeak.toFixed(0)} > strong ${kStrong.toFixed(0)})`);
   ok(kWeak < kOpen, `...but still less than no wall (weak ${kWeak.toFixed(0)} < open ${kOpen.toFixed(0)})`);
 }
 

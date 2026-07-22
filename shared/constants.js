@@ -237,11 +237,11 @@ export const FRAGILE_PASS_SPEED = 900; // ball faster than this passes through (
 // entirely; a BUILT wall softens it by its remaining HP. BLAST_WALL_PASS_MIN is the
 // fraction of knockback that leaks through a FULL-HP built wall (strong wall -> minor
 // push); a weaker wall passes more, ramping up to ~1.0 as its HP -> 0.
-export const BLAST_WALL_PASS_MIN = 0.15;
+export const BLAST_WALL_PASS_MIN = 0.0;  // a FULL-HP built wall fully shields a blast (was 0.15 = 15% leak); leak ramps up only as the wall loses HP
 // Shots: a built wall in the bullet's path absorbs ~one shot TIER per remaining HP as it
 // passes through (super -> full -> half -> blocked as HP climbs from 0 to full). Static
 // stone always blocks a shot outright. Tiers: 0 quick, 1 half/medium, 2 full, 3 super.
-export const COVER_PAD = 8; // body-radius forgiveness on the line-of-sight test (blast + shot)
+export const COVER_PAD = 28; // body-radius forgiveness on the LOS test (blast + shot): a player clearly behind a wall is shielded even if the centre-to-centre ray grazes the wall's edge (was 8 → residual push when tucked behind a 120px wall)
 
 export const TEAM = {
   A: { key: 'A', name: 'Blue', color: '#3b82f6', attacksRight: true },
