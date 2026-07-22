@@ -52,4 +52,5 @@ TODO/handoff if reworking: aim-from-fixed-anchor feel (aim dir measured from anc
 
 ## Commits
 - 758f19d feat(controls): Brawl right-thumb cluster (bomb=Super glow, wall=Gadget) + Step C glow wiring.
-  NOTE: shared/sim.js deliberately left unstaged (other agent).
+- 3770153 feat(controls): training-mode Brawl-style control-layout editor (req 0-4). client.js/index.html/style.css.
+  NOTE: never staged shared/sim.js or scratch-selbest-test.mjs (other agents).
