@@ -39,5 +39,14 @@ function inp(o = {}) { return { seq: 1, moveX: 0, moveY: 0, aimX: 1, aimY: 0, ho
   ok(near(s.bombs[0].x, 1000 + BOMB_LOB_RANGE, 3), `offset clamped to range (x=${s.bombs[0].x.toFixed(0)})`);
 }
 
+// 4) Direction comes from the (sax,say) drag vector, NOT from aim: aiming +x but
+//    dragging +y must lob the bomb along +y (matching the client's ghost), not +x.
+{
+  const s = fresh();
+  step(s, { p1: inp({ special: true, aimX: 1, aimY: 0, sax: 0, say: 1 }), p2: inp() }, DT);
+  ok(near(s.bombs[0].x, 1000), `perpendicular drag: x stays put (x=${s.bombs[0].x.toFixed(0)})`);
+  ok(near(s.bombs[0].y, 550 + BOMB_LOB_RANGE, 3), `perpendicular drag: lobs along drag +y, not aim +x (y=${s.bombs[0].y.toFixed(0)})`);
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');
 process.exit(fails ? 1 : 0);

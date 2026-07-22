@@ -564,15 +564,22 @@ function fireBullet(state, p, ch, charge, over = false) {
 }
 
 // SPECIAL skill — plant a bomb. A tap (zero aim offset) plants at the planter's feet
-// (rocket-jump). A drag aims a short LOB up to BOMB_LOB_RANGE along the aim direction —
-// (sax,say) is a 0..1 fraction of that range in world direction, clamped here.
+// (rocket-jump). A drag aims a short LOB up to BOMB_LOB_RANGE along the DRAG direction —
+// (sax,say) is the drag vector itself (not the player's aim/movement), capped to unit
+// length here. This must match the client's ghost marker, which is drawn along the same
+// (sax,say) drag vector — using p.aimX/p.aimY here would desync the lob from the ghost
+// whenever the player's aim differs from their drag direction.
 function useSpecial(state, p, ch, sax = 0, say = 0) {
   p.specialCd = ch.specialCooldown * (p.cdMul || 1) * (p.cardUtil || 1);
-  const mag = Math.min(1, Math.hypot(sax, say));
-  const al = Math.hypot(p.aimX, p.aimY) || 1;
-  const len = mag * BOMB_LOB_RANGE;
-  const bx = clamp(p.x + (p.aimX / al) * len, 0, FIELD.W);
-  const by = clamp(p.y + (p.aimY / al) * len, 0, FIELD.H);
+  const mag = Math.hypot(sax, say);
+  let bx, by;
+  if (mag <= 0) {
+    bx = p.x; by = p.y; // tap -> feet plant (rocket-jump)
+  } else {
+    const k = Math.min(1, mag) / mag; // cap the drag vector to unit length
+    bx = clamp(p.x + sax * k * BOMB_LOB_RANGE, 0, FIELD.W);
+    by = clamp(p.y + say * k * BOMB_LOB_RANGE, 0, FIELD.H);
+  }
   state.bombs.push({
     id: state._nid++, owner: p.id, team: p.team,
     x: bx, y: by, fuse: BOMB.fuse,
