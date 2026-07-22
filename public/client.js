@@ -2836,16 +2836,17 @@ function buildAudienceSeats() {
       audSeats.push({ x: sx, y: sy, r: null, n: null, color, nf, layer: wcol });
     }
   }
-  // FILL RATIO: the bowl only physically holds ~audSeats.length seats, but the crowd size is
-  // scaled against a CONCEPTUAL 800-seat stadium — so total cards / 800 gives the fraction of
-  // the real seats we fill. E.g. players holding 400 cards total => ~half the bowl occupied.
-  const ratio = clamp(pool.length / AUD.capTotal, 0, 1);
-  const fillCount = Math.min(pool.length, Math.round(ratio * audSeats.length));
-  // Seat by TIER → DEPTH: the rarity-sorted pool (rarest first) fills the seats NEAREST the
-  // pitch first, so the highest-rarity cards sit in the FRONT rows — with a small jitter so
-  // it's a gradient, not a perfectly sorted wall.
+  // FILL: show EVERY card the players hold, packed into the seats NEAREST the pitch first, so
+  // the crowd reads as full where the camera looks instead of a few cards scattered around the
+  // whole bowl. (An 800-based ratio was tried but starved the visible fill — a 60-card album
+  // only lit ~17 of ~228 seats spread bowl-wide, so you'd see ~2 on screen.) If cards exceed
+  // seats, the bowl fills completely; fewer cards => the front rows fill first, back rows empty.
+  const fillCount = Math.min(pool.length, audSeats.length);
+  // Seat by TIER → DEPTH: the rarity-sorted pool (rarest first) fills the nearest seats first,
+  // so the highest-rarity cards sit in the FRONT rows — small jitter so it's a gradient, not a
+  // perfectly sorted wall.
   const order = audSeats.map((_, i) => i).sort((a, b) => (audSeats[b].nf + Math.random() * 0.2) - (audSeats[a].nf + Math.random() * 0.2));
-  for (let k = 0; k < fillCount; k++) { const s = audSeats[order[k]]; s.r = pool[k].r; s.n = pool[k].n; }
+  for (let k = 0; k < fillCount; k++) { const s = audSeats[order[k]]; s.r = pool[k % pool.length].r; s.n = pool[k % pool.length].n; }
   audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
   preloadCards(pool);
 }
