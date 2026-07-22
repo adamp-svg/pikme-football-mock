@@ -392,7 +392,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .play.small { padding: 10px 14px; font-size: 13px; }
 .join-row { display: flex; gap: 10px; width: 100%; }
 .code-input {
-  flex: 1; text-align: center; text-transform: uppercase; letter-spacing: 8px;
+  flex: 1; min-width: 0; text-align: center; text-transform: uppercase; letter-spacing: 8px;
   font: 900 26px "Arial Black", sans-serif; color: #fff4ca;
   background: #111812; border: 3px solid #39463b; padding: 10px; outline: none;
 }

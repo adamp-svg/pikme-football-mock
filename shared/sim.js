@@ -553,7 +553,10 @@ export function step(state, inputs, dt) {
       p._charge = 0; // consume the wind-up on release
     }
     if (p._special && p.specialCd <= 0) useSpecial(state, p, ch, p._sax || 0, p._say || 0);
-    if (p._build && p.buildCd <= 0 && p.buildAmmo >= 1 && p.buildWindup >= 1) { buildWall(state, p); p.buildWindup = 0; }
+    // Commit at >= 0.9, not exactly 1: a HUMAN releases the build edge at their LOCAL windup=1,
+    // but network jitter means the server may have accumulated slightly less (bots avoid this by
+    // holding +0.1s of slack). The 0.1 tolerance stops the occasional silent "my wall didn't place".
+    if (p._build && p.buildCd <= 0 && p.buildAmmo >= 1 && p.buildWindup >= 0.9) { buildWall(state, p); p.buildWindup = 0; }
   }
 
   // --- Ball: glued to a holder, or free physics + pickup ---

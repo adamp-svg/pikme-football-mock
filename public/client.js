@@ -2207,6 +2207,10 @@ function placeStick(el, cx, cy, dx, dy) {
 
 addEventListener('touchstart', (e) => {
   usingTouch = true;
+  // Only claim touches as joystick/aim input while the GAME screen is up. Off the pitch (hub,
+  // lobby, friends), returning here lets native touch scroll the games strip + tap hub buttons —
+  // the global joystick-claim + touchmove preventDefault was eating the #play-strip swipe.
+  if (gameEl.classList.contains('hidden')) return;
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   for (const t of e.changedTouches) {
     if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target))) continue; // buttons aren't sticks
