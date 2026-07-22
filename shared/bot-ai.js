@@ -109,6 +109,15 @@ export function quadraticIntercept(sx, sy, tx, ty, tvx, tvy, ps) {
   return unit(rx, ry);
 }
 
+// TACTIC 5 — PREDICT where the target is going and aim there. Scales the target's velocity by
+// the tier's leadGain (was a DEAD knob): easy 0.80 under-leads (misses a fast human), normal
+// 0.95, hard 1.00 true intercept, extreme 1.10 slight over-lead. leadGain IS the difficulty gate
+// (aim vector only — never changes the shoot/charge decision, so low tiers stay beatable).
+function leadAim(sx, sy, tx, ty, tvx, tvy, ps, sk) {
+  const g = (sk && sk.leadGain != null) ? sk.leadGain : 1;
+  return quadraticIntercept(sx, sy, tx, ty, (tvx || 0) * g, (tvy || 0) * g, ps);
+}
+
 // ---- line-of-fire clear? samples static+built walls AND enemy bodies ----
 // `viewer` (a bot): if given, an enemy HIDDEN in a bush (unseen by this viewer) is NOT
 // counted as blocking — the bot can't plan around a body it can't see (bush stealth).
@@ -580,6 +589,22 @@ function decideBot(p, role, state, mem, sk, dt) {
   }
   bm.blindT = 0;
 
+  // TACTIC 11 — CORNER-PINNED BOMB ESCAPE (all tiers; harder bots trigger sooner). When we're
+  // wedged in a corner scrapping for the ball with an enemy right on us, plant a bomb at our feet
+  // and rocket-jump loose (a carried ball stays attached; the point-blank enemy gets flung too).
+  {
+    const stuckLim = sk.toolSkill >= 0.9 ? 5 : 9;
+    const nearCorner = (p.x < 300 || p.x > FIELD.W - 300) && (p.y < 260 || p.y > FIELD.H - 260);
+    let foeNear = 1e9; for (const e of visibleEnemies) foeNear = Math.min(foeNear, hyp(e.x - p.x, e.y - p.y));
+    if ((bm.stuck || 0) > stuckLim && nearCorner && foeNear < 170 && hyp(b.x - p.x, b.y - p.y) < 220
+        && (p.specialCd || 0) <= 0 && mem.t > (bm.nextBombAt || 0)) {
+      const [ex, ey] = unit(FIELD.W / 2 - p.x, GY - p.y);   // rocket toward the open pitch centre
+      bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + ex * 400, aimY: p.y + ey * 400 };
+      bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.stuck = 0; bm.lastTrick = 'cornerEscape';
+      return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+    }
+  }
+
   if (b.owner === p.id) {
     // ===== I CARRY: attack =====
     bm.carryT = (bm.carryT || 0) + dt;
@@ -616,9 +641,12 @@ function decideBot(p, role, state, mem, sk, dt) {
         // No overcharge: don't dither (the diagnosis found a carrier vs an in-box keeper stalled
         // 100% of the time — goalBank returned null 100% too). Aim the FULL drive at the OPEN
         // goal-mouth corner AWAY from the keeper — the sim only SAVES a kick that hits the
-        // keeper body, so a corner past a stationary keeper scores.
-        const cornerY = keeper.y > GY ? GY - GOAL.width * 0.30 : GY + GOAL.width * 0.30;
-        if (Math.abs(keeper.y - cornerY) > radOf(state) + ballR + 12) {
+        // keeper body, so a corner past a stationary keeper scores. TACTIC 5b: PREDICT the
+        // keeper's slide (lead its vy) and pick the corner it is moving AWAY from.
+        const leadT = clamp(distGoal / ((settings.shotPower || 1850) * 0.9), 0, 0.6);
+        const kyFut = keeper.y + (keeper.vy || 0) * leadT * (sk.leadGain || 1);
+        const cornerY = kyFut > GY ? GY - GOAL.width * 0.30 : GY + GOAL.width * 0.30;
+        if (Math.abs(kyFut - cornerY) > radOf(state) + ballR + 12) {
           aim = { x: egX - p.x, y: cornerY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'cornerFinish';
           if (distGoal < 300) closeShot = true;
         } else if (trick >= 0.7) { // corner covered → try a bank as a last resort
@@ -635,7 +663,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         const full = settings.shotPower || 1850;
         if (laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
           charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
-          const [pax, pay] = quadraticIntercept(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, full * clamp(charge, 0.33, 1));
+          const [pax, pay] = leadAim(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, full * clamp(charge, 0.33, 1), sk);
           aim = { x: pax, y: pay }; shoot = true; bm.giveGo = { until: mem.t + 1.0 };
         } else if (trick > 0.6) {
           const bk = bankAim(b.x, b.y, mate.x + (mate.vx || 0) * 0.25, mate.y + (mate.vy || 0) * 0.25, state, team, { goal: false, maxPath: 560 + 260 * trick, viewer: p });
@@ -646,8 +674,18 @@ function decideBot(p, role, state, mem, sk, dt) {
 
     // (The old "cornered bomb-finish" was removed: it scored 0-for-~30 — the reduced carry
     // launch can't put the ball in the net — while burning a bomb charge worth far more on a
-    // ~97% off-centre tackle-steal. The full-drive / corner / overcharge finishes above and the
-    // carry rocket-jump for MOBILITY below are strictly better uses.)
+    // ~97% off-centre tackle-steal. TACTIC 4 below reuses the bomb for MOBILITY instead.)
+
+    // TACTIC 4 — CARRY ROCKET-JUMP for MOBILITY (hard/extreme). Far from goal with a clear lane
+    // and no enemy near, plant a bomb at our feet aimed at goal and rocket-jump forward: the ball
+    // stays attached and we cover ground fast (bombs now launch further). nfd>520 + laneWalls keep
+    // the fuse-hold safe so the reduced carry-launch still buys real distance.
+    if (!shoot && !special && sk.toolSkill >= 0.9 && bombReady && distGoal > FINISH_RANGE + 220
+        && laneWalls && nfd > 520 && mateSafe && mem.t > (bm.nextBombAt || 0)) {
+      special = true; aim = { x: egX - p.x, y: GY - p.y };
+      bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY };
+      bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'carryJump';
+    }
 
     // Anti-idle: blast goalward if we've dithered (delay scales with aggro). A full kick drives
     // through a FIELD defender; if a KEEPER is parked, aim at the open corner past them rather
@@ -657,19 +695,39 @@ function decideBot(p, role, state, mem, sk, dt) {
       aim = { x: egX - p.x, y: ay - p.y }; shoot = true; charge = 1; bm.carryT = 0;
       if (distGoal < 300) closeShot = true;
     }
-    // Drive at goal; if marked, JUKE decisively to the more-open side.
+    // Drive at goal; if marked, ZIGZAG (TACTIC 6): weave a serpentine path around the goalward
+    // vector to shake a chaser, instead of a readable straight line or one fixed juke. Amplitude
+    // scales with skill, flip-rate with aggro. Still always ADVANCES toward goal.
     tgt = { x: egX, y: GY };
     if (nearFoe && nfd < 300) {
       const [gx, gy] = unit(egX - p.x, GY - p.y);
       let perpx = -gy, perpy = gx;
+      // start the weave toward the MORE-OPEN side (away from the marker), then oscillate
       if ((nearFoe.x - p.x) * perpx + (nearFoe.y - p.y) * perpy > 0) { perpx = -perpx; perpy = -perpy; }
-      tgt = { x: p.x + gx * 240 + perpx * 320, y: p.y + gy * 240 + perpy * 320 };
+      const ZIG_PERIOD = 0.45 - 0.15 * AGG;                 // hard flips faster
+      if (bm.zigSign == null || mem.t - (bm.zigAt || 0) > ZIG_PERIOD) { bm.zigSign = (bm.zigSign || 1) * -1; bm.zigAt = mem.t; }
+      const amp = 140 + 200 * sk.toolSkill;                 // hard weaves wider
+      tgt = { x: p.x + gx * 240 + perpx * amp * bm.zigSign, y: p.y + gy * 240 + perpy * amp * bm.zigSign };
+      bm.lastTrick = 'zigzag';
     }
     if (!shoot && !special) aim = { x: egX - p.x, y: GY - p.y };
 
   } else if (carrier && carrier.team === team) {
     // ===== TEAMMATE CARRIES: I support (open a passing lane / trail for rebound) =====
     const ahead = egX - (team === 'A' ? 300 : -300);
+    // TACTIC 9 — OFF-BALL CATCH-UP ROCKET-JUMP (hard/extreme): if we're lagging far behind the
+    // play with a clear lane and no enemy on us, plant a bomb and rocket-jump toward the play so
+    // the teammate isn't left alone (directly counters "the bot lags/hides instead of helping").
+    if (!isOnBall && sk.toolSkill >= 0.9 && bombReady && mem.t > (bm.nextBombAt || 0)) {
+      const dPlay = hyp(carrier.x - p.x, carrier.y - p.y);
+      const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(e.x - p.x, e.y - p.y)), 1e9);
+      if (dPlay > 760 && foeNear > 300 && laneClear(p.x, p.y, carrier.x, carrier.y, state, team, { enemies: false })) {
+        const [ex, ey] = unit(carrier.x - p.x, carrier.y - p.y);
+        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + ex * 500, aimY: p.y + ey * 500 };
+        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'catchUpJump';
+        return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+      }
+    }
     if (bm.giveGo && mem.t < bm.giveGo.until) {
       // GIVE-AND-GO: I just gave the ball — break goal-side into space for the return,
       // but stay balanced (a modest run ahead of the carrier, not abandoning shape).
@@ -698,7 +756,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       let mark = null, md = 1e9;
       for (const e of visibleEnemies) { const d = hyp(e.x - carrier.x, e.y - carrier.y); if (d < 130 && d < md) { md = d; mark = e; } }
       if (mark && laneClear(p.x, p.y, mark.x, mark.y, state, team, { enemies: false }) && mem.t > (bm.nextMarkAt || 0)) {
-        const [ax, ay] = quadraticIntercept(p.x, p.y, mark.x, mark.y, mark.vx || 0, mark.vy || 0, bulletSpeed);
+        const [ax, ay] = leadAim(p.x, p.y, mark.x, mark.y, mark.vx || 0, mark.vy || 0, bulletSpeed, sk);
         aim = { x: ax, y: ay }; shoot = true; charge = 0.8; bm.lastTrick = 'clearMarker'; bm.nextMarkAt = mem.t + 0.7 * (sk.cdMul || 1); if (md < 160) closeShot = true;
       }
     }
@@ -716,7 +774,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     if (isOnBall) {
       tgt = { x: c.x, y: c.y };
       if (pc) {
-        const [ax, ay] = quadraticIntercept(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed);
+        const [ax, ay] = leadAim(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed, sk);
         aim = { x: ax, y: ay };
       }
       // a FULL-charge bullet strips the ball even INSIDE the box (only knockback is cut there)
@@ -776,12 +834,13 @@ function decideBot(p, role, state, mem, sk, dt) {
         const [dx, dy] = unit(c.x - ambush.x, c.y - ambush.y);
         tgt = { x: ambush.x + dx * (ambush.hw - 25), y: ambush.y + dy * (ambush.hh - 25) };
         if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y }; bm.lastTrick = 'ambushLurk';
-      } else if (ambush && !bm.trap && distC > 130 && distC <= 340
+      } else if ((ambush || (seeC && sk.toolSkill > 0.55)) && !bm.trap && distC > 130 && distC <= 380
                  && Math.abs(p.x - ogX) < Math.abs(c.x - ogX)             // goal-side of the carrier
                  && (ogX - c.x) * (c.vx || (ogX - c.x)) >= 0              // carrier driving at our goal
                  && buildReady && mem.t > (bm.nextBuildAt || 0)) {
-        // WALL across the carrier's lane to OUR goal (aim ALONG the lane => capsule spans across
-        // it), then commit to the strip. Stand on the lane, goal-side of the carrier.
+        // TACTIC 3 — WALL to STOP a driving carrier (works with OR without a bush ambush). Build
+        // a capsule ACROSS the carrier's lane to OUR goal (aim ALONG the lane => capsule spans it),
+        // then burst out and strip. Stand on the lane, goal-side of the carrier.
         const [lux, luy] = unit(ogX - c.x, GY - c.y);
         // Windup model: HOLD buildHold for BUILD_WINDUP before the build edge actually
         // commits a wall (a bare build:true edge is now a no-op — see sim.js buildWindup).
@@ -791,15 +850,24 @@ function decideBot(p, role, state, mem, sk, dt) {
         if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, until: mem.t + BUILD_WINDUP + 0.1 };
         aim = { x: lux, y: luy };
         tgt = { x: c.x + lux * 150, y: c.y + luy * 150 };
-        bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = 'ambushWall';
+        bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = ambush ? 'ambushWall' : 'blockDrive';
       } else if (bm.trap) {
-        // STRIP: burst out and full-charge strip the wall-blocked carrier
+        // STRIP/STEAL (TACTIC 8): burst out and full-charge strip the wall-blocked carrier;
+        // if no bullet is available, plant a bomb-tackle to STEAL instead (the bush hid us — now
+        // we strike). Prefer the bullet (never override a live strip with a bomb).
         tgt = { x: c.x, y: c.y };
         if (pc) {
-          const [ax, ay] = quadraticIntercept(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed);
+          const [ax, ay] = leadAim(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed, sk);
           aim = { x: ax, y: ay };
         }
         if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; charge = 1; bm.lastTrick = 'ambushStrip'; if (distC < 260) closeShot = true; }
+        else if (!shoot && !bm.charging && bombReady && seeC && distC > BOMB_CENTER_R
+                 && (!mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state))
+                 && distC < BOMB_CENTER_R + BOMB.radius && mem.t > (bm.nextBombAt || 0)) {
+          special = true; aim = { x: c.x - p.x, y: c.y - p.y };
+          bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
+          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'bushSteal';
+        }
       } else {
         // plain cover fallback: shadow / mark the 2nd enemy + opportunistic screen-wall or strip
         if (other && botCanSee(p, other, state, sk)) tgt = { x: (other.x + ogX) / 2, y: (other.y + GY) / 2 };
@@ -807,9 +875,23 @@ function decideBot(p, role, state, mem, sk, dt) {
         if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y };
         const liningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 240 && Math.abs(c.x - ogX) < FIELD.W * 0.4;
         const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
-        if (buildReady && liningUp && goalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)) {
-          // Windup model: HOLD buildHold for BUILD_WINDUP, THEN emit the build edge. Only
-          // ARM the deadline once (see the ambush-wall branch above for why).
+        // TACTIC 1 — DEFENSIVE GOAL-SCREEN: build a VERTICAL wall across our goal mouth, just
+        // OUTSIDE the box (so it's a solid hp3 wall, never a fragile in-box one). Aim horizontal
+        // => capsule spans vertically across the mouth. Move onto the plane first, then build.
+        const sign = ogX === 0 ? 1 : -1;
+        const planeX = ogX + sign * (PENALTY.depth + 20);
+        const screenY = clamp(GY + (c.y - GY) * 0.45, GY - GOAL.width / 2, GY + GOAL.width / 2);
+        const screenSpot = { x: planeX - sign * BUILT_WALL.offset, y: screenY };
+        const noScreenYet = !state.builtWalls.some((w) => Math.abs((w.cx != null ? w.cx : w.x) - planeX) < 130 && Math.abs((w.cy != null ? w.cy : w.y) - GY) < GOAL.width / 2 + 50);
+        if (sk.toolSkill > 0.6 && buildReady && liningUp && goalSide && noScreenYet && mem.t > (bm.nextBuildAt || 0)) {
+          tgt = screenSpot;
+          if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 44) { // on the plane -> raise the screen
+            if (!bm.buildHold) bm.buildHold = { x: sign, y: 0, until: mem.t + BUILD_WINDUP + 0.1 };
+            aim = { x: sign, y: 0 }; shoot = false; special = false;
+            bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'goalScreen';
+          }
+        } else if (buildReady && liningUp && goalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)) {
+          // fallback: opportunistic screen wall at our current position (aim toward the carrier)
           if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, until: mem.t + BUILD_WINDUP + 0.1 };
           aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
         } else if (canShoot && seeC && lane && distC < COVER_STRIP) { shoot = true; charge = 1; if (distC < 260) closeShot = true; }
@@ -849,6 +931,32 @@ function decideBot(p, role, state, mem, sk, dt) {
       if (fastBreak) tgt = { x: (b.x + ogX * 1.2) / 2.2, y: (b.y + GY) / 2 };  // stay home on a break
       else if (sk.cheat || myD < 440 + 200 * AGG) tgt = { x: bx, y: by };      // CONTEST the 50/50 (aggro-scaled)
       else { const bush = nearestBushCenter(tgt.x, tgt.y); if (bush) tgt = bush; } // lurk/ambush when genuinely far
+    }
+  }
+
+  // TACTIC 7 — ACTIVE BULLET DODGE (hard/extreme). Steering already leans away from bullets
+  // passively; this commits a decisive perpendicular SIDESTEP when a bullet is genuinely
+  // incoming and we're free to react (not mid-shot/plant/build). A short commit window keeps the
+  // sidestep from stuttering. Leaves aim/shoot untouched (never aborts a wind-up).
+  if (sk.evade >= 0.9 && !bm.charging && !bm.bombHold && !bm.buildHold && !shoot && !special && !build) {
+    if (bm.dodgeUntil && mem.t < bm.dodgeUntil && bm.dodgeTgt) {
+      tgt = bm.dodgeTgt;
+    } else if (mem.t > (bm.nextDodgeAt || 0)) {
+      for (const pr of state.projectiles) {
+        if (pr.team === p.team) continue;
+        const rel = hyp(pr.x - p.x, pr.y - p.y);
+        if (rel < 130 || rel > 340) continue;
+        const [bvx, bvy] = unit(pr.vx || 0, pr.vy || 0);
+        const toMe = unit(p.x - pr.x, p.y - pr.y);
+        if (bvx * toMe[0] + bvy * toMe[1] < 0.9) continue; // not aimed at us
+        // sidestep perpendicular to the bullet, toward the more open side / where we already lean
+        let px = -bvy, py = bvx;
+        if ((tgt.x - p.x) * px + (tgt.y - p.y) * py < 0) { px = -px; py = -py; }
+        bm.dodgeTgt = { x: clamp(p.x + px * 240, 60, FIELD.W - 60), y: clamp(p.y + py * 240, 60, FIELD.H - 60) };
+        bm.dodgeUntil = mem.t + 0.28; bm.nextDodgeAt = mem.t + 0.6 * (sk.cdMul || 1);
+        tgt = bm.dodgeTgt; bm.lastTrick = 'dodge';
+        break;
+      }
     }
   }
 
