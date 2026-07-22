@@ -180,6 +180,9 @@ export const BOMB_COMBINE_RADIUS = 210;  // bombs within this of the first-to-bl
 export const BOMB_STACK_PER = 0.6;       // each EXTRA bomb adds this to the power multiplier (sublinear — 2 bombs = x1.6)
 export const BOMB_STACK_MAX = 2;         // at most this many bombs combine into one blast
 export const BOMB_STACK_RADIUS = 0.30;   // each extra bomb grows the blast radius by this fraction
+// Bomb can be LOBBED: a tap plants at your feet (rocket-jump preserved), a drag aims a
+// short throw up to BOMB_LOB_RANGE px (offensive plant, no self-launch). See useSpecial.
+export const BOMB_LOB_RANGE = 250;      // max distance a lobbed bomb can be placed from the planter
 
 // --- Arena obstacles -------------------------------------------------------
 // Ball restitution off any wall (static or built) — a touch bouncier than the
@@ -216,6 +219,13 @@ export const BUILD_MAG = 2;       // wall charges a player can hold
 export const BUILD_RELOAD = 30;   // seconds to regenerate ONE wall charge
 export const BUILD_COOLDOWN = 0.4;// min seconds between placements
 export const MAX_BUILT_WALLS = 8; // global safety cap (oldest removed past this)
+// Wall build is now a HOLD-TO-CONFIRM windup (mirrors the shot charge): you hold the
+// build control for BUILD_WINDUP seconds while a ghost previews, then release to place.
+// Releasing early — or aiming on yourself — cancels (no charge spent). Moving while
+// winding up is slowed. A knockback/full-power hit above BUILD_INTERRUPT_KV cancels it.
+export const BUILD_WINDUP = 0.5;        // seconds of hold to commit a wall
+export const BUILD_WINDUP_SLOW = 0.5;   // move-speed multiplier while winding up
+export const BUILD_INTERRUPT_KV = 300;  // incoming knockback speed that cancels a windup
 // Walls built INSIDE a bush or penalty area are allowed but FRAGILE: hp 1 so any bullet
 // (even a quick shot) breaks them, and a fast ball (power kick) smashes straight through.
 export const FRAGILE_HP = 1;
