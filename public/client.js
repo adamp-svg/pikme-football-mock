@@ -1548,7 +1548,7 @@ let chargeStart = null;    // timestamp the hold began — LOCAL charge estimate
 const AIM_DEADZONE_PX = 12; // stick/cursor pull past this = a real shot; inside it = cancel
 
 let specialAim = { x: 0, y: 0 };   // captured lob offset (0..1 of BOMB_LOB_RANGE, true-world dir) for the next special edge
-let bombDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
+let bombDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0, aimed: false };
 const MAX_LOB_DRAG_PX = 90;        // screen drag that maps to a full-range lob
 
 let buildHolding = false;  // build control currently HELD (windup ramps server-side)
@@ -1614,33 +1614,38 @@ const pauseBtn = document.getElementById('pause-btn');
 const soundBtn = document.getElementById('sound-btn');
 const settingsPanel = document.getElementById('settings');
 // Bomb: a TAP plants at your feet (rocket-jump). A press-and-DRAG aims a short lob;
-// release past the deadzone throws it, release back on the button cancels.
+// release past the deadzone throws it, release back inside the deadzone (after having
+// dragged out) cancels — no bomb, no sound, no cooldown.
 if (specialBtn) {
   specialBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     try { specialBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
-    bombDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0 };
+    bombDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0, aimed: false };
   });
   specialBtn.addEventListener('pointermove', (e) => {
     if (!bombDrag.active || e.pointerId !== bombDrag.id) return;
     bombDrag.dx = e.clientX - bombDrag.cx; bombDrag.dy = e.clientY - bombDrag.cy;
+    if (Math.hypot(bombDrag.dx, bombDrag.dy) > AIM_DEADZONE_PX) bombDrag.aimed = true; // once out, stays "aimed" even if it returns to center
   });
   const endBombDrag = (e) => {
     if (!bombDrag.active || e.pointerId !== bombDrag.id) return;
     const len = Math.hypot(bombDrag.dx, bombDrag.dy);
-    if (len <= AIM_DEADZONE_PX) {
-      // No meaningful drag = a tap = feet plant (rocket-jump). Snappy, like before.
-      specialAim = { x: 0, y: 0 };
-      specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
-    } else {
+    if (len > AIM_DEADZONE_PX) {
       // A real drag = aimed lob. Map drag magnitude to a 0..1 fraction of the range.
       const frac = Math.min(1, len / MAX_LOB_DRAG_PX);
       let dx = bombDrag.dx / len, dy = bombDrag.dy / len;
       if (flipView()) dx = -dx; // screen -> true-world for team B's mirrored view
       specialAim = { x: dx * frac, y: dy * frac };
       specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
+    } else if (bombDrag.aimed) {
+      // Dragged out of the deadzone at some point, then brought back in before releasing
+      // = cancel. No bomb, no sound, no cooldown.
+    } else {
+      // No meaningful drag at all = a tap = feet plant (rocket-jump). Snappy, like before.
+      specialAim = { x: 0, y: 0 };
+      specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
     }
-    bombDrag.active = false; bombDrag.id = null; bombDrag.dx = 0; bombDrag.dy = 0;
+    bombDrag.active = false; bombDrag.id = null; bombDrag.dx = 0; bombDrag.dy = 0; bombDrag.aimed = false;
   };
   specialBtn.addEventListener('pointerup', endBombDrag);
   specialBtn.addEventListener('pointercancel', endBombDrag);
