@@ -48,5 +48,17 @@ ok(d.bombs.length === 1 && near(d.bombs[0].fuse, 0.8) && d.bombs[0].team === 'A'
 ok(d.blasts.length === 1 && d.blasts[0].radius === BOMB.radius && Math.abs((1 - d.blasts[0].life / d.blasts[0].maxLife) - (1 - 0.4 / BOMB.blastLife)) < 0.02, 'blast fade within tolerance + radius reconstructed');
 ok(d.impacts.length === 1 && d.impacts[0].type === 'wall' && near(d.impacts[0].dx, 0.6) && near(d.impacts[0].dy, -0.8), 'impact fields + dx/dy');
 
+// Windup progress rides the free flag bit + the buildFrac byte.
+{
+  const p = mkP('m-1', 900, 400, 123.4);
+  p.buildWindup = 0.5; p.buildAmmo = 2; // winding, mag full so reloadFrac path is idle
+  const s2 = { ...snap, players: [p, ...snap.players.slice(1)] };
+  const buf2 = encodeKeyframe(s2, slotId, 7);
+  const d2 = decodeSnapshot(new DataView(buf2), slotId, slotTeam, 7);
+  const dp = d2.players[0];
+  ok(dp.winding === true, `winding flag survives the wire (${dp.winding})`);
+  ok(Math.abs(dp.buildFrac - 0.5) <= 0.02, `windup progress survives (${dp.buildFrac})`);
+}
+
 console.log('\n' + (fails === 0 ? '✅ ALL PASS' : '❌ ' + fails + ' FAILED'));
 process.exit(fails ? 1 : 0);

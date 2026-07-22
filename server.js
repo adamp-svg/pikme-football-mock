@@ -458,6 +458,7 @@ function snapshot(room) {
       : (p.ammo < MAG_SIZE ? p.ammoT / AMMO_REGEN : 0))) / 100,
     buildAmmo: p.buildAmmo,
     buildFrac: Math.round(100 * (p.buildAmmo < BUILD_MAG ? p.buildAmmoT / BUILD_RELOAD : 0)) / 100,
+    buildWindup: p.buildWindup, // winding flag (wire.js overloads buildFrac with this when > 0)
   }));
   return {
     type: 'snapshot',

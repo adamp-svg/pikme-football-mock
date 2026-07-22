@@ -18,7 +18,7 @@ const u8c = (v) => (v < 0 ? 0 : v > 255 ? 255 : v);
 const fadeProg = (e) => u8c(Math.round((1 - e.life / e.maxLife) * 100));
 
 const teamBit = (t) => (t === 'B' ? 1 : 0);
-const packFlags = (p) => (p.firing ? 1 : 0) | (p.reloading ? 2 : 0) | ((p.ammo & 3) << 2) | ((p.buildAmmo & 3) << 4) | (p.power ? 64 : 0);
+const packFlags = (p) => (p.firing ? 1 : 0) | (p.reloading ? 2 : 0) | ((p.ammo & 3) << 2) | ((p.buildAmmo & 3) << 4) | (p.power ? 64 : 0) | ((p.buildWindup > 0) ? 128 : 0);
 
 // Reused scratch buffer (server-side, single-threaded). Encode returns a fresh slice.
 const SCRATCH = new ArrayBuffer(8192);
@@ -51,7 +51,10 @@ export function encodeKeyframe(s, slotIds, rv) {
     P(p.x); P(p.y); i16(Math.round(p.vx * 10)); i16(Math.round(p.vy * 10));
     i8(Math.round(p.aimX * 100)); i8(Math.round(p.aimY * 100));
     u8(packFlags(p));
-    u8(Math.round(p.reloadFrac * 100)); u8(Math.round(p.buildFrac * 100));
+    u8(Math.round(p.reloadFrac * 100));
+    // buildFrac byte is overloaded: WINDUP progress when winding (flag bit 7), else the
+    // usual next-charge reload fraction. The client picks meaning off the winding flag.
+    u8(Math.round((p.buildWindup > 0 ? p.buildWindup : p.buildFrac) * 100));
   }
   const sec = (arr, fn) => { u8(arr.length & 255); for (const e of arr) fn(e); };
   sec(s.projectiles, (p) => { u16(p.id); P(p.x); P(p.y); u8(teamBit(p.team)); });
@@ -96,6 +99,7 @@ export function decodeSnapshot(dv, slotId, slotTeam, rosterVersion) {
       id: slotId[k], char: 'player', team: slotTeam[k],
       x, y, vx, vy, aimX, aimY,
       firing: !!(flags & 1), reloading: !!(flags & 2), ammo: (flags >> 2) & 3, buildAmmo: (flags >> 4) & 3, power: !!(flags & 64),
+      winding: !!(flags & 128),
       reloadFrac, buildFrac,
     });
   }
