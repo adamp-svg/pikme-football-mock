@@ -485,6 +485,8 @@ function staticCannonSpot(px, py, dirx, diry) {
 // then apply steering + skill (reaction latency, aim slew + noise).
 function decideBot(p, role, state, mem, sk, dt) {
   const bm = bmemOf(mem, p.id);
+  bm.lastTrick = null; // reset each tick — it's a per-tick behaviour tag, not sticky state
+                       // (histogramming a sticky tag over-counted ~9x and hid the real behaviour)
   const b = state.ball;
   const team = p.team, egX = enemyGoalX(team), ogX = ownGoalX(team);
   const isOnBall = role.onBall === p.id;
@@ -642,17 +644,10 @@ function decideBot(p, role, state, mem, sk, dt) {
       }
     }
 
-    // 3) BOMB: cornered finish only — plant + HOLD. (A carry-TRAVERSAL is no longer worth it:
-    // point 8 REDUCES the on-centre launch while carrying, so it'd be a frozen short-hop that
-    // just gets the carrier stripped.)
-    if (!shoot && !special && bombReady && mateSafe && distGoal < 1200 && laneWalls) {
-      const cornered = nfd < 150 && distGoal < 560;
-      if (cornered && mem.t > (bm.nextBombAt || 0)) { // commit (specialCd already paces it) — no dice roll
-        special = true; aim = { x: egX - p.x, y: GY - p.y };
-        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY }; bm.lastTrick = 'bombFinish';
-        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
-      }
-    }
+    // (The old "cornered bomb-finish" was removed: it scored 0-for-~30 — the reduced carry
+    // launch can't put the ball in the net — while burning a bomb charge worth far more on a
+    // ~97% off-centre tackle-steal. The full-drive / corner / overcharge finishes above and the
+    // carry rocket-jump for MOBILITY below are strictly better uses.)
 
     // Anti-idle: blast goalward if we've dithered (delay scales with aggro). A full kick drives
     // through a FIELD defender; if a KEEPER is parked, aim at the open corner past them rather
@@ -733,22 +728,17 @@ function decideBot(p, role, state, mem, sk, dt) {
       const pcx = c.x + (c.vx || 0) * BOMB.fuse, pcy = c.y + (c.vy || 0) * BOMB.fuse;
       const willReach = hyp(pcx - p.x, pcy - p.y) < BOMB_CENTER_R + BOMB.radius * 0.6;
       const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
-      // WALL-BOMB CANNON is OPPORTUNISTIC: if a tackle plant already has a static wall behind
-      // it, the sim boosts the launch automatically (wallCannonMul) — no need to obsessively
-      // seek walls (that made bots abandon the press). A short nudge onto a wall-backed spot
-      // is taken only when one is right beside us and we're already committing the tackle.
-      // A bullet strip is PREFERRED when available — the bomb-tackle must NOT override a live
-      // strip (shoot) or abort an in-progress wind-up (bm.charging); doing so was what froze
-      // the bot on a plant while the carrier drove past. So the tackle only commits when we
-      // AREN'T already stripping and the blast will genuinely reach (willReach ~195px).
+      // TACKLE-STEAL = plant at our FEET (off-centre) so the blast strips the carrier and we
+      // scramble onto the loose ball (~97% success). The old "wall-cannon nudge" relocated the
+      // plant onto a wall-backed ON-CENTRE spot, which rocket-jumped the planter AWAY from the
+      // loose ball (0% steal on hard) — that was the direct cause of hard playing no better than
+      // normal. Removed. A bullet strip is still PREFERRED when available (never override a live
+      // strip or abort an in-progress wind-up — that froze the bot on the plant).
       if (!shoot && !bm.charging && bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe
           && !indestructibleBlocks(p.x, p.y, c.x, c.y) && mem.t > (bm.nextBombAt || 0)) {
-        const [cdx, cdy] = unit(c.x - p.x, c.y - p.y);
-        const cannon = sk.toolSkill >= 0.85 ? staticCannonSpot(p.x, p.y, cdx, cdy) : null; // wall-backed plant right beside us?
-        const plantX = cannon ? cannon.x : p.x, plantY = cannon ? cannon.y : p.y;
         special = true; shoot = false; aim = { x: c.x - p.x, y: c.y - p.y };
-        bm.bombHold = { x: plantX, y: plantY, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
-        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); if (cannon) bm.lastTrick = 'wallCannon';
+        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
+        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'bombTackle';
         // Signal a TWO-BOMB stack: tell a NEARBY support bot to drop a second bomb on the same
         // spot so the blasts COMBINE (bigger strip/knockback on the carrier).
         (mem.stack || (mem.stack = {}))[team] = { x: pcx, y: pcy, by: p.id, until: mem.t + BOMB.fuse * 0.7 };
@@ -849,14 +839,16 @@ function decideBot(p, role, state, mem, sk, dt) {
       const dx = tgt.x - carrier.x, dy = tgt.y - carrier.y, d = hyp(dx, dy), MIN_SEP = 320;
       if (d < MIN_SEP) { const [ux, uy] = unit(dx || (ogX - carrier.x), dy || (GY - carrier.y)); tgt = { x: carrier.x + ux * MIN_SEP, y: carrier.y + uy * MIN_SEP }; }
     } else {
-      // LOOSE ball. Contest a 50/50 when close — UNLESS the ball is breaking fast toward
-      // our goal (then stay home and defend, don't both chase). Otherwise lurk in a bush.
+      // LOOSE ball. PRESENCE: the off-ball bot should mostly CONTEST, not hide (it used to lurk
+      // in a bush 2:1 over contesting — the main reason hard "felt absent"). Contest radius scales
+      // with aggro (easy ~600, hard ~640 — a MODERATE widen; going wider pulled bots out of
+      // shape and spiked fog-roam); lurk only when the ball is genuinely far and not breaking home.
       const [bx, by] = predictBall(b, clamp(hyp(b.x - p.x, b.y - p.y) / 900, 0.05, 0.4));
       const myD = hyp(bx - p.x, by - p.y);
       const fastBreak = hyp(b.vx, b.vy) > 260 && (ogX - b.x) * b.vx > 0 && Math.abs(b.x - ogX) < FIELD.W * 0.5;
       if (fastBreak) tgt = { x: (b.x + ogX * 1.2) / 2.2, y: (b.y + GY) / 2 };  // stay home on a break
-      else if (sk.cheat || myD < 440) tgt = { x: bx, y: by };                  // contest the 50/50 (EXTREME always contests)
-      else { const bush = nearestBushCenter(tgt.x, tgt.y); if (bush) tgt = bush; } // lurk/ambush
+      else if (sk.cheat || myD < 440 + 200 * AGG) tgt = { x: bx, y: by };      // CONTEST the 50/50 (aggro-scaled)
+      else { const bush = nearestBushCenter(tgt.x, tgt.y); if (bush) tgt = bush; } // lurk/ambush when genuinely far
     }
   }
 

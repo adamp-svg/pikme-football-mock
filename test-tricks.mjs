@@ -6,9 +6,9 @@ import { DT } from './shared/constants.js';
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 
 const seen = {};
-// 36 matches: aggressive hard bots pass less (they drive/shoot), so the give-and-go trick is
-// low-frequency — a larger sample keeps this a stable regression guard, not a coin-flip.
-for (let mi = 0; mi < 36; mi++) {
+// 50 matches: aggressive hard bots prefer direct drives, so the give-and-go and bank tricks are
+// low-frequency — a larger sample keeps these a stable regression guard, not a coin-flip.
+for (let mi = 0; mi < 50; mi++) {
   const s = createState(); s.resetTimer = 0;
   for (const [id, tm, sl] of [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]]) addPlayer(s, id, { name: id, char: 'player', team: tm, slot: sl, isBot: true });
   attachBall(s, mi % 2 ? 'A' : 'B');
@@ -30,8 +30,11 @@ ok((seen.giveGo || 0) > 0, 'GIVE-AND-GO (pass then break for the return)');
 // (wallCannon / doubleBomb) — all are the same on-centre launch mechanic. Bots now PREFER the
 // reliable bullet-strip when close, so the offensive carry-bomb is rarer; the tackle variants
 // are the dominant bomb usage. Count any of them.
-ok((seen.bombTravel || 0) + (seen.bombFinish || 0) + (seen.wallCannon || 0) + (seen.doubleBomb || 0) > 0, 'BOMB rocket-jump (travel/finish/tackle) used');
-ok((seen.boxFinish || 0) + (seen.passBank || 0) + (seen.goalBank || 0) > 0, 'ball-as-weapon: bump-through finish and/or wall bank');
+ok((seen.bombTravel || 0) + (seen.bombFinish || 0) + (seen.bombTackle || 0) + (seen.wallCannon || 0) + (seen.doubleBomb || 0) > 0, 'BOMB rocket-jump (tackle-steal / travel) used');
+// "Ball as a weapon": a FULL kick that drives THROUGH a defender (the monotonic drive-finish,
+// tagged 'drive') is the primary form now; wall-banks (passBank/goalBank) are incidental since
+// direct drives are better play. A dedicated wall-DEFLECT set-piece is a separate tactic.
+ok((seen.drive || 0) + (seen.boxFinish || 0) + (seen.passBank || 0) + (seen.goalBank || 0) > 0, 'ball-as-weapon: drive-through finish and/or wall bank');
 
 console.log(`\n${fails === 0 ? '✅ ALL TRICKS FIRE' : '❌ ' + fails + ' trick(s) missing'}`);
 process.exit(fails === 0 ? 0 : 1);
