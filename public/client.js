@@ -3698,7 +3698,9 @@ function renderFrame() {
   mainCtx.imageSmoothingEnabled = false;
   mainCtx.drawImage(worldBuf, 0, 0, wbW, wbH, 0, 0, canvas.width, canvas.height);
   drawHUD(); // HUD/overlays draw crisp, in full-res screen space
-  specialBtn.classList.toggle('cooling', performance.now() < specialCdUntil);
+  const specialCooling = performance.now() < specialCdUntil;
+  specialBtn.classList.toggle('cooling', specialCooling);
+  specialBtn.classList.toggle('ready', !specialCooling); // Brawl-style charged-Super pulse
 
   // Charge power indicator: the right (aim) stick reddens as you hold.
   // (Cheap colour changes only — no per-frame box-shadow, which thrashes paint.)
