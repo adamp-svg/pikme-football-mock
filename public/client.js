@@ -16,6 +16,14 @@ import {
 } from '/shared/cosmetics.js';
 let slotIds = [], slotTeam = [], rosterVersion = -1; // binary-snapshot slot->id/team (from the 'roster' control msg)
 
+// TEMP diagnostic: a visible build tag so we can tell for certain whether the device is running
+// the freshly-deployed game. If you don't see this green tag bottom-left, you're on stale code.
+const BUILD_TAG = 'BUILD ✅ 23JUL-v2';
+try {
+  const _mk = () => { const d = document.createElement('div'); d.textContent = BUILD_TAG; d.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:999999;font:bold 12px monospace;color:#0f0;background:rgba(0,0,0,.6);padding:2px 6px;border-radius:3px;pointer-events:none'; document.body.appendChild(d); };
+  if (document.body) _mk(); else addEventListener('DOMContentLoaded', _mk);
+} catch { /* non-browser */ }
+
 const PENALTY_TOP = (FIELD.H - PENALTY.width) / 2;
 const PENALTY_BOTTOM = (FIELD.H + PENALTY.width) / 2;
 
