@@ -23,4 +23,5 @@
 - If I fail: continue from unchecked box above; commit only public/* files touched.
 
 ## Commits
-(none yet)
+- 758f19d feat(controls): Brawl right-thumb cluster (bomb=Super glow, wall=Gadget) + Step C glow wiring.
+  NOTE: shared/sim.js deliberately left unstaged (other agent). Next: Step B (anchor aim stick).
