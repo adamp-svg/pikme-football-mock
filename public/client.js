@@ -1596,8 +1596,6 @@ function enterMatch(msg) {
   training = msg.mode === 'training';
   document.getElementById('train-tag').classList.toggle('hidden', !training);
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
-  document.getElementById('edit-controls-btn').classList.toggle('hidden', !training); // layout editor: training only
-  if (!training) closeControlsEditor(); // never leave the editor open outside training
   renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
   showScreen('game');
   resize();
