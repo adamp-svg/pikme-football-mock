@@ -2740,31 +2740,8 @@ const LAYERS = Array.from({ length: N_LAYERS }, (_, i) => ({
   fx: 4.5 + i * 0.9, phx: i * 2.7 + 1, ax: 0.6 + (i % 2) * 0.8, // barely any side sway
 }));
 let audSeats = [];
-// Expand a ranked card list into one entry per copy (capped), best-worth first.
-function expandPool(cards) {
-  const out = [];
-  for (const c of cards) {
-    const copies = Math.max(1, Math.min(AUD.capPerCard, c.c || 1));
-    for (let k = 0; k < copies; k++) { out.push(c); if (out.length >= AUD.capTotal) return out; }
-  }
-  return out;
-}
-// Scatter `pool` RANDOMLY across a section's seats: shuffle the seat order, then
-// occupy from the front — one card per seat. Fewer cards than seats => only that many
-// seats get a card, so the album sits scattered among empty seats (never a neat
-// block); more cards than seats => every seat filled, cycling the pool. Called PER
-// section so top / bottom / goal each show the same album. Marks r/n on the seat
-// (the seat itself is already in `audSeats` so empty seats still draw as chairs).
-function spreadPool(seats, pool) {
-  const S = seats.length, P = pool.length;
-  if (!S || !P) return;
-  const idx = seats.map((_, i) => i);
-  for (let i = S - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; const t = idx[i]; idx[i] = idx[j]; idx[j] = t; } // Fisher–Yates
-  const fill = P >= S ? S : P;
-  for (let k = 0; k < fill; k++) { const st = seats[idx[k]], c = pool[k % P]; st.r = c.r; st.n = c.n; }
-}
-// The crowd is filled PER TEAM SIDE from each team's albums (see the fill block below +
-// teamAlbum): my half from my album (rarest in front), the away half always at least sprinkled.
+// The crowd is filled from ALL players' cards (see the fill block below + allCards): highest
+// rarity in the front rows, seated from my side + position outward until the cards run out.
 function buildAudienceSeats() {
   audSeats = [];
   const midX = FIELD.W / 2;
@@ -2824,49 +2801,34 @@ function buildAudienceSeats() {
       audSeats.push({ x: sx, y: sy, r: null, n: null, color, team, nf, layer: wcol });
     }
   }
-  // PER-SIDE FILL. Each team's half fills from THAT team's album, scaled against a conceptual
-  // SIDE_CAP: 100 cards => half of your side. My side seats the rarest cards in the FRONT rows;
-  // the away side always gets at least a random sprinkle of fans (even vs a training dummy).
-  const SIDE_CAP = 200;         // 100 cards => 0.5 => half your side full
-  const MIN_OPP = 0.14;         // always ~14% of the away side occupied, however empty their album
-  const myTeam = me.team === 'B' ? 'B' : 'A', oppTeam = myTeam === 'A' ? 'B' : 'A';
-  const myPool = teamAlbum(myTeam), oppPool = teamAlbum(oppTeam);
-  const mySeats = audSeats.filter((s) => s.team === myTeam);
-  const oppSeats = audSeats.filter((s) => s.team === oppTeam);
-  // My side: proportional to my album, rarest cards packed into the seats nearest the pitch.
-  seatFill(mySeats, myPool, Math.round(Math.min(1, myPool.length / SIDE_CAP) * mySeats.length), 'front');
-  // Away side: proportional to their album but never empty — scatter a random sprinkle. If the
-  // opponent has no album (dummy/bot), borrow my card art so the far stand still shows fans.
-  const oppFrac = Math.min(1, oppPool.length / SIDE_CAP);
-  const oppCount = Math.max(Math.round(oppFrac * oppSeats.length), Math.round(MIN_OPP * oppSeats.length));
-  seatFill(oppSeats, oppPool.length ? oppPool : myPool, oppCount, 'random');
-  audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
-  preloadCards([...myPool, ...(oppPool.length ? oppPool : myPool)]);
-}
-// Cards a TEAM brings to the crowd: every roster player on that team, rarity-first. Falls back
-// to my own album for MY team when the roster carries no cards (training/solo/dev).
-function teamAlbum(team) {
-  const bag = [];
-  for (const p of matchRoster) if (p.team === team) for (const c of (p.cards || [])) bag.push(c);
+  // FILL: place ALL the players' cards into seats — highest rarity in the FRONT, seating from
+  // MY side + position outward until the cards run out (or the bowl is full). No ratio cap, so a
+  // big album shows in full. Seat priority: my side first, then FRONT rows (nf), then nearest to
+  // where I stand — so my rarest cards sit right in front of me and the crowd grows outward.
   const myTeam = me.team === 'B' ? 'B' : 'A';
-  if (!bag.length && team === myTeam) for (const c of myCards()) bag.push(c);
+  const pool = allCards();     // every player's cards, rarity-first (rarest index 0)
+  const ax = rendered ? rendered.x : (myTeam === 'A' ? FIELD.W * 0.25 : FIELD.W * 0.75); // my position/side
+  const ay = rendered ? rendered.y : FIELD.H / 2;
+  const seatKey = (s) => {
+    const dx = (s.x - ax) / FIELD.W, dy = (s.y - ay) / FIELD.H;
+    return (s.team === myTeam ? 0 : 1000)   // my whole side before the away side
+      + (1 - s.nf) * 100                     // front rows (nf≈1) before back rows
+      + (dx * dx + dy * dy) * 4;             // then nearest to my position first
+  };
+  const order = audSeats.map((_, i) => i).sort((a, b) => seatKey(audSeats[a]) - seatKey(audSeats[b]));
+  const fill = Math.min(pool.length, order.length);
+  for (let k = 0; k < fill; k++) { const s = audSeats[order[k]], c = pool[k]; s.r = c.r; s.n = c.n; }
+  audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
+  preloadCards(pool);
+}
+// Every player's cards in the match, rarity-first (rarest first). Falls back to my own album
+// when the roster carries no cards (training/solo/dev) so I always see my full collection.
+function allCards() {
+  const bag = [];
+  for (const p of matchRoster) for (const c of (p.cards || [])) bag.push(c);
+  if (!bag.length) for (const c of myCards()) bag.push(c);
   bag.sort((a, b) => (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) || (b.w || 0) - (a.w || 0) || (b.c || 0) - (a.c || 0));
   return bag;
-}
-// Seat `count` cards from `pool` into `seats`. mode 'front' = rarest into the nearest-pitch
-// seats first (a packed home end); 'random' = scattered across the stand (a sparse away crowd).
-// The pool cycles if it is smaller than `count`.
-function seatFill(seats, pool, count, mode) {
-  const P = pool.length, fill = Math.min(count, seats.length);
-  if (!P || fill <= 0) return;
-  let orderIdx;
-  if (mode === 'random') {
-    orderIdx = seats.map((_, i) => i);
-    for (let i = orderIdx.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; const t = orderIdx[i]; orderIdx[i] = orderIdx[j]; orderIdx[j] = t; }
-  } else {
-    orderIdx = seats.map((_, i) => i).sort((a, b) => (seats[b].nf + Math.random() * 0.2) - (seats[a].nf + Math.random() * 0.2));
-  }
-  for (let k = 0; k < fill; k++) { const s = seats[orderIdx[k]], c = pool[k % P]; s.r = c.r; s.n = c.n; }
 }
 // The seated card's rect INSIDE a seat cell (px,py,cellW,cellH), in whatever pixel
 // space the caller is in. Shared by drawSeat (the empty well) and bakeAudience (the
