@@ -937,12 +937,13 @@ function updateBombs(state, dt) {
   state.bombs = state.bombs.filter((b) => b.fuse > 0 && !detonated.has(b.id));
 }
 
-// Wall cannon: how much does a STATIC-STONE wall collinear BEHIND the bomb boosts a
-// launch in (dx,dy)? Returns 1..BOMB_WALL_CANNON_MUL scaled by proximity. Only static
-// stone qualifies — NOT your own built walls (else it's a build-your-own launchpad).
+// Wall cannon: how much does a wall collinear BEHIND the bomb boost a launch in (dx,dy)?
+// Returns 1..BOMB_WALL_CANNON_MUL scaled by proximity. BOTH static stone AND your own BUILT
+// walls qualify (the deliberate "launchpad" combo — build a wall, plant a bomb against it,
+// rocket-jump off it). Restored per design; a v3.1 "guardrail" had wrongly stripped built walls.
 function wallCannonMul(state, bx, by, dx, dy) {
   let mul = 1;
-  const walls = arenaOf(state).walls; // static stone only — built walls don't cannon
+  const walls = arenaOf(state).walls.concat(state.builtWalls || []); // static stone + built walls both cannon
   for (const w of walls) {
     const np = nearestOnWall(w, bx, by);
     const vx = np.x - bx, vy = np.y - by, d = Math.hypot(vx, vy);

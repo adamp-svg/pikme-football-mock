@@ -1979,7 +1979,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   keys[e.key.toLowerCase()] = false;
-  if (e.key === ' ') { if (aimPulled()) releaseShot(); else cancelCharge(); } // release fires; cursor on self cancels
+  if (e.key === ' ') { releaseShot(); } // release fires — aimed if the cursor is out, else a quick auto-aimed shot
   if (e.key.toLowerCase() === 'q') { if (currentWindup() >= 1) releaseBuild(); else cancelBuild(); } // release builds in facing dir; early = cancel
 });
 
@@ -2010,7 +2010,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 2) { specialQueued = true; specialAim = { x: 0, y: 0 }; }   // right-click = special, feet plant
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
-addEventListener('mouseup', (e) => { if (usingTouch) return; if (mouse.down && e.button !== 2) { if (aimPulled()) releaseShot(); else cancelCharge(); } mouse.down = false; });
+addEventListener('mouseup', (e) => { if (usingTouch) return; if (mouse.down && e.button !== 2) releaseShot(); mouse.down = false; }); // left-click release fires — quick auto-aimed shot if the cursor's on you
 addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Special-skill button (touch + click)
@@ -2216,7 +2216,7 @@ addEventListener('touchstart', (e) => {
       touchL.id = t.identifier; touchL.cx = t.clientX; touchL.cy = t.clientY; touchL.dx = 0; touchL.dy = 0;
       placeStick(stickL, touchL.cx, touchL.cy, 0, 0);
     } else if (!left && touchR.id === null) {
-      touchR.id = t.identifier; touchR.cx = t.clientX; touchR.cy = t.clientY; touchR.dx = 0; touchR.dy = 0; touchR.active = true;
+      touchR.id = t.identifier; touchR.cx = t.clientX; touchR.cy = t.clientY; touchR.dx = 0; touchR.dy = 0; touchR.active = true; touchR.aimedOut = false;
       placeStick(stickR, touchR.cx, touchR.cy, 0, 0);
       beginCharge(); // start charging as soon as you touch the aim stick
     }
@@ -2237,6 +2237,7 @@ function updateStick(stick, el, t) {
   const len = Math.hypot(dx, dy);
   if (len > STICK_MAX) { dx = dx / len * STICK_MAX; dy = dy / len * STICK_MAX; }
   stick.dx = dx; stick.dy = dy;
+  if (Math.hypot(dx, dy) > AIM_DEADZONE_PX) stick.aimedOut = true; // latch: player deliberately aimed
   el.querySelector('.knob').style.transform = `translate(${dx}px, ${dy}px)`;
 }
 
@@ -2247,11 +2248,14 @@ addEventListener('touchend', (e) => {
       touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.add('hidden');
     }
     else if (t.identifier === touchR.id) {
-      // Right stick is AIM. Released while pulled OUT -> fire in that direction.
-      // Released back at CENTRE (deadzone) -> CANCEL (no shot).
+      // Right stick is AIM/SHOOT:
+      //  - pulled OUT on release  -> fire in that direction (aimed shot)
+      //  - a TAP / centred hold    -> fire a QUICK shot (the sim auto-aims it; guide showed where)
+      //  - pulled out THEN dragged back into the deadzone -> deliberate CANCEL (no shot)
       if (Math.hypot(touchR.dx, touchR.dy) > AIM_DEADZONE_PX) releaseShot({ x: touchR.dx, y: touchR.dy });
-      else cancelCharge();
-      touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; stickR.classList.add('hidden');
+      else if (touchR.aimedOut) cancelCharge();
+      else releaseShot(); // no-aim press -> quick auto-aimed shot
+      touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; touchR.aimedOut = false; stickR.classList.add('hidden');
     }
   }
 }, { passive: false });
@@ -3095,7 +3099,10 @@ function currentAim() {
   // where the shot will actually GO — nearest enemy in sight, or the goal when carrying. A
   // FULL charge honours your manual aim. Auto-aim applies to quick shots ONLY.
   const manual = manualAim();
-  if (manual.aiming && currentCharge() < FULL_CHARGE) {
+  // A QUICK shot (charge below full) auto-targets, so show the guide toward where it'll GO
+  // whenever you're winding one up — whether you're manually aiming OR just holding the trigger
+  // centered (a no-aim quick shot). That guide is exactly the "quickshoot guide".
+  if (currentCharge() < FULL_CHARGE && (manual.aiming || holding)) {
     const t = quickShotTarget();
     if (t) return { aiming: true, ax: t.ax, ay: t.ay };
   }
@@ -3190,10 +3197,9 @@ function drawBomb(bomb) {
   ctx.setLineDash([ws_(6), ws_(6)]);
   ctx.strokeStyle = 'rgba(239,68,68,.5)'; ctx.lineWidth = Math.max(1, ws_(2)); ctx.stroke();
   ctx.setLineDash([]);
-  // Land intro: for BOMB_LAND_MS the bomb drops the last bit and squash-bounces on impact.
-  // Transform the BODY only (danger ring above stays put); anchor the squash at the base (y+r).
-  // V3 "Drop + shockring": the bomb falls straight in; on impact it kicks a ground shock
-  // ring + dust (spawned once, in world coords), no squash.
+  // Land intro (V3 "Drop + shockring", the chosen variant): for BOMB_LAND_MS the bomb falls
+  // straight in; on the impact frame it kicks a ground shock ring + dust (spawned once, in world
+  // coords) + a small screen shake. No squash. Transforms the BODY only — the danger ring stays put.
   const lt0 = bombSpawnT.get(bomb.id);
   ctx.save();
   if (lt0 != null) {
