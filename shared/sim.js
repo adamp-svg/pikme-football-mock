@@ -9,7 +9,7 @@ import {
   OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
   OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, OVERCHARGE_QUICK_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
-  BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_DIST, BOMB_WALL_COS,
+  BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_CANNON_STATIC, BOMB_WALL_CANNON_BUILT, BOMB_WALL_DIST, BOMB_WALL_COS,
   BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE, BOMB_LOB_RANGE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, BOMB_LAUNCH_DECAY, BOMB_LAUNCH_GLIDE, MOVE_ACCEL,
   QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
@@ -816,19 +816,23 @@ function updateProjectiles(state, dt) {
     if (bw) {
       (pr.pierced || (pr.pierced = new Set())).add(bw.id);
       const absorb = Math.round(bw.hp); // remaining HP tiers this wall soaks up
+      const hpTier = Math.max(1, Math.min(3, Math.round(bw.hp))); // wall HP BEFORE this hit (1..3), for R4
       const wallDmg = pr.charge >= FULL_CHARGE ? BUILT_WALL.hp : pr.charge >= QUICK_CHARGE ? BUILT_WALL.hp / 2 : 1;
       bw.hp -= wallDmg;
       if (bw.hp <= 0) state.builtWalls = state.builtWalls.filter((q) => q.hp > 0);
       addImpact(state, pr, 'wall', pr.x, pr.y);
-      const passed = shotTier(pr) - absorb;
-      if (passed < 1) {
-        // A SUPER (overcharge) shot that DESTROYS a built wall still leaks a LITTLE push through
-        // to whoever's right behind it (a weak tier-1 residual). Full / medium / quick are fully
-        // absorbed and die at the wall.
-        if (pr.over && bw.hp <= 0) { applyShotTier(pr, 1); }
-        else continue;               // fully absorbed — the bullet dies at the wall
+      if (pr.over) {
+        // R4: a SUPER (overcharge) shot PUNCHES THROUGH a built wall, but the wall cuts its
+        // push by its pre-hit HP: full-HP(3)=10%, hp2=30%, hp1=50%. (Static stone above stops
+        // it dead.) The bullet keeps its tier and flies on with a reduced-knockback multiplier.
+        const SHOT_COVER = { 3: 0.10, 2: 0.30, 1: 0.50 };
+        pr.coverMul = (pr.coverMul ?? 1) * (SHOT_COVER[hpTier] ?? 0.10);
       } else {
-        applyShotTier(pr, passed);   // downgrade the bullet; it flies on to the target behind
+        // Non-super: the wall soaks one shot tier per remaining HP. A surviving wall blocks
+        // the bullet outright; a weakened wall lets a downgraded shot through.
+        const passed = shotTier(pr) - absorb;
+        if (passed < 1) continue;      // fully absorbed — the bullet dies at the wall
+        applyShotTier(pr, passed);     // downgrade the bullet; it flies on to the target behind
       }
     }
 
@@ -908,7 +912,7 @@ function hitEnemy(state, t, pr) {
   // affect them. Both FULL and OVERCHARGE strip the ball; OVERCHARGE pushes more.
   if (state.ball.owner === t.id) {
     if (pr.charge < FULL_CHARGE) return; // medium/quick absorbed — no effect, no earn
-    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * overMul * knockMul(t);
+    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * overMul * knockMul(t) * (pr.coverMul ?? 1);
     t.kvx += nx * kb;
     t.kvy += ny * kb;
     // knock the ball loose off this carrier, with a sideways kick
@@ -926,7 +930,7 @@ function hitEnemy(state, t, pr) {
     return;
   }
   // medium & full: push the enemy along the bullet's travel direction (OVERCHARGE = more)
-  const kb = state.settings.bulletKnockback * pr.charge * overMul * knockMul(t);
+  const kb = state.settings.bulletKnockback * pr.charge * overMul * knockMul(t) * (pr.coverMul ?? 1);
   t.kvx += nx * kb;
   t.kvy += ny * kb;
   // A forceful body hit earns overcharge: a full hit fills it, a medium fills half.
@@ -958,23 +962,26 @@ function updateBombs(state, dt) {
 // rocket-jump off it). Restored per design; a v3.1 "guardrail" had wrongly stripped built walls.
 function wallCannonMul(state, bx, by, dx, dy) {
   let mul = 1;
-  const walls = arenaOf(state).walls.concat(state.builtWalls || []); // static stone + built walls both cannon
-  for (const w of walls) {
+  // R3: a wall behind the bomb boosts the launch. Indestructible peaks at +20%; a built
+  // wall peaks at +15% scaled by its remaining HP (a damaged wall cannons less). Both
+  // still ramp by proximity (closer wall = closer to peak).
+  const consider = (w, peak) => {
     const np = nearestOnWall(w, bx, by);
     const vx = np.x - bx, vy = np.y - by, d = Math.hypot(vx, vy);
-    if (d < 1 || d > BOMB_WALL_DIST) continue;
+    if (d < 1 || d > BOMB_WALL_DIST) return;
     if ((vx / d) * (-dx) + (vy / d) * (-dy) > BOMB_WALL_COS) {
-      const m = 1 + (1 - d / BOMB_WALL_DIST) * (BOMB_WALL_CANNON_MUL - 1); // closer wall = stronger cannon
+      const m = 1 + (1 - d / BOMB_WALL_DIST) * (peak - 1); // closer wall = stronger cannon
       if (m > mul) mul = m;
     }
-  }
+  };
+  for (const w of arenaOf(state).walls) consider(w, BOMB_WALL_CANNON_STATIC);
+  for (const w of (state.builtWalls || [])) consider(w, 1 + (BOMB_WALL_CANNON_BUILT - 1) * (w.hp / w.maxHp));
   return mul;
 }
 
 function explode(state, bomb, stack = 1) {
   const bomber = state.players[bomb.owner];
   const bomberOnCenter = bomber && Math.hypot(bomber.x - bomb.x, bomber.y - bomb.y) < BOMB_CENTER_R;
-  if (process.env.DEBUG_COVER) console.log(`[EXPLODE] bomb(${bomb.x.toFixed(0)},${bomb.y.toFixed(0)}) owner=${bomb.owner} bomberOnCenter=${bomberOnCenter} stack=${stack} players=${Object.keys(state.players).length} training=${!!state.arena}`);
   // Stacked bombs (detonating together) make a bigger, farther-reaching blast.
   const P = state.settings.bombPower * (1 + (stack - 1) * BOMB_STACK_PER);
   const radius = BOMB.radius * (1 + (stack - 1) * BOMB_STACK_RADIUS);
@@ -990,15 +997,26 @@ function explode(state, bomb, stack = 1) {
     let dx, dy;
     if (rd > 6) { dx = rdx / rd; dy = rdy / rd; }            // fly away from the bomb
     else { const al = Math.hypot(bomber.aimX, bomber.aimY) || 1; dx = bomber.aimX / al; dy = bomber.aimY / al; } // dead-centre: use the look dir
-    let launch = P * BOMB_CENTER_LAUNCH_MUL;
-    if (state.ball.owner === bomber.id) launch *= BOMB_CARRY_LAUNCH_MUL; // heavier with the ball
-    launch *= wallCannonMul(state, bomb.x, bomb.y, dx, dy); // wall behind you cannons harder the closer it is
-    launch = Math.min(launch, BOMB_LAUNCH_MAX); // hard cap so wall/stack combos can't fling across the pitch
-    bomber.kvx += dx * launch;
-    bomber.kvy += dy * launch;
-    if (process.env.DEBUG_COVER) console.log(`[SELF-LAUNCH] ${bomb.owner} launched by own bomb: launch=${launch.toFixed(0)} dir=(${dx.toFixed(2)},${dy.toFixed(2)})`);
-    bomber.bombLaunch = BOMB_LAUNCH_TTL;
-    bomber.launchGlide = BOMB_LAUNCH_GLIDE; // gentle decay → smooth launch arc
+    // R1: you can't rocket-jump INTO/THROUGH an indestructible wall. If a static wall
+    // lies in the launch direction (you're tucked behind the stone), the jump is cancelled
+    // — no self-push. Jumping toward open space (enemy in front) still launches you.
+    const jumpBlocked = arenaOf(state).walls.some((w) => {
+      const np = nearestOnWall(w, bomb.x, bomb.y);
+      const vx = np.x - bomb.x, vy = np.y - bomb.y, wd = Math.hypot(vx, vy);
+      if (wd < 1) return true;                     // standing in the wall — no jump
+      if (wd > BOMB_WALL_DIST) return false;        // too far ahead to matter
+      return (vx / wd) * dx + (vy / wd) * dy > BOMB_WALL_COS; // wall lies AHEAD in the launch cone
+    });
+    if (!jumpBlocked) {
+      let launch = P * BOMB_CENTER_LAUNCH_MUL;
+      if (state.ball.owner === bomber.id) launch *= BOMB_CARRY_LAUNCH_MUL; // heavier with the ball
+      launch *= wallCannonMul(state, bomb.x, bomb.y, dx, dy); // wall behind you cannons harder the closer it is
+      launch = Math.min(launch, BOMB_LAUNCH_MAX); // hard cap so wall/stack combos can't fling across the pitch
+      bomber.kvx += dx * launch;
+      bomber.kvy += dy * launch;
+      bomber.bombLaunch = BOMB_LAUNCH_TTL;
+      bomber.launchGlide = BOMB_LAUNCH_GLIDE; // gentle decay → smooth launch arc
+    }
   }
 
   // Everyone else in the blast is flung away from the center (the BLAST direction,
@@ -1013,9 +1031,7 @@ function explode(state, bomb, stack = 1) {
       // COVER: a STATIC wall between the blast and this player blocks the push entirely;
       // a BUILT wall softens it by its remaining HP (strong wall = minor push, weak =
       // most of the push). Behind an indestructible wall you feel nothing.
-      const staticBlocked = arenaOf(state).walls.some((w) => segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD));
-      if (process.env.DEBUG_COVER) console.log(`[COVER] bomb(${bomb.x.toFixed(0)},${bomb.y.toFixed(0)}) tgt ${id}(${t.x.toFixed(0)},${t.y.toFixed(0)}) d=${d.toFixed(0)}/r=${radius.toFixed(0)} staticBlocked=${staticBlocked} nStatic=${arenaOf(state).walls.length} nBuilt=${state.builtWalls.length} training=${!!state.arena}`);
-      if (staticBlocked) continue;
+      if (arenaOf(state).walls.some((w) => segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD))) continue;
       let coverPass = 1;
       for (const w of state.builtWalls) {
         if (segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD)) {
@@ -1089,9 +1105,7 @@ function resolveFlyingHits(state) {
       if (Math.hypot(t.x - p.x, t.y - p.y) < reach) {
         // A solid (indestructible) wall between them shields the tackle too — you can't
         // bomb-jump THROUGH a stone wall to push someone on the far side.
-        const flyBlocked = arenaOf(state).walls.some((w) => segBlockedByWall(w, p.x, p.y, t.x, t.y, 0));
-        if (process.env.DEBUG_COVER) console.log(`[FLY-HIT] flyer ${id}(${p.x.toFixed(0)},${p.y.toFixed(0)}) -> tgt ${oid}(${t.x.toFixed(0)},${t.y.toFixed(0)}) launched=${launched} blocked=${flyBlocked} pad=0`);
-        if (flyBlocked) continue;
+        if (arenaOf(state).walls.some((w) => segBlockedByWall(w, p.x, p.y, t.x, t.y, 0))) continue;
         const kb = (launched ? BOMB_TACKLE_KB : speed * FLY_HIT_SCALE) * knockMul(t);
         t.kvx += dirx * kb; t.kvy += diry * kb;
         p.kvx *= 0.5; p.kvy *= 0.5; // the flyer loses momentum on the hit

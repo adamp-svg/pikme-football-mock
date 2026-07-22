@@ -172,7 +172,11 @@ export const BOMB_LAUNCH_MAX = 3000;        // hard cap on the on-centre launch 
 export const BOMB_CARRY_LAUNCH_MUL = 0.6;   // ...but reduced this much if the bomber owns the ball
 // Wall cannon: a wall collinear BEHIND the bomb (player -> bomb -> wall) boosts the
 // launch in that direction, SCALED BY PROXIMITY (closer wall = more). Any wall qualifies.
-export const BOMB_WALL_CANNON_MUL = 2.0; // MAX launch multiplier at point-blank against the wall (ramps 1 -> this as the wall nears)
+export const BOMB_WALL_CANNON_MUL = 2.0; // (legacy) MAX launch multiplier at point-blank; superseded by the split below
+// R3: a wall behind the bomb boosts the push. Indestructible +20% at point-blank; a BUILT
+// wall +15% at FULL HP, fading toward +0% as it loses HP. Both still scale by proximity.
+export const BOMB_WALL_CANNON_STATIC = 1.20;
+export const BOMB_WALL_CANNON_BUILT = 1.15;
 export const BOMB_WALL_DIST = 150;       // wall must be within this of the bomb to back it
 export const BOMB_WALL_COS = 0.82;       // collinearity: cos(~35°) cone opposite the launch dir
 // Multi-bomb: bombs detonating close together COMBINE into one bigger blast — the launch
@@ -237,7 +241,7 @@ export const FRAGILE_PASS_SPEED = 900; // ball faster than this passes through (
 // entirely; a BUILT wall softens it by its remaining HP. BLAST_WALL_PASS_MIN is the
 // fraction of knockback that leaks through a FULL-HP built wall (strong wall -> minor
 // push); a weaker wall passes more, ramping up to ~1.0 as its HP -> 0.
-export const BLAST_WALL_PASS_MIN = 0.0;  // a FULL-HP built wall fully shields a blast (was 0.15 = 15% leak); leak ramps up only as the wall loses HP
+export const BLAST_WALL_PASS_MIN = 0.25; // R2: a FULL-HP built wall lets 25% of the blast through; leak ramps to 100% as HP -> 0
 // Shots: a built wall in the bullet's path absorbs ~one shot TIER per remaining HP as it
 // passes through (super -> full -> half -> blocked as HP climbs from 0 to full). Static
 // stone always blocks a shot outright. Tiers: 0 quick, 1 half/medium, 2 full, 3 super.
