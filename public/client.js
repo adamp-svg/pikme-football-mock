@@ -2413,8 +2413,10 @@ const NET_VIS = 170;        // DEEPER visual net drawn behind the goal line (dec
 // Compact seat GRID (tight pitch) with a fixed, larger CARD drawn on top of each seat,
 // so the album packs a big ~800-seat bowl of overlapping card art. cardW/cardH is the
 // shared spectator size — the front-row PLAYER cards use the same size (see drawPlayerSeats).
-const AUD = { seatW: 46, seatH: 58, gapX: 6, gapY: 8, capPerCard: 12, capTotal: 800, cardW: 72, cardH: 92 };
-const ROWS = 5;                       // stand depth (rows of seats) per side
+// Each SEAT cell is the full size of an audience card (req: "each seat = size of the
+// audience card") — cards fill their seat 1:1 with a small gap, no overlap-packing.
+const AUD = { seatW: 72, seatH: 92, gapX: 6, gapY: 8, capPerCard: 12, capTotal: 800, cardW: 72, cardH: 92 };
+const ROWS = 3;                       // stand depth: exactly THREE rows of seats per side
 const ROW_X = AUD.seatW + AUD.gapX;   // behind-goal row pitch (rows stack along X)
 const ROW_Y = AUD.seatH + AUD.gapY;   // touchline  row pitch (rows stack along Y)
 const LANE = 56;                      // clear perimeter lane (ad boards) between the pitch and the front seat row
@@ -2451,14 +2453,20 @@ function resize() {
 function updateCamera() {
   const cx = rendered ? rendered.x : FIELD.W / 2;
   const cy = rendered ? rendered.y : FIELD.H / 2;
-  // (Camera goal-lead reverted — the 0.22/0.38 lead + wider clamp regressed the framing.
-  //  Back to the plain smooth-follow that was here before.)
-  // Camera: origin/main's SMOOTH follow (eases toward the target, snaps on big jumps) — kept over
-  // the WIP hard-lock. Uses NET/BAND (widely referenced); CAM_BACK/CAM_BAND are now unused.
-  const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - wbW;
-  const tX = clamp(cx * scale - wbW / 2, minX, Math.max(minX, maxX));
-  const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * BAND) * scale;
-  const minY = -BAND * scale, maxY = (FIELD.H + BAND) * scale - wbH;
+  // Req1 — GOAL-LEAD: as the player approaches either goal line, push the camera target
+  // PAST the player toward that goal so more of the goal + net is revealed. The lead ramps
+  // up over the final LEAD_ZONE of the pitch and is bounded by the CAM_BACK clamp below, so
+  // it can never over-pan past half of the back (3rd) row.
+  const LEAD_ZONE = FIELD.W * 0.32, LEAD_MAX = NET + CAM_BACK * 0.6;
+  let lead = 0;
+  if (cx < LEAD_ZONE) lead = -(1 - cx / LEAD_ZONE) * LEAD_MAX;                 // near left goal → pan left
+  else if (cx > FIELD.W - LEAD_ZONE) lead = (1 - (FIELD.W - cx) / LEAD_ZONE) * LEAD_MAX; // near right goal → pan right
+  // Req2 — CLAMP: reveal the wall/net plus AT MOST half of the third (back) row, then stop.
+  // CAM_BACK/CAM_BAND = 2.5 rows + board lane (half of the 3rd row exposed).
+  const minX = -CAM_BACK * scale, maxX = (FIELD.W + CAM_BACK) * scale - wbW;
+  const tX = clamp((cx + lead) * scale - wbW / 2, minX, Math.max(minX, maxX));
+  const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * CAM_BAND) * scale;
+  const minY = -CAM_BAND * scale, maxY = (FIELD.H + CAM_BAND) * scale - wbH;
   const tY = worldHpx <= wbH ? (fieldHpx - wbH) / 2 : clamp(cy * scale - wbH / 2, minY, Math.max(minY, maxY)); // whole bowl fits -> centre
   const EASE = 0.22;
   if (Math.abs(tX - camX) > wbW * 0.6 || Math.abs(tY - camY) > wbH * 0.6) { camX = tX; camY = tY; }
