@@ -629,10 +629,19 @@ function decideBot(p, role, state, mem, sk, dt) {
     // A KEEPER = a defender parked in the box in front of the goal — they CATCH a full kick.
     const keeper = blocker && Math.abs(egX - blocker.x) < PENALTY.depth && blocker.y > PEN_TOP && blocker.y < PEN_BOT ? blocker : null;
 
+    // TACTIC 2 (shooter side) — if a mate has set up a DEFLECT wall (mem.setPiece) and we have a
+    // clear lane to it, shoot FULL at the wall so the ball banks off it into the net.
+    const sp = mem.setPiece && mem.setPiece[team];
+    if (!shoot && sp && sp.by !== p.id && mem.t < sp.until
+        && laneClear(p.x, p.y, sp.x, sp.y, state, team, { enemies: false })) {
+      aim = { x: sp.x - p.x, y: sp.y - p.y }; shoot = true; charge = 1; bm.lastTrick = 'deflectShot';
+      mem.setPiece[team] = null;
+    }
+
     // 1) FINISH — a FULL kick now DRIVES THROUGH any field defender (monotonic), so just
     //    shoot on a walls-clear lane. Only a KEEPER-in-box catches it: then spend OVERCHARGE
     //    to break through (if ready), else BANK around them, else fall through to pass/drive.
-    if (distGoal < FINISH_RANGE && linedUp && laneWalls && !keeper) {
+    if (!shoot && distGoal < FINISH_RANGE && linedUp && laneWalls && !keeper) {
       aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'drive';
       if (distGoal < 260) closeShot = true;
     } else if (distGoal < FINISH_RANGE + 40 && linedUp && keeper) {
@@ -728,6 +737,38 @@ function decideBot(p, role, state, mem, sk, dt) {
         return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
       }
     }
+    // TACTIC 2 — COORDINATED DEFLECT SET-PIECE (hard/extreme). When our carrier is near the
+    // enemy goal but a DIRECT finish is blocked, the support bot builds an ANGLED wall just
+    // outside the enemy box, angled as a MIRROR so a shot from the carrier BANKS off it into the
+    // net, then signals the carrier (mem.setPiece) to shoot at the wall. Mirror normal bisects
+    // (wall->carrier) and (wall->goal): n = unit( unit(G-W) - unit(W-C) ). Built OUTSIDE the box
+    // + bushes so it's a solid hp3 wall the shot can bank off.
+    const spLive = mem.setPiece && mem.setPiece[team];
+    if (!isOnBall && sk.toolSkill >= 0.8 && buildReady && !bm.buildHold && !spLive && mem.t > (bm.nextBuildAt || 0)) {
+      const distCG = hyp(egX - carrier.x, GY - carrier.y);
+      const blocked = visibleEnemies.some((e) => Math.abs(e.x - egX) < PENALTY.depth + 40 && Math.abs(e.y - GY) < GOAL.width / 2 + 60);
+      if (distCG < 760 && distCG > 240 && blocked) {
+        const dirToGoal = egX > FIELD.W / 2 ? 1 : -1;
+        const Wx = egX - dirToGoal * (PENALTY.depth + 34);
+        const Wy = clamp(GY + (carrier.y > GY ? 150 : -150), 160, FIELD.H - 160);
+        const [inx, iny] = unit(Wx - carrier.x, Wy - carrier.y); // incoming travel dir C->W
+        const [gx2, gy2] = unit(egX - Wx, GY - Wy);              // desired out dir W->goal
+        const [nx, ny] = unit(gx2 - inx, gy2 - iny);             // mirror normal (face normal = build aim)
+        const standX = Wx - nx * BUILT_WALL.offset, standY = Wy - ny * BUILT_WALL.offset;
+        if (!pointInBush(Wx, Wy) && Math.abs(Wx - egX) > PENALTY.depth + 8) {
+          if (hyp(p.x - standX, p.y - standY) < 46) {
+            if (!bm.buildHold) bm.buildHold = { x: nx, y: ny, until: mem.t + BUILD_WINDUP + 0.1 };
+            aim = { x: nx, y: ny };
+            bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'deflectSetup';
+            (mem.setPiece || (mem.setPiece = {}))[team] = { x: Wx, y: Wy, by: p.id, until: mem.t + 3.0 };
+            return finalize(p, { x: standX, y: standY }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+          }
+          tgt = { x: standX, y: standY };                        // walk onto the build spot first
+          aim = { x: nx, y: ny };
+          return finalize(p, tgt, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+        }
+      }
+    }
     if (bm.giveGo && mem.t < bm.giveGo.until) {
       // GIVE-AND-GO: I just gave the ball — break goal-side into space for the return,
       // but stay balanced (a modest run ahead of the carrier, not abandoning shape).
@@ -746,6 +787,20 @@ function decideBot(p, role, state, mem, sk, dt) {
         }
       }
       tgt = { x: ahead, y: bestY };
+      // TACTIC 10 — COOPERATIVE PUSH (hard/extreme): rocket-jump into the open attacking outlet so
+      // the carrier can hit a fast one-two (the pass arrives via the pass-to-mate logic below). We
+      // signal mem.push so the carrier prioritises the pass. A bomb-jump into space, no enemy near.
+      if (sk.toolSkill >= 0.85 && bombReady && mem.t > (bm.nextBombAt || 0)) {
+        const dOut = hyp(ahead - p.x, bestY - p.y);
+        const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(ahead - e.x, bestY - e.y)), 1e9);
+        if (dOut > 620 && foeNear > 260 && laneClear(p.x, p.y, ahead, bestY, state, team, { enemies: false })) {
+          const [ex, ey] = unit(ahead - p.x, bestY - p.y);
+          bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + ex * 500, aimY: p.y + ey * 500 };
+          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'coopPush';
+          (mem.push || (mem.push = {}))[team] = { x: ahead, y: bestY, by: p.id, until: mem.t + 2.4 };
+          return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+        }
+      }
     }
     aim = { x: egX - p.x, y: GY - p.y };
     // CLEAR THE MARKER: shove a TIGHT defender off our carrier with a MEDIUM bullet.
@@ -885,7 +940,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         const noScreenYet = !state.builtWalls.some((w) => Math.abs((w.cx != null ? w.cx : w.x) - planeX) < 130 && Math.abs((w.cy != null ? w.cy : w.y) - GY) < GOAL.width / 2 + 50);
         if (sk.toolSkill > 0.6 && buildReady && liningUp && goalSide && noScreenYet && mem.t > (bm.nextBuildAt || 0)) {
           tgt = screenSpot;
-          if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 44) { // on the plane -> raise the screen
+          if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 85) { // near the plane -> raise the screen
             if (!bm.buildHold) bm.buildHold = { x: sign, y: 0, until: mem.t + BUILD_WINDUP + 0.1 };
             aim = { x: sign, y: 0 }; shoot = false; special = false;
             bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'goalScreen';
