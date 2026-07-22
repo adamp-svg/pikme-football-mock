@@ -73,11 +73,11 @@ function superShotKnock(hp) {
 }
 {
   const kNoWall = superShotKnock(null); // super shot, no wall -> full hit
-  const kHp3 = superShotKnock(3);       // strong wall BLOCKS the super shot
+  const kHp3 = superShotKnock(3);       // strong wall: super DESTROYS it, a LITTLE push leaks through
   const kHp2 = superShotKnock(2);       // -1 hp -> passes as a downgraded (half) shot
   const kHp1 = superShotKnock(1);       // -2 hp -> passes as a stronger (full) shot
   ok(kNoWall > 300, `super shot with NO wall hits full force (|kv|=${kNoWall.toFixed(0)})`);
-  ok(kHp3 < 1, `STRONG wall (hp3) fully blocks the super shot (|kv|=${kHp3.toFixed(0)})`);
+  ok(kHp3 > 1 && kHp3 < kNoWall, `STRONG wall (hp3): a SUPER shot destroys it and leaks a LITTLE push through (|kv|=${kHp3.toFixed(0)} vs full ${kNoWall.toFixed(0)})`);
   ok(kHp2 > 1, `weakened wall (hp2) lets a downgraded shot through (|kv|=${kHp2.toFixed(0)})`);
   ok(kHp1 > kHp2, `weaker wall (hp1) lets MORE power through than hp2 (${kHp1.toFixed(0)} > ${kHp2.toFixed(0)})`);
   ok(kHp1 <= kNoWall + 1, `...never more than the unobstructed shot (${kHp1.toFixed(0)} <= ${kNoWall.toFixed(0)})`);

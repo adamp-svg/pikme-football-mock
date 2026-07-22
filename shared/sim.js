@@ -7,7 +7,7 @@ import {
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
   PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
   OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
-  OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
+  OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, OVERCHARGE_QUICK_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_DIST, BOMB_WALL_COS,
   BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE, BOMB_LOB_RANGE,
@@ -520,7 +520,9 @@ export function step(state, inputs, dt) {
         // aimed charge) auto-aims at the nearest point on the enemy goal; a FULL aimed shot
         // honours the player's aim.
         let dx = p.aimX, dy = p.aimY;
-        if (!isFull) {
+        // AUTO-AIM applies to QUICK shots ONLY (a short tap). Any charged shot (medium/full)
+        // honours the player's manual aim — you charge up precisely, you don't get auto-aimed.
+        if (eff < QUICK_CHARGE) {
           const tgt = nearestGoalPoint(state, p);
           dx = tgt.x - b.x; dy = tgt.y - b.y;
           const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
@@ -534,6 +536,7 @@ export function step(state, inputs, dt) {
         b.vy = dy * state.settings.shotPower * cm;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
+        if (eff < QUICK_CHARGE) earnPower(p, OVERCHARGE_QUICK_GAIN); // a quick shot slowly fills the super meter
         if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; } // an OVERCHARGE kick spends the meter
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
         // A FULL bullet strips a carrier; an OVERCHARGE bullet (isOver) strips AND pushes
@@ -541,11 +544,13 @@ export function step(state, inputs, dt) {
         // #6: a QUICK bullet (not a full aimed shot) auto-aims at the nearest enemy IN LINE OF
         // SIGHT (no wall / bush between); if none is visible it honours the manual aim.
         let ax = p.aimX, ay = p.aimY;
-        if (!isFull) {
+        // AUTO-AIM on QUICK bullets only (short tap); a charged/aimed bullet honours manual aim.
+        if (eff < QUICK_CHARGE) {
           const foe = nearestVisibleEnemy(state, p);
           if (foe) { const ex = foe.x - p.x, ey = foe.y - p.y, el = Math.hypot(ex, ey) || 1; ax = ex / el; ay = ey / el; }
         }
         fireBullet(state, p, ch, eff, isOver, ax, ay);
+        if (eff < QUICK_CHARGE) earnPower(p, OVERCHARGE_QUICK_GAIN); // a quick shot slowly fills the super meter
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
         if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; }
@@ -816,8 +821,15 @@ function updateProjectiles(state, dt) {
       if (bw.hp <= 0) state.builtWalls = state.builtWalls.filter((q) => q.hp > 0);
       addImpact(state, pr, 'wall', pr.x, pr.y);
       const passed = shotTier(pr) - absorb;
-      if (passed < 1) continue;      // fully absorbed — the bullet dies at the wall
-      applyShotTier(pr, passed);     // downgrade the bullet; it flies on to the target behind
+      if (passed < 1) {
+        // A SUPER (overcharge) shot that DESTROYS a built wall still leaks a LITTLE push through
+        // to whoever's right behind it (a weak tier-1 residual). Full / medium / quick are fully
+        // absorbed and die at the wall.
+        if (pr.over && bw.hp <= 0) { applyShotTier(pr, 1); }
+        else continue;               // fully absorbed — the bullet dies at the wall
+      } else {
+        applyShotTier(pr, passed);   // downgrade the bullet; it flies on to the target behind
+      }
     }
 
     // A LOOSE ball is nudged by any bullet.
@@ -1071,6 +1083,9 @@ function resolveFlyingHits(state) {
       if (t.team === p.team) continue; // only hit enemies
       const reach = radiusOf(p, state) + radiusOf(t, state) + 12;
       if (Math.hypot(t.x - p.x, t.y - p.y) < reach) {
+        // A solid (indestructible) wall between them shields the tackle too — you can't
+        // bomb-jump THROUGH a stone wall to push someone on the far side.
+        if (arenaOf(state).walls.some((w) => segBlockedByWall(w, p.x, p.y, t.x, t.y, 0))) continue;
         const kb = (launched ? BOMB_TACKLE_KB : speed * FLY_HIT_SCALE) * knockMul(t);
         t.kvx += dirx * kb; t.kvy += diry * kb;
         p.kvx *= 0.5; p.kvy *= 0.5; // the flyer loses momentum on the hit

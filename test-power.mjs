@@ -7,7 +7,7 @@
 //     enemy. A quick poke never earns it, and an overcharge kick can't self-farm it.
 // Run: node test-power.mjs
 import { createState, addPlayer, step } from './shared/sim.js';
-import { DT, FULL_CHARGE, OVERCHARGE_TTL } from './shared/constants.js';
+import { DT, FULL_CHARGE, OVERCHARGE_TTL, BOMB } from './shared/constants.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
@@ -139,7 +139,7 @@ function kickSpeed(charge) {
   const s = duel(); const A = s.players.A, B = s.players.B;
   A.x = 1000; A.y = 550; B.x = 1080; B.y = 550; A.specialCd = 0;
   step(s, { A: inp({ special: true }), B: inp() }, DT);
-  for (let t = 0; t < 90 && !A.power; t++) step(s, { A: inp(), B: inp() }, DT); // wait out the fuse
+  for (let t = 0; t < ticks(BOMB.fuse + 0.6) && !A.power; t++) step(s, { A: inp(), B: inp() }, DT); // wait out the (now-longer) fuse
   ok(A.power === true, 'a bomb catching an enemy earns the bomber overcharge');
 }
 

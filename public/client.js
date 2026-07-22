@@ -4,7 +4,7 @@
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
-  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
@@ -116,6 +116,7 @@ const firingPrev = {};                // playerId -> firing flag last snapshot
 // (walls pop-in, bombs squash-land) from the moment the object first appears in a snapshot.
 const wallSpawnT = new Map();         // wall id -> performance.now() when first seen
 const bombSpawnT = new Map();         // bomb id -> performance.now() when first seen
+const bombSrc = new Map();            // bomb id -> {x,y} it FLIES IN from (the thrower) for the lob-arc intro
 const bombLanded = new Set();         // bomb ids whose impact shockwave has already fired
 const WALL_BUILD_MS = 260;            // wall pop-in duration
 const BOMB_LAND_MS = 200;             // bomb squash-land duration
@@ -482,7 +483,8 @@ function processSnapshotSounds(snap) {
     }
     for (const b of snap.bombs || []) if (!knownBombs.has(b.id)) {            // planted a bomb
       const pl = nearestPlayer(players, b.x, b.y, 70, b.team); if (pl) triggerAnim(pl.id, 'bomb');
-      bombSpawnT.set(b.id, performance.now());                                // drop-in intro; ring/dust fire on impact (see drawBomb)
+      bombSpawnT.set(b.id, performance.now());                                // fly-in intro; ring/dust fire on impact (see drawBomb)
+      bombSrc.set(b.id, pl ? { x: pl.x, y: pl.y } : { x: b.x, y: b.y });      // arc FROM the thrower to where it lands
     }
     for (const w of snap.walls || []) if (!knownWalls.has(w.id)) {            // built a wall
       const pl = nearestPlayer(players, w.x, w.y, 130, w.team); if (pl) triggerAnim(pl.id, 'wall', { aimSign: (w.x - pl.x) >= 0 ? 1 : -1 });
@@ -502,7 +504,7 @@ function processSnapshotSounds(snap) {
   knownBombs = new Set((snap.bombs || []).map((b) => b.id));
   knownWalls = new Map((snap.walls || []).map((w) => [w.id, { cx: w.cx, cy: w.cy, hp: w.hp, fragile: w.fragile, maxHp: w.maxHp }]));
   for (const id of wallSpawnT.keys()) if (!knownWalls.has(id)) wallSpawnT.delete(id); // prune intro timers for gone objects
-  for (const id of bombSpawnT.keys()) if (!knownBombs.has(id)) { bombSpawnT.delete(id); bombLanded.delete(id); }
+  for (const id of bombSpawnT.keys()) if (!knownBombs.has(id)) { bombSpawnT.delete(id); bombLanded.delete(id); bombSrc.delete(id); }
   for (const p of (snap.players || [])) firingPrev[p.id] = !!p.firing;
   soundEventsReady = true;
 }
@@ -1979,7 +1981,7 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => {
   keys[e.key.toLowerCase()] = false;
-  if (e.key === ' ') { releaseShot(); } // release fires — aimed if the cursor is out, else a quick auto-aimed shot
+  if (e.key === ' ') { if (aimPulled() || currentCharge() < QUICK_CHARGE) releaseShot(); else cancelCharge(); } // aimed OR quick tap fires; a long no-aim hold does nothing
   if (e.key.toLowerCase() === 'q') { if (currentWindup() >= 1) releaseBuild(); else cancelBuild(); } // release builds in facing dir; early = cancel
 });
 
@@ -2010,7 +2012,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (e.button === 2) { specialQueued = true; specialAim = { x: 0, y: 0 }; }   // right-click = special, feet plant
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
-addEventListener('mouseup', (e) => { if (usingTouch) return; if (mouse.down && e.button !== 2) releaseShot(); mouse.down = false; }); // left-click release fires — quick auto-aimed shot if the cursor's on you
+addEventListener('mouseup', (e) => { if (usingTouch) return; if (mouse.down && e.button !== 2) { if (aimPulled() || currentCharge() < QUICK_CHARGE) releaseShot(); else cancelCharge(); } mouse.down = false; }); // aimed OR quick tap fires; a long no-aim hold does nothing
 addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Special-skill button (touch + click)
@@ -2256,9 +2258,10 @@ addEventListener('touchend', (e) => {
       //  - pulled OUT on release  -> fire in that direction (aimed shot)
       //  - a TAP / centred hold    -> fire a QUICK shot (the sim auto-aims it; guide showed where)
       //  - pulled out THEN dragged back into the deadzone -> deliberate CANCEL (no shot)
-      if (Math.hypot(touchR.dx, touchR.dy) > AIM_DEADZONE_PX) releaseShot({ x: touchR.dx, y: touchR.dy });
-      else if (touchR.aimedOut) cancelCharge();
-      else releaseShot(); // no-aim press -> quick auto-aimed shot
+      if (Math.hypot(touchR.dx, touchR.dy) > AIM_DEADZONE_PX) releaseShot({ x: touchR.dx, y: touchR.dy }); // aimed -> fire in that dir
+      else if (touchR.aimedOut) cancelCharge();                            // pulled out then back in -> deliberate cancel
+      else if (currentCharge() < QUICK_CHARGE) releaseShot();              // a short no-aim TAP -> quick auto-aimed shot
+      else cancelCharge();                                                 // a LONG no-aim press does NOTHING (charged shots need aim)
       touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; touchR.aimedOut = false; stickR.classList.add('hidden');
     }
   }
@@ -2400,8 +2403,10 @@ function resize() {
 // terraces horizontally, + top/bottom touchline terraces vertically). The side
 // terraces sit off-pitch, so walking to an edge pans the camera to reveal them.
 function updateCamera() {
-  const cx = rendered ? rendered.x : FIELD.W / 2;
+  let cx = rendered ? rendered.x : FIELD.W / 2;
   const cy = rendered ? rendered.y : FIELD.H / 2;
+  // Lead the camera toward the goal you're attacking so more of the attacking half is framed.
+  if (rendered) { const egX = flipView() ? 0 : FIELD.W; cx += (egX - cx) * 0.22; }
   // Camera: origin/main's SMOOTH follow (eases toward the target, snaps on big jumps) — kept over
   // the WIP hard-lock. Uses NET/BAND (widely referenced); CAM_BACK/CAM_BAND are now unused.
   const minX = -NET * scale, maxX = (FIELD.W + NET) * scale - wbW;
@@ -3005,7 +3010,12 @@ function drawPlayer(p) {
   // pick for the local player before the roster arrives, else the default hero.
   const cos = cosmeticById[p.id] || (isMe ? myCosmetic : DEFAULT_COSMETIC);
   const anim = getAnim(p);
+  // Hidden in a bush: render YOURSELF semi-transparent so you can see you're concealed
+  // (enemies can't see you at all — this is just the local "you're in cover" cue).
+  const bushedMe = isMe && inBushAt(p.x, p.y);
+  if (bushedMe) { ctx.save(); ctx.globalAlpha = 0.5; }
   drawHero(ctx, ox, feetY, sf, dir, walkPhase, moving, p.firing, cos, { J: team, JS: shade(team) }, performance.now() / 1000, anim);
+  if (bushedMe) ctx.restore();
 
   // Local player: pixel corner-bracket + bobbing marker so you find yourself fast.
   if (isMe) {
@@ -3201,15 +3211,20 @@ function drawBomb(bomb) {
   ctx.setLineDash([ws_(6), ws_(6)]);
   ctx.strokeStyle = 'rgba(239,68,68,.5)'; ctx.lineWidth = Math.max(1, ws_(2)); ctx.stroke();
   ctx.setLineDash([]);
-  // Land intro (V3 "Drop + shockring", the chosen variant): for BOMB_LAND_MS the bomb falls
-  // straight in; on the impact frame it kicks a ground shock ring + dust (spawned once, in world
-  // coords) + a small screen shake. No squash. Transforms the BODY only — the danger ring stays put.
+  // FLY-IN intro (lob arc): the bomb ARCS in from the thrower to where it lands over FLY_MS —
+  // ease-out horizontally toward the landing spot + a sine hop for the throw. On arrival it kicks
+  // a ground shock ring + dust + a small screen shake (once). Transforms the BODY only.
+  const FLY_MS = 340;
   const lt0 = bombSpawnT.get(bomb.id);
   ctx.save();
   if (lt0 != null) {
-    const p = clamp((performance.now() - lt0) / BOMB_LAND_MS, 0, 1);
-    if (p < 0.5) { const q = p / 0.5; ctx.translate(0, -(1 - q * q) * r * 3); }   // accelerating fall-in
-    else if (!bombLanded.has(bomb.id)) {                                          // impact frame → shockwave
+    const p = clamp((performance.now() - lt0) / FLY_MS, 0, 1);
+    if (p < 1) {
+      const ux = 1 - (1 - p) * (1 - p);              // ease-out toward the landing spot
+      const src = bombSrc.get(bomb.id);
+      if (src) { const sx = wx(src.x), sy = wy(src.y); ctx.translate((sx - x) * (1 - ux), (sy - y) * (1 - ux)); }
+      ctx.translate(0, -Math.sin(p * Math.PI) * r * 4);   // arc hop
+    } else if (!bombLanded.has(bomb.id)) {                // arrival → shockwave
       bombLanded.add(bomb.id);
       spawnRing(bomb.x, bomb.y, 12, 58);
       spawnDust(bomb.x, bomb.y, 10, { col: '200,188,160', spd: 95, up: 55, size: 4 });
