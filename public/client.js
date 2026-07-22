@@ -559,8 +559,9 @@ function showScreen(name) {
   // music alone then — the lobby countdown music owns that moment and replaces whatever plays.
   if (name === 'home') {
     if (!quickVs) startHomeMusic();
-    // Always land the play strip on the primary 2v2 button (flush at the start), so it's the
-    // most-visible mode; swiping reveals play-friends/training/coming-soon. dir=ltr -> start = 0.
+    // Always land the play strip on the primary 2v2 button (flush at the RTL start = right edge),
+    // so it's the most-visible mode; swiping reveals play-friends/training/coming-soon.
+    // WebKit (iOS WebView, the real target) RTL: the start edge is scrollLeft 0.
     const strip = document.getElementById('play-strip');
     if (strip) strip.scrollLeft = 0;
   }
