@@ -938,7 +938,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* --- Sub-screens (arena / news / shop / clubs / rank / friends) — all share the full-bleed
    stadium backdrop + stretched .subpage, so friends & rank match clubs' look/transparency. --- */
-.screen#arena, .screen#news, .screen#shop, .screen#clubs, .screen#rank, .screen#friends {
+.screen#arena, .screen#news, .screen#shop, .screen#clubs, .screen#rank, .screen#friends, .screen#cards {
   background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
   align-items: stretch; justify-content: stretch;
 }
@@ -1358,7 +1358,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 #cards .subpage-head { margin-bottom: 8px; }
 .cards-slots { display: flex; direction: rtl; gap: 12px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
 .cards-slots .pslot-item { flex: 0 0 auto; gap: 3px; }
-.cards-slots .pslot { height: 72px; max-height: none; width: 60px; }
+.cards-slots .pslot { height: 72px; max-height: none; width: 60px; touch-action: none; }  /* touch-action:none so a slot card can be dragged out/between slots without the page scrolling */
 .cards-slots .pslot-cap { font-size: 10px; }
 .cards-hint { font: 800 11px "Arial Black", sans-serif; color: #8aa08c; text-align: center; }
 .cards-best {

@@ -1061,7 +1061,8 @@ function renderCardsPage() {
     el.dataset.slot = i;
     if (card) el.appendChild(slotCardEl(card, 'pslot-art', 62, 80));
     else { const ic = document.createElement('span'); ic.className = 'pslot-emptyic'; ic.textContent = meta.icon; el.appendChild(ic); }
-    el.addEventListener('click', () => showSlotInfo(i)); // tap slot (or its card) -> power info + explanation
+    // Tap = power info; drag a filled slot = swap onto another slot, or drop off every slot to
+    // unequip (card returns to its rarity tier). Handled by the delegated bindCardsSlotDrag() below.
     const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label;
     item.appendChild(el); item.appendChild(cap);
     slotsEl.appendChild(item);
@@ -1192,6 +1193,64 @@ function renderCardsPage() {
   };
   deck.addEventListener('pointerup', end);
   deck.addEventListener('pointercancel', reset);
+})();
+// ---- Cards-page slot gestures (delegated on #cards-slots, survives re-renders) --------------
+// Mirrors the lobby's bindSlotDrag but for the cards room. On a FILLED slot:
+//   TAP   -> open the power info popup (what the power does + the equipped card's buff).
+//   DRAG  -> onto ANOTHER slot: swap the two cards (move a card between powers).
+//         -> dropped anywhere OFF every slot: unequip — the card returns to its rarity tier
+//            in the album (renderCardsPage re-adds it since it's no longer equipped).
+// An empty slot can't be dragged; a tap still opens its info ("drag a card here").
+(function bindCardsSlotDrag() {
+  const slotsEl = document.getElementById('cards-slots');
+  if (!slotsEl) return;
+  let sx = null, sy = null, srcSlot = null, srcCard = null, mode = null, ghost = null, pid = null;
+  const TH = 8;
+  const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
+  const clear = () => {
+    if (ghost) { ghost.remove(); ghost = null; }
+    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+  };
+  const reset = () => { clear(); sx = sy = null; srcSlot = null; srcCard = null; mode = null; pid = null; };
+  slotsEl.addEventListener('pointerdown', (e) => {
+    const slotEl = e.target && e.target.closest ? e.target.closest('.pslot') : null;
+    if (!slotEl || slotEl.dataset.slot == null) { srcSlot = null; return; }
+    srcSlot = +slotEl.dataset.slot; srcCard = effectiveLoadout()[srcSlot];
+    sx = e.clientX; sy = e.clientY; mode = null; pid = e.pointerId;
+    try { slotsEl.setPointerCapture(pid); } catch { /* older webviews */ }
+  });
+  slotsEl.addEventListener('pointermove', (e) => {
+    if (sx == null || srcSlot == null) return;
+    if (!mode) {
+      if (srcCard && Math.hypot(e.clientX - sx, e.clientY - sy) > TH) mode = 'drag'; // only a FILLED slot drags
+      else return;
+    }
+    if (!ghost) {
+      ghost = document.createElement('div'); ghost.className = 'pslot-ghost rarity-' + srcCard.r;
+      const gi = document.createElement('img'); gi.alt = ''; gi.src = `${CARD_ART_BASE}/${srcCard.r}/${srcCard.n}.webp`;
+      ghost.appendChild(gi); document.body.appendChild(ghost);
+    }
+    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+    const slot = slotUnder(e.clientX, e.clientY);
+    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+    if (slot && +slot.dataset.slot !== srcSlot) slot.classList.add('pslot-over');
+    ghost.classList.toggle('pslot-ghost-remove', !slot);  // off every slot -> "release to send back to the album"
+  });
+  const end = (e) => {
+    if (sx == null || srcSlot == null) { reset(); return; }
+    if (mode === 'drag') {
+      const slot = slotUnder(e.clientX, e.clientY);
+      if (slot && slot.dataset.slot != null && +slot.dataset.slot !== srcSlot) swapSlots(srcSlot, +slot.dataset.slot);
+      else if (!slot) setSlotCard(srcSlot, null);   // dropped off every slot -> unequip, card returns to its tier
+      // dropped back on the same slot -> no-op
+      renderCardsPage();
+    } else {
+      showSlotInfo(srcSlot);   // a tap -> power info popup
+    }
+    reset();
+  };
+  slotsEl.addEventListener('pointerup', end);
+  slotsEl.addEventListener('pointercancel', reset);
 })();
 // "Equip best" inside the cards room: auto-fill the 3 slots with the best cards (rarity, then
 // copies — same as the home #select-best-btn), then refresh both the room and the lobby slots.
