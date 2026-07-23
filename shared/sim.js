@@ -380,12 +380,57 @@ function handleBallBounds(state) {
 function goal(state, team) {
   state.score[team]++;
   state.lastGoal = team;
-  // Freeze in the scoring positions (ball stays in the net) for GOAL_FREEZE_HOLD
-  // seconds so players see it, THEN snap to kickoff (see the reset branch in step).
+  // Freeze in the scoring positions for GOAL_FREEZE_HOLD seconds so players see it, THEN snap
+  // to kickoff (see the reset branch in step). The ball keeps its velocity and rolls into the
+  // back of the net during the hold (rollBallIntoNet), instead of sticking at the goal line.
   state.resetTimer = GOAL_RESET;
   state.pendingReset = true;
   state.pendingBallTeam = team === 'A' ? 'B' : 'A'; // conceding team restarts with the ball
   return team;
+}
+
+// Roll speed given to a DRIBBLED-IN ball the instant it's detached from the carrier — enough
+// to carry it through the net depth to the back netting during the freeze hold.
+const NET_ROLL_SPEED = 340;
+
+// #7 A carrier who walks the ball across the enemy line scores: the ball DETACHES and rolls
+// on into the net (owner cleared) rather than staying glued to the frozen holder.
+function detachIntoNet(state, x, y, team) {
+  const b = state.ball;
+  b.owner = null;
+  b.lastTouch = team;
+  clearKick(b);
+  b.pickupCd = RELEASE_PICKUP_CD;
+  b.x = x; b.y = y;
+  b.vx = (team === 'A' ? 1 : -1) * NET_ROLL_SPEED; // A scores right, B scores left
+  b.vy = 0;
+}
+
+// During the post-goal freeze hold the ball keeps rolling (players are frozen) so a shot/dribble
+// carries to the BACK of the scoring net and settles there, clamped inside the net pocket.
+function rollBallIntoNet(state, dt) {
+  const team = state.lastGoal;
+  if (!team) return;
+  const b = state.ball;
+  const R = ballRadius(state);
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+  b.vx *= BALL_FRICTION;
+  b.vy *= BALL_FRICTION;
+  // Keep it between the posts — bounce softly off the side netting.
+  const yLo = GOAL_TOP + R, yHi = GOAL_BOTTOM - R;
+  if (b.y < yLo) { b.y = yLo; b.vy = Math.abs(b.vy) * 0.4; }
+  if (b.y > yHi) { b.y = yHi; b.vy = -Math.abs(b.vy) * 0.4; }
+  if (team === 'A') {                              // right net pocket
+    const back = FIELD.W + GOAL.depth - R;
+    if (b.x > back) { b.x = back; b.vx = 0; }       // hit the back netting — dead
+    if (b.x < FIELD.W - R) b.x = FIELD.W - R;       // never roll back out past the line
+  } else {                                         // left net pocket
+    const back = -GOAL.depth + R;
+    if (b.x < back) { b.x = back; b.vx = 0; }
+    if (b.x > R) b.x = R;
+  }
+  if (Math.hypot(b.vx, b.vy) < BALL_MIN_SPEED) { b.vx = 0; b.vy = 0; }
 }
 
 // One authoritative step. `inputs` is a map: playerId -> input.
@@ -408,6 +453,8 @@ export function step(state, inputs, dt) {
   // client reconciliation stays consistent.
   if (state.resetTimer > 0) {
     state.resetTimer -= dt;
+    // After a goal: the ball keeps rolling into the back of the net while bodies stay frozen.
+    if (state.pendingReset) rollBallIntoNet(state, dt);
     // After a goal: hold in the scoring positions, then snap to kickoff spots.
     if (state.pendingReset && state.resetTimer <= GOAL_RESET - GOAL_FREEZE_HOLD) {
       repositionKickoff(state, state.pendingBallTeam);
@@ -593,9 +640,9 @@ export function step(state, inputs, dt) {
     const inMouthY = gy > GOAL_TOP && gy < GOAL_BOTTOM;
     // #9 DRIBBLE-IN GOAL: the carrier walked the ball across the ENEMY line into the net.
     // clampBallCarryXY only opens the attacking pocket, so this can never be an own goal. The
-    // ball stays owned (frozen in the net through the hold); handleBallBounds is skipped.
-    if (inMouthY && gx > FIELD.W && h.team === 'A') { b.x = gx; b.y = gy; b.vx = 0; b.vy = 0; walkInScored = goal(state, 'A'); }
-    else if (inMouthY && gx < 0 && h.team === 'B') { b.x = gx; b.y = gy; b.vx = 0; b.vy = 0; walkInScored = goal(state, 'B'); }
+    // ball DETACHES from the carrier and rolls on to the back of the net; handleBallBounds is skipped.
+    if (inMouthY && gx > FIELD.W && h.team === 'A') { detachIntoNet(state, gx, gy, 'A'); walkInScored = goal(state, 'A'); }
+    else if (inMouthY && gx < 0 && h.team === 'B') { detachIntoNet(state, gx, gy, 'B'); walkInScored = goal(state, 'B'); }
     else {
       // Pop the ball LOOSE when the holder walks it into a solid edge — a built/static wall,
       // the OWN goal line, or a field wall — so it rolls forward into the wall and bounces
