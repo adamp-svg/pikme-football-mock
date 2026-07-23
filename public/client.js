@@ -113,7 +113,8 @@ const SOUND_FILES = {
 };
 let audioCtx = null;
 let masterGain = null;
-let soundEnabled = true;   // SFX (bomb/kick/hit/ui) — the 🔊 button
+let soundEnabled = true;   // SFX master on/off (kept true; volume drives loudness)
+let soundVol = 0.72;       // SFX volume 0..1 (settings slider)
 let musicEnabled = true;   // background music on/off — the 🎵 button
 let musicUserVol = 0.6;    // user music volume 0..1 (multiplies each track's own base level)
 const soundBuffers = new Map();
@@ -231,6 +232,7 @@ let stepVariant = 0;
 try { soundEnabled = localStorage.getItem('pikme-sound') !== 'off'; } catch { /* private mode */ }
 try { musicEnabled = localStorage.getItem('pikme-music') !== 'off'; } catch { /* private mode */ }
 try { const v = parseFloat(localStorage.getItem('pikme-musicvol')); if (Number.isFinite(v)) musicUserVol = Math.min(1, Math.max(0, v)); } catch { /* private mode */ }
+try { const v = parseFloat(localStorage.getItem('pikme-soundvol')); if (Number.isFinite(v)) soundVol = Math.min(1, Math.max(0, v)); } catch { /* private mode */ }
 
 // 🔊 button = SFX only (bomb/kick/hit/ui). Music has its own 🎵 toggle + volume slider.
 function updateSoundButton() {
@@ -241,7 +243,7 @@ function updateSoundButton() {
     btn.setAttribute('aria-label', soundEnabled ? 'השתקת אפקטים' : 'הפעלת אפקטים');
     btn.title = soundEnabled ? 'אפקטים' : 'אפקטים מושתקים';
   }
-  if (masterGain) masterGain.gain.value = soundEnabled ? 0.72 : 0;
+  if (masterGain) masterGain.gain.value = soundEnabled ? soundVol : 0;
   updateMusicButton();
 }
 function updateMusicButton() {
@@ -270,7 +272,7 @@ function unlockAudio() {
     if (!AudioContextClass) return;
     audioCtx = new AudioContextClass();
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = soundEnabled ? 0.72 : 0;
+    masterGain.gain.value = soundEnabled ? soundVol : 0;
     masterGain.connect(audioCtx.destination);
   }
   if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
@@ -2379,6 +2381,7 @@ function enterMatch(msg) {
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
   audienceReady = false; // rebuild seat assignment for this match's roster
   training = msg.mode === 'training';
+  if (msg.mode) roomMode = msg.mode; // keep the room tier (training/botgame/builder/private/quick) for settings gating
   // Field-builder match: server sends a custom arena layout — build the render/collision arena
   // from it (hard walls + bushes). Dry walls ride the snapshot as built walls. null otherwise.
   customArena = msg.arena ? buildArenaFromField(msg.arena) : null;
@@ -2963,6 +2966,16 @@ if (musicVolSlider) {
     applyMusicVol();
   });
 }
+const soundVolSlider = document.getElementById('s-soundvol');
+if (soundVolSlider) {
+  soundVolSlider.value = String(soundVol);
+  soundVolSlider.addEventListener('input', () => {
+    soundVol = Math.min(1, Math.max(0, parseFloat(soundVolSlider.value) || 0));
+    try { localStorage.setItem('pikme-soundvol', String(soundVol)); } catch { /* private mode */ }
+    if (masterGain) masterGain.gain.value = soundEnabled ? soundVol : 0;
+  });
+}
+document.getElementById('open-controls-btn')?.addEventListener('click', () => { if (typeof openControlsEditor === 'function') openControlsEditor(); });
 updateMusicButton();
 
 // Local cooldown shading for the button (approximate; server is authoritative).
@@ -3028,10 +3041,16 @@ function openSettings() {
   playSound('ui', 0.45);
   holding = false; chargeStart = null; fireQueued = false; specialQueued = false; aimHold = null;
   settingsPanel.classList.remove('hidden');
-  // Difficulty (bots) is selectable ONLY in training or a friends (private) room.
-  const diffAllowed = training || roomMode === 'private';
+  // Context-tiered settings. Audio (sound+music) is ALWAYS shown.
+  //  - training ground (mode 'training'): + controls + difficulty + game mechanics
+  //  - friends (private) / vs-bots (botgame) / builder: + difficulty
+  //  - main lobby / quick match: audio only
+  const inGame = !gameEl.classList.contains('hidden');
+  const trainingGround = inGame && training;
+  const diffAllowed = inGame && (training || roomMode === 'private' || roomMode === 'botgame' || roomMode === 'builder');
+  document.getElementById('setting-controls')?.classList.toggle('hidden', !trainingGround);
+  document.getElementById('setting-mechanics')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-difficulty')?.classList.toggle('hidden', !diffAllowed);
-  document.getElementById('settings-empty-note')?.classList.toggle('hidden', diffAllowed);
   syncSliderUI();
   syncDifficultyUI();
 }

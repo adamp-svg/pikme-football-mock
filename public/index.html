@@ -613,13 +613,24 @@
       <h2>הגדרות</h2>
       <!-- #16: responsive grid so all controls fit on screen without a scrollbar -->
       <div class="settings-grid">
-      <!-- Real settings only — game-mechanics sliders + audio removed. Difficulty shows
-           only in training / friends (client gates #setting-difficulty). -->
-      <div class="setting setting-wide" id="setting-difficulty">
-        <div class="setting-row"><span>רמת קושי (בוטים)</span></div>
-        <div id="difficulty" class="difficulty"></div>
+      <!-- AUDIO — always shown -->
+      <div class="setting"><div class="setting-row"><span>🔊 עוצמת אפקטים</span></div><input type="range" id="s-soundvol" min="0" max="1" step="0.05" /></div>
+      <div class="setting"><div class="setting-row"><span>🎵 עוצמת מוזיקה</span></div><input type="range" id="s-musicvol" min="0" max="1" step="0.05" /></div>
+      <!-- CONTROLS — training ground only -->
+      <div class="setting" id="setting-controls"><div class="setting-row"><span>🎛️ בקרות</span></div><button id="open-controls-btn" class="ghost-btn">עריכת מיקום הבקרות</button></div>
+      <!-- DIFFICULTY — training / friends / vs-bots only -->
+      <div class="setting setting-wide" id="setting-difficulty"><div class="setting-row"><span>רמת קושי (בוטים)</span></div><div id="difficulty" class="difficulty"></div></div>
+      <!-- GAME MECHANICS — training ground only -->
+      <div id="setting-mechanics" class="setting-mech">
+        <div class="setting"><div class="setting-row"><span>מהירות שחקן</span><span id="v-speedMul"></span></div><input type="range" id="s-speedMul" min="0.3" max="1.8" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>גודל שחקן</span><span id="v-sizeMul"></span></div><input type="range" id="s-sizeMul" min="0.5" max="2" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>מהירות עם הכדור</span><span id="v-carrySpeedMul"></span></div><input type="range" id="s-carrySpeedMul" min="0.2" max="1" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>גודל כדור</span><span id="v-ballSizeMul"></span></div><input type="range" id="s-ballSizeMul" min="0.5" max="2.5" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>עוצמת בעיטה</span><span id="v-shotPower"></span></div><input type="range" id="s-shotPower" min="300" max="2500" step="20" /></div>
+        <div class="setting"><div class="setting-row"><span>מהירות ירי</span><span id="v-bulletSpeed"></span></div><input type="range" id="s-bulletSpeed" min="120" max="1300" step="10" /></div>
+        <div class="setting"><div class="setting-row"><span>הדיפת ירי</span><span id="v-bulletKnockback"></span></div><input type="range" id="s-bulletKnockback" min="0" max="2500" step="10" /></div>
+        <div class="setting"><div class="setting-row"><span>הדיפת פצצה</span><span id="v-bombPower"></span></div><input type="range" id="s-bombPower" min="0" max="5000" step="20" /></div>
       </div>
-      <div class="setting-empty" id="settings-empty-note">אין הגדרות נוספות</div>
       </div><!-- /.settings-grid -->
       <div class="settings-actions">
         <button id="reset-settings" class="ghost-btn">איפוס</button>

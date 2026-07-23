@@ -402,8 +402,8 @@ function startBotGame(member, diffLevel) {
   fillBots(room, roster); // fill the other 3 slots with bots
   attachBall(room.state, 'A');
   room.endHoldT = 0;
-  send(member.ws, { type: 'roomJoined', mode: 'match', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'match', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+  send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
+  send(member.ws, { type: 'matchStart', mode: 'botgame', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
   room.rosterVersion++; broadcastRoster(room);
 }
 
