@@ -2739,12 +2739,17 @@ function drawFanWall(x0, y0, x1, y1, color) {
 // The empty stadium seats are baked into the STATIC background (drawSeatChairs); the
 // card spectators sit in those seats and BOB per-frame as animated layers on top —
 // the local player's own album on their side (home), pooled on the far side.
-// The crowd animates as N offscreen layers, each with its own rapid, out-of-phase
-// jitter — overlapping they read as a chaotic jumping mob, not one smooth wave.
-const N_LAYERS = 6;
-const LAYERS = Array.from({ length: N_LAYERS }, (_, i) => ({
-  fy: 9 + i * 1.8, phy: i * 1.9, ay: 18 + (i % 3) * 7,    // BIG vertical jump: fast, varied (cards leap out of their seats)
-  fx: 4.5 + i * 0.9, phx: i * 2.7 + 1, ax: 0.6 + (i % 2) * 0.8, // barely any side sway
+// The crowd animates as offscreen layers. Each layer = one WAVE COLUMN (a vertical slice of
+// the bowl along X) × one ASYNC SUBGROUP. The column index drives a travelling Mexican wave
+// (phase steps across X); the subgroup gives each fan its own out-of-phase bob, so within the
+// same column neighbours jump ASYNCHRONOUSLY rather than as one block.
+const WAVE_COLS = 10;                       // wave resolution across the bowl width
+const SUBGROUPS = 3;                        // async jitter groups within a column
+const N_LAYERS = WAVE_COLS * SUBGROUPS;     // baked layers (~30 drawImage/frame)
+// Per-subgroup bob params — distinct freq/phase/amp so the three groups never sync up.
+const SUB = Array.from({ length: SUBGROUPS }, (_, i) => ({
+  fy: 8.5 + i * 2.3, phy: i * 2.1, ay: 15 + i * 6,          // vertical jump: fast, varied
+  fx: 4.5 + i * 0.9, phx: i * 2.7 + 1, ax: 0.6 + (i % 2) * 0.8, // slight side sway
 }));
 let audSeats = [];
 // The crowd is filled from ALL players' cards (see the fill block below + allCards): highest
