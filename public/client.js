@@ -3317,19 +3317,9 @@ function drawBall(b) {
 
 // Current aim of the local player (for the aim-to-shoot indicator).
 function currentAim() {
-  // TRUE-world aim for the indicator (drawn inside the mirrored world for team B, so not
-  // pre-flipped here). A QUICK shot (charge below full) AUTO-TARGETS, so the indicator points
-  // where the shot will actually GO — nearest enemy in sight, or the goal when carrying. A
-  // FULL charge honours your manual aim. Auto-aim applies to quick shots ONLY.
-  const manual = manualAim();
-  // A QUICK shot (charge below full) auto-targets, so show the guide toward where it'll GO
-  // whenever you're winding one up — whether you're manually aiming OR just holding the trigger
-  // centered (a no-aim quick shot). That guide is exactly the "quickshoot guide".
-  if (currentCharge() < FULL_CHARGE && (manual.aiming || holding)) {
-    const t = quickShotTarget();
-    if (t) return { aiming: true, ax: t.ax, ay: t.ay };
-  }
-  return manual;
+  // Auto-aim REMOVED (per request): the indicator always shows your MANUAL aim. Quick shots
+  // no longer auto-target the nearest enemy / goal — you point where you shoot.
+  return manualAim();
 }
 // Raw manual aim from the stick / mouse (true-world).
 function manualAim() {

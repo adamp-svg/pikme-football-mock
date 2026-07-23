@@ -519,14 +519,9 @@ export function step(state, inputs, dt) {
         // velocity direction == the intended aim exactly. A QUICK shot (anything short of a full
         // aimed charge) auto-aims at the nearest point on the enemy goal; a FULL aimed shot
         // honours the player's aim.
+        // Auto-aim REMOVED (per request): every shot — quick tap or charged — honours the
+        // player's manual aim. No goal-snapping on quick carrier shots.
         let dx = p.aimX, dy = p.aimY;
-        // AUTO-AIM applies to QUICK shots ONLY (a short tap). Any charged shot (medium/full)
-        // honours the player's manual aim — you charge up precisely, you don't get auto-aimed.
-        if (eff < QUICK_CHARGE) {
-          const tgt = nearestGoalPoint(state, p);
-          dx = tgt.x - b.x; dy = tgt.y - b.y;
-          const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
-        }
         b.owner = null;
         b.lastTouch = p.team;
         b.lastKicker = p.id; // who launched it — refills power if this kick bumps an enemy
@@ -541,14 +536,9 @@ export function step(state, inputs, dt) {
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
         // A FULL bullet strips a carrier; an OVERCHARGE bullet (isOver) strips AND pushes
         // harder — and spends the meter, same as an overcharge kick.
-        // #6: a QUICK bullet (not a full aimed shot) auto-aims at the nearest enemy IN LINE OF
-        // SIGHT (no wall / bush between); if none is visible it honours the manual aim.
-        let ax = p.aimX, ay = p.aimY;
-        // AUTO-AIM on QUICK bullets only (short tap); a charged/aimed bullet honours manual aim.
-        if (eff < QUICK_CHARGE) {
-          const foe = nearestVisibleEnemy(state, p);
-          if (foe) { const ex = foe.x - p.x, ey = foe.y - p.y, el = Math.hypot(ex, ey) || 1; ax = ex / el; ay = ey / el; }
-        }
+        // Auto-aim REMOVED (per request): quick bullets honour manual aim too — no
+        // snapping to the nearest enemy. You point where you shoot.
+        const ax = p.aimX, ay = p.aimY;
         fireBullet(state, p, ch, eff, isOver, ax, ay);
         // NOTE: firing does NOT fill the super meter — only a bullet HITTING an enemy does (see applyBulletHit).
         p.ammo -= 1;
