@@ -1,0 +1,35 @@
+# Agent Request Log (football-mock)
+
+Purpose: log every user request so another agent can pick up if this one fails.
+Owner agent session: 420620d1 (Opus 4.8)
+Working dir: /Users/adamleeperelman/Documents/pikeme/football-mock
+Branch at start: feat/build-bomb-cancel
+Protocol: localhost only · commit everything · lock task via agent-orchestration · short-bullet answers
+
+---
+
+## Request 1 — 2026-07-23
+**User:** Start working on the football game. Other agents active → lock my task. All changes localhost, commit everything. Log every request for handoff. Answers = short bullets.
+**Status:** Acknowledged. Awaiting concrete task. Uncommitted at start: `public/client.js`, `public/index.html` (M), `summery/TASK-field-builder.md` (untracked).
+**Next:** Receive task → acquire lock → work → commit.
+
+## Request 2 — 2026-07-23
+**User:** Build a cool dancing animation for the main lobby hero. Research Fortnite dances + Brawl Stars movement + Roblox first. Show 20 examples in an artifact to choose from.
+**Lock:** `lobby-hero-dance-animation` (agent dance-hero).
+**Findings (rig):**
+- Lobby hero = `<canvas id="home-char">` in `#pick-hero-btn` (index.html:63-64), animated by `renderHomeCharacter()` / home-dance loop (client.js:1232-1260) via `drawHero()` from `public/heroes.js`.
+- `drawHero(ctx, ox, feetY, sf, dir, walkPhase, moving, firing, cosmeticId, kit, t, anim)`.
+- Poses are pure fns of `time` returning `{bob,rot,dx,dy,swing,shScale, pt:{Lf,Rf,Lh,Rh,Lk?,Rk?}}` in sprite units. Rest: feet `±2.5,27`, hands `±6.5,17`, hips `±3,18`, shoulders `±6,10`, head `y0-9`.
+- Existing anim actions in `resolvePose` (heroes.js:232) incl. `celebrate`(shufflePose), `idle`, `run`, `concede`. New dances = add `case`s here + pose fns.
+**Plan:** research → build 20 dance pose fns → self-contained artifact previewing them with the REAL renderer inlined (striker/red kit) → user picks → wire chosen ones into heroes.js + home-dance loop.
+**Deliverable:** `summery/dance-hero-previews.html` — self-contained artifact, 20 looping emotes rendered with the REAL `drawHero` (inlined verbatim + optional `sx/sy` body-scale for squash&stretch). Hero/kit/speed/play controls + source filters + shortlist tray w/ "Copy list".
+**Artifact URL:** https://claude.ai/code/artifact/cc996bde-a46e-47c7-9783-18e530c1c729
+**The 20 (key · source):** floss·FN, orange·FN, takel·FN, default·FN, shuffle·FN, pony·FN, hype·FN, bounce·BRAWL, victory·BRAWL, taunt·BRAWL, stomp·BRAWL, rbx-dance·RBX, rbx-disco·RBX, rbx-cheer·RBX, rbx-wave·RBX, juggle·FOOTBALL, siu·FOOTBALL, slide·FOOTBALL, robot·STYLE, noodle·STYLE.
+**Verified:** node syntax-check + stubbed-DOM runtime + 8s sweep across all 20 (9420 draws, 0 non-finite coords).
+**Status:** DONE — awaiting user's pick(s).
+**HANDOFF (if I fail) — wiring a chosen dance into the game:**
+1. Copy its pose fn from the artifact's `DANCES` array into `public/heroes.js` (units already match: feet ±2.5,27 · hands ±6.5,17 · lower y=higher).
+2. If the pose uses `sx`/`sy` (squash&stretch: hype/victory/bounce/stomp/siu), add the 1-line scale-about-feet block to `drawHero` (see artifact's `drawHeroPose`, the `A.sx/A.sy` translate+scale) — real heroes.js doesn't have it yet.
+3. Add a `case` in `resolvePose` (heroes.js:232) OR drive it from the home-dance loop in `client.js:1232-1260` (`renderHomeCharacter`) by passing an `anim:{action:'<key>'}` / calling the pose directly.
+4. Home hero canvas = `#home-char` in `#pick-hero-btn` (index.html:63-64).
+**Not touched:** heroes.js / client.js / index.html (no game-code edits until user picks).

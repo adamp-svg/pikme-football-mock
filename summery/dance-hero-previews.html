@@ -1,0 +1,517 @@
+<title>Hero Dance Lab</title>
+<style>
+  :root{
+    --bg:#0f1119; --bg2:#0b0d14; --panel:#171a24; --panel2:#1d2130;
+    --line:#252a38; --line2:#2f3547;
+    --ink:#eef0f5; --muted:#9aa1b2; --faint:#6b7285;
+    --accent:#e64a4f; --accent-ink:#ff6b70;
+    --turf:#39d98a; --gold:#f2c14e;
+    --src-fortnite:#a97bff; --src-brawl:#f2c14e; --src-roblox:#39d98a; --src-football:#e64a4f; --src-style:#39e6d6;
+    --stage-1:#20263a; --stage-2:#12141d;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px -12px rgba(0,0,0,.6);
+    --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:light){
+    :root{
+      --bg:#eef0f5; --bg2:#e5e8f0; --panel:#ffffff; --panel2:#f6f7fb;
+      --line:#dde1ea; --line2:#c9cfdd;
+      --ink:#161a24; --muted:#5a6274; --faint:#8891a3;
+      --stage-1:#e9edf7; --stage-2:#f7f9fe;
+      --shadow:0 1px 0 rgba(255,255,255,.7), 0 12px 30px -14px rgba(30,40,70,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1119; --bg2:#0b0d14; --panel:#171a24; --panel2:#1d2130;
+    --line:#252a38; --line2:#2f3547; --ink:#eef0f5; --muted:#9aa1b2; --faint:#6b7285;
+    --stage-1:#20263a; --stage-2:#12141d;
+    --shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px -12px rgba(0,0,0,.6);
+  }
+  :root[data-theme="light"]{
+    --bg:#eef0f5; --bg2:#e5e8f0; --panel:#ffffff; --panel2:#f6f7fb;
+    --line:#dde1ea; --line2:#c9cfdd; --ink:#161a24; --muted:#5a6274; --faint:#8891a3;
+    --stage-1:#e9edf7; --stage-2:#f7f9fe;
+    --shadow:0 1px 0 rgba(255,255,255,.7), 0 12px 30px -14px rgba(30,40,70,.35);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:
+      radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb,var(--accent) 8%, transparent), transparent 60%),
+      var(--bg);
+    color:var(--ink); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:28px 20px 120px;}
+
+  /* ---- header ---- */
+  header{display:flex; flex-direction:column; gap:14px; margin-bottom:22px;}
+  .eyebrow{font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted);
+    display:flex; align-items:center; gap:10px;}
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);}
+  h1{margin:0; font-size:clamp(30px,5vw,46px); font-weight:850; letter-spacing:-.02em; line-height:.98; text-wrap:balance;
+    text-transform:uppercase;}
+  h1 .thin{font-weight:400; color:var(--muted); -webkit-text-stroke:0;}
+  .lede{margin:0; max-width:64ch; color:var(--muted); font-size:15px; line-height:1.55;}
+  .lede b{color:var(--ink); font-weight:600;}
+
+  /* ---- controls bar ---- */
+  .bar{position:sticky; top:0; z-index:20; margin:6px 0 22px;
+    background:color-mix(in srgb,var(--panel) 88%, transparent); backdrop-filter:blur(10px);
+    border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow);
+    display:flex; flex-wrap:wrap; align-items:center; gap:14px 18px; padding:12px 14px;}
+  .ctl{display:flex; align-items:center; gap:8px;}
+  .ctl > label{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint);}
+  select, .btn{font-family:var(--mono); font-size:13px; color:var(--ink); background:var(--panel2);
+    border:1px solid var(--line2); border-radius:9px; padding:7px 10px; cursor:pointer;}
+  select:focus-visible, .btn:focus-visible, .chip:focus-visible, .card:focus-visible{outline:2px solid var(--accent-ink); outline-offset:2px;}
+  .seg{display:inline-flex; border:1px solid var(--line2); border-radius:9px; overflow:hidden;}
+  .seg button{font-family:var(--mono); font-size:12px; padding:7px 11px; background:var(--panel2); color:var(--muted); border:0; cursor:pointer;}
+  .seg button[aria-pressed="true"]{background:var(--accent); color:#fff;}
+  input[type=range]{accent-color:var(--accent); width:110px;}
+  .spd{font-family:var(--mono); font-size:12px; color:var(--muted); min-width:34px; font-variant-numeric:tabular-nums;}
+  .btn.play{min-width:96px; text-align:center; font-weight:600;}
+  .btn.play[data-on="true"]{border-color:var(--turf); color:var(--turf);}
+  .spacer{flex:1 1 40px;}
+
+  .filters{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;}
+  .chip{font-family:var(--mono); font-size:12px; letter-spacing:.04em; padding:6px 12px; border-radius:999px;
+    border:1px solid var(--line2); background:var(--panel); color:var(--muted); cursor:pointer; display:inline-flex; gap:7px; align-items:center;}
+  .chip .sw{width:8px;height:8px;border-radius:2px;background:var(--c,var(--muted));}
+  .chip[aria-pressed="true"]{color:var(--ink); border-color:var(--c,var(--line2)); background:color-mix(in srgb,var(--c,var(--panel)) 14%, var(--panel));}
+  .chip[data-all="1"][aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink);}
+
+  /* ---- grid ---- */
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px;}
+  .card{position:relative; border:1px solid var(--line); border-radius:16px; background:var(--panel);
+    box-shadow:var(--shadow); padding:12px; cursor:pointer; transition:border-color .15s, transform .15s;
+    display:flex; flex-direction:column; gap:10px; text-align:left; color:inherit; font:inherit;}
+  .card:hover{transform:translateY(-2px); border-color:var(--line2);}
+  .card[data-picked="true"]{border-color:var(--accent);
+    box-shadow:0 0 0 1px var(--accent), 0 0 26px -6px color-mix(in srgb,var(--accent) 60%, transparent), var(--shadow);}
+  .card[hidden]{display:none;}
+  .idx{position:absolute; top:10px; left:12px; font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.05em;}
+  .stage{position:relative; border-radius:11px; overflow:hidden; aspect-ratio:176/200;
+    background:
+      radial-gradient(120% 78% at 50% 8%, color-mix(in srgb,var(--src) 26%, var(--stage-1)) 0%, var(--stage-1) 42%, var(--stage-2) 100%);
+    border:1px solid var(--line);}
+  .stage::after{content:""; position:absolute; left:14%; right:14%; bottom:13%; height:14px; border-radius:50%;
+    background:radial-gradient(closest-side, rgba(0,0,0,.35), transparent); filter:blur(1px);}
+  canvas{display:block; width:100%; height:100%; image-rendering:pixelated; position:relative; z-index:1;}
+  .meta{display:flex; align-items:flex-start; justify-content:space-between; gap:8px;}
+  .name{font-weight:750; font-size:15px; letter-spacing:-.01em; line-height:1.15;}
+  .note{font-family:var(--mono); font-size:11px; color:var(--muted); line-height:1.35; margin-top:2px;}
+  .tag{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; padding:3px 7px; border-radius:6px;
+    white-space:nowrap; color:var(--src); background:color-mix(in srgb,var(--src) 16%, transparent);
+    border:1px solid color-mix(in srgb,var(--src) 40%, transparent);}
+  .star{position:absolute; top:8px; right:8px; z-index:3; width:30px;height:30px; border-radius:9px;
+    display:grid; place-items:center; border:1px solid var(--line2); background:color-mix(in srgb,var(--panel) 70%, transparent);
+    color:var(--faint); font-size:15px; line-height:1; cursor:pointer;}
+  .card[data-picked="true"] .star{color:var(--gold); border-color:var(--gold); background:color-mix(in srgb,var(--gold) 16%, var(--panel));}
+
+  /* ---- shortlist footer ---- */
+  .tray{position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:color-mix(in srgb,var(--panel) 92%, transparent); backdrop-filter:blur(12px);
+    border-top:1px solid var(--line); padding:12px 20px;
+    display:flex; align-items:center; gap:14px;}
+  .tray .lbl{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint);}
+  .tray .count{font-weight:800; color:var(--accent-ink); font-variant-numeric:tabular-nums;}
+  .picks{flex:1; min-width:0; display:flex; gap:7px; overflow-x:auto; padding-bottom:2px;}
+  .picks .p{font-family:var(--mono); font-size:12px; white-space:nowrap; padding:5px 9px; border-radius:7px;
+    background:var(--panel2); border:1px solid var(--line2); color:var(--ink);}
+  .picks .empty{color:var(--faint); font-family:var(--mono); font-size:12px;}
+  .btn.primary{background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600;}
+  .btn.primary:disabled{opacity:.4; cursor:not-allowed;}
+  .rm-note{font-family:var(--mono); font-size:11px; color:var(--faint);}
+
+  @media (prefers-reduced-motion:reduce){ .card:hover{transform:none;} }
+  @media (max-width:560px){ .grid{grid-template-columns:repeat(auto-fill,minmax(46%,1fr));} .lede{font-size:14px;} }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow"><span class="dot"></span> PIKME FC · LOBBY HERO · EMOTE LAB</div>
+    <h1>Hero Dance Lab <span class="thin">— pick the lobby move</span></h1>
+    <p class="lede">Twenty looping emotes, drawn with the <b>live in-game renderer</b> (<code>heroes.js</code>) — so what you shortlist is exactly what the lobby hero will do. Inspired by <b>Fortnite</b> emotes, <b>Brawl Stars</b> squash-&-stretch, <b>Roblox</b> classics, and the pitch itself. Tap a card to shortlist.</p>
+  </header>
+
+  <div class="bar" role="toolbar" aria-label="Preview controls">
+    <div class="ctl"><label for="hero">Hero</label>
+      <select id="hero">
+        <option value="striker:base">Striker</option>
+        <option value="ninja:base">Ninja</option>
+        <option value="robot:base">Robot</option>
+        <option value="cat:base">Cat</option>
+        <option value="alien:base">Alien</option>
+        <option value="wizard:base">Wizard</option>
+        <option value="dwarf:base">Dwarf</option>
+        <option value="cowboy:base">Cowboy</option>
+        <option value="pirate:base">Pirate</option>
+      </select>
+    </div>
+    <div class="ctl"><label>Kit</label>
+      <div class="seg" id="kit">
+        <button data-kit="red" aria-pressed="true">Red</button>
+        <button data-kit="blue" aria-pressed="false">Blue</button>
+      </div>
+    </div>
+    <div class="ctl"><label for="spd">Speed</label>
+      <input type="range" id="spd" min="0.25" max="2" step="0.05" value="1">
+      <span class="spd" id="spdval">1.00×</span>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn play" id="play" data-on="true">⏸ Pause</button>
+  </div>
+
+  <div class="filters" id="filters" role="group" aria-label="Filter by source"></div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="tray">
+  <span class="lbl">Shortlist</span><span class="count" id="count">0</span>
+  <div class="picks" id="picks"><span class="empty">nothing picked yet — tap a card ★</span></div>
+  <span class="rm-note" id="rmnote"></span>
+  <button class="btn primary" id="copy" disabled>Copy list</button>
+</div>
+
+<script>
+"use strict";
+/* ======================================================================
+   heroes.js — INLINED verbatim renderer (+ optional sx/sy body-scale for
+   squash & stretch). Kept 1:1 with public/heroes.js so previews are exact.
+   ====================================================================== */
+const PI = Math.PI, S = Math.sin, C = Math.cos;
+const lerp = (a,b,t)=> a+(b-a)*(t<0?0:t>1?1:t);
+function px(ctx,x,y,w,h,col){ ctx.fillStyle=col; ctx.fillRect(Math.round(x),Math.round(y),Math.max(1,Math.round(w)),Math.max(1,Math.round(h))); }
+function shade(hex,amt){ amt=amt||26; if(!hex||hex[0]!=='#') return hex;
+  const n=parseInt(hex.slice(1),16); let r=(n>>16)-amt,g=((n>>8)&255)-amt,b=(n&255)-amt;
+  r=Math.max(0,r);g=Math.max(0,g);b=Math.max(0,b); return '#'+((r<<16)|(g<<8)|b).toString(16).padStart(6,'0'); }
+
+function wingsAngel(H){ const {p,swing}=H,w='#f5f5ef',wS='#d4d4cb',f=swing;
+  p(-13,6+f,4,2,w);p(-12,8+f,5,2,w);p(-11,10+f,5,2,wS);p(-10,12+f,4,2,w);p(-10,4+f,3,2,w);
+  p(9,6-f,4,2,w);p(7,8-f,5,2,w);p(6,10-f,5,2,wS);p(6,12-f,4,2,w);p(7,4-f,3,2,w); }
+function wingsTech(H){ const {p,swing}=H,m='#8b95a1',mS='#5f6772',e='#39e6d6',f=swing;
+  p(-12,7+f,5,2,m);p(-13,9+f,6,2,mS);p(-12,11+f,5,1,e); p(7,7-f,5,2,m);p(7,9-f,6,2,mS);p(7,11-f,5,1,e); }
+function cape(H,col){ const {p,swing}=H,s=swing*0.6,cS=shade(col,30);
+  p(-5,9,10,3,col);p(-5+s,12,10,4,col);p(-4+s*1.4,16,8,4,cS);p(-3+s*1.8,20,6,3,col); }
+function tails(H,n,col,colS){ const {p,swing}=H;
+  for(let i=0;i<n;i++){ const off=(i-(n-1)/2)*2.4,f=swing*0.6+i*0.5;
+    p(5+i,13,2,2,col);p(6+i+off*0.3,10,2,3,col);p(7+i+off*0.6,7+f,2,3,col);p(8+i+off,5+f,2,2,colS); } }
+function katana(H){ const {p}=H; p(-8,20,2,2,'#20242b');p(-6,17,2,2,'#20242b');p(-4,14,2,2,'#20242b');
+  p(-2,11,2,2,'#cdd3da');p(0,8,2,2,'#cdd3da');p(2,5,2,2,'#e6ebf0');p(-3,11,2,1,'#8a6a2a'); }
+function kimono(H,col,sashCol){ const {p}=H,cS=shade(col,28);
+  p(-6,9,12,9,col);p(-6,9,2,9,cS);p(4,9,2,9,cS);p(-1,9,2,6,cS);
+  p(-6,17,12,4,col);p(-7,21,14,3,col);p(-7,24,14,1,cS); p(-6,15,12,2,sashCol);p(-1,15,2,5,shade(sashCol,30)); }
+function shoulderPads(H,col){ const {p}=H; p(-8,8,4,3,col);p(4,8,4,3,col); }
+function poncho(H,col){ const {p}=H,cS=shade(col,26);
+  p(-7,9,14,2,col);p(-6,11,12,5,col);p(-5,16,10,2,cS);p(-1,9,2,7,cS);p(-6,13,12,1,'#e8c060'); }
+function starBadge(H){ const {p}=H; p(-1,10,2,3,'#f2c14e');p(-2,11,4,1,'#f2c14e');p(-1,10,1,1,'#ffe08a'); }
+function starryRobe(H){ const {p,phase}=H,c='#171247',cS='#0d0a2b',tw=S(phase*2)>0;
+  p(-6,9,12,10,c);p(-6,9,2,10,cS);p(4,9,2,10,cS);p(-6,19,12,3,c);p(-7,22,14,2,c);
+  p(-3,11,1,1,tw?'#fff':'#8899bb');p(2,13,1,1,'#fff');p(0,16,1,1,tw?'#cfe':'#7788aa');p(-4,15,1,1,'#fff');p(3,10,1,1,'#fff'); }
+function chestCore(H,col){ const {p}=H; p(-2,12,4,3,col);p(-1,11,2,1,'#eafffb');p(-1,15,2,1,shade(col,40)); }
+
+const HERO_DEFS = {
+  striker:{ head(H){ const {p,hair,hairS,skS}=H; p(-5,0,10,3,hair);p(-5,0,2,6,hairS);p(3,0,2,6,hairS);H.eyes();p(-1,7,3,1,skS); },
+    signature:{ back:(H)=>wingsAngel(H), front:(H)=>{ const {p}=H; p(-8,10,3,1,'#f2c14e'); starBadge(H); } } },
+  dwarf:{ head(H){ const {p,ex,wht,eye}=H; const beard='#c8671f',beardS='#a3521a',met='#8a8f98',metS='#5f646c',iv='#e8e2d0';
+      p(-6,-2,12,4,met);p(-6,1,12,1,metS);p(-9,-3,3,2,iv);p(-9,-4,1,1,iv);p(6,-3,3,2,iv);p(8,-4,1,1,iv);
+      p(-3+ex,3,2,2,wht);p(1+ex,3,2,2,wht);p(-2+ex,3,1,2,eye);p(2+ex,3,1,2,eye);
+      p(-3,5,6,1,beardS);p(-5,6,10,6,beard);p(-4,12,8,2,beard);p(-2,14,4,1,beard);p(-5,6,2,6,beardS);p(3,6,2,6,beardS); },
+    signature:{ glow:true,glowCol:'#ffb347',back:(H)=>cape(H,'#7a1f1f'),front:(H)=>{ const {p}=H; p(-4,-1,2,2,'#ffd76a');p(2,-1,2,2,'#ffd76a'); } } },
+  cowboy:{ head(H){ const {p,skS,K}=H; H.eyes();p(-4,7,8,1,skS);p(-1,8,3,1,skS);p(-5,8.5,10,2,K.J);
+      p(-4,-4,8,4,'#6f4a24');p(-4,-2,8,1,'#5a3a1c');p(-4,-1,8,1,'#8a5e30');p(-8,-1,16,2,'#7a5228');p(-8,1,16,1,'#5a3a1c'); },
+    signature:{ jersey:'#caa76b',jerseyShade:'#9c7f4a',front:(H)=>{ poncho(H,'#8a5a2f'); starBadge(H); } } },
+  cat:{ back(H){ const {p,swing,sk,skS}=H; p(6,14,2,2,sk);p(7,11,2,3,sk);p(8,8+swing,2,3,sk);p(9,6+swing,2,2,skS); },
+    head(H){ const {p,ex,wht,sk}=H; const pink='#e88aa0',ce='#7bd06a',slit='#12300c';
+      p(-5,-3,3,3,sk);p(2,-3,3,3,sk);p(-4,-2,1,1,pink);p(3,-2,1,1,pink);
+      p(-3+ex,4,2,2,ce);p(1+ex,4,2,2,ce);p(-2+ex,4,1,2,slit);p(2+ex,4,1,2,slit);
+      p(-1,6,2,1,pink);p(-9,6,4,1,wht);p(5,6,4,1,wht);p(-9,7,3,1,wht);p(6,7,3,1,wht);p(-1,7,3,1,H.skS); },
+    signature:{ jersey:'#f0e6cf',jerseyShade:'#d8b46a',glow:true,glowCol:'#ffcf6a',back:(H)=>tails(H,3,'#f3ead3','#e0b25c') } },
+  ninja:{ back(H){ const {p,swing,K}=H; p(6,1,4,1,K.J);p(8,2+swing,3,1,K.JS);p(10,3+swing,2,1,K.J); },
+    head(H){ const {p,ex,wht,eye,K}=H; const cloth='#26303a',clothS='#161d24';
+      p(-5,0,10,9,cloth);p(-5,0,2,9,clothS);p(3,0,2,9,clothS);p(-5,3,10,1,K.J);p(-4,4.5,8,2,'#e7b072');
+      p(-3+ex,4.5,2,2,wht);p(1+ex,4.5,2,2,wht);p(-2+ex,4.5,1,2,eye);p(2+ex,4.5,1,2,eye); },
+    signature:{ jersey:'#3a1f22',jerseyShade:'#241315',back:(H)=>katana(H),front:(H)=>{ kimono(H,'#8a1f2b','#e8c060'); shoulderPads(H,'#2a2a2f'); const {p}=H; p(-2,-1,4,1,'#e8c060'); } } },
+  robot:{ skin:'#aab2bc',skinS:'#79828d',
+    head(H){ const {p,ex,phase}=H; const met='#aab2bc',metS='#79828d',metH='#d8dde2';
+      p(-5,0,10,9,met);p(-5,0,10,1,metH);p(-5,8,10,1,metS);p(-5,0,2,9,metS);p(3,0,2,9,metS);
+      p(-1,-4,1,4,metS);p(-2,-5,3,2,S(phase*1.5)>0?'#ff5a5a':'#7a2020');
+      p(-4,4,8,2,'#0f2430');p(-3+ex,4,3,2,'#39e6d6');p(-3,7,6,1,metS);p(-2,7,1,1,met);p(0,7,1,1,met);p(2,7,1,1,met); },
+    signature:{ glow:true,glowCol:'#39e6d6',back:(H)=>wingsTech(H),front:(H)=>chestCore(H,'#39e6d6') } },
+  pirate:{ head(H){ const {p,ex,wht,eye,skS}=H;
+      p(-5,0,10,3,'#c23b3b');p(-5,0,10,1,'#dd6a6a');p(-3,1,1,1,wht);p(1,1,1,1,wht);
+      p(-8,2,2,2,'#c23b3b');p(-9,3,2,3,'#9a2f2f');p(-5,3,10,1,'#0c0c0c');
+      p(-3+ex,4,2,2,wht);p(-2+ex,4,1,2,eye);p(1,4,3,3,'#0c0c0c');
+      p(-4,7,8,2,skS);p(-1,8,3,1,'#2a1e14');p(-6,7,1,2,'#f2c14e'); },
+    signature:{ jersey:'#5f7d6e',jerseyShade:'#3f5749',alpha:0.5,glow:true,glowCol:'#7bffb0' } },
+  wizard:{ head(H){ const {p,ex,wht,eye}=H; const bd='#e9e7de',bdS='#c8c6bd',ht='#5a3aa8',htS='#3f2a7a';
+      p(-3+ex,3,2,2,wht);p(1+ex,3,2,2,wht);p(-2+ex,3,1,2,eye);p(2+ex,3,1,2,eye);
+      p(-4,4,8,1,bd);p(-5,5,10,7,bd);p(-4,12,8,2,bd);p(-2,14,4,2,bd);p(-5,5,2,7,bdS);p(3,5,2,7,bdS);
+      p(-5,-1,10,2,ht);p(-4,-3,8,2,ht);p(-3,-5,6,2,ht);p(-2,-7,4,2,ht);p(-1,-9,2,2,ht);
+      p(-4,-3,2,4,htS);p(-5,-1,10,1,'#f2c14e');p(-1,-4,2,2,'#f2c14e'); },
+    signature:{ jersey:'#1b1740',jerseyShade:'#0f0d26',glow:true,glowCol:'#a97bff',hover:0.5,front:(H)=>starryRobe(H) } },
+  alien:{ skin:'#7ad46a',skinS:'#4fa843',
+    head(H){ const {p,ex}=H; const g='#7ad46a',gS='#4fa843',gH='#a2e894';
+      p(-5,0,10,9,g);p(-4,-1,8,1,g);p(-5,0,10,1,gH);p(-5,0,2,9,gS);p(3,0,2,9,gS);
+      p(-4+ex,4,3,3,'#0a0a0a');p(1+ex,4,3,3,'#0a0a0a');p(-3+ex,4,1,1,'#fff');p(2+ex,4,1,1,'#fff');
+      p(-1,8,2,1,gS);p(-3,-3,1,3,g);p(-4,-5,2,1,gH);p(-4,-4,2,1,g);p(2,-3,1,3,g);p(3,-5,2,1,gH);p(3,-4,2,1,g); },
+    signature:{ glow:true,glowCol:'#9dff6a',hover:1.2 } },
+};
+const FINISHES = { base:{}, gold:{ jersey:'#f4c752',jerseyShade:'#b8892b',sparkle:true }, holo:{ hue:true } };
+function normalizeCosmetic(id){ if(!id||id.indexOf(':')<0) return 'striker:base'; const hk=id.slice(0,id.indexOf(':')); return HERO_DEFS[hk]?id:'striker:base'; }
+
+function segLine(P,x0,v0,x1,v1,w,col,endCol){ const dx=x1-x0,dv=v1-v0,n=Math.max(1,Math.ceil(Math.hypot(dx,dv)/1.02));
+  for(let i=0;i<=n;i++){ const t=i/n; P(x0+dx*t-w/2,v0+dv*t-w/2,w,w,(endCol&&i>=n-1)?endCol:col); } }
+function limb2(P,hx,hv,fx,fv,bx,bv,w,col,endCol){ const kx=(hx+fx)/2+bx,kv=(hv+fv)/2+bv;
+  segLine(P,hx,hv,kx,kv,w,col); segLine(P,kx,kv,fx,fv,w,col,endCol); }
+
+/* draw one resolved pose A (adapted from drawHero; adds A.sx/A.sy) */
+function drawHeroPose(ctx,ox,feetY,sf,cosmeticId,kit,time,A){
+  const id=normalizeCosmetic(cosmeticId);
+  const cut=id.indexOf(':'),hk=id.slice(0,cut),sKey=id.slice(cut+1);
+  const hero=HERO_DEFS[hk]||HERO_DEFS.striker;
+  const skin=sKey==='sig'?(hero.signature||{}):(FINISHES[sKey]||{});
+  const trueK=kit||{J:'#e64a4f',JS:'#b8383c'};
+  const facing=A.facing;
+  const lift=skin.hover?(skin.hover*4+S(time*3.2)*1.5):0;
+  const bob=A.bob;
+  const Sc=(u)=>u*sf, X=(u)=>ox+Sc(u), Y=(v)=>feetY+Sc(-28-bob+v);
+  const p=(u,v,w,h,c)=>px(ctx,X(u),Y(v),Sc(w),Sc(h),c);
+  let J=skin.jersey||trueK.J, JS=skin.jerseyShade||trueK.JS;
+  if(skin.hue){ const h=(time*70)%360; J=`hsl(${h},85%,60%)`; JS=`hsl(${h},70%,42%)`; }
+  const effK={J,JS};
+  const skCol=hero.skin||'#e7b072', skS=hero.skinS||'#c8925a';
+  const hair='#3a2a17',hairS='#2c2012',eye='#20242b',wht='#f2efe4',boot='#20232a';
+  const H={ p,X,Y,S:Sc,ex:A.exSign,dir:1,sk:skCol,skS,hair,hairS,eye,wht,boot,K:effK,trueK,phase:time*7,swing:A.swing||0,
+    eyes(col){ const e=col||eye; p(-3+A.exSign,4,2,2,wht);p(1+A.exSign,4,2,2,wht);p(-2+A.exSign,4,1,2,e);p(2+A.exSign,4,1,2,e); } };
+  ctx.save();
+  if(skin.alpha!=null) ctx.globalAlpha=skin.alpha;
+  if(skin.hover){ const gc=skin.glowCol||'#9dff6a'; ctx.save(); ctx.globalAlpha=.5; ctx.fillStyle=gc; ctx.shadowColor=gc; ctx.shadowBlur=sf*2.4;
+    ctx.beginPath(); ctx.ellipse(ox,feetY,Sc(7),Sc(2),0,0,7); ctx.fill(); ctx.restore(); }
+  else { const shx=ox+A.flip*(A.dx||0)*sf, sc=A.shScale==null?1:A.shScale;
+    ctx.save(); ctx.globalAlpha=0.30*Math.max(0.25,sc); ctx.fillStyle='#000';
+    ctx.beginPath(); ctx.ellipse(shx,feetY,Sc(7)*Math.max(0.3,sc),Sc(2.2)*Math.max(0.3,sc),0,0,7); ctx.fill(); ctx.restore(); }
+  if(A.flip<0){ ctx.translate(ox,0); ctx.scale(-1,1); ctx.translate(-ox,0); }
+  ctx.translate((A.dx||0)*sf,((A.dy||0)-lift)*sf);
+  if((A.sx!=null&&A.sx!==1)||(A.sy!=null&&A.sy!==1)){ ctx.translate(ox,feetY); ctx.scale(A.sx==null?1:A.sx,A.sy==null?1:A.sy); ctx.translate(-ox,-feetY); }
+  if(A.rot){ ctx.translate(ox,feetY); ctx.rotate(A.rot); ctx.translate(-ox,-feetY); }
+  if(skin.glow){ ctx.shadowColor=skin.glowCol||trueK.J; ctx.shadowBlur=sf*2.2; }
+  if(skin.back) skin.back(H);
+  if(hero.back) hero.back(H);
+  const lk=A.pt.Lk||[0,-1], rk=A.pt.Rk||[0,-1];
+  limb2(p,-3,18,A.pt.Lf[0],A.pt.Lf[1],lk[0],lk[1],3,skCol,boot);
+  limb2(p,3,18,A.pt.Rf[0],A.pt.Rf[1],rk[0],rk[1],3,skCol,boot);
+  const override=!!(skin.jersey||skin.hue);
+  p(-5,17,10,4,override?trueK.J:'#eef0f2'); p(-5,20,10,1,override?trueK.JS:'#c9cdd2');
+  p(-5,9,10,9,J); p(-5,9,2,9,JS); p(3,9,2,9,JS);
+  if(facing==='back'){ p(-2,11,4,5,wht); p(-1,12,2,3,JS); } else p(-1,11,2,5,wht);
+  p(-5,9,10,override?2:1,trueK.J);
+  limb2(p,-6,10,A.pt.Lh[0],A.pt.Lh[1],-0.6,1,3,trueK.J,skCol);
+  limb2(p,6,10,A.pt.Rh[0],A.pt.Rh[1],0.6,1,3,trueK.J,skCol);
+  p(-5,0,10,9,skCol);
+  if(facing==='back'){ const cap=skCol==='#e7b072'?hair:shade(skCol,30);
+    p(-5,0,10,5,cap);p(-5,0,2,9,shade(skCol,20));p(3,0,2,9,shade(skCol,20)); }
+  else hero.head(H);
+  if(skin.front) skin.front(H);
+  if(skin.glow) ctx.shadowBlur=0;
+  if(skin.sparkle){ const spots=[[-4,3],[4,12],[-2,19],[3,6],[0,15]];
+    spots.forEach((s,i)=>{ const tw=S(time*4+i*1.7); if(tw>0.3){ ctx.globalAlpha=tw; p(s[0],s[1],1,1,'#fff6cf'); p(s[0],s[1]-1,1,1,'#fff6cf'); } });
+    ctx.globalAlpha=1; }
+  ctx.restore();
+}
+
+/* ======================================================================
+   DANCES — 20 pose functions. Each maps time (s) → partial pose in the
+   same sprite units heroes.js uses (feet ±2.5,27 · hands ±6.5,17 · lower
+   y = higher). sx/sy = body squash/stretch about the feet.
+   ====================================================================== */
+const abs=Math.abs;
+const DANCES = [
+  // ---------- FORTNITE ----------
+  { key:'floss', name:'The Floss', src:'fortnite', note:'arms swing one way, hips the other',
+    fn(t){ const s=S(t*7); return { bob:abs(C(t*7))*0.6, dx:-s*2, rot:s*0.02,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-6.5+s*4.5,17+s*2], Rh:[6.5+s*4.5,17-s*2] } }; } },
+  { key:'orange', name:'Orange Justice', src:'fortnite', note:'quirky freestyle flail',
+    fn(t){ const a=t*8,b=t*5.3,c=t*11; return { bob:abs(S(a))*0.9, rot:S(b)*0.06, dx:S(b*0.7)*1.5,
+      pt:{ Lf:[-2.5+S(a)*1.5,27-Math.max(0,S(a))*1.5], Rf:[2.5+C(a)*1.5,27-Math.max(0,-S(a))*1.5],
+        Lh:[-7+S(c)*3,14+C(a)*4], Rh:[7+C(c)*3,14+S(a*1.3)*4] } }; } },
+  { key:'takel', name:'Take the L', src:'fortnite', note:'skating kick + L on the forehead',
+    fn(t){ const sw=S(t*3.2), kick=Math.max(0,sw); return { rot:sw*0.14, bob:abs(C(t*3.2))*1.2, dx:sw*2.5,
+      pt:{ Lf:[-3,27], Rf:[3+kick*5,27-kick*4], Lh:[-3,1], Rh:[5,15] } }; } },
+  { key:'default', name:'Dance Moves', src:'fortnite', note:'the OG default — arm pump + sway',
+    fn(t){ const pump=S(t*6); return { bob:abs(C(t*3))*0.7, dx:S(t*3)*1.8, rot:S(t*3)*0.04,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-4,3+pump*1], Rh:[5+Math.max(0,pump)*3,13-Math.max(0,pump)*2] } }; } },
+  { key:'shuffle', name:'Electro Shuffle', src:'fortnite', note:'running-man footwork, arms opposite',
+    fn(t){ const f=t*7, s=S(f); return { bob:abs(C(f))*0.8, rot:s*0.03,
+      pt:{ Lf:[-3+(s>0?s*3:0),27-Math.max(0,s)*4], Rf:[3+(s<0?-s*3:0),27-Math.max(0,-s)*4],
+        Lk:[Math.max(0,s)*2,-1], Rk:[Math.max(0,-s)*2,-1], Lh:[-7,15+s*3], Rh:[7,15-s*3] } }; } },
+  { key:'pony', name:'Ride the Pony', src:'fortnite', note:'gallop bounce + overhead lasso',
+    fn(t){ const bounce=abs(S(t*6)), lasso=t*9; return { bob:bounce*1.6, dx:S(t*3)*2, rot:S(t*3)*0.05,
+      pt:{ Lf:[-3,27-bounce*1.5], Rf:[3,27-bounce*1.5], Lk:[0,-2], Rk:[0,-2], Lh:[-5,15], Rh:[6+C(lasso)*3,2+S(lasso)*3] } }; } },
+  { key:'hype', name:'Hype', src:'fortnite', note:'crouch → jump with fist pumps',
+    fn(t){ const u=(t%1.1)/1.1; let dy=0,sy=1,bob=0,hy=17;
+      if(u<0.35){ const p=u/0.35; sy=1-0.18*p; bob=-2*p; hy=15; }
+      else if(u<0.62){ const p=(u-0.35)/0.27; dy=-9*S(p*PI); sy=1+0.12*S(p*PI); hy=2; }
+      else { const p=(u-0.62)/0.38; sy=1-0.12*(1-p); hy=17; }
+      return { dy, sy, bob, shScale:1+dy/9*0.6, pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-4,hy], Rh:[4,hy] } }; } },
+  // ---------- BRAWL STARS (squash & stretch) ----------
+  { key:'bounce', name:'Juicy Bounce', src:'brawl', note:'Brawl-style squash-&-stretch idle',
+    fn(t){ const up=Math.max(0,C(t*3.4)), down=Math.max(0,-C(t*3.4)), w=S(t*3.4);
+      return { bob:up*1.2, sy:1+up*0.10-down*0.12, sx:1-up*0.05+down*0.06, dx:w*1.2, rot:w*0.03,
+        pt:{ Lf:[-3-down*0.5,27], Rf:[3+down*0.5,27], Lh:[-6.5,17+down*1.5], Rh:[6.5,17+down*1.5] } }; } },
+  { key:'victory', name:'Victory Pop', src:'brawl', note:'anticipation squash → pop → overshoot',
+    fn(t){ const u=(t%1.4)/1.4; let dy=0,sy=1,sx=1,bob=0,hy=17,hx=6.5;
+      if(u<0.25){ const p=u/0.25; sy=1-0.22*p; sx=1+0.14*p; bob=-2.5*p; hy=20; }
+      else if(u<0.5){ const p=(u-0.25)/0.25; dy=-9*S(p*PI*0.5); sy=1+0.22*p; sx=1-0.14*p; hy=2; hx=4; }
+      else if(u<0.62){ const p=(u-0.5)/0.12; dy=-9*C(p*PI*0.5); hy=2; hx=4; }
+      else if(u<0.78){ const p=(u-0.62)/0.16; sy=1-0.26*S(p*PI); sx=1+0.16*S(p*PI); bob=-1*S(p*PI); hy=14; }
+      else { const p=(u-0.78)/0.22; sy=1+0.06*S(p*PI); hy=17; }
+      return { dy, sy, sx, bob, shScale:1+dy/9*0.6, pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-hx,hy], Rh:[hx,hy] } }; } },
+  { key:'taunt', name:'Hip Shake', src:'brawl', note:'cheeky hands-on-hips taunt',
+    fn(t){ const s=S(t*9); return { dx:s*2.2, rot:s*0.06, bob:abs(C(t*9))*0.4,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-4,15], Rh:[4,15] } }; } },
+  { key:'stomp', name:'Ground Pound', src:'brawl', note:'arms up → slam + impact squash',
+    fn(t){ const u=t%1.0; let bob=0,sy=1,sx=1,hy=17,shk=0;
+      if(u<0.4){ const p=u/0.4; hy=lerp(17,-2,p); bob=lerp(0,2,p); sy=1+0.1*p; }
+      else if(u<0.52){ const p=(u-0.4)/0.12; hy=lerp(-2,20,p); bob=lerp(2,-1,p); sy=lerp(1.1,0.8,p); sx=lerp(1,1.2,p); }
+      else { const p=(u-0.52)/0.48; sy=lerp(0.8,1,p); sx=lerp(1.2,1,p); hy=lerp(20,17,p); shk=S(p*40)*(1-p); }
+      return { bob, sy, sx, rot:shk*0.02, shScale:(u>=0.4&&u<0.52)?1.3:1, pt:{ Lf:[-3.5,27], Rf:[3.5,27], Lh:[-5,hy], Rh:[5,hy] } }; } },
+  // ---------- ROBLOX (classic emotes) ----------
+  { key:'rbx-dance', name:'Classic Dance', src:'roblox', note:'R6 arms-up side-to-side sway',
+    fn(t){ const s=S(t*3); return { dx:s*3, rot:s*0.09, bob:abs(C(t*6))*0.4,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-5,2], Rh:[5,2] } }; } },
+  { key:'rbx-disco', name:'Disco Point', src:'roblox', note:'alternating night-fever point',
+    fn(t){ const beat=S(t*4), up=beat>0; return { dx:beat*2, rot:beat*0.05, bob:abs(C(t*4))*0.5,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh: up?[-8,20]:[-9,4], Rh: up?[9,4]:[8,20] } }; } },
+  { key:'rbx-cheer', name:'Cheer', src:'roblox', note:'both hands up, shaking',
+    fn(t){ const j=S(t*22)*0.8; return { bob:abs(S(t*4))*1.0,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-4+j,1], Rh:[4+j,1] } }; } },
+  { key:'rbx-wave', name:'Wave', src:'roblox', note:'friendly one-hand wave',
+    fn(t){ const w=S(t*7); return { bob:abs(C(t*3))*0.3, rot:0.02,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-6.5,17], Rh:[7+w*1.2,2] } }; } },
+  // ---------- FOOTBALL (on-brand) ----------
+  { key:'juggle', name:'Keepy-Uppy', src:'football', note:'alternating knee juggles, arms out',
+    fn(t){ const f=t*5, s=S(f), lk=Math.max(0,s), rk=Math.max(0,-s); return { bob:abs(C(f))*1.0,
+      pt:{ Lf:[-3,27-lk*8], Rf:[3,27-rk*8], Lk:[lk*3,-2], Rk:[rk*3,-2], Lh:[-8,16], Rh:[8,16] } }; } },
+  { key:'siu', name:'The Siu', src:'football', note:'leap → land, arms spread wide (SIUUU)',
+    fn(t){ const u=(t%1.5)/1.5; let dy=0,sy=1,bob=0,lf=[-2.5,27],rf=[2.5,27],lh=[-6.5,17],rh=[6.5,17];
+      if(u<0.3){ const p=u/0.3; bob=-1.5*p; sy=1-0.1*p; }
+      else if(u<0.55){ const p=(u-0.3)/0.25; dy=-9*S(p*PI); sy=1.1; lh=[-8,15]; rh=[8,15]; }
+      else if(u<0.72){ const p=(u-0.55)/0.17; sy=1-0.14*S(p*PI); lf=[-5,27]; rf=[5,27]; lh=[-10,20]; rh=[10,20]; }
+      else { const p=(u-0.72)/0.28; sy=lerp(0.86,1,p); lf=[lerp(-5,-2.5,p),27]; rf=[lerp(5,2.5,p),27]; lh=[lerp(-10,-6.5,p),lerp(20,17,p)]; rh=[lerp(10,6.5,p),lerp(20,17,p)]; }
+      return { dy, sy, bob, shScale:1+dy/9*0.6, pt:{ Lf:lf, Rf:rf, Lh:lh, Rh:rh } }; } },
+  { key:'slide', name:'Knee Slide', src:'football', note:'run-up → slide, arms to the crowd',
+    fn(t){ const u=(t%1.6)/1.6; let dx=0,rot=0,bob=0,lf=[-2.5,27],rf=[2.5,27],lh=[-8,10],rh=[8,10];
+      if(u<0.2){ const p=u/0.2; dx=lerp(-3,0,p); bob=abs(S(t*8))*1; }
+      else if(u<0.6){ dx=lerp(0,6,(u-0.2)/0.4); rot=-0.12; lf=[-1,27]; rf=[5,29]; lh=[-9,6]; rh=[9,6]; bob=-1; }
+      else { const p=(u-0.6)/0.4; dx=lerp(6,-3,p); rot=lerp(-0.12,0,p); lf=[lerp(-1,-2.5,p),27]; rf=[lerp(5,2.5,p),27]; lh=[lerp(-9,-8,p),lerp(6,10,p)]; rh=[lerp(9,8,p),lerp(6,10,p)]; }
+      return { dx, rot, bob, pt:{ Lf:lf, Rf:rf, Lh:lh, Rh:rh } }; } },
+  // ---------- STYLE / FX ----------
+  { key:'robot', name:'Robot Pop', src:'style', note:'quantized, mechanical popping-&-locking',
+    fn(t){ const step=(x)=>Math.round(x*3)/3, s=step(S(t*3)), a=step(S(t*3+1)); return { bob:abs(step(C(t*6)))*0.5, rot:s*0.04,
+      pt:{ Lf:[-3,27], Rf:[3,27], Lh:[-7,17+s*6], Rh:[7,17-a*6] } }; } },
+  { key:'noodle', name:'Noodle Wobble', src:'style', note:'boneless rubber-arm flail',
+    fn(t){ const a=t*6, b=t*6+2; return { bob:abs(S(t*3))*0.8, rot:S(t*4)*0.08,
+      pt:{ Lf:[-3+S(a),27], Rf:[3+S(b),27], Lk:[S(a)*2,-1], Rk:[S(b)*2,-1], Lh:[-7+S(a)*4,13+C(a*1.3)*7], Rh:[7+S(b)*4,13+C(b*1.1)*7] } }; } },
+];
+
+const SOURCES = {
+  fortnite:{ label:'Fortnite', c:'var(--src-fortnite)' },
+  brawl:{ label:'Brawl Stars', c:'var(--src-brawl)' },
+  roblox:{ label:'Roblox', c:'var(--src-roblox)' },
+  football:{ label:'Football', c:'var(--src-football)' },
+  style:{ label:'Style / FX', c:'var(--src-style)' },
+};
+
+const REST = { Lf:[-2.5,27], Rf:[2.5,27], Lh:[-6.5,17], Rh:[6.5,17] };
+function resolve(fn,t){ const partial=fn(t)||{}; const pt=Object.assign({},REST,partial.pt||{});
+  return Object.assign({ bob:0,rot:0,dx:0,dy:0,flip:1,facing:'front',exSign:1,swing:0,shScale:1,sx:1,sy:1 }, partial, { pt }); }
+
+/* ---------------------------------------------------------------- app */
+const KITS = { red:{J:'#e64a4f',JS:'#b8383c'}, blue:{J:'#4a7de6',JS:'#385fb8'} };
+const state = { hero:'striker:base', kit:'red', speed:1, playing:true, filter:'all', picks:new Set() };
+const cells = [];  // {ctx,dpr,dance}
+const W=176, H=200, OX=88, FEET=182, SF=4.2;
+
+const grid=document.getElementById('grid');
+DANCES.forEach((d,i)=>{
+  const s=SOURCES[d.src];
+  const card=document.createElement('button'); card.className='card'; card.type='button';
+  card.dataset.key=d.key; card.dataset.src=d.src; card.setAttribute('aria-pressed','false');
+  card.style.setProperty('--src', s.c);
+  card.innerHTML=`
+    <span class="idx">${String(i+1).padStart(2,'0')}</span>
+    <span class="star" role="img" aria-hidden="true">★</span>
+    <div class="stage"><canvas width="${W}" height="${H}"></canvas></div>
+    <div class="meta">
+      <div><div class="name">${d.name}</div><div class="note">${d.note}</div></div>
+      <span class="tag">${s.label}</span>
+    </div>`;
+  card.addEventListener('click',()=>togglePick(d.key,card));
+  grid.appendChild(card);
+  const cv=card.querySelector('canvas'); const dpr=Math.min(2,window.devicePixelRatio||1);
+  cv.width=W*dpr; cv.height=H*dpr; const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.imageSmoothingEnabled=false;
+  cells.push({ ctx, dance:d, card });
+});
+
+/* filters */
+const filterEl=document.getElementById('filters');
+const filterDefs=[['all','All',null]].concat(Object.keys(SOURCES).map(k=>[k,SOURCES[k].label,SOURCES[k].c]));
+filterDefs.forEach(([k,label,c])=>{
+  const b=document.createElement('button'); b.className='chip'; b.dataset.f=k; if(k==='all') b.dataset.all='1';
+  b.setAttribute('aria-pressed', k==='all'?'true':'false'); if(c) b.style.setProperty('--c',c);
+  b.innerHTML=(c?`<span class="sw"></span>`:'')+label;
+  b.addEventListener('click',()=>setFilter(k));
+  filterEl.appendChild(b);
+});
+function setFilter(k){ state.filter=k;
+  filterEl.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed', c.dataset.f===k?'true':'false'));
+  cells.forEach(({card,dance})=>{ card.hidden = !(k==='all'||dance.src===k); });
+}
+
+/* picks */
+function togglePick(key,card){ if(state.picks.has(key)) state.picks.delete(key); else state.picks.add(key);
+  const on=state.picks.has(key); card.dataset.picked=on; card.setAttribute('aria-pressed',on); renderPicks(); }
+const picksEl=document.getElementById('picks'), countEl=document.getElementById('count'), copyBtn=document.getElementById('copy');
+function renderPicks(){ countEl.textContent=state.picks.size; copyBtn.disabled=state.picks.size===0;
+  if(state.picks.size===0){ picksEl.innerHTML='<span class="empty">nothing picked yet — tap a card ★</span>'; return; }
+  const ordered=DANCES.filter(d=>state.picks.has(d.key));
+  picksEl.innerHTML=ordered.map(d=>`<span class="p">${d.name}</span>`).join('');
+}
+copyBtn.addEventListener('click',async()=>{
+  const list=DANCES.filter(d=>state.picks.has(d.key)).map(d=>`${d.name} [${SOURCES[d.src].label}] (${d.key})`).join('\n');
+  try{ await navigator.clipboard.writeText(list); copyBtn.textContent='Copied ✓'; setTimeout(()=>copyBtn.textContent='Copy list',1400); }
+  catch{ copyBtn.textContent='Copy failed'; setTimeout(()=>copyBtn.textContent='Copy list',1400); }
+});
+
+/* controls */
+document.getElementById('hero').addEventListener('change',e=>state.hero=e.target.value);
+document.getElementById('kit').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return;
+  state.kit=b.dataset.kit; document.querySelectorAll('#kit button').forEach(x=>x.setAttribute('aria-pressed', x===b)); });
+const spd=document.getElementById('spd'), spdval=document.getElementById('spdval');
+spd.addEventListener('input',()=>{ state.speed=+spd.value; spdval.textContent=state.speed.toFixed(2)+'×'; });
+const playBtn=document.getElementById('play');
+function setPlaying(on){ state.playing=on; playBtn.dataset.on=on; playBtn.textContent=on?'⏸ Pause':'▶ Play'; }
+playBtn.addEventListener('click',()=>setPlaying(!state.playing));
+
+/* reduced motion → start paused on an expressive frame */
+if(window.matchMedia('(prefers-reduced-motion:reduce)').matches){ setPlaying(false); }
+
+/* clock (no Date.now dependency for the pose math; accumulate scaled dt) */
+let simT=0.6, last=null;
+function frame(now){
+  if(last==null) last=now;
+  const dt=(now-last)/1000; last=now;
+  if(state.playing) simT += dt*state.speed;
+  const kit=KITS[state.kit];
+  for(const c of cells){ if(c.card.hidden) continue;
+    c.ctx.clearRect(0,0,W,H);
+    drawHeroPose(c.ctx, OX, FEET, SF, state.hero, kit, simT, resolve(c.dance.fn, simT));
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+renderPicks();
+</script>
