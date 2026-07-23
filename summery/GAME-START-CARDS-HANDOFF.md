@@ -43,6 +43,38 @@
 - Rarity "mirroring" is still probabilistic (E[total buff] == human avg). A single-legendary human often yields a bot whose visible cards are rare/common (legendary rarely re-rolled) — this is the pre-existing unbiased-buff design, NOT changed. Flag if the user wants bots to visually mirror the human's TOP rarity more strongly.
 - Not yet run in a live browser 2v2 (logic-verified only; server boots clean).
 
+## Round 2 (2026-07-23) — issues still seen after commit e83dbab
+### Issue 1 — countdown STILL didn't match slots
+- Deeper cause: `introCardsFor()` rendered EVERY row (including mine) from the server-echoed `p.loadout`.
+  If join raced card-loading, my server `member.loadout` lagged what's in my slots. The matchStart
+  reveal (client.js ~1909) already used `effectiveLoadout()` for self, so reveal != countdown.
+- Fix (client.js):
+  - `introCardsFor(p)`: for MY row (p.id === myMemberId) render from `effectiveLoadout()` — same source
+    as the slots UI + the reveal. Opponents/bots still use server `p.loadout`.
+  - `syncLoadout()` helper sends `setLoadout: effectiveLoadout()` right before quickMatch (both buttons)
+    and private-room `ready`, so the server + other clients get my real loadout even after a join race.
+### Issue 2 — bot rule refined by user
+- New rule (verbatim): "you cannot have empty slots if you have a card in power more than rare"
+  → if a bot's top card is EPIC or LEGENDARY, fill all empty slots with commons (e.g. epic + 2 commons).
+  A bot whose best card is rare/common MAY keep empty slots.
+- Fix (server.js randomBotLoadout): fill empties only when `topRank > rank('rare')`. Reverted the
+  earlier hasEmptySlots/highestRarity params (no longer needed).
+- Verified scratchpad/bottest2.mjs: epic/legendary+empty = 0/2000 across all scenarios.
+
+## Files touched (round 2)
+- public/client.js: `introCardsFor` (self uses effectiveLoadout), `syncLoadout()` + calls at the 2
+  quickMatch buttons and `ready`.
+- server.js: `randomBotLoadout` epic/legendary empty-slot fill; `botLoadoutParamsFromHumans` reverted.
+
+## Still NOT changed / flag for user
+- Rarity STRENGTH matching stays probabilistic (E[total buff] == human avg). A single-epic human often
+  yields a bot whose top card rolls down to rare/common (so it won't always visually mirror the epic).
+  The empty-slot weirdness is fixed; if the user wants the bot's TOP card to mirror the human's top
+  rarity more directly, that's a separate change to the rarity model.
+- Note: an unrelated uncommitted DIFFICULTY-LADDER change (bot-ai.js + server.js, another agent) is in
+  the tree — left untouched.
+
 ## Request log
 - 2026-07-23: initial 3-point task (above).
 - 2026-07-23: clarified task 3 — "sometimes I see a bot with one legendary and two empty; if he has a legendary he must have at least 2 other commons to fill empty." → implemented empty-slot common-fill.
+- 2026-07-23: round 2 — (1) countdown power cards still don't match slots; (2) bot still weird, e.g. one epic + empties → rule: no empty slots if you hold a card stronger than rare.

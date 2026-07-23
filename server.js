@@ -759,19 +759,12 @@ const PCT_TO_RARITY = { 0.03: 'common', 0.07: 'rare', 0.12: 'epic', 0.20: 'legen
 function botLoadoutParamsFromHumans(assigned) {
   const humans = (assigned || []).filter((a) => a && a[0]);
   let maxCount = 0;
-  let hasEmptySlots = false;   // any human running < 3 equipped cards
-  let topRank = -1;            // highest EQUIPPED rarity across humans (index into CARD_RARITIES; -1 = none)
   const pool = { common: [], rare: [], epic: [], legendary: [] };
   for (const a of humans) {
-    const eq = sanitizeLoadout(a[0].loadout, a[0].cards);
-    const cnt = equippedCount(eq);
-    maxCount = Math.max(maxCount, cnt);
-    if (cnt < 3) hasEmptySlots = true;
-    for (const s of eq) if (s) topRank = Math.max(topRank, CARD_RARITIES.indexOf(s.r));
+    maxCount = Math.max(maxCount, equippedCount(sanitizeLoadout(a[0].loadout, a[0].cards)));
     for (const c of (Array.isArray(a[0].cards) ? a[0].cards : [])) if (pool[c.r]) pool[c.r].push(c.n);
   }
-  const highestRarity = topRank >= 0 ? CARD_RARITIES[topRank] : null;
-  return { maxCount, perSlotTarget: humanBuffTarget(assigned) / 3, pool, hasEmptySlots, highestRarity };
+  return { maxCount, perSlotTarget: humanBuffTarget(assigned) / 3, pool };
 }
 // A random bot loadout: k = random 1..maxCount cards (humans equip N -> bot gets 1..N), each dropped in
 // a random slot at a rarity roughly matching the humans (a chosen slot is never empty — >= common),
@@ -792,12 +785,12 @@ function randomBotLoadout(params) {
     const r = PCT_TO_RARITY[pct] || 'common';
     out[s] = { r, n: pickNum(r) };
   }
-  // "Make sense" rule: a bot holding a real card shouldn't be left with a lone strong card + empty slots
-  // (e.g. 1 legendary + 2 empty). Fill every remaining empty slot with a COMMON so the loadout looks full.
-  // Exception: when the humans themselves are minimal — some run empty slots AND their best card is only
-  // common — mirror that sparseness instead of over-filling the bot.
-  const humansMinimal = p.hasEmptySlots && (p.highestRarity === 'common' || p.highestRarity == null);
-  if (!humansMinimal) {
+  // "Make sense" rule: you cannot have empty slots if you hold a card stronger than RARE. A bot with an
+  // epic/legendary must be full — fill every remaining empty slot with a COMMON (e.g. one epic + two
+  // commons, never one epic + two empty). A bot whose best card is only common/rare may keep empties.
+  const strongRank = CARD_RARITIES.indexOf('rare'); // > rare == epic/legendary
+  const topRank = out.reduce((m, s) => (s ? Math.max(m, CARD_RARITIES.indexOf(s.r)) : m), -1);
+  if (topRank > strongRank) {
     for (let s = 0; s < 3; s++) if (!out[s]) out[s] = { r: 'common', n: pickNum('common') };
   }
   return out;
