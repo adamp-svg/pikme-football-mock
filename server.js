@@ -583,7 +583,10 @@ function broadcastSnapshots() {
 
 function lobbyPayload(room) {
   ensureBotPlan(room); // #18: keep the previewed bot fill fresh for the matchmaking VS/countdown
-  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cards: m.cards || [] }));
+  // #18 fix: send each human's EQUIPPED loadout (not just their album) so the VS/countdown shows the
+  // cards they actually picked in their power slots — matching what the pre-kickoff reveal shows. Without
+  // this the client falls back to album top-3 during the countdown, so humans and bots looked inconsistent.
+  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards) }));
   // #18: on the quick-match VS, show the bots that WILL fill the empty slots (with their cards) while
   // you wait. Private rooms also backfill bots at kickoff, but their lobby is for real friends, so we
   // don't preview bots there — they still appear at the pre-kickoff reveal.
@@ -737,12 +740,19 @@ const PCT_TO_RARITY = { 0.03: 'common', 0.07: 'rare', 0.12: 'epic', 0.20: 'legen
 function botLoadoutParamsFromHumans(assigned) {
   const humans = (assigned || []).filter((a) => a && a[0]);
   let maxCount = 0;
+  let hasEmptySlots = false;   // any human running < 3 equipped cards
+  let topRank = -1;            // highest EQUIPPED rarity across humans (index into CARD_RARITIES; -1 = none)
   const pool = { common: [], rare: [], epic: [], legendary: [] };
   for (const a of humans) {
-    maxCount = Math.max(maxCount, equippedCount(sanitizeLoadout(a[0].loadout, a[0].cards)));
+    const eq = sanitizeLoadout(a[0].loadout, a[0].cards);
+    const cnt = equippedCount(eq);
+    maxCount = Math.max(maxCount, cnt);
+    if (cnt < 3) hasEmptySlots = true;
+    for (const s of eq) if (s) topRank = Math.max(topRank, CARD_RARITIES.indexOf(s.r));
     for (const c of (Array.isArray(a[0].cards) ? a[0].cards : [])) if (pool[c.r]) pool[c.r].push(c.n);
   }
-  return { maxCount, perSlotTarget: humanBuffTarget(assigned) / 3, pool };
+  const highestRarity = topRank >= 0 ? CARD_RARITIES[topRank] : null;
+  return { maxCount, perSlotTarget: humanBuffTarget(assigned) / 3, pool, hasEmptySlots, highestRarity };
 }
 // A random bot loadout: k = random 1..maxCount cards (humans equip N -> bot gets 1..N), each dropped in
 // a random slot at a rarity roughly matching the humans (a chosen slot is never empty — >= common),
@@ -755,14 +765,21 @@ function randomBotLoadout(params) {
   if (maxCount < 1) return out; // humans have no cards -> bot has none either
   const perSlotTarget = Math.max(0, Number(p.perSlotTarget) || 0);
   const pool = p.pool || {};
+  const pickNum = (r) => { const nums = pool[r] || []; return nums.length ? nums[Math.floor(Math.random() * nums.length)] : (1 + Math.floor(Math.random() * 60)); };
   const k = 1 + Math.floor(Math.random() * maxCount); // 1..maxCount
   for (const s of shuffle([0, 1, 2]).slice(0, k)) {
     let pct = pickRarityPct(perSlotTarget);
     if (!pct) pct = 0.03; // a chosen slot always holds a real card (>= common)
     const r = PCT_TO_RARITY[pct] || 'common';
-    const nums = pool[r] || [];
-    const n = nums.length ? nums[Math.floor(Math.random() * nums.length)] : (1 + Math.floor(Math.random() * 60));
-    out[s] = { r, n };
+    out[s] = { r, n: pickNum(r) };
+  }
+  // "Make sense" rule: a bot holding a real card shouldn't be left with a lone strong card + empty slots
+  // (e.g. 1 legendary + 2 empty). Fill every remaining empty slot with a COMMON so the loadout looks full.
+  // Exception: when the humans themselves are minimal — some run empty slots AND their best card is only
+  // common — mirror that sparseness instead of over-filling the bot.
+  const humansMinimal = p.hasEmptySlots && (p.highestRarity === 'common' || p.highestRarity == null);
+  if (!humansMinimal) {
+    for (let s = 0; s < 3; s++) if (!out[s]) out[s] = { r: 'common', n: pickNum('common') };
   }
   return out;
 }
