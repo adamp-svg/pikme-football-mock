@@ -1464,3 +1464,16 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 #b-clear { background: #6e2b2b; }
 .builder-sep { width: 1px; align-self: stretch; background: rgba(255,255,255,.15); margin: 0 2px; }
 .builder-hint { text-align: center; font-size: 11px; opacity: .7; padding: 0 10px 8px; }
+/* Pitch markings must never intercept taps (placement/selection happen on the pitch). */
+.bp-goal, .bp-mid { pointer-events: none; }
+/* Wall resize handles (drag an end to lengthen/shorten + rotate). */
+.bhandle { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%;
+  background: #ffd54a; border: 2px solid #7a5c00; box-shadow: 0 1px 3px rgba(0,0,0,.5); z-index: 6; touch-action: none; }
+/* Stadium frame: seat-row stands around the play area (the pitch stays the coordinate space). */
+.builder-arena { position: relative; width: 100%; max-width: 1040px; max-height: 100%; padding: 3.4%; border-radius: 16px;
+  background: repeating-linear-gradient(0deg, #1c2b35 0 7px, #24384704 7px 14px), radial-gradient(circle at 50% 50%, #2a3f4c, #182430);
+  box-shadow: inset 0 0 0 3px #395767, 0 6px 20px rgba(0,0,0,.4); }
+.builder-arena::before, .builder-arena::after { content: ''; position: absolute; top: 8%; bottom: 8%; width: 2.6%;
+  background: repeating-linear-gradient(90deg, #33505f 0 3px, transparent 3px 8px); opacity: .6; }
+.builder-arena::before { left: 0.3%; } .builder-arena::after { right: 0.3%; }
+.builder-arena .builder-pitch { max-width: 100%; }

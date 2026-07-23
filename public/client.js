@@ -4372,14 +4372,16 @@ const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.ha
 function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [] }; } catch (e) {} return { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; }
 function fbSave() { try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {} }
 function fbToWorld(cx, cy) { const r = fbPit().getBoundingClientRect(); return { x: Math.max(0, Math.min(FB_W, (cx - r.left) / r.width * FB_W)), y: Math.max(0, Math.min(FB_H, (cy - r.top) / r.height * FB_H)) }; }
+// Capsule end points (along `angle`) — matches segBlockedByWall's c0/c1.
+function fbEnds(w) { const ca = Math.cos(w.angle), sa = Math.sin(w.angle); return [{ x: w.cx - ca * w.hl, y: w.cy - sa * w.hl }, { x: w.cx + ca * w.hl, y: w.cy + sa * w.hl }]; }
 function fbRender() {
   const pit = fbPit(); if (!pit) return;
-  pit.querySelectorAll('.bel').forEach((e) => e.remove());
+  pit.querySelectorAll('.bel,.bhandle').forEach((e) => e.remove());
+  const pctL = (x) => (x / FB_W * 100) + '%', pctT = (y) => (y / FB_H * 100) + '%';
   const mk = (type, i, cx, cy, w, h, angle) => {
     const d = document.createElement('div');
     d.className = 'bel ' + type + (fbSel && fbSel.type === type && fbSel.i === i ? ' sel' : '');
-    d.style.left = (cx / FB_W * 100) + '%'; d.style.top = (cy / FB_H * 100) + '%';
-    d.style.width = (w / FB_W * 100) + '%'; d.style.height = (h / FB_H * 100) + '%';
+    d.style.left = pctL(cx); d.style.top = pctT(cy); d.style.width = pctL(w); d.style.height = pctT(h);
     if (angle != null) d.style.setProperty('--ang', angle + 'rad');
     d.dataset.type = type; d.dataset.i = i;
     pit.appendChild(d);
@@ -4387,6 +4389,11 @@ function fbRender() {
   fbField.bushes.forEach((b, i) => mk('bush', i, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h, null));
   fbField.hardWalls.forEach((w, i) => mk('hard', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
   fbField.dryWalls.forEach((w, i) => mk('dry', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
+  // Resize handles on a selected WALL — drag an end to lengthen/shorten + rotate.
+  if (fbSel && fbSel.type !== 'bush') {
+    const L = fbList(fbSel.type)[fbSel.i];
+    if (L) fbEnds(L).forEach((p, e) => { const h = document.createElement('div'); h.className = 'bhandle'; h.style.left = pctL(p.x); h.style.top = pctT(p.y); h.dataset.end = e; pit.appendChild(h); });
+  }
 }
 function fbAdd(type, wx, wy) {
   if (type === 'bush') fbField.bushes.push({ x: Math.round(wx - FB_BUSH.w / 2), y: Math.round(wy - FB_BUSH.h / 2), w: FB_BUSH.w, h: FB_BUSH.h });
@@ -4400,16 +4407,27 @@ function fbMoveSel(wx, wy) {
   else { L.cx = Math.round(wx); L.cy = Math.round(wy); }
   fbRender();
 }
-function openBuilder() { fbField = fbLoad(); fbTool = null; fbSel = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.remove('active')); fbRender(); }
+let fbResize = null; // { end: 0|1 } while dragging a wall end handle
+// Drag a wall END to (wx,wy): keep the OTHER end fixed, recompute angle+length+centre.
+// Min length = a single cube (hl = ht), so the smallest wall is a ht*2 square.
+function fbResizeSel(wx, wy) {
+  if (!fbSel || fbSel.type === 'bush') return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
+  const fixed = fbEnds(L)[1 - fbResize.end];
+  const dx = wx - fixed.x, dy = wy - fixed.y;
+  const len = Math.max(L.ht * 2, Math.hypot(dx, dy)); // clamp to a single cube minimum
+  L.angle = Math.atan2(dy, dx);
+  L.hl = Math.round(len / 2);
+  L.cx = Math.round(fixed.x + Math.cos(L.angle) * L.hl);
+  L.cy = Math.round(fixed.y + Math.sin(L.angle) * L.hl);
+  fbRender();
+}
+function fbSetTool(t) { fbTool = t; fbSel = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); fbRender(); }
+function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); } // default a tool so a tap places immediately
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
   document.getElementById('field-builder-btn')?.addEventListener('click', () => { unlockAudio && unlockAudio(); showScreen('builder'); openBuilder(); });
-  document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => {
-    const t = btn.dataset.tool; fbTool = (fbTool === t) ? null : t; fbSel = null;
-    document.querySelectorAll('#builder .btool').forEach((b) => b.classList.toggle('active', b === btn && fbTool === t));
-    fbRender();
-  }));
+  document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => fbSetTool(fbTool === btn.dataset.tool ? null : btn.dataset.tool)));
   document.getElementById('b-rotate')?.addEventListener('click', () => { if (fbSel && fbSel.type !== 'bush') { const L = fbList(fbSel.type)[fbSel.i]; L.angle = (L.angle + Math.PI / 12) % (Math.PI * 2); fbSave(); fbRender(); } });
   document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbSave(); fbRender(); } });
   document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; fbSel = null; fbSave(); fbRender(); });
@@ -4421,11 +4439,13 @@ function openBuilder() { fbField = fbLoad(); fbTool = null; fbSel = null; docume
   });
   document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
   pit.addEventListener('pointerdown', (e) => {
+    const hd = e.target.closest('.bhandle');
+    if (hd && fbSel && fbSel.type !== 'bush') { fbResize = { end: +hd.dataset.end }; fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} return; }
     const el = e.target.closest('.bel');
     if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbTool = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.remove('active')); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
     else if (fbTool) { const w = fbToWorld(e.clientX, e.clientY); fbAdd(fbTool, w.x, w.y); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} }
     else { fbSel = null; fbRender(); }
   });
-  pit.addEventListener('pointermove', (e) => { if (fbDrag && fbSel) { const w = fbToWorld(e.clientX, e.clientY); fbMoveSel(w.x, w.y); } });
-  pit.addEventListener('pointerup', (e) => { if (fbDrag) { fbDrag = null; fbSave(); try { pit.releasePointerCapture(e.pointerId); } catch (x) {} } });
+  pit.addEventListener('pointermove', (e) => { if (!fbDrag) return; const w = fbToWorld(e.clientX, e.clientY); if (fbResize) fbResizeSel(w.x, w.y); else if (fbSel) fbMoveSel(w.x, w.y); });
+  pit.addEventListener('pointerup', (e) => { if (fbDrag) { fbDrag = null; fbResize = null; fbSave(); try { pit.releasePointerCapture(e.pointerId); } catch (x) {} } });
 })();
