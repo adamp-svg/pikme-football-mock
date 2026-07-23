@@ -1958,7 +1958,7 @@ function showChallengePrompt(challengeId, fromName) {
 // Host-only panel of ONLINE friends (FRIENDS ∩ ONLINE). Shown in the private-room lobby.
 function renderPartyInvite() {
   const el = document.getElementById('party-invite'); if (!el) return;
-  const show = isRoomHost && roomMode === 'private';
+  const show = false; // invites now happen on the dedicated invite screen (party flow) → keep the groups page clean
   el.classList.toggle('hidden', !show);
   if (!show) return;
   // Online real friends + the always-available bot friends.
@@ -2152,11 +2152,13 @@ function partyHeroCanvas(cosmetic, big) {
   drawHero(g, ox, feetY, sf, 0.4, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
   return cv;
 }
-function teamHeroCanvas(cosmetic) {
+function teamHeroCanvas(cosmetic, team) {
   const cv = document.createElement('canvas'); cv.width = 44; cv.height = 52;
   const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
   const sf = cv.height / 42, ox = cv.width / 2, feetY = cv.height - sf * 3;
-  drawHero(g, ox, feetY, sf, 0.4, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
+  // Stare-down: team A sits in the RIGHT column so it gazes left→centre (dir<0); team B (left) gazes right→centre.
+  const dir = team === 'B' ? 0.7 : -0.7;
+  drawHero(g, ox, feetY, sf, dir, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
   return cv;
 }
 function partyCardsRow(cards) {
@@ -2650,18 +2652,18 @@ function updateLobbyUI(msg) {
   joinBtn.B.style.display = isPrivate ? '' : 'none';
   // Party flow: the HOST starts via the game picker ("בחר משחק"); play-now is superseded for
   // private rooms. Non-host members wait for the host to pick.
+  // Party flow: invites already happened on the invite screen — the groups page is just
+  // team-pick + a BIG «שחק עכשיו» for the host. The «בחר משחק» picker is superseded (the game
+  // was chosen on the roster), and the lobby invite panel is hidden (renderPartyInvite).
   const pickGameBtn = document.getElementById('pick-game-btn');
-  playNowBtn.style.display = 'none';
-  if (pickGameBtn) {
-    pickGameBtn.style.display = (isPrivate && isRoomHost) ? '' : 'none';
-    const sp = pickGameBtn.querySelector('span');
-    if (sp) sp.textContent = selectedGame ? 'התחל · 2 נגד 2' : 'בחר משחק'; // game pre-chosen in setup → start CTA
-  }
+  if (pickGameBtn) pickGameBtn.style.display = 'none';
+  playNowBtn.style.display = (isPrivate && isRoomHost) ? '' : 'none';
+  { const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'שחק עכשיו'; }
   lobbyHintEl.textContent = !isPrivate
     ? 'מחפש שחקנים… המשחק יתחיל אוטומטית.'
     : isRoomHost
-      ? 'הזמינו חברים מחוברים, בחרו קבוצות, ואז «בחר משחק». מקומות פנויים יתמלאו בבוטים.'
-      : 'ממתינים שהמארח יבחר משחק… בחרו קבוצה בינתיים.';
+      ? 'בחרו קבוצות ואז «שחק עכשיו». מקומות פנויים יתמלאו בבוטים.'
+      : 'בחרו קבוצה — המארח יתחיל את המשחק.';
   renderPartyInvite();
 
   startLobbyMusic(); // #12: lobby theme plays for the whole wait (starts on entry, loops through the countdown)
@@ -2681,10 +2683,11 @@ function updateLobbyUI(msg) {
     else if (row.parentElement !== listEl) listEl.appendChild(row); // moved teams
     const [av, nm, st] = row.children;
     const cos = m.cosmetic || DEFAULT_COSMETIC;
-    if (row._cos !== cos) {                 // small HERO drawn from the member's cosmetic (was an avatar photo)
-      row._cos = cos;
+    const heroKey = cos + '|' + m.team;     // redraw when the look OR the team (gaze) changes
+    if (row._cos !== heroKey) {             // small HERO drawn from the member's cosmetic (was an avatar photo)
+      row._cos = heroKey;
       av.innerHTML = '';
-      av.appendChild(teamHeroCanvas(cos));
+      av.appendChild(teamHeroCanvas(cos, m.team));
     }
     const label = m.id === myMemberId ? `${m.name} (אני)` : m.name;
     if (nm.textContent !== label) nm.textContent = label;
