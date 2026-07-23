@@ -1,5 +1,22 @@
 # Game-Start Power Cards — Handoff Log
 
+> ## ⚠️ FOR THE REVIEWING / PUSHING AGENT (read first)
+> - **Branch:** `feat/build-bomb-cancel`
+> - **Remote:** `origin` → https://github.com/adamp-svg/pikme-football-mock.git (no upstream set on the branch)
+> - **All my work is committed. Nothing of mine is uncommitted.** The only untracked file is
+>   `summery/TASK-field-builder.md` (a DIFFERENT agent's — not mine).
+> - **My commits for this task:**
+>   - `8814e3f` feat(bots): draw bot cards from the whole 200-card album, not the player's — **UNPUSHED**
+>   - `661ac71` (client fixes swept in here) countdown "my" row uses effectiveLoadout + syncLoadout — pushed
+>   - `b2a660b` fix(bots): no empty power slots when a bot holds a card stronger than rare — pushed
+>   - `e83dbab` fix(lobby): countdown sends humans' equipped loadout (was album top-3) — pushed
+> - **Push status:** origin tip is `4de0c1e`; there are **6 local commits ahead of origin** (mine + other
+>   agents'), including my `8814e3f`. `git push -u origin feat/build-bomb-cancel` sends them all.
+> - **Files I own:** `server.js` (bot loadout gen + lobby payload), `public/client.js` (countdown render +
+>   `syncLoadout`). Full rationale in the round 1/2/3 sections below.
+> - **Live server:** :3012 (contended — other agents keep restarting it; my code is committed so any
+>   restart serves it).
+
 **Owner agent:** (this session) — locked task: 2v2 game-start power card display + countdown animation + bot card selection
 **Date started:** 2026-07-23
 **Repo:** football-mock (localhost only, commit everything)
