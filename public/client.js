@@ -4589,7 +4589,7 @@ const FB_KEY = 'pikme-field-v1';
 const FB_W = 2000, FB_H = 1100;
 const FB_WALL = { hl: 88, ht: 16 };   // default wall capsule half-dims (len 176 / thick 32)
 const FB_BUSH = { w: 224, h: 160 };
-const FB_GRID = 100;                          // grid cell (Brawl-style chunky snap) = pitch/20 x pitch/11
+const FB_GRID = 50;                          // fine grid cell (40 x 22 cells) — snap + overlay
 const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;
 let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] };
 let fbTool = null;   // 'bush' | 'hard' | 'dry' | null (placement tool)
@@ -4647,21 +4647,30 @@ function fbDrawUpdate(wx, wy) {
 }
 function fbDeleteEl(el) { if (!el) return; const arr = fbList(el.dataset.type); const i = +el.dataset.i; if (i >= 0 && i < arr.length) { arr.splice(i, 1); if (fbSel && fbSel.type === el.dataset.type && fbSel.i === i) fbSel = null; fbRender(); } }
 function fbSetTool(t) { fbTool = t; fbSel = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); fbRender(); }
+// Mirror all elements. mode: 'sides' (L<->R across x-centre), 'top' (T<->B across y-centre),
+// 'diag' (180° point symmetry). Adds the mirrored copies to what's already placed.
+function fbMirror(mode) {
+  const mx = (x) => FB_W - x, my = (y) => FB_H - y;
+  const wall = (w) => mode === 'sides' ? { ...w, cx: mx(w.cx), angle: -w.angle }
+    : mode === 'top' ? { ...w, cy: my(w.cy), angle: -w.angle }
+    : { ...w, cx: mx(w.cx), cy: my(w.cy) };                    // diag = 180°
+  const bush = (b) => mode === 'sides' ? { ...b, x: mx(b.x + b.w) }
+    : mode === 'top' ? { ...b, y: my(b.y + b.h) }
+    : { ...b, x: mx(b.x + b.w), y: my(b.y + b.h) };
+  fbField.hardWalls = fbField.hardWalls.concat(fbField.hardWalls.map(wall));
+  fbField.dryWalls = fbField.dryWalls.concat(fbField.dryWalls.map(wall));
+  fbField.bushes = fbField.bushes.concat(fbField.bushes.map(bush));
+  fbSel = null; fbSave(); fbRender();
+}
 function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
   document.getElementById('field-builder-btn')?.addEventListener('click', () => { unlockAudio && unlockAudio(); showScreen('builder'); openBuilder(); });
   document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => fbSetTool(fbTool === btn.dataset.tool ? null : btn.dataset.tool)));
-  document.getElementById('b-rotate')?.addEventListener('click', () => { if (fbSel && fbSel.type !== 'bush') { const L = fbList(fbSel.type)[fbSel.i]; L.angle = (L.angle + Math.PI / 12) % (Math.PI * 2); fbSave(); fbRender(); } });
   document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbSave(); fbRender(); } });
   document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; fbSel = null; fbSave(); fbRender(); });
-  document.getElementById('b-mirror')?.addEventListener('click', () => {
-    fbField.bushes = fbField.bushes.concat(fbField.bushes.map((b) => ({ x: FB_W - b.x - b.w, y: b.y, w: b.w, h: b.h })));
-    fbField.hardWalls = fbField.hardWalls.concat(fbField.hardWalls.map((w) => ({ cx: FB_W - w.cx, cy: w.cy, angle: -w.angle, hl: w.hl, ht: w.ht })));
-    fbField.dryWalls = fbField.dryWalls.concat(fbField.dryWalls.map((w) => ({ cx: FB_W - w.cx, cy: w.cy, angle: -w.angle, hl: w.hl, ht: w.ht })));
-    fbSel = null; fbSave(); fbRender();
-  });
+  document.querySelectorAll('#builder [data-mirror]').forEach((btn) => btn.addEventListener('click', () => fbMirror(btn.dataset.mirror)));
   document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
   pit.addEventListener('pointerdown', (e) => {
     const w = fbToWorld(e.clientX, e.clientY);
