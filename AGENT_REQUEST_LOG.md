@@ -5,6 +5,10 @@
 
 ## 2026-07-23
 
+- **Season badge (agent-82027)** — User: "change season badge to 1". Changed `#hub-season` in public/index.html `עונה 2` → `עונה 1` (index.html:36). Verified live: :3012 serves `class="hub-season">עונה 1`. Committed as **1f2a3d3**.
+  - ⚠️ COLLISION (again): index.html had another agent's UNCOMMITTED `#party` screen (Play-With-Friends step-2 roster, ~33 lines, `class="screen hidden"`). My pathspec `git commit public/index.html` swept it into 1f2a3d3 alongside the 1-line season change. It's a hidden screen → zero runtime harm, and fully preserved in history. Could NOT cleanly split it back out: another agent committed 647732d on top of 1f2a3d3 within seconds → would need a shared-branch rebase (blocked + risky), so left intact. **#party author: your scaffold is committed in 1f2a3d3, not lost — your working tree may now show clean for that block.**
+  - Lesson for all: pathspec `git commit <file>` still commits the WHOLE file incl. others' uncommitted edits. Lock the file or coordinate before committing shared files.
+
 - **Req #7** — Task (continuation, same lock `football-mock:hero-rank-badge`). (a) Make both badges a bit smaller; (b) render the hero IN FRONT of the hero badge (`#hub-tier` was z6, over the hero's face — user wants the hero over the badge, badge peeking from behind).
   - Impl (style.css only): both badges 60×50 → 50×42; shrank `.px-ic` 22→18px, text 10→9px, padding 4→3px, hero padding-bottom 9→8px + bar inset. Baked pos: `#hub-rank` left 283 width 50 (re-centred on worth-chip centre x308), `#hub-tier` left 590 width 50, **z-index 6→3** (hero `.hub-hero` is z4 → now paints over the badge).
   - Verified: :3010 serves both at 50×42; `#hub-rank` centre 283+25=308 == `#chip-worth` centre 278+30=308 (aligned); `#hub-tier` z3 < hero z4 (hero in front). Committed locally (not pushed — user rule = local + commit).
