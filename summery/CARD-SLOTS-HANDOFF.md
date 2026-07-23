@@ -58,6 +58,22 @@ Request: "in my cards for the slots, cards spread on the table over each other, 
 - KNOWN TRADEOFF: `touch-action:pan-x` on fans means a downward finger-drag started on a fan card won't scroll the page vertically; scroll via header/gaps. Revisit if it annoys.
 - Files: public/client.js, public/style.css, public/index.html (only my `cards-hint` line). Left other agents' server.js + GAME-START-CARDS-HANDOFF.md untouched.
 
+## Iteration 3 — fix "legendary shown under Epic header"
+Report: after a swap, a legendary card appeared to belong to the Epic tier. Root cause: NOT the
+grouping logic (`c.r===rar` is correct) — it was LAYOUT. The fan's 26px top padding (lift-room)
+pushed each tier's cards down, away from their own header and next to the tier header below.
+Fix (client.js + style.css only):
+- Each tier now wrapped in its own `.cards-tier` box with a rarity-colored left border +
+  subtle bg — cards are visually enclosed with their header, can't read as the neighbour's.
+- Header gap tightened (fan padding-top 26->12); reveal changed from translateY(-24) lift to
+  `transform-origin:bottom center; scale(1.12)` so it grows up from its base within the small gap.
+- Also fixed a self-introduced bug: `sec` box was built but never appended (header would vanish);
+  now `sec.appendChild(fan); deckEl.appendChild(sec)`.
+NOTE: swap confirmed CORRECT / kept as-is (user chose "keep swap").
+COMMIT HYGIENE: client.js & style.css also hold ANOTHER agent's uncommitted friends-tabs + rank
+work. Committed ONLY my hunks via `git apply --cached` (their work left intact in the tree).
+
 ## Request log
 - 2026-07-23: initial 3-point task (above).
 - 2026-07-23: iteration 2 — fanned overlapping album, tap-reveal + drag-to-slot equip.
+- 2026-07-23: iteration 3 — fix legendary-under-Epic (enclosed tier boxes; layout, not grouping).
