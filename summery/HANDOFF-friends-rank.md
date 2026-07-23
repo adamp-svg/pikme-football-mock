@@ -30,7 +30,20 @@ Branch: feat/build-bomb-cancel · localhost only · commit everything
   dev-auth / visibility). Do NOT rebuild — feature exists.
 - Task 2: add small rank button near the news button; on click fetch player's rank and show it.
 
-## Progress
-- [ ] Task 1
-- [ ] Task 2
-- [ ] verified on localhost + committed
+## Progress — DONE (2026-07-23)
+- [x] Task 1: friends screen rebuilt (tabs: my-friends/requests/add, req badge, decline).
+      Element ids preserved → existing loadFriends/searchFriends/render* untouched.
+      Files: public/index.html, public/client.js, public/style.css.
+- [x] Task 2: `#rank-btn` added under news (CSS left:95 top:240); tap → GET /handle-friends/rank
+      → toast "🏅 הדירוג שלך: #N מתוך M". Server route added in
+      pikme-server/routes-pikme/friends.js (userId→phone→$rank by xp desc).
+- [x] Committed: football-mock 3cca650 (branch feat/build-bomb-cancel) · pikme-server 7e16257.
+
+## Verification status
+- football-mock served on :3010 → 200; rank-btn + fr-tabs present in served HTML.
+- `node --check` passed: public/client.js, routes-pikme/friends.js.
+- NOT fully run against DB: local node is v26; pikme-server's old jsonwebtoken deps crash on
+  boot under node 26 (SlowBuffer removed). Pre-existing env issue, not this code. The /rank
+  aggregation is a copy of the already-live /handle-user/football/leaderboard query.
+- TODO for next agent: boot pikme-server on node 18/20 + a valid football token and hit
+  GET /handle-friends/rank to confirm the phone match returns the expected rank.
