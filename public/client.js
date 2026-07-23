@@ -1582,9 +1582,10 @@ async function apiPost(path, body) {
 // invite panel (→ addBot). They fill out the friends list so solo players can "play with
 // friends" immediately. Not real users: they don't go through search/request/presence.
 const BOT_FRIENDS = [
-  { userId: 'bot-friend-1', nickName: 'רובי', isBot: true },
-  { userId: 'bot-friend-2', nickName: 'טיטאן', isBot: true },
-  { userId: 'bot-friend-3', nickName: 'זיפ', isBot: true },
+  { userId: 'bot-friend-1', nickName: 'שובל', isBot: true },
+  { userId: 'bot-friend-2', nickName: 'אורית', isBot: true },
+  { userId: 'bot-friend-3', nickName: 'נווהת', isBot: true },
+  { userId: 'bot-friend-4', nickName: 'פז', isBot: true },
 ];
 let FRIENDS = [...BOT_FRIENDS];   // [{userId, nickName, image, isBot?}] — bots always present
 let ONLINE = new Set();    // userIds currently online (from friendsPresence)
