@@ -4599,6 +4599,54 @@ const fbPit = () => document.getElementById('builder-pitch');
 const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.hardWalls : fbField.dryWalls);
 function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [] }; } catch (e) {} return { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; }
 function fbSave() { try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {} }
+// --- Undo / redo (snapshot stack) ---
+let fbHist = [], fbHistIdx = -1;
+function fbSnapshot() { return JSON.stringify(fbField); }
+function fbHistInit() { fbHist = [fbSnapshot()]; fbHistIdx = 0; }
+function fbPush() { fbHist = fbHist.slice(0, fbHistIdx + 1); fbHist.push(fbSnapshot()); if (fbHist.length > 60) fbHist.shift(); fbHistIdx = fbHist.length - 1; fbSave(); fbUpdateHistBtns(); }
+function fbRestore(json) { const j = JSON.parse(json); fbField = { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [] }; fbSel = null; fbSave(); fbRender(); fbUpdateHistBtns(); }
+function fbUndo() { if (fbHistIdx > 0) { fbHistIdx--; fbRestore(fbHist[fbHistIdx]); } }
+function fbRedo() { if (fbHistIdx < fbHist.length - 1) { fbHistIdx++; fbRestore(fbHist[fbHistIdx]); } }
+function fbUpdateHistBtns() { const u = document.getElementById('b-undo'), r = document.getElementById('b-redo'); if (u) u.disabled = fbHistIdx <= 0; if (r) r.disabled = fbHistIdx >= fbHist.length - 1; }
+// --- Overlap detection (no two elements may overlap) ---
+function fbSegSegDist(ax, ay, bx, by, cx, cy, ex, ey) {
+  const ux = bx - ax, uy = by - ay, vx = ex - cx, vy = ey - cy, wx = ax - cx, wy = ay - cy;
+  const a = ux * ux + uy * uy, b = ux * vx + uy * vy, c = vx * vx + vy * vy, d = ux * wx + uy * wy, e = vx * wx + vy * wy, D = a * c - b * b;
+  let sN, sD = D || 1, tN, tD = D || 1;
+  if ((D || 0) < 1e-9) { sN = 0; sD = 1; tN = e; tD = c || 1; }
+  else { sN = b * e - c * d; tN = a * e - b * d; if (sN < 0) { sN = 0; tN = e; tD = c || 1; } else if (sN > sD) { sN = sD; tN = e + b; tD = c || 1; } }
+  if (tN < 0) { tN = 0; if (-d < 0) sN = 0; else if (-d > a) sN = sD; else { sN = -d; sD = a || 1; } }
+  else if (tN > tD) { tN = tD; const t2 = -d + b; if (t2 < 0) sN = 0; else if (t2 > a) sN = sD; else { sN = t2; sD = a || 1; } }
+  const sc = Math.abs(sN) < 1e-9 ? 0 : sN / sD, tc = Math.abs(tN) < 1e-9 ? 0 : tN / tD;
+  return Math.hypot(wx + sc * ux - tc * vx, wy + sc * uy - tc * vy);
+}
+function fbFoot(el, type) {
+  if (type === 'bush') return { box: [el.x, el.y, el.x + el.w, el.y + el.h] };
+  const [x0, y0, x1, y1] = [...fbEnds(el)].flatMap((p) => [p.x, p.y]); return { seg: [x0, y0, x1, y1], r: el.ht };
+}
+function fbSegRectDist(s, box) { // min distance segment<->AABB (0 if it enters the box)
+  const [ax, ay, bx, by] = s, [x0, y0, x1, y1] = box;
+  const inside = (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+  if (inside(ax, ay) || inside(bx, by)) return 0;
+  return Math.min(
+    fbSegSegDist(ax, ay, bx, by, x0, y0, x1, y0), fbSegSegDist(ax, ay, bx, by, x1, y0, x1, y1),
+    fbSegSegDist(ax, ay, bx, by, x1, y1, x0, y1), fbSegSegDist(ax, ay, bx, by, x0, y1, x0, y0));
+}
+function fbPairOverlap(fa, fb) {
+  if (fa.box && fb.box) return fa.box[0] < fb.box[2] && fa.box[2] > fb.box[0] && fa.box[1] < fb.box[3] && fa.box[3] > fb.box[1];
+  if (fa.seg && fb.seg) return fbSegSegDist(...fa.seg, ...fb.seg) < (fa.r + fb.r - 1);
+  const seg = fa.seg || fb.seg, box = fa.box || fb.box, r = (fa.seg ? fa.r : fb.r);
+  return fbSegRectDist(seg, box) < r - 1;
+}
+// Does `el` overlap another element in its OWN category? (walls vs walls, bushes vs bushes;
+// a wall over a bush is allowed — that's an intentional weak/hidden wall.)
+function fbOverlapsAny(el, type, skip) {
+  const fa = fbFoot(el, type);
+  const group = type === 'bush' ? ['bush'] : ['hard', 'dry'];
+  for (const t of group) { const arr = fbList(t); for (let i = 0; i < arr.length; i++) { if (t === type && i === skip) continue; if (fbPairOverlap(fa, fbFoot(arr[i], t))) return true; } }
+  return false;
+}
+function fbFlash(msg) { const h = document.querySelector('#builder .builder-hint'); if (!h) return; const prev = h.textContent; h.textContent = msg; h.style.color = '#ff8a8a'; setTimeout(() => { h.textContent = prev; h.style.color = ''; }, 1200); }
 function fbToWorld(cx, cy) { const r = fbPit().getBoundingClientRect(); return { x: Math.max(0, Math.min(FB_W, (cx - r.left) / r.width * FB_W)), y: Math.max(0, Math.min(FB_H, (cy - r.top) / r.height * FB_H)) }; }
 // Capsule end points (along `angle`) — matches segBlockedByWall's c0/c1.
 function fbEnds(w) { const ca = Math.cos(w.angle), sa = Math.sin(w.angle); return [{ x: w.cx - ca * w.hl, y: w.cy - sa * w.hl }, { x: w.cx + ca * w.hl, y: w.cy + sa * w.hl }]; }
@@ -4657,26 +4705,28 @@ function fbMirror(mode) {
   const bush = (b) => mode === 'sides' ? { ...b, x: mx(b.x + b.w) }
     : mode === 'top' ? { ...b, y: my(b.y + b.h) }
     : { ...b, x: mx(b.x + b.w), y: my(b.y + b.h) };
-  fbField.hardWalls = fbField.hardWalls.concat(fbField.hardWalls.map(wall));
-  fbField.dryWalls = fbField.dryWalls.concat(fbField.dryWalls.map(wall));
-  fbField.bushes = fbField.bushes.concat(fbField.bushes.map(bush));
-  fbSel = null; fbSave(); fbRender();
+  const addCopies = (type, fn) => { const orig = fbList(type).slice(); for (const e of orig) { const c = fn(e); if (!fbOverlapsAny(c, type, -1)) fbList(type).push(c); } };
+  addCopies('hard', wall); addCopies('dry', wall); addCopies('bush', bush);
+  fbSel = null; fbRender(); fbPush();
 }
-function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); }
+function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbHistInit(); fbUpdateHistBtns(); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
   document.getElementById('field-builder-btn')?.addEventListener('click', () => { unlockAudio && unlockAudio(); showScreen('builder'); openBuilder(); });
   document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => fbSetTool(fbTool === btn.dataset.tool ? null : btn.dataset.tool)));
-  document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbSave(); fbRender(); } });
-  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; fbSel = null; fbSave(); fbRender(); });
+  document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbRender(); fbPush(); } });
+  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; fbSel = null; fbRender(); fbPush(); });
   document.querySelectorAll('#builder [data-mirror]').forEach((btn) => btn.addEventListener('click', () => fbMirror(btn.dataset.mirror)));
+  document.getElementById('b-undo')?.addEventListener('click', fbUndo);
+  document.getElementById('b-redo')?.addEventListener('click', fbRedo);
+  document.getElementById('b-save')?.addEventListener('click', () => { fbSave(); const h = document.querySelector('#builder .builder-hint'); if (h) { const p = h.textContent; h.textContent = 'נשמר ✓'; h.style.color = '#7CFC7C'; setTimeout(() => { h.textContent = p; h.style.color = ''; }, 1200); } });
   document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
   pit.addEventListener('pointerdown', (e) => {
     const w = fbToWorld(e.clientX, e.clientY);
     const el = e.target.closest('.bel');
     // ERASER — remove what you touch/drag over.
-    if (fbTool === 'eraser') { fbDrag = { id: e.pointerId, erase: true }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbDeleteEl(el); fbSave(); return; }
+    if (fbTool === 'eraser') { fbDrag = { id: e.pointerId, erase: true, pre: fbSnapshot() }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbDeleteEl(el); return; }
     // WALL tools — DRAW a line from a fixed anchor (grid-snapped, any angle).
     if (fbTool === 'hard' || fbTool === 'dry') {
       const ax = fbSnap(w.x), ay = fbSnap(w.y);
@@ -4692,7 +4742,7 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); }
       fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
     }
     // NO TOOL — select + drag-move an existing element.
-    if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbDrag = { id: e.pointerId, move: true }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
+    if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbDrag = { id: e.pointerId, move: true, pre: fbSnapshot() }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
     else { fbSel = null; fbRender(); }
   });
   pit.addEventListener('pointermove', (e) => {
@@ -4701,5 +4751,20 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); }
     else if (fbDrag.erase) { const t = document.elementFromPoint(e.clientX, e.clientY); fbDeleteEl(t && t.closest ? t.closest('.bel') : null); }
     else if (fbDrag.move && fbSel) fbMoveSel(w.x, w.y);
   });
-  pit.addEventListener('pointerup', (e) => { if (fbDrag) { fbDrag = null; fbDraw = null; fbSave(); try { pit.releasePointerCapture(e.pointerId); } catch (x) {} } });
+  pit.addEventListener('pointerup', (e) => {
+    if (!fbDrag) return;
+    try { pit.releasePointerCapture(e.pointerId); } catch (x) {}
+    if (fbDraw) {
+      const L = fbList(fbDraw.type)[fbDraw.i];
+      if (L && fbOverlapsAny(L, fbDraw.type, fbDraw.i)) { fbList(fbDraw.type).splice(fbDraw.i, 1); fbSel = null; fbRender(); fbFlash('אי אפשר לחפוף אלמנטים'); }
+      else fbPush();
+    } else if (fbDrag.move && fbSel) {
+      const L = fbList(fbSel.type)[fbSel.i];
+      if (L && fbOverlapsAny(L, fbSel.type, fbSel.i)) { fbRestore(fbDrag.pre); fbFlash('אי אפשר לחפוף אלמנטים'); }
+      else if (fbDrag.pre !== fbSnapshot()) fbPush();
+    } else if (fbDrag.erase) {
+      if (fbDrag.pre !== fbSnapshot()) fbPush();
+    }
+    fbDraw = null; fbDrag = null;
+  });
 })();
