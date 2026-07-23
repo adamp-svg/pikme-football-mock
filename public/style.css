@@ -987,6 +987,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .pslot-ghost.rarity-epic { border-color: #b46bff; }
 .pslot-ghost.rarity-rare { border-color: #4ea0ff; }
 .pslot-ghost.rarity-common { border-color: #9ab0c5; }
+/* Dragging a slot's card outside every slot: the ghost turns red = "release to remove". */
+.pslot-ghost-remove { border-color: #ff5a5a !important; filter: grayscale(.35) brightness(.85); opacity: .8; }
+.pslot-ghost-remove::after {
+  content: '✕'; position: absolute; top: -8px; right: -8px; width: 20px; height: 20px;
+  display: grid; place-items: center; border-radius: 50%; background: #ff5a5a; color: #fff;
+  font: 900 12px "Arial Black", sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,.5);
+}
 /* In-match HUD: 3 small equipped-card icons next to the timer. */
 .match-powers { position: fixed; top: 16px; right: 118px; display: flex; gap: 5px; pointer-events: none; z-index: 6; }
 .mpwr {
@@ -1170,6 +1177,17 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   position: absolute; bottom: 3px; left: 3px; z-index: 2; font: 900 10px "Arial Black", sans-serif;
   color: #fff; background: rgba(0,0,0,.7); padding: 1px 5px; border-radius: 6px;
 }
+/* Album tier headers: full-width rows between rarity groups (legendary first). */
+.cards-tier-head {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between;
+  direction: rtl; margin: 8px 2px 0; padding-bottom: 4px; border-bottom: 2px solid #2c3830;
+}
+.cards-tier-name { font: 900 14px "Arial Black", sans-serif; color: #fff4ca; letter-spacing: .3px; }
+.cards-tier-count { font: 800 11px "Arial Black", sans-serif; color: #8aa08c; }
+.cards-tier-head.rarity-legendary { border-color: #ffb800; } .cards-tier-head.rarity-legendary .cards-tier-name { color: #ffd873; }
+.cards-tier-head.rarity-epic { border-color: #b46bff; } .cards-tier-head.rarity-epic .cards-tier-name { color: #d9b6ff; }
+.cards-tier-head.rarity-rare { border-color: #4ea0ff; } .cards-tier-head.rarity-rare .cards-tier-name { color: #a9d2ff; }
+.cards-tier-head.rarity-common { border-color: #9ab0c5; } .cards-tier-head.rarity-common .cards-tier-name { color: #cdd8e2; }
 
 /* ============================================================================
    BAKED LOBBY LAYOUT (feat/lobby-redesign) — PERMANENT default arrangement.

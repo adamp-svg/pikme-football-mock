@@ -926,6 +926,16 @@ function setSlotCard(slotIdx, card) {
   renderPowerSlots();
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
 }
+// Exchange the cards in two slots (lobby drag slot->slot). Moving existing entries never
+// creates a duplicate, so no extra de-dupe is needed; an empty source/target just moves.
+function swapSlots(a, b) {
+  if (a === b) return;
+  const eff = effectiveLoadout();
+  const t = eff[a]; eff[a] = eff[b]; eff[b] = t;
+  myLoadout = eff; saveLoadout(myLoadout);
+  renderPowerSlots();
+  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+}
 // Card thumbnail rendered PIXELATED like the stadium audience: the webp is blitted into a
 // device-res canvas with imageSmoothingEnabled=false (nearest-neighbor, cover-fit), matching the
 // crowd's crunchy card-art look instead of a smooth photo. w/h are the CSS box dims (for aspect + buffer).
@@ -961,8 +971,8 @@ function renderPowerSlots() {
     // Slots now show ONLY the card art (or the slot's power glyph when empty) — no buff %.
     if (card) el.appendChild(slotCardEl(card, 'pslot-art', 52, 68));
     else { const ic = document.createElement('span'); ic.className = 'pslot-emptyic'; ic.textContent = meta.icon; el.appendChild(ic); }
-    // Tap a slot -> open the cards page to pick/change the card in it.
-    el.addEventListener('click', () => { cardsSelSlot = i; renderCardsPage(); showScreen('cards'); });
+    // Tap / drag are handled by the delegated bindSlotDrag() below (tap opens the room,
+    // drag swaps between slots or removes when dropped outside). dataset.slot is the target.
     const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label; // label text: what each slot is
     item.appendChild(el); item.appendChild(cap);
     powerSlotsEl.appendChild(item);
@@ -996,17 +1006,87 @@ function renderCardsPage() {
     slotsEl.appendChild(item);
   });
   deckEl.innerHTML = '';
-  const cards = rankCards(myCards());
-  if (!cards.length) { deckEl.innerHTML = '<div class="subpage-note"><b>אין קלפים עדיין</b><span>הקלפים שלך יופיעו כאן</span></div>'; return; }
-  cards.forEach((c) => {
-    const el = document.createElement('div');
-    el.className = 'cards-deck-card rarity-' + c.r + (eff.some((s) => s && s.r === c.r && +s.n === +c.n) ? ' equipped' : '');
-    el.appendChild(slotCardEl(c, 'cards-deck-art', 66, 88));
-    if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
-    el.addEventListener('click', () => { setSlotCard(cardsSelSlot, { r: c.r, n: +c.n }); renderCardsPage(); });
-    deckEl.appendChild(el);
+  const all = myCards();
+  if (!all.length) { deckEl.innerHTML = '<div class="subpage-note"><b>אין קלפים עדיין</b><span>הקלפים שלך יופיעו כאן</span></div>'; return; }
+  // Album grouped by rarity, highest tier first; within a tier, best worth first. Each tier
+  // gets a full-width header (grid-column:1/-1) so the player scans legendaries -> commons.
+  const TIER_ORDER = ['legendary', 'epic', 'rare', 'common'];
+  const byWorth = (a, b) => (b.w || 0) - (a.w || 0);
+  TIER_ORDER.forEach((rar) => {
+    const group = all.filter((c) => c.r === rar).sort(byWorth);
+    if (!group.length) return;
+    const head = document.createElement('div');
+    head.className = 'cards-tier-head rarity-' + rar;
+    head.innerHTML = '<span class="cards-tier-name">' + (HEB_RAR[rar] || rar) + '</span><span class="cards-tier-count">' + group.length + '</span>';
+    deckEl.appendChild(head);
+    group.forEach((c) => {
+      const el = document.createElement('div');
+      el.className = 'cards-deck-card rarity-' + c.r + (eff.some((s) => s && s.r === c.r && +s.n === +c.n) ? ' equipped' : '');
+      el.appendChild(slotCardEl(c, 'cards-deck-art', 66, 88));
+      if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
+      el.addEventListener('click', () => { setSlotCard(cardsSelSlot, { r: c.r, n: +c.n }); renderCardsPage(); });
+      deckEl.appendChild(el);
+    });
   });
 }
+// ---- Lobby slot gestures (delegated on #power-slots, survives re-renders) --------------
+// TAP a slot            -> open the cards room, targeting that slot.
+// DRAG a filled slot onto another slot -> SWAP the two cards.
+// DRAG a filled slot and release OUTSIDE any slot -> REMOVE that card.
+// An empty slot can't be dragged; tapping it still opens the room to add a card.
+(function bindSlotDrag() {
+  if (!powerSlotsEl) return;
+  let sx = null, sy = null, srcSlot = null, srcCard = null, mode = null, ghost = null;
+  const TH = 10; // px of movement before a press counts as a drag (below = tap)
+  const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
+  const clear = () => {
+    if (ghost) { ghost.remove(); ghost = null; }
+    powerSlotsEl.classList.remove('slots-dragging');
+    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+  };
+  const reset = () => { clear(); sx = sy = null; srcSlot = null; srcCard = null; mode = null; };
+  powerSlotsEl.addEventListener('pointerdown', (e) => {
+    const slotEl = e.target && e.target.closest ? e.target.closest('.pslot') : null;
+    if (!slotEl || slotEl.dataset.slot == null) { srcSlot = null; return; }
+    srcSlot = +slotEl.dataset.slot; srcCard = effectiveLoadout()[srcSlot];
+    sx = e.clientX; sy = e.clientY; mode = null;
+    try { powerSlotsEl.setPointerCapture(e.pointerId); } catch { /* older webviews */ }
+  });
+  powerSlotsEl.addEventListener('pointermove', (e) => {
+    if (sx == null || srcSlot == null) return;
+    if (!mode) {
+      if (srcCard && Math.hypot(e.clientX - sx, e.clientY - sy) > TH) mode = 'drag'; // only a FILLED slot drags
+      else return;
+    }
+    if (!ghost) {
+      ghost = document.createElement('div');
+      ghost.className = 'pslot-ghost rarity-' + srcCard.r;
+      const gi = document.createElement('img'); gi.alt = '';
+      gi.src = `${CARD_ART_BASE}/${srcCard.r}/${srcCard.n}.webp`;
+      ghost.appendChild(gi); document.body.appendChild(ghost);
+      powerSlotsEl.classList.add('slots-dragging');
+    }
+    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+    const slot = slotUnder(e.clientX, e.clientY);
+    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+    if (slot && +slot.dataset.slot !== srcSlot) slot.classList.add('pslot-over');
+    ghost.classList.toggle('pslot-ghost-remove', !slot); // outside every slot -> "release to remove"
+  });
+  const end = (e) => {
+    if (sx == null || srcSlot == null) { reset(); return; }
+    if (mode === 'drag') {
+      const slot = slotUnder(e.clientX, e.clientY);
+      if (slot && slot.dataset.slot != null && +slot.dataset.slot !== srcSlot) swapSlots(srcSlot, +slot.dataset.slot);
+      else if (!slot) setSlotCard(srcSlot, null);   // dropped outside every slot -> remove
+      // dropped back on the same slot -> no-op
+    } else {
+      cardsSelSlot = srcSlot; renderCardsPage(); showScreen('cards'); // a tap -> open the room on this slot
+    }
+    reset();
+  };
+  powerSlotsEl.addEventListener('pointerup', end);
+  powerSlotsEl.addEventListener('pointercancel', reset);
+})();
 // Tap-a-slot info popup: what the power does + the equipped card's buff, with a remove action.
 let powerInfoEl = null;
 function hidePowerInfo() { if (powerInfoEl) powerInfoEl.classList.add('hidden'); }
