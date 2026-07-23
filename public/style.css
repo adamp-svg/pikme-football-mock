@@ -1473,6 +1473,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Top-down STADIUM: a seat-dot bowl (tiled dots = packed stands) with team-tinted halves;
    the pitch covers the centre so seats show only in the surrounding stands ring. */
 .builder-arena { position: relative; height: 100%; width: auto; aspect-ratio: 2000 / 1100; max-width: 100%; margin: auto; border-radius: 22px;
+  display: flex; align-items: center; justify-content: center;
   background-color: #16232b;
   background-image:
     radial-gradient(circle, rgba(140,168,192,.95) 38%, transparent 43%),
@@ -1480,7 +1481,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   background-size: 2.5% 4.3%, 100% 100%;
   box-shadow: inset 0 0 0 4px #2c4553, inset 0 0 70px rgba(0,0,0,.6), 0 8px 28px rgba(0,0,0,.45); }
 /* Pitch inset inside the arena so the seat-dot stands wrap it on all sides. */
-.builder-arena .builder-pitch { position: absolute; inset: 8% 5%; width: auto; max-width: none; max-height: none; aspect-ratio: auto; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22); }
+/* Pitch keeps EXACT 2000:1100 aspect (uniform world->screen scale => correct placement +
+   un-skewed rotated walls); centred at 88% so the seat-bowl stands show as a ring. */
+.builder-arena .builder-pitch { position: relative; inset: auto; width: 88%; height: auto; max-width: 88%; max-height: 88%; aspect-ratio: 2000 / 1100; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22); }
 /* Pitch markings (top-down): centre circle + halfway + penalty boxes + netted goals. */
 .bp-circle { position: absolute; left: 50%; top: 50%; width: 17%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,.4); border-radius: 50%; pointer-events: none; }
 .bp-box { position: absolute; top: 50%; transform: translateY(-50%); height: 56%; width: 16%; border: 2px solid rgba(255,255,255,.4); pointer-events: none; }

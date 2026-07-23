@@ -1138,11 +1138,14 @@ document.getElementById('cards-best-btn')?.addEventListener('click', () => {
   if (!powerSlotsEl) return;
   let sx = null, sy = null, srcSlot = null, srcCard = null, mode = null, ghost = null;
   const TH = 10; // px of movement before a press counts as a drag (below = tap)
+  const heroBtn = document.getElementById('pick-hero-btn');
   const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
+  const heroUnder = (x, y) => { const el = document.elementFromPoint(x, y); return !!(el && el.closest && el.closest('#pick-hero-btn')); };
   const clear = () => {
     if (ghost) { ghost.remove(); ghost = null; }
     powerSlotsEl.classList.remove('slots-dragging');
     document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+    if (heroBtn) heroBtn.classList.remove('hub-hero-over');
   };
   const reset = () => { clear(); sx = sy = null; srcSlot = null; srcCard = null; mode = null; };
   powerSlotsEl.addEventListener('pointerdown', (e) => {
@@ -1168,16 +1171,19 @@ document.getElementById('cards-best-btn')?.addEventListener('click', () => {
     }
     ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
     const slot = slotUnder(e.clientX, e.clientY);
+    const onHero = !slot && heroUnder(e.clientX, e.clientY); // over the hero -> re-skin (never removes the card)
     document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
     if (slot && +slot.dataset.slot !== srcSlot) slot.classList.add('pslot-over');
-    ghost.classList.toggle('pslot-ghost-remove', !slot); // outside every slot -> "release to remove"
+    if (heroBtn) heroBtn.classList.toggle('hub-hero-over', onHero);
+    ghost.classList.toggle('pslot-ghost-remove', !slot && !onHero); // off both slots AND hero -> "release to remove"
   });
   const end = (e) => {
     if (sx == null || srcSlot == null) { reset(); return; }
     if (mode === 'drag') {
       const slot = slotUnder(e.clientX, e.clientY);
       if (slot && slot.dataset.slot != null && +slot.dataset.slot !== srcSlot) swapSlots(srcSlot, +slot.dataset.slot);
-      else if (!slot) setSlotCard(srcSlot, null);   // dropped outside every slot -> remove
+      else if (!slot && srcCard && heroUnder(e.clientX, e.clientY)) setHeroSkinByRarity(srcCard.r); // drop on hero -> re-skin, card STAYS in its slot
+      else if (!slot) setSlotCard(srcSlot, null);   // dropped off every slot AND the hero -> remove
       // dropped back on the same slot -> no-op
     } else {
       cardsSelSlot = srcSlot; renderCardsPage(); showScreen('cards'); // a tap -> open the room on this slot
@@ -4390,7 +4396,9 @@ requestAnimationFrame(frame);
 const FB_KEY = 'pikme-field-v1';
 const FB_W = 2000, FB_H = 1100;
 const FB_WALL = { hl: 88, ht: 16 };   // default wall capsule half-dims (len 176 / thick 32)
-const FB_BUSH = { w: 220, h: 160 };
+const FB_BUSH = { w: 224, h: 160 };
+const FB_GRID = 32;                          // a single cube (= dry-wall thickness) — snap grid
+const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;
 let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] };
 let fbTool = null;   // 'bush' | 'hard' | 'dry' | null (placement tool)
 let fbSel = null;    // { type, i } selected element | null
@@ -4424,15 +4432,17 @@ function fbRender() {
   }
 }
 function fbAdd(type, wx, wy) {
-  if (type === 'bush') fbField.bushes.push({ x: Math.round(wx - FB_BUSH.w / 2), y: Math.round(wy - FB_BUSH.h / 2), w: FB_BUSH.w, h: FB_BUSH.h });
-  else fbList(type).push({ cx: Math.round(wx), cy: Math.round(wy), angle: 0, hl: FB_WALL.hl, ht: FB_WALL.ht });
+  wx = fbSnap(wx); wy = fbSnap(wy);
+  if (type === 'bush') fbField.bushes.push({ x: wx - FB_BUSH.w / 2, y: wy - FB_BUSH.h / 2, w: FB_BUSH.w, h: FB_BUSH.h });
+  else fbList(type).push({ cx: wx, cy: wy, angle: 0, hl: FB_WALL.hl, ht: FB_WALL.ht });
   fbSel = { type, i: fbList(type).length - 1 };
   fbSave(); fbRender();
 }
 function fbMoveSel(wx, wy) {
   if (!fbSel) return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
-  if (fbSel.type === 'bush') { L.x = Math.round(wx - L.w / 2); L.y = Math.round(wy - L.h / 2); }
-  else { L.cx = Math.round(wx); L.cy = Math.round(wy); }
+  wx = fbSnap(wx); wy = fbSnap(wy);
+  if (fbSel.type === 'bush') { L.x = wx - L.w / 2; L.y = wy - L.h / 2; }
+  else { L.cx = wx; L.cy = wy; }
   fbRender();
 }
 let fbResize = null; // { end: 0|1 } while dragging a wall end handle
@@ -4440,6 +4450,7 @@ let fbResize = null; // { end: 0|1 } while dragging a wall end handle
 // Min length = a single cube (hl = ht), so the smallest wall is a ht*2 square.
 function fbResizeSel(wx, wy) {
   if (!fbSel || fbSel.type === 'bush') return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
+  wx = fbSnap(wx); wy = fbSnap(wy);            // snap the dragged end to the cube grid
   const fixed = fbEnds(L)[1 - fbResize.end];
   const dx = wx - fixed.x, dy = wy - fixed.y;
   const len = Math.max(L.ht * 2, Math.hypot(dx, dy)); // clamp to a single cube minimum

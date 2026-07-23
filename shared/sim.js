@@ -280,7 +280,11 @@ function repositionKickoff(state, ballTeam) {
 // Safe to call anytime; call after setting state.fieldDryWalls, and it runs each kickoff.
 export function seedFieldWalls(state) {
   for (const s of (state.fieldDryWalls || [])) {
-    state.builtWalls.push({ ...s, id: state._nid++, hp: s.maxHp });
+    // A dry wall over a bush/penalty is WEAK (hp 1, one hit) so it isn't "extra tough",
+    // but stays SOLID (fragile:false) so it renders visibly over the bush (not glassy).
+    const weak = boxInBush(state, s.x, s.y, s.w, s.h) || boxInPenalty(s.x, s.y, s.w, s.h);
+    const hp = weak ? FRAGILE_HP : s.maxHp;
+    state.builtWalls.push({ ...s, id: state._nid++, hp, maxHp: hp });
   }
 }
 
