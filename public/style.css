@@ -763,20 +763,37 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   font: 900 10px "Arial Black", sans-serif; color: #2a1c05; padding: 6px 9px;
   background: linear-gradient(180deg, #ffe08a, #ffcb43); border: 2px solid #fff4ca; box-shadow: 0 3px 0 #a56a16;
 }
-.hub-rank {
-  display: inline-flex; align-items: center; gap: 4px;
-  font: 900 10px "Arial Black", sans-serif; color: #2a1c06;
-  background: linear-gradient(180deg, #ffe27a, #e0a92a); padding: 4px 8px; box-shadow: 0 3px 0 #070b08;
+/* ============================================================================
+   PIXEL-ART RANK BADGES — the collector badge (#hub-rank, over the cards) and the
+   rank badge (#hub-tier, over the hero) render as 8-bit emblems: notched pixel
+   corners, a hard 2-band fill + raised bevel, icon-forward with minimal text.
+   Tier colour = --c1/--c2 (set inline per tier by renderHubTier for #hub-tier;
+   gold default for the collector). NOTE: clip-path clips box-shadow, so the chunky
+   drop shadow is done with filter: drop-shadow instead.
+   ============================================================================ */
+.hub-rank, .hub-tier {
+  --c1: #ffe27a; --c2: #e0a92a;
+  display: inline-flex; align-items: center; gap: 2px; position: relative; white-space: nowrap;
+  color: #241a05; padding: 2px 6px;
+  background: linear-gradient(180deg, var(--c1) 0 50%, var(--c2) 50% 100%);
+  box-shadow: inset 2px 2px 0 rgba(255,255,255,.5), inset -2px -2px 0 rgba(0,0,0,.42);
+  filter: drop-shadow(0 3px 0 #070b08);
+  image-rendering: pixelated;
+  clip-path: polygon(
+    0 3px, 3px 3px, 3px 0,
+    calc(100% - 3px) 0, calc(100% - 3px) 3px, 100% 3px,
+    100% calc(100% - 3px), calc(100% - 3px) calc(100% - 3px), calc(100% - 3px) 100%,
+    3px 100%, 3px calc(100% - 3px), 0 calc(100% - 3px)
+  );
 }
-/* rank-progress badge over the hero — same pill size/style as .hub-rank, + a slim
-   progress bar pinned to the bottom edge (tier gradient set inline by renderHubTier). */
-.hub-tier {
-  display: inline-flex; align-items: center; gap: 4px; position: relative; white-space: nowrap;
-  font: 900 10px "Arial Black", sans-serif; color: #2a1c06;
-  background: linear-gradient(180deg, #f2b578, #a6702f); padding: 4px 8px 7px; box-shadow: 0 3px 0 #070b08;
-}
+.hub-rank .px-ic, .hub-tier .px-ic { font-size: 16px; line-height: 1; }
+.hub-rank .px-word, .hub-tier .px-sub { font: 900 11px "Arial Black", sans-serif; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
+.hub-tier .hub-tier-lbl { display: inline-flex; align-items: center; gap: 2px; }
+.hub-tier .px-sub { min-width: 9px; text-align: center; }
+/* hero badge only: room at the bottom for the slim sub-rank progress bar (square, pixel) */
+.hub-tier { padding-bottom: 7px; }
 .hub-tier .hub-tier-bar { position: absolute; left: 4px; right: 4px; bottom: 2px; height: 3px;
-  background: rgba(0,0,0,.32); border-radius: 2px; overflow: hidden; }
+  background: rgba(0,0,0,.4); overflow: hidden; }
 .hub-tier .hub-tier-bar b { display: block; height: 100%; width: 0%; background: #241a05; }
 /* profile pill: face (right) + name/XP (left) */
 .hub-id { display: flex; direction: rtl; align-items: center; gap: 8px; background: rgba(19,27,22,.85); border: 3px solid #3a473c; box-shadow: 0 4px 0 #070b08; padding: 5px 7px; }

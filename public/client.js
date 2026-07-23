@@ -716,12 +716,14 @@ function renderHomeCharacter() {
 // works the moment the app injects window.SALTIZ_CARDS. The 3rd chip upgrades from
 // "copies" to real total views automatically if the app ever injects window.SALTIZ_PROFILE.views.
 let _cardsSig = '';
+// Collector tiers — icon-forward pixel badge (icon + one short word; «אספן» prefix dropped
+// so the emblem stays minimal). Icon read as the art, word as the tier.
 const HUB_RANKS = [
-  { min: 5000000, label: '🏆 אספן אגדי' },
-  { min: 1000000, label: '💎 אספן אדיר' },
-  { min: 250000,  label: '⭐ אספן נדיר' },
-  { min: 50000,   label: '🃏 אספן נפוץ' },
-  { min: 0,       label: '🌱 אספן מתחיל' },
+  { min: 5000000, ic: '🏆', word: 'אגדי' },
+  { min: 1000000, ic: '💎', word: 'אדיר' },
+  { min: 250000,  ic: '⭐', word: 'נדיר' },
+  { min: 50000,   ic: '🃏', word: 'נפוץ' },
+  { min: 0,       ic: '🌱', word: 'מתחיל' },
 ];
 function fmtCompact(n) {
   n = Math.round(Number(n) || 0);
@@ -748,7 +750,8 @@ function renderHubStats() {
   const rankEl = document.getElementById('hub-rank');
   if (rankEl) {
     if (cards.length) {
-      rankEl.textContent = (HUB_RANKS.find((r) => worth >= r.min) || HUB_RANKS[HUB_RANKS.length - 1]).label;
+      const r = HUB_RANKS.find((x) => worth >= x.min) || HUB_RANKS[HUB_RANKS.length - 1];
+      rankEl.innerHTML = '<span class="px-ic">' + r.ic + '</span><span class="px-word">' + r.word + '</span>';
       rankEl.classList.remove('hidden');
     } else rankEl.classList.add('hidden');
   }
@@ -801,7 +804,8 @@ function currentXpState() {
   const pct = span ? Math.max(0, Math.min(1, (xp - base) / span)) : 0;
   return { xp, level, pct };
 }
-// Fills the #hub-tier badge over the hero (tier icon + sub-rank + progress toward next sub-rank).
+// Fills the #hub-tier pixel badge over the hero: big tier icon + sub-rank number only
+// (minimal text — tier is read from the icon + colour), progress bar toward the next sub-rank.
 function renderHubTier() {
   const box = document.getElementById('hub-tier');
   const lbl = document.getElementById('hub-tier-lbl');
@@ -809,8 +813,9 @@ function renderHubTier() {
   if (!box || !lbl) return;
   const { level, pct } = currentXpState();
   const { tier, sub, maxed } = rankTierFromLevel(level);
-  lbl.textContent = tier.ic + ' ' + tier.label + ' ' + sub;
-  box.style.background = 'linear-gradient(180deg,' + tier.c1 + ',' + tier.c2 + ')';
+  lbl.innerHTML = '<span class="px-ic">' + tier.ic + '</span><span class="px-sub">' + sub + '</span>';
+  box.style.setProperty('--c1', tier.c1);
+  box.style.setProperty('--c2', tier.c2);
   if (fill) fill.style.width = (maxed ? 100 : pct * 100).toFixed(1) + '%';
 }
 

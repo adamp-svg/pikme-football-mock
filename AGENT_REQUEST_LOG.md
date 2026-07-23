@@ -5,6 +5,13 @@
 
 ## 2026-07-23
 
+- **Req #5** — Task (continuation of #4, same lock `football-mock:hero-rank-badge`). Make BOTH badges — collector `#hub-rank` («אספן…» over the cards) and hero rank `#hub-tier` — more pixel-art: less box, less text.
+  - Approach: unified 8-bit emblem style on `.hub-rank, .hub-tier` — notched pixel corners (`clip-path` L-notch), hard 2-band fill via `--c1/--c2`, raised bevel (inset box-shadows), chunky bottom shadow kept via `filter: drop-shadow` (box-shadow is clipped by clip-path, so must use filter). Icon-forward: `.px-ic` big, tiny `.px-word`/`.px-sub`.
+  - Less text: collector drops the «אספן » prefix → icon + one word (מתחיל/נפוץ/נדיר/אדיר/אגדי); hero drops the tier word → icon + sub-rank number only (tier read from icon+colour). `HUB_RANKS` → {ic,word}; renderHubStats + renderHubTier now set innerHTML (px-ic/px-word/px-sub); renderHubTier sets `--c1/--c2` (not inline background).
+  - Verified: `node --check` OK; server :3010 boots; `/`+`client.js`=200; CSS has `clip-path: polygon` + `.px-ic` + `filter: drop-shadow(0 3px 0`; JS has {ic,word} HUB_RANKS + px-ic/px-word/px-sub innerHTML + `setProperty('--c1')`; 0 stale (old `.label`, old `box.style.background`). NOTE: pixel-art look (notched corners + bevel + emoji) still wants a browser/device glance — emoji glyphs stay smooth; pixel feel comes from the frame, not the icon.
+  - Committed my 4 files only.
+  - Status: DONE
+
 - **Req #4** — Task assigned + LOCKED (`football-mock:hero-rank-badge`). Requirement: (a) add a small rank-progress badge ABOVE the hero in the hub, same size + position style as the `אספן אדיר` collector badge (`#hub-rank`) sitting over the cards; (b) each rank has 4 sub-ranks → progression ברונזה 1→ברונזה 2→…→ברונזה 4→כסף 1… (7 tiers × 4).
   - Design: driven by the football level (`window.SALTIZ_XP`/`levelFromXp`, client.js:760). 1 level = 1 sub-rank (Bronze1..4=lvl1..4, Silver1=lvl5, … Master4=lvl28+). Progress bar = XP-into-level `pct` (base=50·L·(L-1), span=100·L). Mirrors `#hub-rank` (worth-derived) pattern.
   - Files: index.html (new `#hub-tier` badge over hero + `data-tier` on rank tiles + subnote), client.js (`RANK_TIERS`/`rankTierFromLevel`/`currentXpState`/`renderHubTier`, call after renderHubXp; rank screen shows current division + highlights active tile), style.css (`.hub-tier` + baked pos over hero + `.rank-tier.on`).
