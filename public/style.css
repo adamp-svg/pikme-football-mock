@@ -1686,3 +1686,6 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .tc-opt b { font-size: 16px; } .tc-opt small { opacity: .8; font-size: 12px; }
 #tc-bots { background: #2fbf5e; color: #06210f; }
 .setting-empty { opacity: .55; font-size: 13px; padding: 10px; text-align: center; }
+
+/* Keep builder rows clear of the iPhone notch/rounded corners (landscape safe-area). */
+.builder-top, .builder-palette, .builder-hint { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }

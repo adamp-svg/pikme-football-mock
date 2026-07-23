@@ -4897,6 +4897,8 @@ function fbSetZoom(z) {
   const a = document.querySelector('#builder .builder-arena');
   if (a) a.style.setProperty('--bz', fbZoom);
 }
+let fbTwoFinger = false; // true while a 2-finger pinch/pan gesture is active (suppresses draw)
+function fbCancelDraw() { if (fbDraw) { const arr = fbList(fbDraw.type); if (fbDraw.i >= 0 && fbDraw.i < arr.length) arr.splice(fbDraw.i, 1); fbDraw = null; fbRender(); } fbDrag = null; }
 function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
@@ -4914,7 +4916,19 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
   document.getElementById('b-zoom-out')?.addEventListener('click', () => fbSetZoom(fbZoom - 0.25));
   document.getElementById('b-zoom-reset')?.addEventListener('click', () => fbSetZoom(1));
   document.querySelector('#builder .builder-stage')?.addEventListener('wheel', (e) => { e.preventDefault(); fbSetZoom(fbZoom + (e.deltaY < 0 ? 0.2 : -0.2)); }, { passive: false });
+  // Two-finger PINCH to zoom + two-finger DRAG to pan (natural mobile gesture).
+  const stage = document.querySelector('#builder .builder-stage');
+  if (stage) {
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const mid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+    let d0 = 0, z0 = 1, mx0 = 0, my0 = 0, sx0 = 0, sy0 = 0, on = false;
+    stage.addEventListener('touchstart', (e) => { if (e.touches.length === 2) { on = true; fbTwoFinger = true; fbCancelDraw(); d0 = dist(e.touches) || 1; z0 = fbZoom; const m = mid(e.touches); mx0 = m.x; my0 = m.y; sx0 = stage.scrollLeft; sy0 = stage.scrollTop; e.preventDefault(); } }, { passive: false });
+    stage.addEventListener('touchmove', (e) => { if (on && e.touches.length === 2) { e.preventDefault(); const m = mid(e.touches); fbSetZoom(z0 * (dist(e.touches) / d0)); stage.scrollLeft = sx0 - (m.x - mx0); stage.scrollTop = sy0 - (m.y - my0); } }, { passive: false });
+    const endGesture = (e) => { if (e.touches.length < 2 && on) { on = false; setTimeout(() => { fbTwoFinger = false; }, 60); } };
+    stage.addEventListener('touchend', endGesture); stage.addEventListener('touchcancel', endGesture);
+  }
   pit.addEventListener('pointerdown', (e) => {
+    if (fbTwoFinger) return; // a pinch/pan is in progress — don't start drawing
     const w = fbToWorld(e.clientX, e.clientY);
     const el = e.target.closest('.bel');
     // ERASER — remove what you touch/drag over.
