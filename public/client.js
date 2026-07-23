@@ -1233,22 +1233,24 @@ function renderMatchPowers() {
 const homeCharCanvas = document.getElementById('home-char');
 const homeCharCtx = homeCharCanvas ? homeCharCanvas.getContext('2d') : null;
 let homeDanceRAF = null;
-// The idle lobby hero runs a little routine: break into a random emote, then a
-// SECOND random emote a couple seconds later, then return to walking — looping
-// forever with fresh moves each cycle. It also restarts (dancing first) on any
-// hero/costume change. Emote pool = LOBBY_DANCES minus 'walk'. Wardrobe = walk only.
+// The idle lobby hero runs a looping routine: a random emote for 5s, then walk
+// for 30s, over and over — a fresh (non-repeating) move each cycle. Starts on a
+// dance at load, and restarts (dancing first) on any hero/costume change.
+// Emote pool = LOBBY_DANCES minus 'walk'. Wardrobe preview stays walk-only.
 const LOBBY_EMOTES = LOBBY_DANCES.filter((a) => a !== 'walk');
 const pickEmote = () => LOBBY_EMOTES[Math.floor(Math.random() * LOBBY_EMOTES.length)] || 'walk';
-const DANCE_MS = 2600, WALK_MS = 3400;         // "a couple of seconds" per emote, then a walk beat
+const DANCE_MS = 5000, WALK_MS = 30000;        // 5s dance, then 30s walk
 let homeQueue = [];                            // pending [action, durationMs] steps
 let homeCur = 'walk';                          // action playing right now
 let homeCurEnd = 0;                            // performance.now() ms when the current step ends
+let homeLastEmote = null;                      // avoid the same dance two cycles running
 function advanceHomeRoutine(nowMs) {
   if (nowMs < homeCurEnd) return;              // current step still running
-  if (!homeQueue.length) {                     // build the next cycle: dance → other dance → walk
-    const a = pickEmote(); let b = pickEmote(), guard = 0;
-    while (b === a && LOBBY_EMOTES.length > 1 && guard++ < 8) b = pickEmote();  // avoid repeating the first
-    homeQueue = [[a, DANCE_MS], [b, DANCE_MS], ['walk', WALK_MS]];
+  if (!homeQueue.length) {                     // build the next cycle: dance (5s) → walk (30s)
+    let a = pickEmote(), guard = 0;
+    while (a === homeLastEmote && LOBBY_EMOTES.length > 1 && guard++ < 8) a = pickEmote();
+    homeLastEmote = a;
+    homeQueue = [[a, DANCE_MS], ['walk', WALK_MS]];
   }
   const [act, dur] = homeQueue.shift();
   homeCur = act; homeCurEnd = nowMs + dur;

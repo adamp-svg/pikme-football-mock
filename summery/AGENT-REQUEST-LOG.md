@@ -54,3 +54,9 @@ Protocol: localhost only · commit everything · lock task via agent-orchestrati
 **Done (client.js only):** replaced the static single-pick (`homeDanceAction`/`rerollHomeDance`) with a timed routine `advanceHomeRoutine(nowMs)` driven off `performance.now()`. Cycle = `[randomEmote 2.6s] → [other randomEmote 2.6s] → [walk 3.4s]`, looping with fresh randoms; 2nd emote avoids repeating the 1st. `LOBBY_EMOTES = LOBBY_DANCES − 'walk'`. Starts on a dance on load; `saveAndClose` now calls `restartHomeRoutine()` (clears queue → next frame starts fresh dance). Wardrobe preview still walk-only.
 **Verified:** node --check OK; timeline sim → `0.0 shuffle | 2.6 orange | 5.2 walk | 8.6 … (loops, fresh randoms)`, first action always a dance.
 **Status:** DONE — committed.
+
+## Request 6 — 2026-07-23
+**User:** First action a random dance for 5s, then 30s walk (loop).
+**Done (client.js):** `DANCE_MS=5000`, `WALK_MS=30000`; cycle now `[randomEmote 5s] → [walk 30s]` looping; added `homeLastEmote` so consecutive cycles use different dances. Starts on a dance; restart-on-costume-change unchanged.
+**Verified:** node --check OK; sim → `0s dance | 5s walk | 35s dance | 40s walk | ...`.
+**Status:** DONE — committed.
