@@ -414,6 +414,15 @@ function postMatchResult(myT, opT, myScore, opScore) {
     const rosterIds = new Set(matchRoster.map((p) => p.id));
     const players = (latest && latest.players) || [];
     const humanOpponents = players.filter((p) => p.team === opT && rosterIds.has(p.id)).length;
+    // XP SCALING by how HUMAN the match is. Humans = snapshot players whose id is in matchRoster.
+    // Factor ramps from 0.2 (I'm the only human — a full lobby of bots) to 1.0 (every other slot
+    // is a human): xpFactor = 0.2 + 0.8 * (otherHumans / otherSlots). The backend multiplies its
+    // base match XP by this, so an all-human match earns XP ~5x faster than a bot-filled one.
+    const totalPlayers = players.length || 4;
+    const humanCount = players.filter((p) => rosterIds.has(p.id)).length; // includes me
+    const otherSlots = Math.max(1, totalPlayers - 1);
+    const humanFrac = Math.max(0, Math.min(1, (humanCount - 1) / otherSlots));
+    const xpFactor = Math.round((0.2 + 0.8 * humanFrac) * 100) / 100; // 0.20 .. 1.00
     const payload = {
       t: 'matchResult',
       matchId,
@@ -424,6 +433,9 @@ function postMatchResult(myT, opT, myScore, opScore) {
       durationSec: MATCH_DURATION,
       humanOpponents,               // opponents whose snapshot id is in matchRoster
       vsHuman: humanOpponents > 0,
+      humanCount,                   // total humans in the match (incl. me)
+      totalPlayers,                 // filled slots (humans + bots)
+      xpFactor,                     // XP multiplier: 0.2 (all bots) .. 1.0 (all humans)
     };
     window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
   } catch { /* not in app */ }
