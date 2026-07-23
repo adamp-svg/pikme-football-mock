@@ -2827,12 +2827,15 @@ function buildAudienceSeats() {
   audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
   preloadCards(pool);
 }
-// Every player's cards in the match, rarity-first (rarest first). Falls back to my own album
-// when the roster carries no cards (training/solo/dev) so I always see my full collection.
+// Every card in the match as INDIVIDUAL fans, rarity-first. DUPLICATES COUNT: a card owned ×N
+// takes N seats. My full album is ALWAYS included (not just when the roster is empty — the
+// training roster may carry a few bot cards, which must NOT replace my collection), plus every
+// OTHER roster player's cards.
 function allCards() {
   const bag = [];
-  for (const p of matchRoster) for (const c of (p.cards || [])) bag.push(c);
-  if (!bag.length) for (const c of myCards()) bag.push(c);
+  const push = (cards) => { for (const c of (cards || [])) { const copies = Math.max(1, c.c || 1); for (let k = 0; k < copies; k++) bag.push(c); } };
+  push(myCards());                                                    // my whole album, duplicates expanded
+  for (const p of matchRoster) if (p.id !== myMemberId) push(p.cards); // + everyone else in the match
   bag.sort((a, b) => (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) || (b.w || 0) - (a.w || 0) || (b.c || 0) - (a.c || 0));
   return bag;
 }
