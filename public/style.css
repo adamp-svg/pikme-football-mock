@@ -1200,6 +1200,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   .hub-herohint { display: none; }
   .pslot-best { padding: 4px 3px; }
 }
+/* The short-landscape rule above blanks .pslot-cap, but the game runs LANDSCAPE and a real
+   phone's WebView is < 400px tall — which wrongly hid the hub's power-slot labels. Keep them
+   for the hub's absolutely-positioned slot overlay (#power-slots); the in-match loadout column
+   stays label-less as intended. */
+@media (max-height: 400px) { #power-slots .pslot-cap { display: block; } }
 .pslot.rarity-legendary { border-color: #ffb800; }
 .pslot.rarity-epic { border-color: #b46bff; }
 .pslot.rarity-rare { border-color: #4ea0ff; }
