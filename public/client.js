@@ -1865,6 +1865,12 @@ async function loadFriends() {
   renderFriends();
   loadRequests();
 }
+
+// Green bulb on the hub friends button whenever at least one friend is online.
+function updateFriendsDot() {
+  const d = document.getElementById('friends-dot');
+  if (d) d.classList.toggle('hidden', ONLINE.size === 0);
+}
 async function loadRequests() {
   const reqs = await apiGet('/handle-friends/requests');       // secondary list — stay silent on error
   renderRequests(Array.isArray(reqs) ? reqs : []);
@@ -2273,6 +2279,7 @@ function connect(name, avatar) {
     ws.send(JSON.stringify({ type: 'join', authToken: FOOTBALL_TOKEN, name, avatar, cards: myCards(), cosmetic: myCosmetic, loadout: effectiveLoadout() }));
     if (pingIv) clearInterval(pingIv);
     pingIv = setInterval(sendPing, 1500);
+    loadFriends(); // register friends → server replies friendsPresence → bulb reflects online friends
   };
   // If the socket drops (network / server restart / WebView backgrounding), the
   // game would otherwise freeze forever — so fall back to the home menu and retry.
@@ -2366,6 +2373,7 @@ function connect(name, avatar) {
       ping = Math.round(performance.now() - msg.t);
     } else if (msg.type === 'friendsPresence') {
       ONLINE = new Set(msg.online || []);
+      updateFriendsDot();
       renderFriends();
       renderPartyInvite();                 // party lobby: refresh who's invitable
     } else if (msg.type === 'partyInvite') {

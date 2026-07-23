@@ -834,6 +834,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-siderail.left { left: 18px; }
 .hub-siderail.right { right: 18px; }
 .hub-sat {
+  position: relative;
   appearance: none; width: 62px; height: 62px; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
   background: rgba(19,27,22,.9); border: 3px solid #46543f; color: #eef3ea; box-shadow: 0 5px 0 #070b08;
@@ -841,6 +842,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-sat .hub-sat-ic { font-size: 22px; line-height: 1; }
 .hub-sat b { font: 900 9px "Arial Black", sans-serif; letter-spacing: .3px; }
 .hub-sat:active { transform: translateY(3px); box-shadow: 0 2px 0 #070b08; }
+.hub-sat-dot { position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #25e06a; box-shadow: 0 0 6px #25e06a, 0 0 0 2px #0b120d; }
+.hub-sat-dot.hidden { display: none; }
 
 /* --- CENTER STAGE: small carousel (top) + bottom band (arena + play row).
    The big hero + card slots are absolute overlays anchored to .hub (below). --- */
