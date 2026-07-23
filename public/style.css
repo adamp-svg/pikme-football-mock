@@ -768,6 +768,16 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   font: 900 10px "Arial Black", sans-serif; color: #2a1c06;
   background: linear-gradient(180deg, #ffe27a, #e0a92a); padding: 4px 8px; box-shadow: 0 3px 0 #070b08;
 }
+/* rank-progress badge over the hero — same pill size/style as .hub-rank, + a slim
+   progress bar pinned to the bottom edge (tier gradient set inline by renderHubTier). */
+.hub-tier {
+  display: inline-flex; align-items: center; gap: 4px; position: relative; white-space: nowrap;
+  font: 900 10px "Arial Black", sans-serif; color: #2a1c06;
+  background: linear-gradient(180deg, #f2b578, #a6702f); padding: 4px 8px 7px; box-shadow: 0 3px 0 #070b08;
+}
+.hub-tier .hub-tier-bar { position: absolute; left: 4px; right: 4px; bottom: 2px; height: 3px;
+  background: rgba(0,0,0,.32); border-radius: 2px; overflow: hidden; }
+.hub-tier .hub-tier-bar b { display: block; height: 100%; width: 0%; background: #241a05; }
 /* profile pill: face (right) + name/XP (left) */
 .hub-id { display: flex; direction: rtl; align-items: center; gap: 8px; background: rgba(19,27,22,.85); border: 3px solid #3a473c; box-shadow: 0 4px 0 #070b08; padding: 5px 7px; }
 .hub-idtext { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; }
@@ -1014,11 +1024,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   background: linear-gradient(135deg, #3a2f12, #1a1608); border: 3px solid #a07d2a; box-shadow: 0 5px 0 #070b08; }
 .rank-me-ic { font-size: 38px; flex: none; }
 .rank-me-tx { flex: 1; text-align: right; }
-.rank-me-tx b { display: block; font: 900 26px "Arial Black", sans-serif; color: #ffce4a; line-height: 1; }
+.rank-me-tx b { display: block; font: 900 22px "Arial Black", sans-serif; color: #ffce4a; line-height: 1.05; }
 .rank-me-tx small { display: block; font-size: 11px; color: #d8c98a; font-weight: 800; margin-top: 4px; }
+.rank-sec-hint { font: 900 10px "Arial Black", sans-serif; color: #8ea08a; }
 .rank-ladder { width: 100%; max-width: 460px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .rank-tier { flex: 0 0 auto; width: 60px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 4px;
-  background: rgba(19,27,22,.94); border: 2px solid #46543f; box-shadow: 0 3px 0 #070b08; font-size: 22px; }
+  background: rgba(19,27,22,.94); border: 2px solid #46543f; box-shadow: 0 3px 0 #070b08; font-size: 22px; opacity: .82; }
 .rank-tier b { font: 900 10px "Arial Black", sans-serif; color: #e7dcae; }
 .rank-tier.t-bronze  { border-color: #a6702f; }
 .rank-tier.t-silver  { border-color: #b9c2cc; }
@@ -1027,6 +1038,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .rank-tier.t-mythic  { border-color: #b46bff; }
 .rank-tier.t-legend  { border-color: #ff5b7f; }
 .rank-tier.t-master  { border-color: #ffce4a; }
+/* player's current tier: brought forward + lifted */
+.rank-tier.on { opacity: 1; transform: translateY(-3px); background: rgba(40,54,40,.98); box-shadow: 0 6px 0 #070b08; }
+.rank-tier.on b { color: #fff4ca; }
+.rank-subnote { width: 100%; max-width: 460px; text-align: center; font: 900 10px "Arial Black", sans-serif;
+  color: #8ea08a; line-height: 1.5; }
 .rank-note { width: 100%; max-width: 460px; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px;
   background: rgba(15,22,17,.82); border: 2px solid #39463b; box-shadow: 0 3px 0 #070b08; }
 .rank-note b { font: 900 13px "Arial Black", sans-serif; color: #e7dcae; }
@@ -1420,6 +1436,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub > .hub-name,
 .hub > .hub-xpbar,
 .hub > .hub-chip,
+.hub > #hub-tier,
 .hub > .hub-rank,
 .hub > .hub-sat,
 .hub > .hub-cards,
@@ -1452,6 +1469,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub > #chip-worth    { left: 278px; top: 15px; width: 60px; z-index: 5; }
 .hub > #chip-cards    { left: 346px; top: 15px; width: 60px; z-index: 5; }
 .hub > #hub-rank      { left: 270px; top: 60px; z-index: 5; }
+/* rank badge centred over the hero (hero: left 490 + 250px canvas → centre x≈615), same top baseline as #hub-rank */
+.hub > #hub-tier      { left: 615px; top: 60px; transform: translateX(-50%); z-index: 6; }
 
 /* edge controls: equal 52px squares; symmetric — news/shop left (x95), friends/clubs right (x795) */
 .hub > .hub-sat { width: 52px; height: 52px; }

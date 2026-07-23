@@ -59,6 +59,14 @@
       <!-- COMPACT carousel: one BIG front card + a couple of small ones -->
       <div class="hub-cards"><div id="home-carousel" class="carousel hub-thumbs hidden"></div></div>
 
+      <!-- Rank-progress badge OVER the hero — mirrors the #hub-rank collector badge over the
+           cards (same pill size/style). renderHubTier() fills it: tier icon + sub-rank
+           («🥉 ברונזה 2») + a slim progress bar toward the next sub-rank. 7 tiers × 4 sub-ranks. -->
+      <div id="hub-tier" class="hub-tier">
+        <span id="hub-tier-lbl" class="hub-tier-lbl">🥉 ברונזה 1</span>
+        <span class="hub-tier-bar"><b id="hub-tier-fill"></b></span>
+      </div>
+
       <!-- BIG hero. Tap opens the wardrobe (client.js binds open() to #pick-hero-btn). -->
       <button id="pick-hero-btn" class="hub-hero" aria-label="הקש להחלפת מראה">
         <canvas id="home-char" class="hub-char" width="200" height="210"></canvas>
@@ -292,19 +300,20 @@
       </div>
       <div class="subpage-body">
         <div class="rank-me">
-          <span class="rank-me-ic">🏅</span>
-          <div class="rank-me-tx"><b id="rank-me-pos">—</b><small id="rank-me-sub">שחקו משחק כדי להיכנס לטבלה</small></div>
+          <span class="rank-me-ic" id="rank-me-ic">🥉</span>
+          <div class="rank-me-tx"><b id="rank-me-div">ברונזה 1</b><small id="rank-me-sub">שחקו משחק כדי להיכנס לטבלה</small></div>
         </div>
-        <div class="rank-section"><b>דרגות</b></div>
+        <div class="rank-section"><b>דרגות</b><span class="rank-sec-hint">4 תת־דרגות בכל דרגה</span></div>
         <div class="rank-ladder">
-          <div class="rank-tier t-bronze"><span>🥉</span><b>ברונזה</b></div>
-          <div class="rank-tier t-silver"><span>🥈</span><b>כסף</b></div>
-          <div class="rank-tier t-gold"><span>🥇</span><b>זהב</b></div>
-          <div class="rank-tier t-diamond"><span>💎</span><b>יהלום</b></div>
-          <div class="rank-tier t-mythic"><span>🔮</span><b>מיתי</b></div>
-          <div class="rank-tier t-legend"><span>👑</span><b>אגדי</b></div>
-          <div class="rank-tier t-master"><span>🏆</span><b>אלוף</b></div>
+          <div class="rank-tier t-bronze"  data-tier="bronze"><span>🥉</span><b>ברונזה</b></div>
+          <div class="rank-tier t-silver"  data-tier="silver"><span>🥈</span><b>כסף</b></div>
+          <div class="rank-tier t-gold"    data-tier="gold"><span>🥇</span><b>זהב</b></div>
+          <div class="rank-tier t-diamond" data-tier="diamond"><span>💎</span><b>יהלום</b></div>
+          <div class="rank-tier t-mythic"  data-tier="mythic"><span>🔮</span><b>מיתי</b></div>
+          <div class="rank-tier t-legend"  data-tier="legend"><span>👑</span><b>אגדי</b></div>
+          <div class="rank-tier t-master"  data-tier="master"><span>🏆</span><b>אלוף</b></div>
         </div>
+        <div class="rank-subnote">מתקדמים תת־דרגה בכל עלייה ברמה: ברונזה 1 → ברונזה 2 → … → ברונזה 4 → כסף 1</div>
         <div class="rank-note lock"><b>פרסי עונה</b><span class="soon-pill">בקרוב</span></div>
         <div class="rank-note lock"><b>טבלת מובילים מלאה</b><span class="soon-pill">בקרוב</span></div>
       </div>

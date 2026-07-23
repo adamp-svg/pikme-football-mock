@@ -708,6 +708,7 @@ function renderHomeCharacter() {
   renderPowerSlots();
   renderHubStats();
   renderHubXp();
+  renderHubTier();
   _cardsSig = cardsSig();
 }
 
@@ -769,6 +770,48 @@ function renderHubXp() {
     + '<span class="hub-xp-amt">' + fmtCompact(into) + ' / ' + fmtCompact(span) + ' XP</span></div>'
     + '<div class="hub-xp-bar"><b style="width:' + (pct * 100).toFixed(1) + '%"></b></div>';
   el.classList.remove('hidden');
+}
+
+// --- Competitive rank ladder: 7 tiers × 4 sub-ranks (28 divisions), driven by the
+// football level. 1 level = 1 sub-rank → ברונזה 1..4 = levels 1..4, כסף 1 = level 5, …,
+// אלוף 4 = level 28+. Progress bar = XP progress into the current level (= toward the next
+// sub-rank). Same source of truth as the XP bar (window.SALTIZ_XP / levelFromXp), mirroring
+// the worth-derived #hub-rank collector badge but for rank. ---
+const RANK_TIERS = [
+  { key: 'bronze',  label: 'ברונזה', ic: '🥉', c1: '#f2b578', c2: '#a6702f' },
+  { key: 'silver',  label: 'כסף',    ic: '🥈', c1: '#e9eff4', c2: '#98a6b2' },
+  { key: 'gold',    label: 'זהב',    ic: '🥇', c1: '#ffe27a', c2: '#e0a92a' },
+  { key: 'diamond', label: 'יהלום',  ic: '💎', c1: '#96e6f7', c2: '#3f9fc0' },
+  { key: 'mythic',  label: 'מיתי',   ic: '🔮', c1: '#d7abff', c2: '#8a4fd0' },
+  { key: 'legend',  label: 'אגדי',   ic: '👑', c1: '#ffa8ba', c2: '#e0435f' },
+  { key: 'master',  label: 'אלוף',   ic: '🏆', c1: '#ffe9a0', c2: '#d99a1e' },
+];
+const RANK_SUBS = 4;
+function rankTierFromLevel(level) {
+  const total = RANK_TIERS.length * RANK_SUBS;                  // 28 divisions
+  const idx = Math.max(0, Math.min(total - 1, (level | 0) - 1));
+  return { tier: RANK_TIERS[Math.floor(idx / RANK_SUBS)], sub: (idx % RANK_SUBS) + 1,
+    maxed: ((level | 0) - 1) >= total - 1 };
+}
+function currentXpState() {
+  const src = window.SALTIZ_XP;
+  const xp = src && Number.isFinite(+src.xp) ? +src.xp : (DEV_LOCAL ? 1240 : 0);
+  const level = src && +src.level ? +src.level : levelFromXp(xp);
+  const base = 50 * level * (level - 1), span = 100 * level;
+  const pct = span ? Math.max(0, Math.min(1, (xp - base) / span)) : 0;
+  return { xp, level, pct };
+}
+// Fills the #hub-tier badge over the hero (tier icon + sub-rank + progress toward next sub-rank).
+function renderHubTier() {
+  const box = document.getElementById('hub-tier');
+  const lbl = document.getElementById('hub-tier-lbl');
+  const fill = document.getElementById('hub-tier-fill');
+  if (!box || !lbl) return;
+  const { level, pct } = currentXpState();
+  const { tier, sub, maxed } = rankTierFromLevel(level);
+  lbl.textContent = tier.ic + ' ' + tier.label + ' ' + sub;
+  box.style.background = 'linear-gradient(180deg,' + tier.c1 + ',' + tier.c2 + ')';
+  if (fill) fill.style.width = (maxed ? 100 : pct * 100).toFixed(1) + '%';
 }
 
 // Coverflow carousel of the player's cards on the home screen: best card centered,
@@ -1559,19 +1602,28 @@ document.querySelectorAll('#friends .fr-tab').forEach((t) => t.addEventListener(
 
 // Task 2: rank button (under the news satellite). Shows the player's LIVE football
 // leaderboard position (server ranks by xp desc; /handle-friends/rank resolves userId→phone).
-// Rank opens its own screen (tier-ladder basis) and fills in the live global position on top.
-const rankMePos = document.getElementById('rank-me-pos');
+// Rank opens its own screen: big label = current DIVISION (tier + sub-rank, from the level),
+// sub-line = LIVE global leaderboard position (server ranks by xp desc; /handle-friends/rank
+// resolves userId→phone). The active tier tile in the ladder is highlighted.
+const rankMeDiv = document.getElementById('rank-me-div');
+const rankMeIc = document.getElementById('rank-me-ic');
 const rankMeSub = document.getElementById('rank-me-sub');
-function setRankMe(pos, sub) { if (rankMePos) rankMePos.textContent = pos; if (rankMeSub) rankMeSub.textContent = sub; }
+function renderRankMeDivision() {
+  const { tier, sub } = rankTierFromLevel(currentXpState().level);
+  if (rankMeIc) rankMeIc.textContent = tier.ic;
+  if (rankMeDiv) rankMeDiv.textContent = tier.label + ' ' + sub;
+  document.querySelectorAll('#rank .rank-tier').forEach((t) => t.classList.toggle('on', t.dataset.tier === tier.key));
+}
 document.getElementById('rank-btn')?.addEventListener('click', async () => {
   unlockAudio();
   showScreen('rank');
-  if (!FOOTBALL_TOKEN) { setRankMe('—', 'התחברו דרך האפליקציה כדי לראות דירוג'); return; }
-  setRankMe('…', 'טוען דירוג…');
+  renderRankMeDivision();                                   // division is always known (from level)
+  if (rankMeSub) rankMeSub.textContent = 'טוען דירוג עולמי…';
+  if (!FOOTBALL_TOKEN) { if (rankMeSub) rankMeSub.textContent = 'התחברו דרך האפליקציה לדירוג עולמי'; return; }
   const res = await apiGet('/handle-friends/rank');
-  if (!res) { setRankMe('—', 'טעינת הדירוג נכשלה — נסו שוב'); return; }
-  if (res.rank == null) { setRankMe('—', 'עדיין אין לך דירוג — שחקו משחק כדי להיכנס לטבלה'); return; }
-  setRankMe('#' + res.rank, 'מתוך ' + res.totalPlayers + ' שחקנים');
+  if (!res) { if (rankMeSub) rankMeSub.textContent = 'טעינת הדירוג העולמי נכשלה — נסו שוב'; return; }
+  if (res.rank == null) { if (rankMeSub) rankMeSub.textContent = 'עדיין לא בטבלה — שחקו משחק כדי להיכנס'; return; }
+  if (rankMeSub) rankMeSub.textContent = 'מקום עולמי #' + res.rank + ' מתוך ' + res.totalPlayers + ' שחקנים';
 });
 // #14/#15: joiner "waiting for approval" overlay — the cancel button withdraws the pending
 // request (leaveRoom -> server drops it + returns us home). The outside/backdrop-click handler

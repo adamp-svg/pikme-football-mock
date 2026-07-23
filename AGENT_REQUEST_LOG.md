@@ -5,6 +5,17 @@
 
 ## 2026-07-23
 
+- **Req #4** — Task assigned + LOCKED (`football-mock:hero-rank-badge`). Requirement: (a) add a small rank-progress badge ABOVE the hero in the hub, same size + position style as the `אספן אדיר` collector badge (`#hub-rank`) sitting over the cards; (b) each rank has 4 sub-ranks → progression ברונזה 1→ברונזה 2→…→ברונזה 4→כסף 1… (7 tiers × 4).
+  - Design: driven by the football level (`window.SALTIZ_XP`/`levelFromXp`, client.js:760). 1 level = 1 sub-rank (Bronze1..4=lvl1..4, Silver1=lvl5, … Master4=lvl28+). Progress bar = XP-into-level `pct` (base=50·L·(L-1), span=100·L). Mirrors `#hub-rank` (worth-derived) pattern.
+  - Files: index.html (new `#hub-tier` badge over hero + `data-tier` on rank tiles + subnote), client.js (`RANK_TIERS`/`rankTierFromLevel`/`currentXpState`/`renderHubTier`, call after renderHubXp; rank screen shows current division + highlights active tile), style.css (`.hub-tier` + baked pos over hero + `.rank-tier.on`).
+  - Done:
+    - Hero badge `#hub-tier` in index.html: pill mirrors `.hub-rank` (same font/padding/shadow) + slim bottom progress bar; baked at `left:615 top:60 translateX(-50%)` = centred over the hero, same top baseline as `#hub-rank` over the cards. Tier gradient set inline per tier.
+    - JS: `renderHubTier()` fills icon+`ברונזה N`+bar; called after `renderHubXp()` (line ~711). Rank screen: `#rank-me-div` = live division (from level), `#rank-me-sub` = live global position, active `.rank-tier` gets `.on`; renamed `#rank-me-pos`→`#rank-me-div`, added `#rank-me-ic` (JS updated to match — 0 stale `rank-me-pos` refs).
+    - Mapping VERIFIED via node: lvl1→ברונזה1, lvl4→ברונזה4, lvl5→כסף1, lvl28+→אלוף4(clamped). DEV_LOCAL xp1240→lvl5→כסף1.
+  - Verified: `node --check` OK; server :3010 boots; `/`+`/client.js`=200; served HTML has `#hub-tier(-lbl/-fill)` + `#rank-me-div/ic/sub` + all 7 `data-tier`; JS has `RANK_TIERS`/`rankTierFromLevel`/`renderHubTier`/`renderRankMeDivision`. NOTE: no headless-DOM tool → visual placement (badge centred over hero, no clip/overlap) still wants a browser/device glance.
+  - Committed my 4 files only; left parallel agent's untracked files alone.
+  - Status: DONE
+
 - **Req #3** — Task assigned + LOCKED (`football-mock:lobby-element-basis`). Requirement: for each main-lobby element (clubs, shop, news, rank) build the BASIS/scaffold UI, researched from how Brawl Stars / Fortnite / Roblox structure these screens. Features not yet available → label `בקרוב`. Also fix `#select-best-btn` ("בחר הכי טוב") which clips its text in its 110×32 box — shorten text / shrink / icon-only.
   - Context: fixed 900×415 logical-px hub stage (`public/style.css` "BAKED LOBBY LAYOUT" §1308+). Sub-screens `#news/#shop/#clubs/#arena` live in `public/index.html:159+` but were bare `.subpage-note` placeholders. Screen routing = `showScreen()` (client.js:569) + `[data-open-screen]` binders (client.js:1418). Rank = `#rank-btn` (client.js:1491) previously only toasted `/handle-friends/rank`; no screen.
   - Research (WebSearch): SHOP = BrawlStars/Fortnite → wallet + daily-deal(24h timer) + featured bundle + category tiles. CLUBS = BrawlStars → «not-in-club» landing (create/find) + preview of chat/club-league(2wk)/roles(נשיא·סגן·בכיר·חבר). NEWS = Fortnite → featured MOTD banner + feed of update cards. RANK = BrawlStars trophy/ranked → live global position + tier ladder Bronze→כסף→זהב→יהלום→מיתי→אגדי→אלוף.
