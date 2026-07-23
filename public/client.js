@@ -2001,6 +2001,8 @@ let selectedGame = null;             // chosen minigame (set in step 2, drives t
 let pendingPartyApply = false;       // apply the picks once the fresh room's roomJoined arrives
 let partyFlow = false;               // true while in the play-with-friends flow (host OR invited member) → land on the #party roster
 let lastLobby = null;                // last lobby payload, so the party roster can re-render as members accept
+let partyStage = 'invite';           // 'invite' → #friend-select sections (room open, inviting); 'roster' → #party
+const invitedSet = new Set();        // userIds invited this session (shown as "pending" until they join)
 function partyCandidates() { return FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId)); } // available to invite
 function renderFriendSelect() {
   const el = document.getElementById('friend-select-list'); if (!el) return;
@@ -2021,28 +2023,81 @@ function renderFriendSelect() {
     el.appendChild(row);
   });
 }
+// Invite screen: three live sections — online (invitable) / pending (invited) / accepted.
+// The party room is created when this screen OPENS so invites + accepts are live here.
+function inviteRowEl(f) {
+  const online = f.isBot || ONLINE.has(f.userId);
+  const row = document.createElement('div'); row.className = 'friend-row' + (online ? ' online' : '') + (f.isBot ? ' is-bot' : '');
+  const dot = document.createElement('span'); dot.className = 'friend-dot';
+  const pfp = document.createElement('img'); pfp.className = 'friend-pfp';
+  if (/^https?:\/\//i.test((f.image || '').toString())) pfp.src = f.image;
+  const nm = document.createElement('span'); nm.className = 'friend-name'; nm.textContent = (f.isBot ? '🤖 ' : '') + (f.nickName || '');
+  const btn = document.createElement('button'); btn.className = 'friend-act';
+  const pending = invitedSet.has(f.userId) && !f.isBot;
+  btn.textContent = pending ? 'ממתין…' : 'הזמן'; btn.disabled = pending;
+  btn.onclick = () => {
+    if (f.isBot) sendMsg({ type: 'addBot', name: f.nickName });
+    else { sendMsg({ type: 'inviteFriend', toUserId: f.userId }); invitedSet.add(f.userId); }
+    renderInvite();
+  };
+  row.append(dot, pfp, nm, btn);
+  return row;
+}
+function acceptedRowEl(m) {
+  const row = document.createElement('div'); row.className = 'friend-row online' + (m.isBot ? ' is-bot' : '');
+  const dot = document.createElement('span'); dot.className = 'friend-dot';
+  const nm = document.createElement('span'); nm.className = 'friend-name'; nm.textContent = (m.isBot ? '🤖 ' : '') + (m.name || '');
+  const tag = document.createElement('span'); tag.className = 'friend-bot-tag'; tag.textContent = '✓ בקבוצה';
+  row.append(dot, nm, tag);
+  return row;
+}
+function renderInvite() {
+  const onlineEl = document.getElementById('fs-online');
+  const pendEl = document.getElementById('fs-pending');
+  const accEl = document.getElementById('fs-accepted');
+  if (!onlineEl || !pendEl || !accEl) return;
+  const accepted = ((lastLobby || {}).members || []).filter((m) => m.id !== myMemberId);
+  const accName = new Set(accepted.map((m) => m.name || ''));
+  onlineEl.innerHTML = ''; pendEl.innerHTML = ''; accEl.innerHTML = '';
+  let nOnline = 0, nPend = 0;
+  FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId)).forEach((f) => {
+    if (accName.has(f.nickName || '')) return;                 // already joined → accepted section
+    if (invitedSet.has(f.userId) && !f.isBot) { pendEl.appendChild(inviteRowEl(f)); nPend++; }
+    else { onlineEl.appendChild(inviteRowEl(f)); nOnline++; }
+  });
+  accepted.forEach((m) => accEl.appendChild(acceptedRowEl(m)));
+  if (!nOnline) onlineEl.innerHTML = '<div class="pi-empty">אין חברים מחוברים כרגע</div>';
+  document.getElementById('fs-pending-wrap')?.classList.toggle('hidden', !nPend);
+  document.getElementById('fs-accepted-wrap')?.classList.toggle('hidden', !accepted.length);
+}
 function openFriendSelect() {
-  partySel.clear(); selectedGame = null; partyFlow = false;
+  // Create the party room up front so invites + accepts are LIVE on this screen.
+  selectedGame = null; partyFlow = true; partyStage = 'invite'; invitedSet.clear();
   if (joinCodeEl) joinCodeEl.value = '';
   syncLoadout(); loadFriends();               // refresh presence so online friends show as candidates
-  renderFriendSelect();
+  sendMsg({ type: 'createRoom' });            // roomJoined (invite stage) keeps this overlay + renders sections
+  renderInvite();
   friendSelectEl?.classList.remove('hidden');
 }
 function closeFriendSelect() { friendSelectEl?.classList.add('hidden'); }
-document.getElementById('friend-select-close')?.addEventListener('click', closeFriendSelect);
-friendSelectEl?.addEventListener('click', (e) => { if (e.target === friendSelectEl) closeFriendSelect(); });
+// Cancelling the invite screen dissolves the just-created party room (no orphan left behind).
+function cancelInvite() {
+  closeFriendSelect();
+  if (partyFlow && partyStage === 'invite') { sendMsg({ type: 'leaveRoom' }); partyFlow = false; lastLobby = null; }
+}
+document.getElementById('friend-select-close')?.addEventListener('click', cancelInvite);
+friendSelectEl?.addEventListener('click', (e) => { if (e.target === friendSelectEl) cancelInvite(); });
 document.getElementById('friend-select-go')?.addEventListener('click', () => {
-  // New flow: create the party room now and open the ROSTER (#party); picked friends are
-  // invited immediately (applyPartyPicks) and appear as they accept. Game pick happens on
-  // the roster, then → groups (#lobby).
+  // Room already exists (created on open) → advance to the party ROSTER.
   unlockAudio(); closeFriendSelect();
-  partyFlow = true; selectedGame = null; pendingPartyApply = true;
-  sendMsg({ type: 'createRoom' });
+  partyStage = 'roster';
+  showScreen('party'); renderParty();
 });
 document.getElementById('join-room-btn')?.addEventListener('click', () => {
   unlockAudio();
   const code = (joinCodeEl?.value || '').trim().toUpperCase();
   if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
+  if (partyFlow && partyStage === 'invite') { sendMsg({ type: 'leaveRoom' }); partyFlow = false; } // drop the orphan party room
   closeFriendSelect();
   sendMsg({ type: 'joinRoom', code });
 });
@@ -2097,6 +2152,13 @@ function partyHeroCanvas(cosmetic, big) {
   drawHero(g, ox, feetY, sf, 0.4, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
   return cv;
 }
+function teamHeroCanvas(cosmetic) {
+  const cv = document.createElement('canvas'); cv.width = 44; cv.height = 52;
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+  const sf = cv.height / 42, ox = cv.width / 2, feetY = cv.height - sf * 3;
+  drawHero(g, ox, feetY, sf, 0.4, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
+  return cv;
+}
 function partyCardsRow(cards) {
   const row = document.createElement('div'); row.className = 'pr-cards';
   (cards || []).filter(Boolean).slice(0, 3).forEach((c) => {
@@ -2142,11 +2204,9 @@ function renderParty(msg) {
   partyRosterEl.appendChild(meBlock);
   mates.slice(half).forEach((m) => partyRosterEl.appendChild(mateBlock(m)));
   if (!mates.length) { const e = document.createElement('div'); e.className = 'pr-empty'; e.textContent = 'הזמינו חברים…'; partyRosterEl.appendChild(e); }
-  // Only the host advances to the groups page; others wait.
-  const g = partyEl && partyEl.querySelector('.modecard[data-party-game]');
-  if (g) { g.classList.toggle('lock', !isRoomHost); g.style.pointerEvents = isRoomHost ? '' : 'none'; }
+  // Every member can advance to the groups page to pick a team; only the host starts.
   const hint = document.getElementById('party-hint');
-  if (hint) hint.classList.toggle('hidden', isRoomHost);
+  if (hint) { hint.textContent = 'בחרו משחק ואז קבוצה — המארח מתחיל'; hint.classList.toggle('hidden', isRoomHost); }
 }
 // Host taps a live game → groups (#lobby, existing team-pick + play-now). Tapping the
 // empty background LEAVES the party room (sub-page convention), sent via leaveToLobby().
@@ -2155,7 +2215,6 @@ partyEl?.addEventListener('pointerdown', (e) => { partyDownBackdrop = isDismissB
 partyEl?.addEventListener('click', (e) => {
   const card = e.target.closest('.modecard[data-party-game]');
   if (card && !card.classList.contains('lock')) {
-    if (!isRoomHost) return;
     unlockAudio(); syncLoadout(); selectedGame = card.dataset.partyGame || '2v2'; showScreen('lobby'); return;
   }
   if (partyDownBackdrop && isDismissBackdrop(e.target, partyEl)) { partyDownBackdrop = false; leaveToLobby(); }
@@ -2224,13 +2283,13 @@ function connect(name, avatar) {
       clearRoomRequests(); hideRoomWait();     // fresh room: no stale pending UI / waiting overlay
       clearLobbyLists(); resetPlayNow();
       if (msg.mode === 'quick') { quickVs = true; showScreen('home'); startLobbyMusic(); } // VS + countdown overlay drives the wait
-      else if (partyFlow) { quickVs = false; hideVs(); showScreen('party'); startLobbyMusic(); renderParty(); } // party: roster first, then a game → groups
+      else if (partyFlow) { quickVs = false; hideVs(); startLobbyMusic(); if (partyStage === 'roster') { showScreen('party'); renderParty(); } else { renderInvite(); } } // invite stage keeps the overlay; roster shows the party
       else { quickVs = false; hideVs(); showScreen('lobby'); startLobbyMusic(); }           // #12: lobby theme instantly
       if (pendingPartyApply && isRoomHost) { pendingPartyApply = false; applyPartyPicks(); } // add picked bots + invite friends
     } else if (msg.type === 'toHome') {
       if (msg.online != null) homeOnlineEl.textContent = msg.online;
       me = { playerId: null, team: null, char: chosenChar };
-      partyFlow = false; lastLobby = null;
+      partyFlow = false; lastLobby = null; partyStage = 'invite'; invitedSet.clear();
       clearRoomRequests(); hideRoomWait();   // #14: no stale host/joiner room UI back home
       quickVs = false; hideVs(); showScreen('home');
     } else if (msg.type === 'roomError') {
@@ -2260,7 +2319,9 @@ function connect(name, avatar) {
       renderRoomRequests();
     } else if (msg.type === 'lobby') {
       if (quickVs) { updateVsCountdown(msg); }
-      else { lastLobby = msg; updateLobbyUI(msg); if (partyFlow && partyEl && !partyEl.classList.contains('hidden')) renderParty(msg); }
+      else { lastLobby = msg; updateLobbyUI(msg);
+        if (partyFlow && friendSelectEl && !friendSelectEl.classList.contains('hidden')) renderInvite();
+        if (partyEl && !partyEl.classList.contains('hidden')) renderParty(msg); }
     } else if (msg.type === 'matchStart') {
       enterMatch(msg);
     } else if (msg.type === 'toLobby') {
@@ -2345,7 +2406,7 @@ function exitToLobby() {
 // the exit feels instant even before that reply lands.
 function leaveToLobby() {
   sendMsg({ type: 'leaveRoom' });
-  partyFlow = false; lastLobby = null;
+  partyFlow = false; lastLobby = null; partyStage = 'invite'; invitedSet.clear();
   quickVs = false; hideVs(); hideTeamIntro(); hideRoomWait(); clearRoomRequests();
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
@@ -2619,15 +2680,11 @@ function updateLobbyUI(msg) {
     if (!row) row = buildMemberRow(m, listEl);
     else if (row.parentElement !== listEl) listEl.appendChild(row); // moved teams
     const [av, nm, st] = row.children;
-    if (row._avatar !== (m.avatar || '')) {
-      row._avatar = m.avatar || '';
+    const cos = m.cosmetic || DEFAULT_COSMETIC;
+    if (row._cos !== cos) {                 // small HERO drawn from the member's cosmetic (was an avatar photo)
+      row._cos = cos;
       av.innerHTML = '';
-      if (m.avatar) {
-        const img = document.createElement('img');
-        img.src = m.avatar; img.alt = '';
-        img.onerror = () => { av.innerHTML = ''; av.textContent = memberInitials(m.name); };
-        av.appendChild(img);
-      } else { av.textContent = memberInitials(m.name); }
+      av.appendChild(teamHeroCanvas(cos));
     }
     const label = m.id === myMemberId ? `${m.name} (אני)` : m.name;
     if (nm.textContent !== label) nm.textContent = label;

@@ -459,11 +459,15 @@
   <div id="friend-select" class="game-select hidden" dir="rtl">
     <div class="game-select-card">
       <div class="game-select-head">
-        <h2>בחר חברים</h2>
+        <h2>הזמינו חברים</h2>
         <button id="friend-select-close" class="subpage-back" aria-label="סגור">›</button>
       </div>
-      <div id="friend-select-list" class="fs-list"></div>
-      <button id="friend-select-go" class="play"><span>המשך לבחירת משחק</span><b>›</b></button>
+      <div class="fs-sections">
+        <div id="fs-online-wrap"><div class="fs-sec-h">מחוברים · הזמינו</div><div id="fs-online" class="friend-list"></div></div>
+        <div id="fs-pending-wrap" class="hidden"><div class="fs-sec-h">הוזמנו · ממתינים לאישור</div><div id="fs-pending" class="friend-list"></div></div>
+        <div id="fs-accepted-wrap" class="hidden"><div class="fs-sec-h">✓ הצטרפו לקבוצה</div><div id="fs-accepted" class="friend-list"></div></div>
+      </div>
+      <button id="friend-select-go" class="play"><span>המשך לקבוצה</span><b>›</b></button>
       <div class="ps-or"><span>או הצטרף לחדר של חבר עם קוד</span></div>
       <div class="join-row">
         <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />

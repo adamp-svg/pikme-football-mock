@@ -381,12 +381,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .member-row.is-ready { border-left-color: var(--gold); }
 .member-av {
-  width: 34px; height: 34px; flex: none; overflow: hidden;
+  width: 44px; height: 52px; flex: none; overflow: hidden;
   background: #26332a; border: 2px solid #3c4a3e; color: #e7dcae;
   font: 900 12px "Arial Black", sans-serif;
   display: flex; align-items: center; justify-content: center;
 }
 .member-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.member-av canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
 .member-name {
   flex: 1; min-width: 0; color: #eef2e6; font-weight: 800; font-size: 13px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -971,6 +972,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .pr-empty { align-self: center; color: #8ea08a; font: 800 12px "Arial Black", sans-serif; padding: 0 6px; }
 .party-games { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .party-games-h { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; text-align: right; }
+/* Invite screen sections (online / pending / accepted) */
+.fs-sections { display: flex; flex-direction: column; gap: 12px; max-height: 52vh; overflow-y: auto; margin-bottom: 10px; }
+.fs-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin-bottom: 6px; letter-spacing: .3px; }
 .subpage { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; padding: 14px 18px 20px; }
 .subpage-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .subpage-back {
