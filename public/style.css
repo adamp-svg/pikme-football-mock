@@ -1631,7 +1631,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Pitch inset inside the arena so the seat-dot stands wrap it on all sides. */
 /* Pitch keeps EXACT 2000:1100 aspect (uniform world->screen scale => correct placement +
    un-skewed rotated walls); centred at 88% so the seat-bowl stands show as a ring. */
-.builder-arena .builder-pitch { position: relative; inset: auto; width: 88%; height: auto; max-width: 88%; max-height: 88%; aspect-ratio: 2000 / 1100; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22); }
+.builder-arena .builder-pitch { position: relative; inset: auto; width: 88%; height: auto; max-width: 88%; max-height: 88%; aspect-ratio: 2000 / 1100; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22);
+  /* Brawl-style cell grid (20x11) drawn behind the placed elements. */
+  background-image: linear-gradient(rgba(255,255,255,.13) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.13) 1px, transparent 1px), radial-gradient(circle at 50% 50%, #2f7d43, #256a38);
+  background-size: 5% 9.0909%, 5% 9.0909%, 100% 100%; }
+.btool[data-tool="eraser"].active { background: #6e2b2b; color: #fff; }
 /* Pitch markings (top-down): centre circle + halfway + penalty boxes + netted goals. */
 .bp-circle { position: absolute; left: 50%; top: 50%; width: 17%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,.4); border-radius: 50%; pointer-events: none; }
 .bp-box { position: absolute; top: 50%; transform: translateY(-50%); height: 56%; width: 16%; border: 2px solid rgba(255,255,255,.4); pointer-events: none; }

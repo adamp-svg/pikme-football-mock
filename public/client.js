@@ -4589,7 +4589,7 @@ const FB_KEY = 'pikme-field-v1';
 const FB_W = 2000, FB_H = 1100;
 const FB_WALL = { hl: 88, ht: 16 };   // default wall capsule half-dims (len 176 / thick 32)
 const FB_BUSH = { w: 224, h: 160 };
-const FB_GRID = 32;                          // a single cube (= dry-wall thickness) — snap grid
+const FB_GRID = 100;                          // grid cell (Brawl-style chunky snap) = pitch/20 x pitch/11
 const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;
 let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] };
 let fbTool = null;   // 'bush' | 'hard' | 'dry' | null (placement tool)
@@ -4617,19 +4617,8 @@ function fbRender() {
   fbField.bushes.forEach((b, i) => mk('bush', i, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h, null));
   fbField.hardWalls.forEach((w, i) => mk('hard', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
   fbField.dryWalls.forEach((w, i) => mk('dry', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
-  // Resize handles on a selected WALL — drag an end to lengthen/shorten + rotate.
-  if (fbSel && fbSel.type !== 'bush') {
-    const L = fbList(fbSel.type)[fbSel.i];
-    if (L) fbEnds(L).forEach((p, e) => { const h = document.createElement('div'); h.className = 'bhandle'; h.style.left = pctL(p.x); h.style.top = pctT(p.y); h.dataset.end = e; pit.appendChild(h); });
-  }
 }
-function fbAdd(type, wx, wy) {
-  wx = fbSnap(wx); wy = fbSnap(wy);
-  if (type === 'bush') fbField.bushes.push({ x: wx - FB_BUSH.w / 2, y: wy - FB_BUSH.h / 2, w: FB_BUSH.w, h: FB_BUSH.h });
-  else fbList(type).push({ cx: wx, cy: wy, angle: 0, hl: FB_WALL.hl, ht: FB_WALL.ht });
-  fbSel = { type, i: fbList(type).length - 1 };
-  fbSave(); fbRender();
-}
+// Move a selected element to (wx,wy) — grid-snapped.
 function fbMoveSel(wx, wy) {
   if (!fbSel) return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
   wx = fbSnap(wx); wy = fbSnap(wy);
@@ -4637,25 +4626,28 @@ function fbMoveSel(wx, wy) {
   else { L.cx = wx; L.cy = wy; }
   fbRender();
 }
-let fbResize = null; // { end: 0|1 } while dragging a wall end handle
-// Drag a wall END to (wx,wy): keep the OTHER end fixed, recompute angle+length+centre.
-// Min length = a single cube (hl = ht), so the smallest wall is a ht*2 square.
-function fbResizeSel(wx, wy) {
-  if (!fbSel || fbSel.type === 'bush') return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
-  wx = fbSnap(wx); wy = fbSnap(wy);            // snap the dragged end to the cube grid
-  // Use the anchor captured at drag START (not recomputed from the live wall — that drifts
-  // and collapses the wall to a dot).
-  const fixed = { x: fbResize.fx, y: fbResize.fy };
-  const dx = wx - fixed.x, dy = wy - fixed.y;
-  const len = Math.max(L.ht * 2, Math.hypot(dx, dy)); // clamp to a single cube minimum
-  L.angle = Math.atan2(dy, dx);
-  L.hl = Math.round(len / 2);
-  L.cx = Math.round(fixed.x + Math.cos(L.angle) * L.hl);
-  L.cy = Math.round(fixed.y + Math.sin(L.angle) * L.hl);
+let fbDraw = null; // { type, ax, ay, i } while DRAWING a new wall/bush from a fixed anchor
+// Update the element being drawn: a wall becomes a LINE anchor->cursor (free angle =>
+// rotation is built in); a bush becomes the rectangle anchor->cursor. Grid-snapped.
+function fbDrawUpdate(wx, wy) {
+  if (!fbDraw) return; const bx = fbSnap(wx), by = fbSnap(wy);
+  if (fbDraw.type === 'bush') {
+    const b = fbField.bushes[fbDraw.i]; if (!b) return;
+    b.x = Math.min(fbDraw.ax, bx); b.y = Math.min(fbDraw.ay, by);
+    b.w = Math.max(FB_GRID, Math.abs(bx - fbDraw.ax)); b.h = Math.max(FB_GRID, Math.abs(by - fbDraw.ay));
+  } else {
+    const L = fbList(fbDraw.type)[fbDraw.i]; if (!L) return;
+    const dx = bx - fbDraw.ax, dy = by - fbDraw.ay;
+    const len = Math.max(L.ht * 2, Math.hypot(dx, dy)); // >= a single cube
+    L.angle = Math.atan2(dy, dx); L.hl = Math.round(len / 2);
+    L.cx = Math.round(fbDraw.ax + Math.cos(L.angle) * L.hl);
+    L.cy = Math.round(fbDraw.ay + Math.sin(L.angle) * L.hl);
+  }
   fbRender();
 }
+function fbDeleteEl(el) { if (!el) return; const arr = fbList(el.dataset.type); const i = +el.dataset.i; if (i >= 0 && i < arr.length) { arr.splice(i, 1); if (fbSel && fbSel.type === el.dataset.type && fbSel.i === i) fbSel = null; fbRender(); } }
 function fbSetTool(t) { fbTool = t; fbSel = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); fbRender(); }
-function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); } // default a tool so a tap places immediately
+function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
@@ -4672,13 +4664,33 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); } 
   });
   document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
   pit.addEventListener('pointerdown', (e) => {
-    const hd = e.target.closest('.bhandle');
-    if (hd && fbSel && fbSel.type !== 'bush') { const end = +hd.dataset.end; const L0 = fbList(fbSel.type)[fbSel.i]; const f = fbEnds(L0)[1 - end]; fbResize = { end, fx: f.x, fy: f.y }; fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} return; }
+    const w = fbToWorld(e.clientX, e.clientY);
     const el = e.target.closest('.bel');
-    if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbTool = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.remove('active')); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
-    else if (fbTool) { const w = fbToWorld(e.clientX, e.clientY); fbAdd(fbTool, w.x, w.y); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} }
+    // ERASER — remove what you touch/drag over.
+    if (fbTool === 'eraser') { fbDrag = { id: e.pointerId, erase: true }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbDeleteEl(el); fbSave(); return; }
+    // WALL tools — DRAW a line from a fixed anchor (grid-snapped, any angle).
+    if (fbTool === 'hard' || fbTool === 'dry') {
+      const ax = fbSnap(w.x), ay = fbSnap(w.y);
+      fbList(fbTool).push({ cx: ax, cy: ay, angle: 0, hl: FB_WALL.ht, ht: FB_WALL.ht });
+      fbDraw = { type: fbTool, ax, ay, i: fbList(fbTool).length - 1 }; fbSel = { type: fbTool, i: fbDraw.i };
+      fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
+    }
+    // BUSH — DRAW a rectangle from a fixed anchor.
+    if (fbTool === 'bush') {
+      const ax = fbSnap(w.x), ay = fbSnap(w.y);
+      fbField.bushes.push({ x: ax, y: ay, w: FB_GRID, h: FB_GRID });
+      fbDraw = { type: 'bush', ax, ay, i: fbField.bushes.length - 1 }; fbSel = { type: 'bush', i: fbDraw.i };
+      fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
+    }
+    // NO TOOL — select + drag-move an existing element.
+    if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbDrag = { id: e.pointerId, move: true }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
     else { fbSel = null; fbRender(); }
   });
-  pit.addEventListener('pointermove', (e) => { if (!fbDrag) return; const w = fbToWorld(e.clientX, e.clientY); if (fbResize) fbResizeSel(w.x, w.y); else if (fbSel) fbMoveSel(w.x, w.y); });
-  pit.addEventListener('pointerup', (e) => { if (fbDrag) { fbDrag = null; fbResize = null; fbSave(); try { pit.releasePointerCapture(e.pointerId); } catch (x) {} } });
+  pit.addEventListener('pointermove', (e) => {
+    if (!fbDrag) return; const w = fbToWorld(e.clientX, e.clientY);
+    if (fbDraw) fbDrawUpdate(w.x, w.y);
+    else if (fbDrag.erase) { const t = document.elementFromPoint(e.clientX, e.clientY); fbDeleteEl(t && t.closest ? t.closest('.bel') : null); }
+    else if (fbDrag.move && fbSel) fbMoveSel(w.x, w.y);
+  });
+  pit.addEventListener('pointerup', (e) => { if (fbDrag) { fbDrag = null; fbDraw = null; fbSave(); try { pit.releasePointerCapture(e.pointerId); } catch (x) {} } });
 })();
