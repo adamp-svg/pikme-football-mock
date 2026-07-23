@@ -8,7 +8,7 @@
 // (y=550) centre lines, so neither team is advantaged — important because team B
 // renders a horizontally-mirrored view.
 
-import { FIELD, clamp } from './constants.js';
+import { FIELD, clamp, DRY_WALL_HP } from './constants.js';
 
 // Static, indestructible stone walls (axis-aligned boxes).
 const WALLS = [
@@ -193,4 +193,36 @@ function segSegDist(ax, ay, bx, by, cx, cy, ex, ey) {
   const tc = Math.abs(tN) < 1e-9 ? 0 : tN / tD;
   const px = wx + sc * ux - tc * vx, py = wy + sc * uy - tc * vy;
   return Math.hypot(px, py);
+}
+
+// --- Field builder helpers --------------------------------------------------
+// Axis-aligned bounding box of a rotated capsule (centre cx,cy; half-length hl;
+// half-thickness ht; oriented by `angle`). Used for render/broadphase + the wire.
+export function capsuleAABB(cx, cy, angle, hl, ht) {
+  const ca = Math.abs(Math.cos(angle)), sa = Math.abs(Math.sin(angle));
+  const w = Math.round((ca * hl + sa * ht) * 2), h = Math.round((sa * hl + ca * ht) * 2);
+  return { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h };
+}
+// A rotatable INDESTRUCTIBLE hard wall (capsule) — same shape a built wall uses, so all
+// collision/cover/cannon code (which branches on `angle`) treats it identically; it just
+// never has HP and lives in the arena's walls[] (never destroyed).
+export function hardWall(cx, cy, angle, hl, ht) {
+  return { ...capsuleAABB(cx, cy, angle, hl, ht), cx, cy, angle, hl, ht };
+}
+// Build an arena object (walls + bushes) from a saved field layout. Hard walls become
+// indestructible capsule walls; bushes pass through as boxes. Dry walls are NOT here —
+// they are seeded into builtWalls at kickoff (see dryWallSeeds).
+export function buildArenaFromField(field) {
+  const bushes = (field?.bushes || []).map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h }));
+  const walls = (field?.hardWalls || []).map((w) => hardWall(w.cx, w.cy, w.angle, w.hl, w.ht));
+  return { walls, bushes, trampolines: [] };
+}
+// Dry-wall templates → builtWall entries (destructible capsules). Caller assigns ids.
+// `field:true` marks them so the MAX_BUILT_WALLS cap and per-kickoff reseed treat them
+// as fixed field geometry (respawn each point) rather than player-built defences.
+export function dryWallSeeds(field) {
+  return (field?.dryWalls || []).map((w) => {
+    const hp = w.maxHp || DRY_WALL_HP;
+    return { ...capsuleAABB(w.cx, w.cy, w.angle, w.hl, w.ht), cx: w.cx, cy: w.cy, angle: w.angle, hl: w.hl, ht: w.ht, hp, maxHp: hp, fragile: false, team: null, ttl: 0, field: true };
+  });
 }

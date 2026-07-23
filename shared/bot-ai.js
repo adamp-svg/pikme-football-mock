@@ -23,6 +23,11 @@ import {
 } from './constants.js';
 import { ARENA, pointInBox, pointInBush } from './arena.js';
 
+// Active arena for this state — a custom FIELD-BUILDER arena (state.arena) or the default.
+// Bots must path/aim against the SAME geometry the sim collides with. Falls back to the
+// global ARENA when no state is threaded (safe default).
+const arenaOf = (state) => (state && state.arena) || ARENA;
+
 const GY = FIELD.H / 2;
 const PEN_TOP = (FIELD.H - PENALTY.width) / 2;
 const PEN_BOT = (FIELD.H + PENALTY.width) / 2;
@@ -106,9 +111,9 @@ function len(x, y) { return hyp(x, y); }
 function seededNoise(seed) { const n = Math.sin(seed * 127.1) * 43758.5453; return (n - Math.floor(n)) * 2 - 1; } // [-1,1], deterministic
 function idHash(id) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; } // stable per-id seed (decorrelates bots)
 // Nearest bush centre to (x,y) within maxD — off-ball bots lurk here to ambush.
-function nearestBushCenter(x, y, maxD = 520) {
+function nearestBushCenter(x, y, maxD = 520, state = null) {
   let best = null, bd = maxD;
-  for (const g of ARENA.bushes) { const cx = g.x + g.w / 2, cy = g.y + g.h / 2, d = hyp(cx - x, cy - y); if (d < bd) { bd = d; best = { x: cx, y: cy }; } }
+  for (const g of arenaOf(state).bushes) { const cx = g.x + g.w / 2, cy = g.y + g.h / 2, d = hyp(cx - x, cy - y); if (d < bd) { bd = d; best = { x: cx, y: cy }; } }
   return best;
 }
 
@@ -162,7 +167,7 @@ export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, marg
   const er = radOf(state) + 10 + margin;
   for (let i = 1; i <= steps; i++) {
     const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
-    for (const w of ARENA.walls) if (pointInBox(x, y, w)) return false;
+    for (const w of arenaOf(state).walls) if (pointInBox(x, y, w)) return false;
     for (const w of state.builtWalls) if (pointInBox(x, y, w)) return false;
     for (const f of foes) if (hyp(f.x - x, f.y - y) < er) return false;
   }
@@ -175,11 +180,11 @@ export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, marg
 // walls are intentionally IGNORED here: the sim lets shots chip/kill those, so they must NOT
 // suppress the attempt (that stays "per existing behavior", handled by laneClear elsewhere).
 // Step count scales with length so a ~120px wall is never stepped over on a long line. ----
-function indestructibleBlocks(x0, y0, x1, y1) {
+function indestructibleBlocks(x0, y0, x1, y1, state = null) {
   const steps = Math.max(6, Math.ceil(hyp(x1 - x0, y1 - y0) / 40));
   for (let i = 1; i <= steps; i++) {
     const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
-    for (const w of ARENA.walls) if (pointInBox(x, y, w)) return true;
+    for (const w of arenaOf(state).walls) if (pointInBox(x, y, w)) return true;
   }
   return false;
 }
@@ -199,9 +204,9 @@ function wallWouldPlace(p, ax, ay) {
 }
 
 // ---- pick the bush that best straddles the carrier -> our-goal lane (ambush spot) ----
-function chooseAmbushBush(c, ogX) {
+function chooseAmbushBush(c, ogX, state = null) {
   let best = null, bestScore = -1e9;
-  for (const g of ARENA.bushes) {
+  for (const g of arenaOf(state).bushes) {
     const bx = g.x + g.w / 2, by = g.y + g.h / 2;
     if (Math.abs(bx - ogX) > Math.abs(c.x - ogX) + 120) continue; // must be goal-side of the carrier
     const d = pointSegDist(bx, by, c.x, c.y, ogX, GY);
@@ -225,7 +230,7 @@ function bankAim(sx, sy, tx, ty, state, team, { goal = false, maxPath = 780, vie
     { nx: 0, ny: 1, py: R, e: WALL_RESTITUTION, lo: R, hi: FIELD.W - R },              // top touchline
     { nx: 0, ny: -1, py: FIELD.H - R, e: WALL_RESTITUTION, lo: R, hi: FIELD.W - R },    // bottom touchline
   ];
-  for (const w of ARENA.walls) {
+  for (const w of arenaOf(state).walls) {
     refl.push({ nx: 0, ny: -1, py: w.y - R, e: WALL_BOUNCE, lo: w.x, hi: w.x + w.w });          // wall top face
     refl.push({ nx: 0, ny: 1, py: w.y + w.h + R, e: WALL_BOUNCE, lo: w.x, hi: w.x + w.w });     // wall bottom face
     if (!goal) { // vertical faces flip vx -> only for passes, never goal banks
@@ -315,7 +320,7 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
   const r = radOf(state);
   const [tox, toy] = unit(tgtx - bot.x, tgty - bot.y);
   // gather dangers: walls (static+built), live bombs, incoming enemy bullets.
-  const walls = ARENA.walls.concat(state.builtWalls);
+  const walls = arenaOf(state).walls.concat(state.builtWalls);
   const look = 110;
   let best = null, bestScore = -1e9, safest = null, safeD = 1e9;
   for (const [dx, dy] of DIRS) {
@@ -883,7 +888,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       // normal. Removed. A bullet strip is still PREFERRED when available (never override a live
       // strip or abort an in-progress wind-up — that froze the bot on the plant).
       if (!shoot && !bm.charging && bombReady && seeC && distC > BOMB_CENTER_R && willReach && mateSafe
-          && !indestructibleBlocks(p.x, p.y, c.x, c.y) && mem.t > (bm.nextBombAt || 0)) {
+          && !indestructibleBlocks(p.x, p.y, c.x, c.y, state) && mem.t > (bm.nextBombAt || 0)) {
         special = true; shoot = false; aim = { x: c.x - p.x, y: c.y - p.y };
         bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
         bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'bombTackle';
@@ -916,7 +921,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       // ambush only in our half AND not when the carrier is already bearing down on goal
       // (then we must cover the goal, not lurk) — prevents leaving the net open on a break.
       const defendHalf = Math.abs(c.x - ogX) < FIELD.W * 0.55 && Math.abs(c.x - ogX) > FIELD.W * 0.28;
-      const ambush = (sk.toolSkill > 0.6 && defendHalf) ? chooseAmbushBush(c, ogX) : null;
+      const ambush = (sk.toolSkill > 0.6 && defendHalf) ? chooseAmbushBush(c, ogX, state) : null;
       if (bm.trap && mem.t > bm.trap.until) bm.trap = null;
 
       if (ambush && !bm.trap && distC > 340) {
@@ -961,7 +966,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       } else {
         // plain cover fallback: shadow / mark the 2nd enemy + opportunistic screen-wall or strip
         if (other && botCanSee(p, other, state, sk)) tgt = { x: (other.x + ogX) / 2, y: (other.y + GY) / 2 };
-        else { const bush = nearestBushCenter(shadowX, shadowY, 300); tgt = bush || { x: shadowX, y: shadowY }; }
+        else { const bush = nearestBushCenter(shadowX, shadowY, 300, state); tgt = bush || { x: shadowX, y: shadowY }; }
         if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y };
         const liningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 240 && Math.abs(c.x - ogX) < FIELD.W * 0.4;
         const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
@@ -1020,7 +1025,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       const fastBreak = hyp(b.vx, b.vy) > 260 && (ogX - b.x) * b.vx > 0 && Math.abs(b.x - ogX) < FIELD.W * 0.5;
       if (fastBreak) tgt = { x: (b.x + ogX * 1.2) / 2.2, y: (b.y + GY) / 2 };  // stay home on a break
       else if (sk.cheat || myD < 440 + 200 * AGG) tgt = { x: bx, y: by };      // CONTEST the 50/50 (aggro-scaled)
-      else { const bush = nearestBushCenter(tgt.x, tgt.y); if (bush) tgt = bush; } // lurk/ambush when genuinely far
+      else { const bush = nearestBushCenter(tgt.x, tgt.y, 520, state); if (bush) tgt = bush; } // lurk/ambush when genuinely far
     }
   }
 

@@ -19,7 +19,7 @@ import {
   SHOOT_CHARGE_TIME, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
-import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall } from './arena.js';
+import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds } from './arena.js';
 
 // Built walls can be built at an ANGLE. Their orientation is quantized to WALL_ANGLE_STEPS
 // steps over a half-turn (a wall is 180°-symmetric) so it round-trips the wire exactly.
@@ -178,6 +178,7 @@ export function createState() {
     projectiles: [], // bullets
     bombs: [], // planted bombs (fusing)
     builtWalls: [], // player-built destructible walls { id, x, y, w, h, hp, maxHp, team, ttl }
+    fieldDryWalls: [], // field-builder DRY-WALL templates (dryWallSeeds); reseeded into builtWalls each kickoff
     blasts: [], // short-lived explosion visuals
     impacts: [], // short-lived bullet collision events for synchronized VFX
     pendingReset: false, // goal scored — snap to kickoff once the "show" hold ends
@@ -269,9 +270,28 @@ function repositionKickoff(state, ballTeam) {
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
   state.projectiles = [];
   state.bombs = [];
-  state.builtWalls = []; // built defences don't survive a kickoff
+  state.builtWalls = []; // built defences don't survive a kickoff...
+  seedFieldWalls(state);  // ...but field DRY WALLS respawn fresh each point
   state.impacts = [];
   if (ballTeam) attachBall(state, ballTeam);
+}
+
+// (Re)seed the field's dry walls into builtWalls as fresh, full-HP destructible walls.
+// Safe to call anytime; call after setting state.fieldDryWalls, and it runs each kickoff.
+export function seedFieldWalls(state) {
+  for (const s of (state.fieldDryWalls || [])) {
+    state.builtWalls.push({ ...s, id: state._nid++, hp: s.maxHp });
+  }
+}
+
+// Set the match's custom field (from a saved layout): custom arena (hard walls + bushes)
+// plus dry-wall templates, then seed the dry walls so they're present immediately.
+export function setField(state, field) {
+  state.arena = buildArenaFromField(field);
+  state.fieldDryWalls = dryWallSeeds(field);
+  // reseed builtWalls to just the field walls (drop any player walls from before)
+  state.builtWalls = state.builtWalls.filter((w) => !w.field);
+  seedFieldWalls(state);
 }
 
 function separatePlayers(state) {
@@ -750,7 +770,12 @@ function buildWall(state, p) {
     cx, cy, angle, hl, ht, // capsule (thick segment) — the authoritative collision shape
     team: p.team, ttl: BUILT_WALL.ttl,
   });
-  if (state.builtWalls.length > MAX_BUILT_WALLS) state.builtWalls.shift(); // drop oldest
+  // Cap PLAYER-built walls only (field dry walls are fixed geometry — never evicted).
+  const playerWalls = state.builtWalls.filter((w) => !w.field);
+  if (playerWalls.length > MAX_BUILT_WALLS) {
+    const oldest = playerWalls[0];
+    state.builtWalls = state.builtWalls.filter((w) => w !== oldest);
+  }
   p.buildAmmo -= 1;
   p.buildCd = BUILD_COOLDOWN * (p.cdMul || 1) * (p.cardUtil || 1);
   p.firing = true;

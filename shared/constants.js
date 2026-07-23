@@ -234,6 +234,9 @@ export const BUILD_INTERRUPT_KV = 300;  // incoming knockback speed that cancels
 // Walls built INSIDE a bush or penalty area are allowed but FRAGILE: hp 1 so any bullet
 // (even a quick shot) breaks them, and a fast ball (power kick) smashes straight through.
 export const FRAGILE_HP = 1;
+// Field-builder DRY WALL: a pre-placed destructible wall (weaker than a player-built wall).
+// Seeded into builtWalls each kickoff so it respawns per point and reuses all wall mechanics.
+export const DRY_WALL_HP = 2;
 export const FRAGILE_PASS_SPEED = 900; // ball faster than this passes through (+ destroys) a fragile wall
 
 // --- Cover: a wall shields whoever stands behind it from blasts & shots ----------
