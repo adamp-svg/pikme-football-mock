@@ -51,6 +51,10 @@ Sibling logs (other agents): `AGENT-REQUEST-LOG.md`, `REQUEST-LOG.md`.
 - **Research:** 3 background subagents (retro-low / 8-16-bit / modern) returned hardware-verified palettes (Lospec, official PICO-8 16, C64 Pepto, NES 2C02, Genesis DAC levels) + per-element ideas; folded into the STYLES array.
 - **Verify:** script syntax OK; runtime under mock canvas/DOM ran all 45 draws clean (125,376 fillRects, 15 balls), no errors. Not visually eyeballed (no browser here) — user views the published artifact.
 - **Status:** DONE.
+- **R4b correction (2026-07-23):** User clarified this was NOT what they meant — they want RENDER/GRAPHICS treatments explored (current flat-2D vs Minecraft "blocks with texture" voxel, low-poly, clay, paper, etc.), NOT retro colour palettes. Rebuilt the SAME artifact file/URL around geometry+material engines. Rows = render styles (row1 = current flat-2D baseline), cols = lobby/field/hero, each a live canvas render (iso textured cubes, low-poly facets, cel, clay, paper). Favicon pivoted 🕹️→🧱. Commit + status below.
+  - Engines: flat2d(current), voxel/Minecraft, cube-toy(Crossy Road), LEGO, low-poly, cel-shaded, clay, paper-cutout.
+  - **DONE:** commit `7dfa71f`, same URL https://claude.ai/code/artifact/d4989ef6-770b-4e39-b508-232f5db2d147
+  - 8 rows: flat2d(now)/voxel/cubetoy/lego/lowpoly/cel/clay/paper. Shared scene palette (material is the differentiator). Verified: syntax + mock-canvas runtime rendered all 24 tiles clean.
 
 ## R2 — 2026-07-23 — Cards page: news look + drag cards out of / between slots
 - **User:** (1) make the page look like the news page (background + opacity); (2) let the user pull a card out of a slot — dropped anywhere outside a slot it goes back to the relevant tier; (3) allow swiping cards from slots.
