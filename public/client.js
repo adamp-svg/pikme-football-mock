@@ -626,7 +626,8 @@ const DEV_LOCAL = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostna
 const DEV_SAMPLE_CARDS = [
   { r: 'common', n: 3, c: 9, w: 900000 }, { r: 'rare', n: 22, c: 1, w: 800000 },
   { r: 'epic', n: 7, c: 3, w: 210000 }, { r: 'legendary', n: 12, c: 1, w: 120000 },
-  { r: 'legendary', n: 5, c: 2, w: 90000 }, { r: 'common', n: 8, c: 5, w: 50000 },
+  { r: 'legendary', n: 5, c: 2, w: 90000 }, { r: 'legendary', n: 20, c: 1, w: 300000 },
+  { r: 'common', n: 8, c: 5, w: 50000 }, { r: 'rare', n: 31, c: 3, w: 70000 },
 ];
 // Rarity from the app can arrive with inconsistent casing (e.g. "Legendary"). Every rarity
 // map here (RARITY_RANK/PCT/GLOW, HEB_RAR), the CSS rarity-<r> classes and the art URLs use
