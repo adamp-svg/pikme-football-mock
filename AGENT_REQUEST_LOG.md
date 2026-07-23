@@ -5,6 +5,11 @@
 
 ## 2026-07-23
 
+- **Review + Push (agent-82027)** — User: "review all agents + stuff feeding localhost:3012, commit & push whatever you can."
+  - Found: working tree effectively clean (all agents had committed their work); only in-flight file was `public/style.css`, **actively locked by opus-football** — left untouched, did NOT sweep it into a commit.
+  - Action: pushed `feat/build-bomb-cancel` to origin. Clean fast-forward `95d2f9e → 87e9ab7` (15 commits: hero-drag log, lobby sub-screens/rank badges, cards page peek/pull/sleeves/2x slots, field-builder). Verified `origin/feat/build-bomb-cancel == 87e9ab7`.
+  - Note for next agent: remember to `git push origin feat/build-bomb-cancel` after committing — the branch had accumulated 15 unpushed commits. Only origin exists (github adamp-svg/pikme-football-mock); no `main` merge attempted.
+
 - **Req #6** — Task (continuation, same lock). (a) Move the cards/collector badge `#hub-rank` to align directly with the worth chip `#chip-worth`; (b) make `#hub-rank` + hero `#hub-tier` the SAME dimensions — a squarish, slightly-longer box.
   - Impl: both badges → fixed 60×50 (matches chip width 60 = «a bit longer square»), layout switched from row to column (icon over text) so they fill a squarish box. Baked pos: `#hub-rank` left 278 width 60 (exact worth-chip column), `#hub-tier` left 585 width 60 (centred over hero, dropped translateX). style.css shared `.hub-rank,.hub-tier` block + baked-position rules. CSS-only (no HTML/JS change).
   - Verified: server :3010 serves `#hub-rank {left:278 width:60 height:50}` = same left+width as `#chip-worth {left:278 width:60}` (directly aligned column); `#hub-tier {left:585 width:60 height:50}` (same 60×50, centred over hero); `flex-direction: column` + icon `font-size: 22px` present. NOTE: 50px-tall hero badge sits over the hero's upper area — visual glance on localhost may want a top nudge.
