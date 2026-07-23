@@ -933,6 +933,7 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'setLoadout') { member.loadout = sanitizeLoadout(msg.loadout, member.cards); return; }
       if (msg.type === 'quickMatch') { quickMatch(member); return; }
       if (msg.type === 'training') { startTraining(member); return; }
+      if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field); return; }
       if (msg.type === 'resetBall') { // training only: recenter the ball on demand
         const r = member.room;
         if (r && r.mode === 'training' && r.phase === 'match') attachBall(r.state, member.team);
