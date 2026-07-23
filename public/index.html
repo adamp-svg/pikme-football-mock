@@ -343,11 +343,16 @@
       <div class="subpage-head">
         <h2>הקלפים שלי</h2>
       </div>
-      <div class="subpage-body">
-        <div id="cards-slots" class="cards-slots"></div>
-        <button id="cards-best-btn" class="cards-best">✨ צייד את הכי טוב</button>
-        <div class="cards-hint">הקש חריץ להסבר · הקש קלף לחשיפה · גרור קלף אל חריץ כדי לצייד</div>
-        <div id="cards-deck" class="cards-deck"></div>
+      <div class="subpage-body cards-split">
+        <!-- RTL: first child sits on the RIGHT → power slots right, album on the left. -->
+        <div class="cards-right">
+          <div id="cards-slots" class="cards-slots"></div>
+          <button id="cards-best-btn" class="cards-best">✨ צייד את הכי טוב</button>
+          <div class="cards-hint">גרור קלף אל חריץ · הקש חריץ להסבר</div>
+        </div>
+        <div class="cards-left">
+          <div id="cards-deck" class="cards-deck"></div>
+        </div>
       </div>
     </div>
   </div>

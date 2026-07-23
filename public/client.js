@@ -1083,14 +1083,14 @@ function renderCardsPage() {
   TIER_ORDER.forEach((rar) => {
     // Equipped cards leave the album (they now live in a slot); removing one puts it back.
     const group = all.filter((c) => c.r === rar && !isEquipped(c)).sort(byWorth);
-    if (!group.length) return;
     // Each tier is its OWN enclosed box (rarity-colored border) so cards can never read as
-    // belonging to a neighbouring tier's header.
+    // belonging to a neighbouring tier's header. ALL tiers show, even when empty.
     const sec = document.createElement('div'); sec.className = 'cards-tier rarity-' + rar;
     const head = document.createElement('div');
     head.className = 'cards-tier-head rarity-' + rar;
     head.innerHTML = '<span class="cards-tier-name">' + (HEB_RAR[rar] || rar) + '</span><span class="cards-tier-count">' + group.length + '</span>';
     sec.appendChild(head);
+    if (!group.length) { const e = document.createElement('div'); e.className = 'cards-tier-empty'; e.textContent = 'ריק'; sec.appendChild(e); deckEl.appendChild(sec); return; }
     const fan = document.createElement('div'); fan.className = 'cards-fan';
     const track = document.createElement('div'); track.className = 'fan-track';
     track.style.width = ((group.length - 1) * FAN_PEEK + FAN_CARD_W) + 'px';

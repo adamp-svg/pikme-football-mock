@@ -1689,3 +1689,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* Keep builder rows clear of the iPhone notch/rounded corners (landscape safe-area). */
 .builder-top, .builder-palette, .builder-hint { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+
+/* Power-slot page: album (all tiers) on the LEFT, equipped slots on the RIGHT (RTL: first=right). */
+#cards .cards-split { flex-direction: row; gap: 10px; align-items: stretch; overflow: hidden; min-height: 0; }
+#cards .cards-right { flex: 0 0 auto; width: 30%; max-width: 240px; min-width: 148px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+#cards .cards-right .cards-slots { display: flex; flex-direction: column; gap: 8px; }
+#cards .cards-left { flex: 1 1 auto; min-width: 0; overflow-y: auto; overflow-x: hidden; }
+#cards .cards-left .cards-deck { display: flex; flex-direction: column; gap: 8px; }
+.cards-tier-empty { opacity: .5; font-size: 12px; padding: 6px; text-align: center; }
