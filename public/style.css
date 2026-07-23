@@ -1301,7 +1301,6 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* --- top row: exit · [copies·worth·cards] · XP bar · season · settings --- */
 /* exit + settings: equal squares on a shared top baseline */
-.hub > #hub-exit      { left: 40px;  top: 15px; width: 38px; height: 38px; z-index: 6; }
 .hub > #hub-settings  { left: 809px; top: 15px; width: 38px; height: 38px; z-index: 6; }
 .hub > .hub-season    { left: 743px; top: 13px; z-index: 6; }
 .hub > .hub-online    { left: 757px; top: 60px; z-index: 6; }

@@ -1395,11 +1395,6 @@ document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlo
 
 // Hub top-left: settings opens the shared settings/pause panel; exit asks the RN app host.
 document.getElementById('hub-settings')?.addEventListener('click', () => { unlockAudio(); openSettings(); });
-document.getElementById('hub-exit')?.addEventListener('click', () => {
-  // Exit the game: the React Native WebView host must handle {t:'exit'} (close/return to app).
-  // No-op in a plain browser (off-app dev), so nothing breaks when RN isn't present.
-  try { window.ReactNativeWebView?.postMessage(JSON.stringify({ t: 'exit' })); } catch { /* not in app */ }
-});
 // Cold load can't autoplay the menu theme (browser/iOS gesture policy), so kick it off on
 // the user's first interaction — but only if they're still on the home screen.
 addEventListener('pointerdown', () => {

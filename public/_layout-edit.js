@@ -40,7 +40,6 @@
   // draggable AND resizable (uniform transform:scale from a top-left origin).
   function descriptors() {
     return [
-      { key: 'exit',       label: 'Exit',          sel: '#hub-exit' },
       { key: 'settings',   label: 'Settings',      sel: '#hub-settings' },
       { key: 'season',     label: 'Season badge',  sel: '#home .hub-season' },
       { key: 'online',     label: 'Online',        sel: '#home .hub-online' },
