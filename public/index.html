@@ -51,6 +51,7 @@
 
       <!-- edge controls (rails split into individual boxes) -->
       <button class="hub-sat" data-open-screen="news"><span class="hub-sat-ic">📰</span><b>חדשות</b></button>
+      <button id="rank-btn" class="hub-sat"><span class="hub-sat-ic">🏅</span><b>דירוג</b></button>
       <button class="hub-sat" data-open-screen="shop"><span class="hub-sat-ic">🛒</span><b>חנות</b></button>
       <button id="friends-btn" class="hub-sat"><span class="hub-sat-ic">👥</span><b>חברים</b></button>
       <button class="hub-sat" data-open-screen="clubs"><span class="hub-sat-ic">🏰</span><b>מועדונים</b></button>
@@ -211,21 +212,40 @@
   <!-- Play with friends: create / join a private room -->
   <div id="friends" class="screen hidden">
     <div class="start-shade"></div>
-    <div class="home-wrap" dir="rtl">
-      <div class="eyebrow"><span></span> שחק עם חברים <span></span></div>
+    <div class="home-wrap fr2" dir="rtl">
+      <div class="eyebrow"><span></span> חברים <span></span></div>
+
+      <!-- Redesign: segmented tabs (my friends · requests · add). Panes keep the ORIGINAL
+           ids (#friend-list/#friend-requests/#friend-search/#friend-search-results) so the
+           existing loadFriends()/searchFriends()/render* keep working unchanged. -->
       <div id="friends-panel">
-        <input id="friend-search" class="friend-input" placeholder="חיפוש חבר לפי כינוי…" />
-        <div id="friend-search-results" class="friend-list"></div>
-        <div id="friend-requests" class="friend-list"></div>
-        <h4 class="friends-h">החברים שלי</h4>
-        <div id="friend-list" class="friend-list"></div>
+        <div class="fr-tabs" role="tablist">
+          <button class="fr-tab active" data-tab="list">החברים שלי</button>
+          <button class="fr-tab" data-tab="requests">בקשות<span id="fr-req-badge" class="fr-badge hidden">0</span></button>
+          <button class="fr-tab" data-tab="add">➕ הוסף</button>
+        </div>
+
+        <div class="fr-pane" data-pane="list">
+          <div id="friend-list" class="friend-list"></div>
+        </div>
+        <div class="fr-pane hidden" data-pane="requests">
+          <div id="friend-requests" class="friend-list"></div>
+        </div>
+        <div class="fr-pane hidden" data-pane="add">
+          <input id="friend-search" class="friend-input" placeholder="חיפוש חבר לפי כינוי מהאפליקציה…" />
+          <div id="friend-search-results" class="friend-list"></div>
+        </div>
       </div>
-      <button id="create-room-btn" class="play compact-room"><span>צור חדר</span><b>›</b></button>
-      <div class="join-row">
-        <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
-        <button id="join-room-btn" class="play join-btn">הצטרף</button>
+
+      <!-- Play-with-friends: private room create / join (unchanged mechanic). -->
+      <div class="fr-room">
+        <button id="create-room-btn" class="play compact-room"><span>צור חדר משחק</span><b>›</b></button>
+        <div class="join-row">
+          <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
+          <button id="join-room-btn" class="play join-btn">הצטרף</button>
+        </div>
+        <p id="room-error" class="room-error hidden"></p>
       </div>
-      <p id="room-error" class="room-error hidden"></p>
       <button id="friends-back" class="play ghost small">‹ חזרה</button>
     </div>
   </div>

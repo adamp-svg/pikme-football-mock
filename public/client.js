@@ -1399,7 +1399,7 @@ document.getElementById('quick-match-btn').addEventListener('click', () => { unl
 document.getElementById('friends-btn').addEventListener('click', () => {
   unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';
-  renderSearch([]);
+  renderSearch([]); setFriendsTab('list');
   loadFriends(); // #3: refresh on open (also self-heals a failed initial load / WS reconnect)
 });
 document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'training' }); });
@@ -1420,7 +1420,7 @@ document.getElementById('select-best-btn')?.addEventListener('click', () => {
 document.getElementById('play-friends-btn')?.addEventListener('click', () => {
   unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';
-  renderSearch([]);
+  renderSearch([]); setFriendsTab('list');
   loadFriends();
 });
 // Friends actions.
@@ -1432,6 +1432,27 @@ document.getElementById('join-room-btn').addEventListener('click', () => {
   sendMsg({ type: 'joinRoom', code });
 });
 document.getElementById('friends-back').addEventListener('click', () => showScreen('home'));
+
+// Friends redesign: segmented tabs (list · requests · add). Panes keep the original ids so
+// loadFriends()/searchFriends()/render* are untouched — this only shows/hides the panes.
+function setFriendsTab(tab) {
+  document.querySelectorAll('#friends .fr-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('#friends .fr-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== tab));
+  if (tab === 'add') { const s = document.getElementById('friend-search'); if (s) setTimeout(() => s.focus(), 40); }
+}
+document.querySelectorAll('#friends .fr-tab').forEach((t) => t.addEventListener('click', () => { unlockAudio(); setFriendsTab(t.dataset.tab); }));
+
+// Task 2: rank button (under the news satellite). Shows the player's LIVE football
+// leaderboard position (server ranks by xp desc; /handle-friends/rank resolves userId→phone).
+document.getElementById('rank-btn')?.addEventListener('click', async () => {
+  unlockAudio();
+  if (!FOOTBALL_TOKEN) { toast('התחברו דרך האפליקציה כדי לראות דירוג'); return; }
+  toast('טוען דירוג…');
+  const res = await apiGet('/handle-friends/rank');
+  if (!res) { toast('טעינת הדירוג נכשלה — נסו שוב'); return; }
+  if (res.rank == null) { toast('עדיין אין לך דירוג — שחקו משחק כדי להיכנס לטבלה'); return; }
+  toast(`🏅 הדירוג שלך: #${res.rank} מתוך ${res.totalPlayers} שחקנים`);
+});
 // #14/#15: joiner "waiting for approval" overlay — the cancel button withdraws the pending
 // request (leaveRoom -> server drops it + returns us home). The outside/backdrop-click handler
 // is registered further down, right after `roomWaitEl` is declared (referencing it up here is a
@@ -1607,7 +1628,14 @@ function friendRow(f, opts = {}) {
   const btn = document.createElement('button');
   btn.className = 'friend-act';
   if (opts.kind === 'search') { btn.textContent = 'הוסף'; btn.onclick = async () => { if (await apiPost('/handle-friends/request', { toUserId: f.userId })) { btn.textContent = 'נשלח'; btn.disabled = true; } }; }
-  else if (opts.kind === 'request') { btn.textContent = 'אישור'; btn.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'accept' })) { loadFriends(); } }; }
+  else if (opts.kind === 'request') {
+    btn.textContent = 'אישור';
+    btn.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'accept' })) { loadFriends(); } };
+    const dec = document.createElement('button');
+    dec.className = 'friend-act ghost'; dec.textContent = 'דחה';
+    dec.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'decline' })) { loadRequests(); } };
+    div.appendChild(dec);
+  }
   else { btn.textContent = 'אתגר'; btn.disabled = !online; btn.onclick = () => sendMsg({ type: 'challenge', toUserId: f.userId }); }
   div.appendChild(btn);
   return div;
@@ -1620,7 +1648,12 @@ function renderList(id, items, opts, emptyText) {
 }
 function renderFriends() { renderList('friend-list', FRIENDS, { kind: 'friend' }, 'עדיין אין חברים — חפשו כינוי כדי להוסיף'); }
 function renderSearch(items) { renderList('friend-search-results', items, { kind: 'search' }); }
-function renderRequests(items) { renderList('friend-requests', items, { kind: 'request' }); }
+function renderRequests(items) {
+  const list = Array.isArray(items) ? items : [];
+  renderList('friend-requests', list, { kind: 'request' }, 'אין בקשות חברות');
+  const badge = document.getElementById('fr-req-badge');
+  if (badge) { badge.textContent = String(list.length); badge.classList.toggle('hidden', list.length === 0); }
+}
 
 function showChallengePrompt(challengeId, fromName) {
   if (!confirm(`${fromName} מזמין אותך למשחק. לקבל?`)) { sendMsg({ type: 'challengeRespond', challengeId, accept: false }); return; }

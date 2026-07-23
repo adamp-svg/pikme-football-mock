@@ -462,6 +462,23 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* ---- Friends panel (search / requests / list + presence) ---- */
 #friends-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; width: 100%; }
+
+/* Friends redesign: segmented tabs + panes. */
+.fr-tabs { display: flex; gap: 6px; width: 100%; }
+.fr-tab {
+  flex: 1; padding: 9px 6px; border: 1px solid #2c2c33; border-radius: 10px;
+  background: #17171b; color: #9aa0aa; font: 800 13px "Arial Black", sans-serif;
+  display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+}
+.fr-tab.active { background: #35d06a; color: #04240f; border-color: #35d06a; }
+.fr-badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: #ff4d4d; color: #fff; font-size: 11px; line-height: 18px; text-align: center;
+}
+.fr-tab.active .fr-badge { background: #04240f; color: #fff; }
+.fr-pane { width: 100%; min-height: 96px; }
+.fr-pane .friend-list { max-height: 190px; overflow-y: auto; }
+.fr-room { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 4px; }
 .friend-input { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #333; background: #1b1b1f; color: #fff; text-align: right; }
 .friend-list { display: flex; flex-direction: column; gap: 6px; }
 .friend-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #17171b; border-radius: 10px; }
@@ -471,6 +488,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .friend-name { flex: 1; text-align: right; color: #fff; }
 .friend-act { padding: 6px 12px; border-radius: 8px; border: 0; background: #35d06a; color: #04240f; font-weight: 700; }
 .friend-act:disabled { background: #333; color: #888; }
+.friend-act.ghost { background: transparent; border: 1px solid #444; color: #c9c9cf; }
 .friends-h { color: #aaa; margin: 8px 0 0; text-align: right; }
 
 /* Global toast (top-level, outside every .screen) — hidden by the shared .hidden rule. */
@@ -1287,6 +1305,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub > .hub-sat { width: 52px; height: 52px; }
 .hub > .hub-sat[data-open-screen="shop"]  { left: 95px;  top: 110px; z-index: 6; }
 .hub > .hub-sat[data-open-screen="news"]  { left: 95px;  top: 175px; z-index: 6; }
+.hub > #rank-btn                          { left: 95px;  top: 240px; z-index: 6; }
 .hub > #friends-btn                       { left: 795px; top: 110px; z-index: 6; }
 .hub > .hub-sat[data-open-screen="clubs"] { left: 795px; top: 175px; z-index: 6; }
 
