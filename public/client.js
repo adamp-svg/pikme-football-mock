@@ -1440,12 +1440,14 @@ document.getElementById('select-best-btn')?.addEventListener('click', () => {
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
   toast('צוידו הקלפים הטובים ביותר');
 });
-// Play with friends: same create/join private-room flow the #friends rail opens.
+// Play with friends: PARTY flow — become host of a fresh private room and land in the
+// lobby, which shows the "invite online friends" panel. The old code create/join flow
+// stays available on the 👥 friends screen as a fallback.
 document.getElementById('play-friends-btn')?.addEventListener('click', () => {
-  unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends');
-  const s = document.getElementById('friend-search'); if (s) s.value = '';
-  renderSearch([]); setFriendsTab('list');
-  loadFriends();
+  unlockAudio(); roomErrorEl.classList.add('hidden');
+  syncLoadout();
+  loadFriends();                    // refresh friends + presence for the invite panel
+  sendMsg({ type: 'createRoom' });  // server -> roomJoined{host:true} -> lobby
 });
 // Friends actions.
 document.getElementById('create-room-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'createRoom' }); });
@@ -1670,7 +1672,7 @@ function renderList(id, items, opts, emptyText) {
   if (!items || !items.length) { if (emptyText) listMsg(id, emptyText); return; }
   items.forEach((f) => el.appendChild(friendRow(f, opts)));
 }
-function renderFriends() { renderList('friend-list', FRIENDS, { kind: 'friend' }, 'עדיין אין חברים — חפשו כינוי כדי להוסיף'); }
+function renderFriends() { renderList('friend-list', FRIENDS, { kind: 'friend' }, 'עדיין אין חברים — חפשו כינוי כדי להוסיף'); renderPartyInvite(); }
 function renderSearch(items) { renderList('friend-search-results', items, { kind: 'search' }); }
 function renderRequests(items) {
   const list = Array.isArray(items) ? items : [];
@@ -1683,6 +1685,51 @@ function showChallengePrompt(challengeId, fromName) {
   if (!confirm(`${fromName} מזמין אותך למשחק. לקבל?`)) { sendMsg({ type: 'challengeRespond', challengeId, accept: false }); return; }
   sendMsg({ type: 'challengeRespond', challengeId, accept: true });
 }
+
+// --- Party flow: invite online friends into the lobby, then pick a game ------------------
+// Host-only panel of ONLINE friends (FRIENDS ∩ ONLINE). Shown in the private-room lobby.
+function renderPartyInvite() {
+  const el = document.getElementById('party-invite'); if (!el) return;
+  const show = isRoomHost && roomMode === 'private';
+  el.classList.toggle('hidden', !show);
+  if (!show) return;
+  const online = FRIENDS.filter((f) => ONLINE.has(f.userId));
+  el.innerHTML = '';
+  const h = document.createElement('div'); h.className = 'pi-h'; h.textContent = 'הזמן חברים מחוברים';
+  el.appendChild(h);
+  if (!online.length) {
+    const d = document.createElement('div'); d.className = 'pi-empty';
+    d.textContent = FRIENDS.length ? 'אין חברים מחוברים כרגע' : 'אין חברים עדיין — הוסיפו דרך 👥';
+    el.appendChild(d); return;
+  }
+  online.forEach((f) => {
+    const row = document.createElement('div'); row.className = 'pi-row';
+    const dot = document.createElement('span'); dot.className = 'friend-dot';
+    const nm = document.createElement('span'); nm.className = 'pi-name'; nm.textContent = f.nickName || '';
+    const btn = document.createElement('button'); btn.className = 'friend-act'; btn.textContent = 'הזמן';
+    btn.onclick = () => { sendMsg({ type: 'inviteFriend', toUserId: f.userId }); btn.textContent = 'הוזמן'; btn.disabled = true; };
+    row.append(dot, nm, btn); el.appendChild(row);
+  });
+}
+// Incoming party invite → simple accept/decline (matches showChallengePrompt's pattern).
+function showPartyInvite(code, fromName) {
+  if (!confirm(`${fromName} מזמין אותך לקבוצה. להצטרף?`)) { sendMsg({ type: 'partyRespond', code, accept: false }); return; }
+  sendMsg({ type: 'partyRespond', code, accept: true });
+}
+// Game picker overlay (host taps "בחר משחק"). Only 2v2 is live; picking it starts the match.
+const gameSelectEl = document.getElementById('game-select');
+function openGameSelect() { if (gameSelectEl) gameSelectEl.classList.remove('hidden'); }
+function closeGameSelect() { if (gameSelectEl) gameSelectEl.classList.add('hidden'); }
+document.getElementById('pick-game-btn')?.addEventListener('click', () => { unlockAudio(); openGameSelect(); });
+document.getElementById('game-select-close')?.addEventListener('click', closeGameSelect);
+gameSelectEl?.addEventListener('click', (e) => {
+  if (e.target === gameSelectEl) { closeGameSelect(); return; }               // backdrop
+  const card = e.target.closest('.modecard[data-game]'); if (!card) return;   // ignore locked/coming-soon
+  unlockAudio(); syncLoadout();
+  sendMsg({ type: 'ready' });                                                 // start the 2v2 countdown
+  closeGameSelect();
+  toast('מתחילים…');
+});
 
 document.getElementById('friend-search')?.addEventListener('input', (e) => searchFriends(e.target.value.trim()));
 
@@ -1789,6 +1836,16 @@ function connect(name, avatar) {
     } else if (msg.type === 'friendsPresence') {
       ONLINE = new Set(msg.online || []);
       renderFriends();
+      renderPartyInvite();                 // party lobby: refresh who's invitable
+    } else if (msg.type === 'partyInvite') {
+      showPartyInvite(msg.code, msg.fromName || 'חבר');
+    } else if (msg.type === 'partyInviteSent') {
+      toast('ההזמנה נשלחה');
+    } else if (msg.type === 'partyInviteAccepted') {
+      toast(`${msg.name || 'חבר'} הצטרף`);
+      renderPartyInvite();
+    } else if (msg.type === 'partyError') {
+      toast(msg.msg || 'ההזמנה נכשלה');
     } else if (msg.type === 'challengeReceived') {
       showChallengePrompt(msg.challengeId, msg.fromName);
     } else if (msg.type === 'challengeDeclined') {
@@ -2092,10 +2149,17 @@ function updateLobbyUI(msg) {
   // Team picking + PLAY NOW are private-room only; quick match auto-teams + auto-starts.
   joinBtn.A.style.display = isPrivate ? '' : 'none';
   joinBtn.B.style.display = isPrivate ? '' : 'none';
-  playNowBtn.style.display = isPrivate ? '' : 'none';
-  lobbyHintEl.textContent = isPrivate
-    ? 'בחרו קבוצה ואז שחקו עכשיו. מקומות פנויים יתמלאו בבוטים.'
-    : 'מחפש שחקנים… המשחק יתחיל אוטומטית.';
+  // Party flow: the HOST starts via the game picker ("בחר משחק"); play-now is superseded for
+  // private rooms. Non-host members wait for the host to pick.
+  const pickGameBtn = document.getElementById('pick-game-btn');
+  playNowBtn.style.display = 'none';
+  if (pickGameBtn) pickGameBtn.style.display = (isPrivate && isRoomHost) ? '' : 'none';
+  lobbyHintEl.textContent = !isPrivate
+    ? 'מחפש שחקנים… המשחק יתחיל אוטומטית.'
+    : isRoomHost
+      ? 'הזמינו חברים מחוברים, בחרו קבוצות, ואז «בחר משחק». מקומות פנויים יתמלאו בבוטים.'
+      : 'ממתינים שהמארח יבחר משחק… בחרו קבוצה בינתיים.';
+  renderPartyInvite();
 
   startLobbyMusic(); // #12: lobby theme plays for the whole wait (starts on entry, loops through the countdown)
   if (msg.phase === 'countdown' && msg.countdown > 0) {

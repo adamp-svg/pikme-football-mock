@@ -39,6 +39,20 @@ Branch: feat/build-bomb-cancel · localhost only · commit everything
       pikme-server/routes-pikme/friends.js (userId→phone→$rank by xp desc).
 - [x] Committed: football-mock 3cca650 (branch feat/build-bomb-cancel) · pikme-server 7e16257.
 
+## Request 3 (2026-07-23): "play with friends" party flow
+Verbatim: play-with-friends should show friends ONLINE, allow them to be GROUPED, then SELECT a game.
+Decisions: invite online friends into a party lobby (reuse room system, keep code create/join
+fallback on the 👥 friends screen); after grouping show a game picker (2v2 active, rest coming-soon).
+
+Design (built on existing room/lobby infra):
+- "שחק עם חברים" (play-friends-btn) → sendMsg createRoom → host lands in #lobby.
+- #lobby gains a host-only "invite online friends" panel (#party-invite): FRIENDS ∩ ONLINE, each "הזמן".
+- WS: inviteFriend{toUserId} → target gets partyInvite{code,fromName} → partyRespond{code,accept}
+  → server AUTO-admits invited userIds (no host-approval step) → target joins same lobby.
+- Host CTA becomes "בחר משחק" (#pick-game-btn) → #game-select overlay (2v2 active) → sends `ready`
+  → existing countdown → match. Non-host waits.
+- Server: room.invited Set added to makeRoom; handlers inviteFriend/partyRespond in server.js.
+
 ## Verification status
 - football-mock served on :3010 → 200; rank-btn + fr-tabs present in served HTML.
 - `node --check` passed: public/client.js, routes-pikme/friends.js.
@@ -47,3 +61,16 @@ Branch: feat/build-bomb-cancel · localhost only · commit everything
   aggregation is a copy of the already-live /handle-user/football/leaderboard query.
 - TODO for next agent: boot pikme-server on node 18/20 + a valid football token and hit
   GET /handle-friends/rank to confirm the phone match returns the expected rank.
+
+## Request 3 status — DONE (2026-07-23)
+- [x] Server handlers (server.js): room.invited Set + inviteFriend/partyRespond. NOTE: these
+      landed inside another agent's commit 8814e3f (shared working tree) — verified present in HEAD.
+- [x] Client (client.js): play-friends → party lobby; renderPartyInvite(); showPartyInvite();
+      game-select overlay wiring; updateLobbyUI shows invite panel + pick-game (host), hides play-now.
+- [x] HTML (index.html): #party-invite panel, #pick-game-btn, #game-select overlay.
+- [x] CSS (style.css): party-invite/pi-* + game-select overlay (reuses .modecard/.subpage-back).
+- [x] E2E test test-party.mjs: PASS (invite→auto-join→lobby(2)→matchStart; uninvited rejected).
+      Run: `FOOTBALL_TOKEN_SECRET=testsecret PORT=3010 node server.js` then
+      `FOOTBALL_TOKEN_SECRET=testsecret node test-party.mjs`.
+- Behaviour: 👥 friends button still opens the tabbed friends screen (code create/join fallback);
+  «שחק עם חברים» now goes straight to the party lobby.

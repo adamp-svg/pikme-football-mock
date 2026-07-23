@@ -479,6 +479,21 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .fr-pane { width: 100%; min-height: 96px; }
 .fr-pane .friend-list { max-height: 190px; overflow-y: auto; }
 .fr-room { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 4px; }
+
+/* Party flow: invite-online-friends panel (in the private-room lobby). */
+.party-invite { width: 100%; display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.party-invite .pi-h { color: #aaa; font: 800 12px "Arial Black", sans-serif; text-align: right; }
+.party-invite .pi-empty { color: #8aa08c; font-size: 12px; text-align: center; padding: 8px 6px; }
+.party-invite .pi-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #17171b; border-radius: 10px; }
+.party-invite .pi-name { flex: 1; text-align: right; color: #fff; }
+
+/* Party flow: game picker overlay (host taps "בחר משחק"). */
+.game-select { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: rgba(4,8,6,.78); backdrop-filter: blur(3px); }
+.game-select-card { width: min(420px, 92vw); background: #12151a; border: 2px solid #2c3830; border-radius: 16px;
+  padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+.game-select-head { display: flex; align-items: center; justify-content: space-between; }
+.game-select-head h2 { margin: 0; color: #fff; font: 900 18px "Arial Black", sans-serif; }
 .friend-input { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #333; background: #1b1b1f; color: #fff; text-align: right; }
 .friend-list { display: flex; flex-direction: column; gap: 6px; }
 .friend-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #17171b; border-radius: 10px; }

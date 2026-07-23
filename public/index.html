@@ -267,6 +267,9 @@
       </div>
       <!-- #14: HOST-only pending join requests (accept/reject), rendered by client.js -->
       <div id="room-requests" class="room-requests hidden" dir="rtl"></div>
+      <!-- Party flow: HOST-only panel of ONLINE friends to invite straight into this lobby
+           (no code). Rendered by renderPartyInvite() from FRIENDS ∩ ONLINE. -->
+      <div id="party-invite" class="party-invite hidden" dir="rtl"></div>
       <div class="teams">
         <div class="team-panel team1">
           <div class="team-title">קבוצה 1</div>
@@ -281,6 +284,8 @@
         </div>
       </div>
       <button id="play-now" class="play"><span>שחק עכשיו</span><b>›</b></button>
+      <!-- Party flow: host's start CTA — opens the game picker instead of starting directly. -->
+      <button id="pick-game-btn" class="play hidden"><span>בחר משחק</span><b>›</b></button>
       <p id="lobby-hint" class="hint">בחרו קבוצה כדי להיות עם חבר, ואז <b>שחקו עכשיו</b> — המשחק מתחיל אחרי ספירה של 5 שניות; מקומות פנויים מתמלאים בבוטים.</p>
     </div>
     <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
@@ -294,6 +299,32 @@
       <div class="room-wait-title">ממתין לאישור המארח…</div>
       <div class="room-wait-sub">הבקשה נשלחה · קוד חדר <b class="room-wait-code">···</b></div>
       <button id="room-wait-cancel" class="play ghost small">ביטול</button>
+    </div>
+  </div>
+
+  <!-- Party flow: game picker (host taps "בחר משחק" in the lobby). 2v2 is live; the rest are
+       coming-soon. Choosing a live mode starts the match (sends `ready`). Backdrop click closes. -->
+  <div id="game-select" class="game-select hidden" dir="rtl">
+    <div class="game-select-card">
+      <div class="game-select-head">
+        <h2>בחר משחק</h2>
+        <button id="game-select-close" class="subpage-back" aria-label="סגור">›</button>
+      </div>
+      <button class="modecard" data-game="2v2">
+        <span class="mc-ic">⚽</span>
+        <span class="mc-tx"><b>כדורגל · 2 נגד 2</b><small>הקלאסי · אצטדיון הבלוקים</small></span>
+        <span class="mc-go">‹</span>
+      </button>
+      <div class="modecard lock">
+        <span class="mc-ic">🏆</span>
+        <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים</small></span>
+        <span class="mc-go soon">בקרוב</span>
+      </div>
+      <div class="modecard lock">
+        <span class="mc-ic">🥅</span>
+        <span class="mc-tx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
+        <span class="mc-go soon">בקרוב</span>
+      </div>
     </div>
   </div>
 
