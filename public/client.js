@@ -1061,39 +1061,65 @@ function renderCardsPage() {
 }
 // ---- Album fan gestures (delegated on #cards-deck) -------------------------------------
 // The deck is a set of overlapping "spread on a table" fans (one per tier). On a fan card:
-//   TAP           -> reveal it (lift out of the pile, enlarged; only one revealed at a time).
-//   DRAG UP        -> lift the card into a ghost; drop it on a slot (#cards-slots) to equip.
-//   DRAG SIDEWAYS  -> browse the fan (native pan-x on touch; manual scroll for mouse).
+//   TAP           -> reveal it (enlarged; only one revealed at a time).
+//   SWIPE SIDEWAYS-> browse the fan; the card under the finger POPS UP (.peek) so you can see
+//                    which one you're on (at rest each card shows only a ~26px sliver). Scroll
+//                    is driven in JS (the fan is touch-action:none) so the peek tracks the finger.
+//   PULL UP       -> lift the card into a ghost; drop it on a slot (#cards-slots) to equip.
+//                    You can pull up mid-browse — it grabs whichever card is under the finger.
 // A revealed card can be dragged in any direction to equip. Dropping off a slot is a no-op.
 (function bindFanDrag() {
   const deck = document.getElementById('cards-deck');
   if (!deck) return;
-  let sx = null, sy = null, mode = null, card = null, cardEl = null, ghost = null, scroller = null, startScroll = 0, pid = null;
-  const TH = 10;
+  let sx = null, sy = null, mode = null, card = null, cardEl = null, ghost = null, scroller = null, startScroll = 0, pid = null, peekEl = null;
+  const TH = 8;
   const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
+  // Topmost RESTING fan-card under the point. We drop the current peek first so its scaled-up
+  // box can't shadow the neighbour the finger has actually moved onto.
+  const cardUnder = (x, y) => {
+    const prev = peekEl; if (prev) prev.classList.remove('peek');
+    const el = document.elementFromPoint(x, y);
+    const fc = el && el.closest ? el.closest('.fan-card') : null;
+    if (prev && prev !== fc) { /* stays un-peeked */ } else if (prev) prev.classList.add('peek');
+    return fc;
+  };
+  const setPeek = (fc) => { if (fc === peekEl) return; if (peekEl) peekEl.classList.remove('peek'); peekEl = fc || null; if (peekEl) peekEl.classList.add('peek'); };
+  const clearPeek = () => { if (peekEl) { peekEl.classList.remove('peek'); peekEl = null; } };
+  const grab = (fc) => { cardEl = fc; card = { r: fc.dataset.r, n: +fc.dataset.n }; };
   const clear = () => {
     if (ghost) { ghost.remove(); ghost = null; }
+    clearPeek();
     document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
   };
   const reset = () => { clear(); sx = sy = null; mode = null; card = null; cardEl = null; scroller = null; pid = null; };
   deck.addEventListener('pointerdown', (e) => {
     const fc = e.target && e.target.closest ? e.target.closest('.fan-card') : null;
     if (!fc) { sx = null; return; }
-    cardEl = fc; card = { r: fc.dataset.r, n: +fc.dataset.n };
+    grab(fc);
     scroller = fc.closest('.cards-fan'); startScroll = scroller ? scroller.scrollLeft : 0;
     sx = e.clientX; sy = e.clientY; mode = null; pid = e.pointerId;
+    setPeek(fc);   // the pressed card lifts immediately
   });
   deck.addEventListener('pointermove', (e) => {
     if (sx == null) return;
     const dx = e.clientX - sx, dy = e.clientY - sy;
     if (!mode) {
       const revealed = cardEl && cardEl.classList.contains('revealed');
-      if ((dy < -TH && Math.abs(dy) > Math.abs(dx)) || (revealed && Math.hypot(dx, dy) > TH)) {
+      // Pull-up wins even when a bit diagonal (natural "pull it out" motion); a revealed card
+      // lifts in any direction; otherwise a clear sideways move browses the fan.
+      if ((dy < -TH && Math.abs(dy) >= Math.abs(dx) * 0.7) || (revealed && Math.hypot(dx, dy) > TH)) {
         mode = 'lift'; try { deck.setPointerCapture(pid); } catch { /* older webviews */ }
-      } else if (Math.abs(dx) > TH) { mode = 'scroll'; } else return;
+      } else if (Math.abs(dx) > TH || Math.abs(dy) > TH) { mode = 'scroll'; } else return;
     }
-    if (mode === 'scroll') { if (e.pointerType !== 'touch' && scroller) scroller.scrollLeft = startScroll - dx; return; }
+    if (mode === 'scroll') {
+      if (scroller) scroller.scrollLeft = startScroll - dx;      // JS-driven for touch + mouse
+      const fc = cardUnder(e.clientX, e.clientY); setPeek(fc);   // peek follows the finger
+      if (dy < -TH * 1.8 && fc) {                                // pulled up mid-browse -> grab THIS card
+        grab(fc); mode = 'lift'; try { deck.setPointerCapture(pid); } catch { /* older webviews */ }
+      } else return;
+    }
     // lift
+    clearPeek();
     if (!ghost) {
       ghost = document.createElement('div'); ghost.className = 'pslot-ghost rarity-' + card.r;
       const gi = document.createElement('img'); gi.alt = ''; gi.src = `${CARD_ART_BASE}/${card.r}/${card.n}.webp`;

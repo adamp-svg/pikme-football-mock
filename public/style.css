@@ -1375,7 +1375,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .cards-fan {
   position: relative; width: 100%; max-width: 520px;
   overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;                 /* horizontal = browse the fan; vertical stays for lift */
+  touch-action: none;                  /* JS drives the scroll so the peek can track the finger + pull-up can grab */
   padding: 16px 4px 2px;               /* top room so a peeked/revealed card can rise without clipping */
   scrollbar-width: thin;
 }
