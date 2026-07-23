@@ -628,9 +628,15 @@ const DEV_SAMPLE_CARDS = [
   { r: 'epic', n: 7, c: 3, w: 210000 }, { r: 'legendary', n: 12, c: 1, w: 120000 },
   { r: 'legendary', n: 5, c: 2, w: 90000 }, { r: 'common', n: 8, c: 5, w: 50000 },
 ];
+// Rarity from the app can arrive with inconsistent casing (e.g. "Legendary"). Every rarity
+// map here (RARITY_RANK/PCT/GLOW, HEB_RAR), the CSS rarity-<r> classes and the art URLs use
+// LOWERCASE keys — so an un-lowercased rarity ranks as 0 and gets dropped from "select best"
+// (the "2 legend + 1 epic instead of 3 legend" bug). Normalize casing at the single source.
 function myCards() {
-  if (Array.isArray(window.SALTIZ_CARDS)) return window.SALTIZ_CARDS.slice(0, 256);
-  return DEV_LOCAL ? DEV_SAMPLE_CARDS : [];
+  const raw = Array.isArray(window.SALTIZ_CARDS) ? window.SALTIZ_CARDS.slice(0, 256)
+    : (DEV_LOCAL ? DEV_SAMPLE_CARDS : []);
+  return raw.map((c) => (c && typeof c.r === 'string' && c.r !== c.r.toLowerCase())
+    ? { ...c, r: c.r.toLowerCase() } : c);
 }
 // Best-first: worth, then rarity, then copies. Drives the carousel + the top-3 intro.
 function rankCards(cards) {
