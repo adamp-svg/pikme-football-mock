@@ -296,14 +296,15 @@
 
   <!-- Party flow: start sheet (tap «שחק עם חברים»). Create a party (then invite friends +
        pick a game in the lobby), OR join a friend's existing room by its shared code. -->
-  <div id="party-start" class="game-select hidden" dir="rtl">
+  <div id="friend-select" class="game-select hidden" dir="rtl">
     <div class="game-select-card">
       <div class="game-select-head">
-        <h2>שחק עם חברים</h2>
-        <button id="party-start-close" class="subpage-back" aria-label="סגור">›</button>
+        <h2>בחר חברים</h2>
+        <button id="friend-select-close" class="subpage-back" aria-label="סגור">›</button>
       </div>
-      <button id="party-create-btn" class="play"><span>צור משחק והזמן חברים</span><b>›</b></button>
-      <div class="ps-or"><span>או הצטרף לחדר של חבר</span></div>
+      <div id="friend-select-list" class="fs-list"></div>
+      <button id="friend-select-go" class="play"><span>המשך לבחירת משחק</span><b>›</b></button>
+      <div class="ps-or"><span>או הצטרף לחדר של חבר עם קוד</span></div>
       <div class="join-row">
         <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
         <button id="join-room-btn" class="play join-btn">הצטרף</button>

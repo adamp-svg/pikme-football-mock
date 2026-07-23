@@ -1433,12 +1433,11 @@ document.getElementById('select-best-btn')?.addEventListener('click', () => {
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
   toast('צוידו הקלפים הטובים ביותר');
 });
-// Play with friends: PARTY flow — become host of a fresh private room and land in the
-// lobby, which shows the "invite online friends" panel. The old code create/join flow
-// stays available on the 👥 friends screen as a fallback.
+// Play with friends: STEP 1 — pick friends (multi-select), STEP 2 — pick the minigame,
+// then a room is created and the picks are applied. Join-by-code lives in step 1.
 document.getElementById('play-friends-btn')?.addEventListener('click', () => {
   unlockAudio();
-  openPartyStart();                 // choose: create a party, or join a friend's room by code
+  openFriendSelect();               // step 1: choose friends (or join by code)
 });
 // Friends screen is friends-only (look / add / remove). Room create/join moved to the
 // «שחק עם חברים» party flow, so the create-room + join-by-code controls were removed.
@@ -1582,10 +1581,14 @@ async function apiPost(path, body) {
 // invite panel (→ addBot). They fill out the friends list so solo players can "play with
 // friends" immediately. Not real users: they don't go through search/request/presence.
 const BOT_FRIENDS = [
-  { userId: 'bot-friend-1', nickName: 'שובל', isBot: true },
-  { userId: 'bot-friend-2', nickName: 'אורית', isBot: true },
-  { userId: 'bot-friend-3', nickName: 'נווהת', isBot: true },
-  { userId: 'bot-friend-4', nickName: 'פז', isBot: true },
+  { userId: 'bot-friend-1', nickName: 'שובל', isBot: true, color: '#e0556b', level: 12, xp: 5400, rank: 3,
+    cards: [{ r: 'legendary', n: 1 }, { r: 'epic', n: 7 }, { r: 'rare', n: 22 }] },
+  { userId: 'bot-friend-2', nickName: 'אורית', isBot: true, color: '#4ea0ff', level: 8, xp: 2600, rank: 11,
+    cards: [{ r: 'epic', n: 3 }, { r: 'rare', n: 15 }, { r: 'common', n: 8 }] },
+  { userId: 'bot-friend-3', nickName: 'נווהת', isBot: true, color: '#b46bff', level: 15, xp: 7200, rank: 1,
+    cards: [{ r: 'legendary', n: 5 }, { r: 'legendary', n: 2 }, { r: 'epic', n: 9 }] },
+  { userId: 'bot-friend-4', nickName: 'פז', isBot: true, color: '#f0a934', level: 5, xp: 1200, rank: 24,
+    cards: [{ r: 'rare', n: 31 }, { r: 'common', n: 3 }, { r: 'common', n: 12 }] },
 ];
 let FRIENDS = [...BOT_FRIENDS];   // [{userId, nickName, image, isBot?}] — bots always present
 let ONLINE = new Set();    // userIds currently online (from friendsPresence)
@@ -1674,7 +1677,44 @@ function renderList(id, items, opts, emptyText) {
   if (!items || !items.length) { if (emptyText) listMsg(id, emptyText); return; }
   items.forEach((f) => el.appendChild(friendRow(f, opts)));
 }
-function renderFriends() { renderList('friend-list', FRIENDS, { kind: 'friend' }, 'עדיין אין חברים — חפשו כינוי כדי להוסיף'); renderPartyInvite(); }
+// Rich friend card for the friends window: profile pic, name, xp/rank, top-3 cards.
+function friendCardEl(f) {
+  const online = ONLINE.has(f.userId) || !!f.isBot;
+  const div = document.createElement('div');
+  div.className = 'friend-card' + (online ? ' online' : '') + (f.isBot ? ' is-bot' : '');
+  const pfp = document.createElement('div'); pfp.className = 'fc-pfp';
+  const img = (f.image || '').toString();
+  if (/^https?:\/\//i.test(img)) { const im = document.createElement('img'); im.src = img; im.alt = ''; pfp.appendChild(im); }
+  else { pfp.textContent = memberInitials(f.nickName); if (f.color) pfp.style.background = f.color; }
+  const main = document.createElement('div'); main.className = 'fc-main';
+  const top = document.createElement('div'); top.className = 'fc-top';
+  const dot = document.createElement('span'); dot.className = 'friend-dot';
+  const nm = document.createElement('span'); nm.className = 'fc-name'; nm.textContent = f.nickName || '';
+  top.append(dot, nm);
+  if (f.isBot) { const t = document.createElement('span'); t.className = 'friend-bot-tag'; t.textContent = '🤖'; top.appendChild(t); }
+  main.appendChild(top);
+  const metaBits = [];
+  if (f.rank != null) metaBits.push('🏅 #' + f.rank);
+  if (f.level != null) metaBits.push('דרגה ' + f.level);
+  if (f.xp != null) metaBits.push('XP ' + fmtCompact(f.xp));
+  if (metaBits.length) { const meta = document.createElement('div'); meta.className = 'fc-meta'; meta.textContent = metaBits.join(' · '); main.appendChild(meta); }
+  const cards = Array.isArray(f.cards) ? f.cards.slice(0, 3) : [];
+  if (cards.length) {
+    const row = document.createElement('div'); row.className = 'fc-cards';
+    cards.forEach((c) => { const im = document.createElement('img'); im.className = 'fc-card rarity-' + c.r; im.loading = 'lazy'; im.alt = ''; im.onerror = () => im.removeAttribute('src'); im.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`; row.appendChild(im); });
+    main.appendChild(row);
+  }
+  div.append(pfp, main);
+  return div;
+}
+function renderFriends() {
+  const el = document.getElementById('friend-list');
+  if (el) {
+    if (!FRIENDS.length) { listMsg('friend-list', 'עדיין אין חברים — חפשו כינוי כדי להוסיף'); }
+    else { el.innerHTML = ''; FRIENDS.forEach((f) => el.appendChild(friendCardEl(f))); }
+  }
+  renderPartyInvite();
+}
 function renderSearch(items) { renderList('friend-search-results', items, { kind: 'search' }); }
 function renderRequests(items) {
   const list = Array.isArray(items) ? items : [];
@@ -1723,42 +1763,89 @@ function showPartyInvite(code, fromName) {
   if (!confirm(`${fromName} מזמין אותך לקבוצה. להצטרף?`)) { sendMsg({ type: 'partyRespond', code, accept: false }); return; }
   sendMsg({ type: 'partyRespond', code, accept: true });
 }
-// Party start sheet: create a party (invite friends + pick a game in the lobby) OR join a
-// friend's existing room by its shared 3-digit code.
-const partyStartEl = document.getElementById('party-start');
+// Party flow: STEP 1 — pick which friends to play with (multi-select). STEP 2 — pick the
+// minigame. Then a room is created, the picks are applied (bots → addBot, real friends →
+// inviteFriend), and the lobby opens. Join-by-code lives at the bottom of step 1 so a player
+// who'd rather join a friend's room can still enter their shared code.
+const friendSelectEl = document.getElementById('friend-select');
 const joinCodeEl = document.getElementById('join-code');
-function openPartyStart() { if (joinCodeEl) joinCodeEl.value = ''; if (partyStartEl) partyStartEl.classList.remove('hidden'); }
-function closePartyStart() { if (partyStartEl) partyStartEl.classList.add('hidden'); }
-document.getElementById('party-start-close')?.addEventListener('click', closePartyStart);
-partyStartEl?.addEventListener('click', (e) => { if (e.target === partyStartEl) closePartyStart(); });
-document.getElementById('party-create-btn')?.addEventListener('click', () => {
-  unlockAudio(); syncLoadout();
-  loadFriends();                    // refresh friends + presence for the invite panel
-  closePartyStart();
-  sendMsg({ type: 'createRoom' });  // server -> roomJoined{host:true} -> lobby (invite + pick game)
+const partySel = new Set();          // userIds selected for the party
+let selectedGame = null;             // chosen minigame (set in step 2, drives the lobby start)
+let pendingPartyApply = false;       // apply the picks once the fresh room's roomJoined arrives
+function partyCandidates() { return FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId)); } // available to invite
+function renderFriendSelect() {
+  const el = document.getElementById('friend-select-list'); if (!el) return;
+  el.innerHTML = '';
+  const cands = partyCandidates();
+  if (!cands.length) { const d = document.createElement('div'); d.className = 'pi-empty'; d.textContent = 'אין חברים זמינים כרגע'; el.appendChild(d); return; }
+  cands.forEach((f) => {
+    const row = document.createElement('button'); row.type = 'button';
+    row.className = 'fs-row' + (partySel.has(f.userId) ? ' sel' : '') + (f.isBot ? ' is-bot' : '');
+    const pfp = document.createElement('div'); pfp.className = 'fc-pfp sm';
+    const img = (f.image || '').toString();
+    if (/^https?:\/\//i.test(img)) { const im = document.createElement('img'); im.src = img; im.alt = ''; pfp.appendChild(im); }
+    else { pfp.textContent = memberInitials(f.nickName); if (f.color) pfp.style.background = f.color; }
+    const nm = document.createElement('span'); nm.className = 'fs-name'; nm.textContent = (f.isBot ? '🤖 ' : '') + (f.nickName || '');
+    const chk = document.createElement('span'); chk.className = 'fs-chk'; chk.textContent = partySel.has(f.userId) ? '✓' : '';
+    row.append(pfp, nm, chk);
+    row.onclick = () => { if (partySel.has(f.userId)) partySel.delete(f.userId); else partySel.add(f.userId); renderFriendSelect(); };
+    el.appendChild(row);
+  });
+}
+function openFriendSelect() {
+  partySel.clear(); selectedGame = null;
+  if (joinCodeEl) joinCodeEl.value = '';
+  syncLoadout(); loadFriends();               // refresh presence so online friends show as candidates
+  renderFriendSelect();
+  friendSelectEl?.classList.remove('hidden');
+}
+function closeFriendSelect() { friendSelectEl?.classList.add('hidden'); }
+document.getElementById('friend-select-close')?.addEventListener('click', closeFriendSelect);
+friendSelectEl?.addEventListener('click', (e) => { if (e.target === friendSelectEl) closeFriendSelect(); });
+document.getElementById('friend-select-go')?.addEventListener('click', () => {
+  unlockAudio(); closeFriendSelect(); openGameSelect('setup');   // step 2: pick the minigame
 });
 document.getElementById('join-room-btn')?.addEventListener('click', () => {
   unlockAudio();
   const code = (joinCodeEl?.value || '').trim().toUpperCase();
   if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
-  closePartyStart();
+  closeFriendSelect();
   sendMsg({ type: 'joinRoom', code });
 });
 
-// Game picker overlay (host taps "בחר משחק"). Only 2v2 is live; picking it starts the match.
+// Game picker overlay. mode 'setup' = from the friend-select flow (create room + apply picks);
+// mode 'lobby' = host re-opening it inside the lobby (start immediately). Only 2v2 is live.
 const gameSelectEl = document.getElementById('game-select');
-function openGameSelect() { if (gameSelectEl) gameSelectEl.classList.remove('hidden'); }
+let gameSelectMode = 'lobby';
+function openGameSelect(mode) { gameSelectMode = mode || 'lobby'; if (gameSelectEl) gameSelectEl.classList.remove('hidden'); }
 function closeGameSelect() { if (gameSelectEl) gameSelectEl.classList.add('hidden'); }
-document.getElementById('pick-game-btn')?.addEventListener('click', () => { unlockAudio(); openGameSelect(); });
+document.getElementById('pick-game-btn')?.addEventListener('click', () => {
+  unlockAudio();
+  if (selectedGame) { syncLoadout(); sendMsg({ type: 'ready' }); toast('מתחילים…'); } // game already chosen in setup → start
+  else openGameSelect('lobby');
+});
 document.getElementById('game-select-close')?.addEventListener('click', closeGameSelect);
 gameSelectEl?.addEventListener('click', (e) => {
   if (e.target === gameSelectEl) { closeGameSelect(); return; }               // backdrop
   const card = e.target.closest('.modecard[data-game]'); if (!card) return;   // ignore locked/coming-soon
   unlockAudio(); syncLoadout();
-  sendMsg({ type: 'ready' });                                                 // start the 2v2 countdown
+  selectedGame = card.dataset.game || '2v2';
   closeGameSelect();
-  toast('מתחילים…');
+  if (gameSelectMode === 'setup') { pendingPartyApply = true; sendMsg({ type: 'createRoom' }); } // → roomJoined applies picks
+  else { sendMsg({ type: 'ready' }); toast('מתחילים…'); }
 });
+// Once the fresh party room is created (host), apply the picks: bots via addBot, real friends
+// via inviteFriend. Called from the roomJoined handler.
+function applyPartyPicks() {
+  const byId = new Map(FRIENDS.map((f) => [f.userId, f]));
+  for (const uid of partySel) {
+    const f = byId.get(uid); if (!f) continue;
+    if (f.isBot) sendMsg({ type: 'addBot', name: f.nickName });
+    else sendMsg({ type: 'inviteFriend', toUserId: uid });
+  }
+  const n = partySel.size;
+  toast(n ? `מזמין ${n} חברים…` : 'החדר מוכן — הזמינו חברים או התחילו');
+}
 
 document.getElementById('friend-search')?.addEventListener('input', (e) => searchFriends(e.target.value.trim()));
 
@@ -1824,6 +1911,7 @@ function connect(name, avatar) {
       clearLobbyLists(); resetPlayNow();
       if (msg.mode === 'quick') { quickVs = true; showScreen('home'); startLobbyMusic(); } // VS + countdown overlay drives the wait
       else { quickVs = false; hideVs(); showScreen('lobby'); startLobbyMusic(); }           // #12: lobby theme instantly
+      if (pendingPartyApply && isRoomHost) { pendingPartyApply = false; applyPartyPicks(); } // add picked bots + invite friends
     } else if (msg.type === 'toHome') {
       if (msg.online != null) homeOnlineEl.textContent = msg.online;
       me = { playerId: null, team: null, char: chosenChar };
@@ -2182,7 +2270,11 @@ function updateLobbyUI(msg) {
   // private rooms. Non-host members wait for the host to pick.
   const pickGameBtn = document.getElementById('pick-game-btn');
   playNowBtn.style.display = 'none';
-  if (pickGameBtn) pickGameBtn.style.display = (isPrivate && isRoomHost) ? '' : 'none';
+  if (pickGameBtn) {
+    pickGameBtn.style.display = (isPrivate && isRoomHost) ? '' : 'none';
+    const sp = pickGameBtn.querySelector('span');
+    if (sp) sp.textContent = selectedGame ? 'התחל · 2 נגד 2' : 'בחר משחק'; // game pre-chosen in setup → start CTA
+  }
   lobbyHintEl.textContent = !isPrivate
     ? 'מחפש שחקנים… המשחק יתחיל אוטומטית.'
     : isRoomHost

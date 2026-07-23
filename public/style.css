@@ -510,6 +510,34 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .friend-row.is-bot, .pi-row.is-bot { background: #14201a; }
 .friend-bot-tag { font: 800 11px "Arial Black", sans-serif; color: #8fe0a6; background: #10241a;
   border: 1px solid #244b34; border-radius: 8px; padding: 5px 9px; white-space: nowrap; }
+
+/* Rich friend card: pfp · (name/rank/xp + top-3 cards). */
+.friend-card { display: flex; gap: 10px; align-items: center; padding: 8px; background: #17171b;
+  border: 1px solid #23232a; border-radius: 12px; }
+.friend-card.is-bot { background: #14201a; border-color: #244b34; }
+.fc-pfp { width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto; background: #333; color: #fff;
+  display: flex; align-items: center; justify-content: center; font: 900 15px "Arial Black", sans-serif; overflow: hidden; }
+.fc-pfp img { width: 100%; height: 100%; object-fit: cover; }
+.fc-pfp.sm { width: 34px; height: 34px; font-size: 12px; }
+.fc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.fc-top { display: flex; align-items: center; gap: 6px; }
+.fc-name { color: #fff; font: 800 14px "Arial Black", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-meta { color: #9fb3a4; font-size: 11px; }
+.fc-cards { display: flex; gap: 4px; margin-top: 2px; }
+.fc-card { width: 30px; height: 42px; border-radius: 5px; object-fit: cover; background: #0d0d10;
+  border: 1.5px solid #333; image-rendering: pixelated; }
+.fc-card.rarity-legendary { border-color: #ffb800; } .fc-card.rarity-epic { border-color: #b46bff; }
+.fc-card.rarity-rare { border-color: #4ea0ff; } .fc-card.rarity-common { border-color: #9ab0c5; }
+
+/* Friend-select (step 1) multi-select rows. */
+.fs-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; width: 100%; }
+.fs-row { display: flex; align-items: center; gap: 10px; padding: 7px 9px; width: 100%; text-align: right;
+  background: #17171b; border: 2px solid #2c2c33; border-radius: 12px; color: #fff; cursor: pointer; }
+.fs-row.sel { border-color: #35d06a; background: #14251b; }
+.fs-row.is-bot { background: #14201a; }
+.fs-name { flex: 1; color: #fff; font: 800 13px "Arial Black", sans-serif; text-align: right; }
+.fs-chk { width: 22px; height: 22px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center;
+  justify-content: center; background: #0d0d10; border: 2px solid #35d06a; color: #35d06a; font-weight: 900; }
 .friends-h { color: #aaa; margin: 8px 0 0; text-align: right; }
 
 /* Global toast (top-level, outside every .screen) — hidden by the shared .hidden rule. */

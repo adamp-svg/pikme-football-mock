@@ -100,3 +100,15 @@ Design (built on existing room/lobby infra):
   shows as an isBot member in the lobby; kick of an 'lbot-' id removes it; trimLobbyBots on human
   admit; lobbyBots cleared at startMatch (fillBots creates the real match bots). balancedTeam counts bots.
 - test-party.mjs: added addBot lobby check. Full suite 12/12 PASS.
+
+## Request 8 (2026-07-23): rich friend cards + select-friends-then-game flow
+- Friends window: friendCardEl() renders each friend as a card — profile pic (or colored initial
+  avatar), name, meta line (🏅 #rank · דרגה level · XP), and top-3 card thumbs (Supabase art,
+  onerror→clean slot). Bots got mock data (color/level/xp/rank/cards). Real friends show pfp+name
+  only (server returns no cards/xp — a future endpoint could add them).
+- Play-with-friends is now 2 steps: #friend-select (multi-select candidates = bots + online reals,
+  tap to toggle) → #game-select (pick minigame) → createRoom → applyPartyPicks() (bots→addBot,
+  reals→inviteFriend) → lobby. Join-by-code moved into #friend-select (bottom). Retired #party-start.
+- Lobby host CTA relabels to «התחל · 2 נגד 2» once a game was pre-chosen (selectedGame); sends ready.
+- Verified: client.js node --check OK; party/code-join/addBot WS test 12/12 PASS; new overlay elements
+  served; #party-start gone. UI not browser-driven here (no headless browser in env).
