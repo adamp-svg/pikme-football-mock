@@ -45,5 +45,19 @@
 - Follow superpowers brainstorming: design approval BEFORE code.
 - Frontend: public/client.js, public/index.html, public/style.css. Backend: server.js, shared/sim.js.
 
+## Iteration 2 — fanned "cards on a table" album (commit after 8903144)
+Request: "in my cards for the slots, cards spread on the table over each other, touching reveals more; each tier can be ~50 cards." Decision (asked): reveal-then-drag-to-slot.
+- Room deck is no longer a grid. Each tier = a horizontally-scrollable OVERLAPPING FAN
+  (`.cards-fan` > `.fan-track` > absolute `.fan-card` at `left=idx*FAN_PEEK`, z=idx). FAN_PEEK=26, card=66w — ~50/tier scroll sideways.
+- `bindFanDrag()` IIFE (client.js, before bindSlotDrag), delegated on `#cards-deck`:
+  - TAP a card -> reveal (lift+enlarge, one at a time).
+  - DRAG UP (or drag a revealed card any dir) -> ghost -> drop on a `#cards-slots` `.pslot` = equip.
+  - DRAG SIDEWAYS -> browse fan (native pan-x on touch; manual scrollLeft for mouse).
+- CSS: `.cards-fan/.fan-track/.fan-card(.revealed/.equipped)/.fan-card-tag` in style.css.
+- Hint text updated in index.html.
+- KNOWN TRADEOFF: `touch-action:pan-x` on fans means a downward finger-drag started on a fan card won't scroll the page vertically; scroll via header/gaps. Revisit if it annoys.
+- Files: public/client.js, public/style.css, public/index.html (only my `cards-hint` line). Left other agents' server.js + GAME-START-CARDS-HANDOFF.md untouched.
+
 ## Request log
 - 2026-07-23: initial 3-point task (above).
+- 2026-07-23: iteration 2 — fanned overlapping album, tap-reveal + drag-to-slot equip.

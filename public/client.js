@@ -987,6 +987,8 @@ function renderPowerSlots() {
 // Tap a slot to select it, then tap a deck card to equip it there (reuses setSlotCard, so
 // it persists + tells the server, exactly like the home carousel drag-to-equip).
 let cardsSelSlot = 0;
+const FAN_CARD_W = 66;  // card width in the album fan
+const FAN_PEEK = 26;    // visible sliver per overlapped card (so ~50 fit as a scrollable spread)
 function renderCardsPage() {
   const slotsEl = document.getElementById('cards-slots');
   const deckEl = document.getElementById('cards-deck');
@@ -1007,10 +1009,13 @@ function renderCardsPage() {
     slotsEl.appendChild(item);
   });
   deckEl.innerHTML = '';
+  deckEl.classList.add('cards-deck-fan');
   const all = myCards();
   if (!all.length) { deckEl.innerHTML = '<div class="subpage-note"><b>אין קלפים עדיין</b><span>הקלפים שלך יופיעו כאן</span></div>'; return; }
-  // Album grouped by rarity, highest tier first; within a tier, best worth first. Each tier
-  // gets a full-width header (grid-column:1/-1) so the player scans legendaries -> commons.
+  // Album as an overlapping "cards spread on a table" per tier: highest tier first, best worth
+  // first within a tier. Each tier is a horizontally-scrollable fan where every card shows only
+  // a peeking edge (handles ~50/tier). Tap a card to reveal it; drag a card onto a slot to equip
+  // (gestures handled by bindFanDrag() below). FAN_PEEK = visible sliver width per card.
   const TIER_ORDER = ['legendary', 'epic', 'rare', 'common'];
   const byWorth = (a, b) => (b.w || 0) - (a.w || 0);
   TIER_ORDER.forEach((rar) => {
@@ -1020,16 +1025,84 @@ function renderCardsPage() {
     head.className = 'cards-tier-head rarity-' + rar;
     head.innerHTML = '<span class="cards-tier-name">' + (HEB_RAR[rar] || rar) + '</span><span class="cards-tier-count">' + group.length + '</span>';
     deckEl.appendChild(head);
-    group.forEach((c) => {
+    const fan = document.createElement('div'); fan.className = 'cards-fan';
+    const track = document.createElement('div'); track.className = 'fan-track';
+    track.style.width = ((group.length - 1) * FAN_PEEK + FAN_CARD_W) + 'px';
+    group.forEach((c, idx) => {
       const el = document.createElement('div');
-      el.className = 'cards-deck-card rarity-' + c.r + (eff.some((s) => s && s.r === c.r && +s.n === +c.n) ? ' equipped' : '');
-      el.appendChild(slotCardEl(c, 'cards-deck-art', 66, 88));
+      el.className = 'fan-card rarity-' + c.r + (eff.some((s) => s && s.r === c.r && +s.n === +c.n) ? ' equipped' : '');
+      el.style.left = (idx * FAN_PEEK) + 'px';
+      el.style.zIndex = idx + 1;
+      el.dataset.r = c.r; el.dataset.n = c.n;
+      el.appendChild(slotCardEl(c, 'fan-card-art', FAN_CARD_W, 88));
       if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
-      el.addEventListener('click', () => { setSlotCard(cardsSelSlot, { r: c.r, n: +c.n }); renderCardsPage(); });
-      deckEl.appendChild(el);
+      const tag = document.createElement('span'); tag.className = 'fan-card-tag'; tag.textContent = '#' + c.n; el.appendChild(tag);
+      track.appendChild(el);
     });
+    fan.appendChild(track);
+    deckEl.appendChild(fan);
   });
 }
+// ---- Album fan gestures (delegated on #cards-deck) -------------------------------------
+// The deck is a set of overlapping "spread on a table" fans (one per tier). On a fan card:
+//   TAP           -> reveal it (lift out of the pile, enlarged; only one revealed at a time).
+//   DRAG UP        -> lift the card into a ghost; drop it on a slot (#cards-slots) to equip.
+//   DRAG SIDEWAYS  -> browse the fan (native pan-x on touch; manual scroll for mouse).
+// A revealed card can be dragged in any direction to equip. Dropping off a slot is a no-op.
+(function bindFanDrag() {
+  const deck = document.getElementById('cards-deck');
+  if (!deck) return;
+  let sx = null, sy = null, mode = null, card = null, cardEl = null, ghost = null, scroller = null, startScroll = 0, pid = null;
+  const TH = 10;
+  const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
+  const clear = () => {
+    if (ghost) { ghost.remove(); ghost = null; }
+    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+  };
+  const reset = () => { clear(); sx = sy = null; mode = null; card = null; cardEl = null; scroller = null; pid = null; };
+  deck.addEventListener('pointerdown', (e) => {
+    const fc = e.target && e.target.closest ? e.target.closest('.fan-card') : null;
+    if (!fc) { sx = null; return; }
+    cardEl = fc; card = { r: fc.dataset.r, n: +fc.dataset.n };
+    scroller = fc.closest('.cards-fan'); startScroll = scroller ? scroller.scrollLeft : 0;
+    sx = e.clientX; sy = e.clientY; mode = null; pid = e.pointerId;
+  });
+  deck.addEventListener('pointermove', (e) => {
+    if (sx == null) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!mode) {
+      const revealed = cardEl && cardEl.classList.contains('revealed');
+      if ((dy < -TH && Math.abs(dy) > Math.abs(dx)) || (revealed && Math.hypot(dx, dy) > TH)) {
+        mode = 'lift'; try { deck.setPointerCapture(pid); } catch { /* older webviews */ }
+      } else if (Math.abs(dx) > TH) { mode = 'scroll'; } else return;
+    }
+    if (mode === 'scroll') { if (e.pointerType !== 'touch' && scroller) scroller.scrollLeft = startScroll - dx; return; }
+    // lift
+    if (!ghost) {
+      ghost = document.createElement('div'); ghost.className = 'pslot-ghost rarity-' + card.r;
+      const gi = document.createElement('img'); gi.alt = ''; gi.src = `${CARD_ART_BASE}/${card.r}/${card.n}.webp`;
+      ghost.appendChild(gi); document.body.appendChild(ghost);
+    }
+    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+    const slot = slotUnder(e.clientX, e.clientY);
+    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+    if (slot) slot.classList.add('pslot-over');
+  });
+  const end = (e) => {
+    if (sx == null) { reset(); return; }
+    if (mode === 'lift') {
+      const slot = slotUnder(e.clientX, e.clientY);
+      if (slot && slot.dataset.slot != null) { setSlotCard(+slot.dataset.slot, { r: card.r, n: +card.n }); renderCardsPage(); }
+    } else if (mode == null && cardEl) {
+      const was = cardEl.classList.contains('revealed');   // tap toggles reveal (one at a time)
+      deck.querySelectorAll('.fan-card.revealed').forEach((el) => el.classList.remove('revealed'));
+      if (!was) cardEl.classList.add('revealed');
+    }
+    reset();
+  };
+  deck.addEventListener('pointerup', end);
+  deck.addEventListener('pointercancel', reset);
+})();
 // ---- Lobby slot gestures (delegated on #power-slots, survives re-renders) --------------
 // TAP a slot            -> open the cards room, targeting that slot.
 // DRAG a filled slot onto another slot -> SWAP the two cards.
