@@ -74,6 +74,17 @@
 - Note: an unrelated uncommitted DIFFICULTY-LADDER change (bot-ai.js + server.js, another agent) is in
   the tree — left untouched.
 
+## Round 3 (2026-07-23) — bots draw from the WHOLE album
+- Before: bot card NUMBERS came from `pool` = the humans' OWNED card numbers (bots just duplicated the
+  player's cards), with a 1..60 fallback.
+- Now: bot card numbers are drawn RANDOMLY from the full 1..50 range per rarity (all 200 cards; source of
+  truth = saltiz-cards migration 0003 `card_number between 1 and 50`). Rarity is still chosen to roughly
+  match human power; only the specific card (art) is now from the whole album.
+- Files (server.js): added `CARDS_PER_RARITY = 50` + `randomCardNum()`; `randomBotLoadout` uses
+  `randomCardNum()`; removed the now-unused `pool` from `botLoadoutParamsFromHumans`.
+- Note: assumes art exists for all 50 in each rarity; client already degrades missing art gracefully
+  (`cf-noart`). If some rarity has fewer than 50 uploaded, tighten CARDS_PER_RARITY.
+
 ## Request log
 - 2026-07-23: initial 3-point task (above).
 - 2026-07-23: clarified task 3 — "sometimes I see a bot with one legendary and two empty; if he has a legendary he must have at least 2 other commons to fill empty." → implemented empty-slot common-fill.

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 
 import {
-  createState, addPlayer, removePlayer, step, attachBall,
+  createState, addPlayer, removePlayer, step, attachBall, setField,
 } from './shared/sim.js';
 import {
   TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, GOAL, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD, INTRO_PROMO,
@@ -103,6 +103,7 @@ function makeRoom(id, isPrivate, mode = 'match') {
     matchCounter: 0,         // increments each match — feeds the stable per-match id
     hostId: null,            // member.id of a private room's creator/HOST — only they may accept/reject/kick
     pending: new Map(),      // memberId -> member awaiting the host's approval to join (private rooms)
+    invited: new Set(),      // userIds the host invited to the party — they auto-admit (no approval step)
     members: new Set(),      // member objects
     slotIds: null, slotTeam: null, rosterVersion: 0, // binary-snapshot slot->id/team mapping
   };
@@ -327,6 +328,51 @@ function startTraining(member) {
   room.phase = 'match';
   send(member.ws, { type: 'roomJoined', mode: 'training', code: null });
   send(member.ws, { type: 'matchStart', mode: 'training', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+  room.rosterVersion++; broadcastRoster(room);
+}
+
+// Validate + clamp a client-supplied field layout (never trust the wire). Caps counts
+// and clamps every number into the pitch / sane capsule sizes.
+function sanitizeField(field) {
+  if (!field || typeof field !== 'object') return null;
+  const num = (v, lo, hi, d) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
+  const cap = (w) => ({
+    cx: num(w && w.cx, 0, FIELD.W, FIELD.W / 2), cy: num(w && w.cy, 0, FIELD.H, FIELD.H / 2),
+    angle: num(w && w.angle, -Math.PI * 2, Math.PI * 2, 0),
+    hl: num(w && w.hl, 20, 300, 88), ht: num(w && w.ht, 8, 60, 16),
+  });
+  const arr = (a) => (Array.isArray(a) ? a : []);
+  return {
+    version: 1,
+    bushes: arr(field.bushes).slice(0, 12).map((b) => ({ x: num(b && b.x, 0, FIELD.W, 0), y: num(b && b.y, 0, FIELD.H, 0), w: num(b && b.w, 40, 600, 200), h: num(b && b.h, 40, 600, 150) })),
+    hardWalls: arr(field.hardWalls).slice(0, 20).map(cap),
+    dryWalls: arr(field.dryWalls).slice(0, 20).map(cap),
+  };
+}
+
+// Solo "play my field vs bots": instant, endless, custom field + backfilled bots (2v2).
+function startBuilderMatch(member, field) {
+  leaveCurrentRoom(member);
+  const room = makeRoom(`build-${++roomCounter}`, false, 'builder');
+  rooms.set(room.id, room);
+  addToRoom(member, room);
+  room.state = createState();
+  room.state.noClock = true; // endless — tinker + playtest freely
+  const clean = sanitizeField(field);
+  if (clean) setField(room.state, clean);
+  room.inputs.clear();
+  room.botCounter = 0;
+  addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(member.loadout) });
+  room.inputs.set(member.id, emptyInput());
+  member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
+  const matchId = `${room.id}-${++matchSeq}`;
+  const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [], cosmetic: member.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(member.loadout, member.cards), isBot: false }];
+  room.phase = 'match';
+  fillBots(room, roster); // backfill bots on both teams
+  attachBall(room.state, 'A');
+  room.endHoldT = 0;
+  send(member.ws, { type: 'roomJoined', mode: 'builder', code: null });
+  send(member.ws, { type: 'matchStart', mode: 'builder', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: clean });
   room.rosterVersion++; broadcastRoster(room);
 }
 
@@ -662,6 +708,10 @@ setInterval(broadcastPresence, 200);
 // Sanitize the album handed over from the app (join.cards): a compact, non-PII list
 // [{r,n,c,w}]. Validate rarity/number, clamp copies/worth, cap the length.
 const CARD_RARITIES = ['common', 'rare', 'epic', 'legendary'];
+// The full card album: numbers 1..50 in EACH rarity => 200 cards total (see saltiz-cards migration
+// 0003: card_number between 1 and 50). Bots draw their card art from this whole range.
+const CARDS_PER_RARITY = 50;
+const randomCardNum = () => 1 + Math.floor(Math.random() * CARDS_PER_RARITY);
 function sanitizeCards(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
@@ -754,36 +804,31 @@ function equippedCount(loadout) {
 // Inverse of RARITY_BUFF_PCT: a rarity-step pct -> its rarity name.
 const PCT_TO_RARITY = { 0.03: 'common', 0.07: 'rare', 0.12: 'epic', 0.20: 'legendary' };
 // Per-match bot sizing derived from the assigned humans: the MAX equipped count (ceiling for a bot's
-// random card count), the per-slot rarity target (human avg total / 3), and a pool of the humans' REAL
-// card numbers per rarity (so a bot's shown cards use real art).
+// random card count) and the per-slot rarity target (human avg total / 3). Bot card NUMBERS are drawn
+// from the whole 200-card album (randomCardNum), not the humans' owned cards, so bots get variety.
 function botLoadoutParamsFromHumans(assigned) {
   const humans = (assigned || []).filter((a) => a && a[0]);
   let maxCount = 0;
-  const pool = { common: [], rare: [], epic: [], legendary: [] };
-  for (const a of humans) {
-    maxCount = Math.max(maxCount, equippedCount(sanitizeLoadout(a[0].loadout, a[0].cards)));
-    for (const c of (Array.isArray(a[0].cards) ? a[0].cards : [])) if (pool[c.r]) pool[c.r].push(c.n);
-  }
-  return { maxCount, perSlotTarget: humanBuffTarget(assigned) / 3, pool };
+  for (const a of humans) maxCount = Math.max(maxCount, equippedCount(sanitizeLoadout(a[0].loadout, a[0].cards)));
+  return { maxCount, perSlotTarget: humanBuffTarget(assigned) / 3 };
 }
 // A random bot loadout: k = random 1..maxCount cards (humans equip N -> bot gets 1..N), each dropped in
-// a random slot at a rarity roughly matching the humans (a chosen slot is never empty — >= common),
-// its NUMBER drawn from the humans' real cards of that rarity when available. Same [s0,s1,s2] shape as
-// sanitizeLoadout, so buffsFromLoadout consumes it directly (display == gameplay).
+// a random slot at a rarity roughly matching the humans (a chosen slot is never empty — >= common). Each
+// card's NUMBER is drawn RANDOMLY from the full 1..50 album for its rarity (all 200 cards in play), so
+// bots no longer just mirror the human's owned cards. Same [s0,s1,s2] shape as sanitizeLoadout, so
+// buffsFromLoadout consumes it directly (display == gameplay).
 function randomBotLoadout(params) {
   const p = params || {};
   const maxCount = Math.max(0, Math.floor(Number(p.maxCount) || 0));
   const out = [null, null, null];
   if (maxCount < 1) return out; // humans have no cards -> bot has none either
   const perSlotTarget = Math.max(0, Number(p.perSlotTarget) || 0);
-  const pool = p.pool || {};
-  const pickNum = (r) => { const nums = pool[r] || []; return nums.length ? nums[Math.floor(Math.random() * nums.length)] : (1 + Math.floor(Math.random() * 60)); };
   const k = 1 + Math.floor(Math.random() * maxCount); // 1..maxCount
   for (const s of shuffle([0, 1, 2]).slice(0, k)) {
     let pct = pickRarityPct(perSlotTarget);
     if (!pct) pct = 0.03; // a chosen slot always holds a real card (>= common)
     const r = PCT_TO_RARITY[pct] || 'common';
-    out[s] = { r, n: pickNum(r) };
+    out[s] = { r, n: randomCardNum() };
   }
   // "Make sense" rule: you cannot have empty slots if you hold a card stronger than RARE. A bot with an
   // epic/legendary must be full — fill every remaining empty slot with a COMMON (e.g. one epic + two
@@ -791,7 +836,7 @@ function randomBotLoadout(params) {
   const strongRank = CARD_RARITIES.indexOf('rare'); // > rare == epic/legendary
   const topRank = out.reduce((m, s) => (s ? Math.max(m, CARD_RARITIES.indexOf(s.r)) : m), -1);
   if (topRank > strongRank) {
-    for (let s = 0; s < 3; s++) if (!out[s]) out[s] = { r: 'common', n: pickNum('common') };
+    for (let s = 0; s < 3; s++) if (!out[s]) out[s] = { r: 'common', n: randomCardNum() };
   }
   return out;
 }
@@ -941,6 +986,40 @@ wss.on('connection', (ws, req) => {
         if (!msg.accept) { if (challenger) send(challenger.ws, { type: 'challengeDeclined', byUserId: member.userId }); return; }
         if (!challenger) { send(ws, { type: 'challengeError', msg: 'היריב התנתק' }); return; }
         startChallengeMatch(challenger, member);
+        return;
+      }
+      // Party invite: host invites an ONLINE friend into their private room. No 3-digit code
+      // and no host-approval step (the host initiated it — mutual consent, like a challenge).
+      if (msg.type === 'inviteFriend') {
+        const toUserId = (msg.toUserId || '').toString();
+        if (!member.userId) { send(ws, { type: 'partyError', msg: 'לא מחובר' }); return; }
+        if (!member.friends.includes(toUserId)) { send(ws, { type: 'partyError', msg: 'לא חבר' }); return; }
+        // Ensure I host a private room to invite into (self-heal if I lost/left it).
+        let r = member.room;
+        if (!r || !r.isPrivate || r.hostId !== member.id) { createPrivateRoom(member); r = member.room; }
+        if (!r) { send(ws, { type: 'partyError', msg: 'לא ניתן ליצור חדר' }); return; }
+        if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
+        if (r.members.size >= MAX_PLAYERS) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
+        const target = onlineByUser.get(toUserId);
+        if (!target) { send(ws, { type: 'partyError', msg: 'החבר לא מחובר' }); return; }
+        r.invited.add(toUserId);
+        send(target.ws, { type: 'partyInvite', code: r.id, fromUserId: member.userId, fromName: member.name });
+        send(ws, { type: 'partyInviteSent', toUserId });
+        return;
+      }
+      if (msg.type === 'partyRespond') {
+        if (!msg.accept) return; // decline: nothing to clean up (nothing joined yet)
+        const r = rooms.get(normalizeRoomCode(msg.code));
+        if (!r || !r.isPrivate) { send(ws, { type: 'partyError', msg: 'החדר לא נמצא' }); return; }
+        if (!member.userId || !r.invited.has(member.userId)) { send(ws, { type: 'partyError', msg: 'ההזמנה פגה' }); return; }
+        if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
+        if (r.members.size >= MAX_PLAYERS) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
+        leaveCurrentRoom(member);            // drop any current room / pending request first
+        addToRoom(member, r);                // AUTO-admit — the host invited them
+        send(ws, { type: 'roomJoined', mode: 'private', code: r.id, host: false });
+        const host = hostMember(r);
+        if (host) send(host.ws, { type: 'partyInviteAccepted', name: member.name });
+        broadcastLobby(r);
         return;
       }
       if (msg.type === 'leaveRoom') {
