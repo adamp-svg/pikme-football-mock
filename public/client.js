@@ -4355,3 +4355,77 @@ function renderFrame() {
   }
 }
 requestAnimationFrame(frame);
+
+// ===================== FIELD BUILDER (self-contained DOM editor) =====================
+// Place bushes / rotatable hard walls / dry walls on a scaled pitch, save to localStorage,
+// then "Play" launches a vs-bots match on that field (server type:'builderMatch').
+const FB_KEY = 'pikme-field-v1';
+const FB_W = 2000, FB_H = 1100;
+const FB_WALL = { hl: 88, ht: 16 };   // default wall capsule half-dims (len 176 / thick 32)
+const FB_BUSH = { w: 220, h: 160 };
+let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] };
+let fbTool = null;   // 'bush' | 'hard' | 'dry' | null (placement tool)
+let fbSel = null;    // { type, i } selected element | null
+let fbDrag = null;   // active pointer drag
+const fbPit = () => document.getElementById('builder-pitch');
+const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.hardWalls : fbField.dryWalls);
+function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [] }; } catch (e) {} return { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; }
+function fbSave() { try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {} }
+function fbToWorld(cx, cy) { const r = fbPit().getBoundingClientRect(); return { x: Math.max(0, Math.min(FB_W, (cx - r.left) / r.width * FB_W)), y: Math.max(0, Math.min(FB_H, (cy - r.top) / r.height * FB_H)) }; }
+function fbRender() {
+  const pit = fbPit(); if (!pit) return;
+  pit.querySelectorAll('.bel').forEach((e) => e.remove());
+  const mk = (type, i, cx, cy, w, h, angle) => {
+    const d = document.createElement('div');
+    d.className = 'bel ' + type + (fbSel && fbSel.type === type && fbSel.i === i ? ' sel' : '');
+    d.style.left = (cx / FB_W * 100) + '%'; d.style.top = (cy / FB_H * 100) + '%';
+    d.style.width = (w / FB_W * 100) + '%'; d.style.height = (h / FB_H * 100) + '%';
+    if (angle != null) d.style.setProperty('--ang', angle + 'rad');
+    d.dataset.type = type; d.dataset.i = i;
+    pit.appendChild(d);
+  };
+  fbField.bushes.forEach((b, i) => mk('bush', i, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h, null));
+  fbField.hardWalls.forEach((w, i) => mk('hard', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
+  fbField.dryWalls.forEach((w, i) => mk('dry', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
+}
+function fbAdd(type, wx, wy) {
+  if (type === 'bush') fbField.bushes.push({ x: Math.round(wx - FB_BUSH.w / 2), y: Math.round(wy - FB_BUSH.h / 2), w: FB_BUSH.w, h: FB_BUSH.h });
+  else fbList(type).push({ cx: Math.round(wx), cy: Math.round(wy), angle: 0, hl: FB_WALL.hl, ht: FB_WALL.ht });
+  fbSel = { type, i: fbList(type).length - 1 };
+  fbSave(); fbRender();
+}
+function fbMoveSel(wx, wy) {
+  if (!fbSel) return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
+  if (fbSel.type === 'bush') { L.x = Math.round(wx - L.w / 2); L.y = Math.round(wy - L.h / 2); }
+  else { L.cx = Math.round(wx); L.cy = Math.round(wy); }
+  fbRender();
+}
+function openBuilder() { fbField = fbLoad(); fbTool = null; fbSel = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.remove('active')); fbRender(); }
+(function fbWire() {
+  const pit = document.getElementById('builder-pitch'); if (!pit) return;
+  const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
+  document.getElementById('field-builder-btn')?.addEventListener('click', () => { unlockAudio && unlockAudio(); showScreen('builder'); openBuilder(); });
+  document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => {
+    const t = btn.dataset.tool; fbTool = (fbTool === t) ? null : t; fbSel = null;
+    document.querySelectorAll('#builder .btool').forEach((b) => b.classList.toggle('active', b === btn && fbTool === t));
+    fbRender();
+  }));
+  document.getElementById('b-rotate')?.addEventListener('click', () => { if (fbSel && fbSel.type !== 'bush') { const L = fbList(fbSel.type)[fbSel.i]; L.angle = (L.angle + Math.PI / 12) % (Math.PI * 2); fbSave(); fbRender(); } });
+  document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbSave(); fbRender(); } });
+  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; fbSel = null; fbSave(); fbRender(); });
+  document.getElementById('b-mirror')?.addEventListener('click', () => {
+    fbField.bushes = fbField.bushes.concat(fbField.bushes.map((b) => ({ x: FB_W - b.x - b.w, y: b.y, w: b.w, h: b.h })));
+    fbField.hardWalls = fbField.hardWalls.concat(fbField.hardWalls.map((w) => ({ cx: FB_W - w.cx, cy: w.cy, angle: -w.angle, hl: w.hl, ht: w.ht })));
+    fbField.dryWalls = fbField.dryWalls.concat(fbField.dryWalls.map((w) => ({ cx: FB_W - w.cx, cy: w.cy, angle: -w.angle, hl: w.hl, ht: w.ht })));
+    fbSel = null; fbSave(); fbRender();
+  });
+  document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
+  pit.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest('.bel');
+    if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbTool = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.remove('active')); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
+    else if (fbTool) { const w = fbToWorld(e.clientX, e.clientY); fbAdd(fbTool, w.x, w.y); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} }
+    else { fbSel = null; fbRender(); }
+  });
+  pit.addEventListener('pointermove', (e) => { if (fbDrag && fbSel) { const w = fbToWorld(e.clientX, e.clientY); fbMoveSel(w.x, w.y); } });
+  pit.addEventListener('pointerup', (e) => { if (fbDrag) { fbDrag = null; fbSave(); try { pit.releasePointerCapture(e.pointerId); } catch (x) {} } });
+})();

@@ -105,6 +105,10 @@
           <span class="hub-mic">🎯</span>
           <span class="hub-mtx"><b>אימון</b></span>
         </button>
+        <button id="field-builder-btn" class="hub-mode hub-training">
+          <span class="hub-mic">🏗️</span>
+          <span class="hub-mtx"><b>בונה מגרש</b></span>
+        </button>
         <div id="tournament-btn" class="hub-cs" role="button" aria-disabled="true">
           <span class="hub-mic">🏆</span>
           <span class="hub-cs-tx"><b>טורניר</b></span>
@@ -117,6 +121,34 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ================= FIELD BUILDER ================= -->
+  <div id="builder" class="screen hidden">
+    <div class="builder-top">
+      <button data-home-back class="builder-btn builder-back">‹ חזרה</button>
+      <span class="builder-title">🏗️ בונה מגרש</span>
+      <button id="builder-play" class="builder-btn builder-play">▶ שחק</button>
+    </div>
+    <div class="builder-stage">
+      <div id="builder-pitch" class="builder-pitch" dir="ltr">
+        <div class="bp-goal bp-goal-l"></div>
+        <div class="bp-goal bp-goal-r"></div>
+        <div class="bp-mid"></div>
+        <!-- element divs injected by client.js -->
+      </div>
+    </div>
+    <div class="builder-palette" dir="rtl">
+      <button class="btool" data-tool="bush">🌳 שיח</button>
+      <button class="btool" data-tool="hard">🧱 קיר קשיח</button>
+      <button class="btool" data-tool="dry">🟫 קיר חלש</button>
+      <span class="builder-sep"></span>
+      <button id="b-rotate" class="bact">↻ סובב</button>
+      <button id="b-delete" class="bact">🗑️ מחק</button>
+      <button id="b-mirror" class="bact">⇄ שיקוף</button>
+      <button id="b-clear" class="bact">✕ נקה הכל</button>
+    </div>
+    <div class="builder-hint">בחר אלמנט ולחץ על המגרש להוספה · גרור להזזה · קיר: בחר ואז ↻ לסיבוב</div>
   </div>
 
   <!-- ================= NEW SUB-SCREENS (arena / news / shop / clubs) ================= -->
