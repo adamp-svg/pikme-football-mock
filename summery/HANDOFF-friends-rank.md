@@ -82,3 +82,12 @@ Design (built on existing room/lobby infra):
   invite online friends + pick game) OR join-by-code (moved here from the friends screen). The host's
   room code shows in the lobby («שתפו עם חברים») so outsiders can join via code (host-approval flow).
 - test-party.mjs extended: now also verifies the code-join path (pending→host approve→joined). 11/11 PASS.
+
+## Request 6 (2026-07-23): friends search by phone number
+- pikme-server/routes-pikme/friends.js /search now matches nickName OR (when q looks like a phone,
+  5+ digits) the EXACT phone across stored variants (+972…/972…/0…). Added phoneVariants() helper.
+- EXACT-match only (not prefix) by design — a "know-the-number" lookup, not an enumeration oracle
+  (repo treats phone→identity as sensitive; see internal nicknames-by-phone). Client placeholder
+  now reads "חיפוש לפי כינוי או מספר טלפון…".
+- Logic unit-verified (phone detection + variant generation). NOT DB-verified — pikme-server still
+  can't boot on node 26 (old jsonwebtoken/SlowBuffer). Next agent: confirm live against Mongo.
