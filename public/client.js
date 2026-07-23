@@ -1411,9 +1411,24 @@ fitHub();
 
 // ---- Lobby-redesign sub-screens (arena / news / shop / clubs) ---------------
 // Register the new .screen divs so the existing showScreen() drives open/close.
-for (const id of ['arena', 'news', 'shop', 'clubs', 'cards']) {
+for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank']) {
   const el = document.getElementById(id);
   if (el) screens[id] = el;
+}
+// Shop daily-deal countdown to next local midnight (cosmetic basis for the «מבצע יומי» row).
+const shopTimerEl = document.getElementById('shop-daily-timer');
+if (shopTimerEl) {
+  const p2 = (n) => String(n).padStart(2, '0');
+  const tickShopTimer = () => {
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    let s = Math.max(0, Math.floor((next - now) / 1000));
+    const h = Math.floor(s / 3600); s -= h * 3600;
+    const m = Math.floor(s / 60); s -= m * 60;
+    shopTimerEl.textContent = 'מתאפס בעוד ' + p2(h) + ':' + p2(m) + ':' + p2(s);
+  };
+  tickShopTimer();
+  setInterval(tickShopTimer, 1000);
 }
 document.querySelectorAll('[data-open-screen]').forEach((el) => {
   el.addEventListener('click', () => { if (!el.disabled) showScreen(el.dataset.openScreen); });
@@ -1421,6 +1436,33 @@ document.querySelectorAll('[data-open-screen]').forEach((el) => {
 document.querySelectorAll('[data-home-back]').forEach((el) => {
   el.addEventListener('click', () => showScreen('home'));
 });
+
+// Tap-outside-to-leave: every lobby sub-page (shop / friends / clubs / arena / news / rank /
+// cards) also returns to the hub when the user taps an EMPTY / non-button region — i.e.
+// anything that is NOT an interactive control. On the friends screen the "main area" is the
+// centred panel, so only the stadium around it dismisses (taps inside the panel are ignored).
+// The ‹ back buttons still work too. Safe by design: (1) we require BOTH the pointerdown and
+// the click to land on a dismiss target, so a card drag/scroll that ends on the backdrop never
+// closes the page; (2) genuine controls — buttons/inputs plus the app's non-button widgets
+// (album cards, power slots, friend rows, tabs) — are whitelisted and always keep the page open.
+function isDismissBackdrop(t, screenEl) {
+  if (!t) return false;
+  if (t === screenEl) return true;                                    // stadium around a panel / outer page margin
+  if (t.closest('.home-wrap')) return false;                          // inside the friends panel = main area → keep open
+  // Interactive controls keep the page open (buttons/links/inputs + non-button widgets).
+  if (t.closest('button, a, input, textarea, select, label, [role="button"], [contenteditable], .pslot, .pslot-item, .fan-card, .cards-fan, .friend-row, .fr-tab')) return false;
+  // Otherwise it is empty space or inert content inside a full-bleed sub-page → dismiss.
+  return !!t.closest('.subpage');
+}
+for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends']) {
+  const scr = screens[id];
+  if (!scr) continue;
+  let downOnBackdrop = false;
+  scr.addEventListener('pointerdown', (e) => { downOnBackdrop = isDismissBackdrop(e.target, scr); });
+  scr.addEventListener('click', (e) => {
+    if (downOnBackdrop && isDismissBackdrop(e.target, scr)) { downOnBackdrop = false; showScreen('home'); }
+  });
+}
 // Arena "2 נגד 2" launches the same quick match as the home Quick Match button.
 // Push my live equipped loadout to the server right before entering a match, so the countdown/reveal
 // other players see (and my own server-side record) match my slots even if join raced card-loading.
@@ -1488,14 +1530,19 @@ document.querySelectorAll('#friends .fr-tab').forEach((t) => t.addEventListener(
 
 // Task 2: rank button (under the news satellite). Shows the player's LIVE football
 // leaderboard position (server ranks by xp desc; /handle-friends/rank resolves userId→phone).
+// Rank opens its own screen (tier-ladder basis) and fills in the live global position on top.
+const rankMePos = document.getElementById('rank-me-pos');
+const rankMeSub = document.getElementById('rank-me-sub');
+function setRankMe(pos, sub) { if (rankMePos) rankMePos.textContent = pos; if (rankMeSub) rankMeSub.textContent = sub; }
 document.getElementById('rank-btn')?.addEventListener('click', async () => {
   unlockAudio();
-  if (!FOOTBALL_TOKEN) { toast('התחברו דרך האפליקציה כדי לראות דירוג'); return; }
-  toast('טוען דירוג…');
+  showScreen('rank');
+  if (!FOOTBALL_TOKEN) { setRankMe('—', 'התחברו דרך האפליקציה כדי לראות דירוג'); return; }
+  setRankMe('…', 'טוען דירוג…');
   const res = await apiGet('/handle-friends/rank');
-  if (!res) { toast('טעינת הדירוג נכשלה — נסו שוב'); return; }
-  if (res.rank == null) { toast('עדיין אין לך דירוג — שחקו משחק כדי להיכנס לטבלה'); return; }
-  toast(`🏅 הדירוג שלך: #${res.rank} מתוך ${res.totalPlayers} שחקנים`);
+  if (!res) { setRankMe('—', 'טעינת הדירוג נכשלה — נסו שוב'); return; }
+  if (res.rank == null) { setRankMe('—', 'עדיין אין לך דירוג — שחקו משחק כדי להיכנס לטבלה'); return; }
+  setRankMe('#' + res.rank, 'מתוך ' + res.totalPlayers + ' שחקנים');
 });
 // #14/#15: joiner "waiting for approval" overlay — the cancel button withdraws the pending
 // request (leaveRoom -> server drops it + returns us home). The outside/backdrop-click handler

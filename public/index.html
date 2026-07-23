@@ -77,9 +77,9 @@
       </button>
 
       <!-- Pick-best loadout (own box): resets to the album's top-3 (restored behavior). -->
-      <button id="select-best-btn" class="hub-mode hub-secondary hub-compact">
+      <button id="select-best-btn" class="hub-mode hub-secondary hub-compact" title="בחר את שלושת הקלפים הכי טובים">
         <span class="hub-mic">✨</span>
-        <span class="hub-mtx"><b>בחר הכי טוב</b></span>
+        <span class="hub-mtx"><b>הכי טוב</b></span>
       </button>
 
       <!-- BOTTOM SCROLLABLE STRIP (single editor box "playStrip"): secondary buttons in one
@@ -190,6 +190,8 @@
     </div>
   </div>
 
+  <!-- NEWS: Fortnite-style feed — one featured banner (MOTD) + a scrollable list of
+       update cards. Live entries describe what already ships; future content is «בקרוב». -->
   <div id="news" class="screen hidden">
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
@@ -198,24 +200,62 @@
         <h2>חדשות</h2>
       </div>
       <div class="subpage-body">
-        <div class="subpage-note"><b>📰 חדשות ואירועים</b><span>עדכוני עונה, אירועים ובאנרים</span></div>
+        <div class="news-feature">
+          <span class="news-tag">חדש</span>
+          <b>ברוכים הבאים לכדורגל הבלוקים!</b>
+          <small>2 נגד 2 · אספו קלפים · שדרגו כוחות והתחילו לשחק</small>
+        </div>
+        <div class="feed">
+          <div class="news-item"><span class="news-ic">⚽</span><div class="news-tx"><b>משחק מהיר · 2 נגד 2</b><small>התאמה אוטומטית · בוטים ממלאים מקומות פנויים</small></div></div>
+          <div class="news-item"><span class="news-ic">🃏</span><div class="news-tx"><b>קלפים וכוחות</b><small>ציידו את שלושת הקלפים הכי טובים לפני הקרב</small></div></div>
+          <div class="news-item"><span class="news-ic">🏗️</span><div class="news-tx"><b>בונה מגרש</b><small>עצבו מגרש משלכם והזמינו חברים</small></div></div>
+          <div class="news-item lock"><span class="news-ic">🏆</span><div class="news-tx"><b>עונה 1</b><small>אירועים, מסלול פרסים ובאנרים</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="news-item lock"><span class="news-ic">🎉</span><div class="news-tx"><b>אירועי לו״ז</b><small>טורנירים, אתגרים ופרסים מוגבלים בזמן</small></div><span class="soon-pill">בקרוב</span></div>
+        </div>
       </div>
     </div>
   </div>
 
+  <!-- SHOP: Brawl Stars + Fortnite pattern — wallet header, daily-deal row with a 24h
+       reset countdown, one featured bundle, then category tiles. No economy yet → «בקרוב». -->
   <div id="shop" class="screen hidden">
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
       <div class="subpage-head">
         <button class="subpage-back" data-home-back aria-label="חזרה">›</button>
         <h2>חנות</h2>
+        <div class="shop-wallet">
+          <span class="wallet-chip"><b>0</b> 🪙</span>
+          <span class="wallet-chip gem"><b>0</b> 💎</span>
+        </div>
       </div>
       <div class="subpage-body">
-        <div class="subpage-note"><b>🛒 חנות</b><span>מבצע יומי · ערכות · מטבעות ואבני חן</span></div>
+        <div class="shop-section">
+          <div class="shop-sec-head"><b>מבצע יומי</b><span id="shop-daily-timer" class="shop-timer">מתאפס בעוד --:--:--</span></div>
+          <div class="shop-row">
+            <div class="shop-item lock"><span class="shop-thumb">🎁</span><b>ערכת פתיחה</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-item lock"><span class="shop-thumb">🪙</span><b>חבילת מטבעות</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-item lock"><span class="shop-thumb">💎</span><b>אבני חן</b><span class="soon-pill">בקרוב</span></div>
+          </div>
+        </div>
+        <div class="shop-section">
+          <div class="shop-sec-head"><b>מומלצים</b></div>
+          <div class="shop-feature lock"><span class="shop-thumb big">🌟</span><div class="shop-feat-tx"><b>חבילת עונה</b><small>סקינים · כוחות · מטבעות</small></div><span class="soon-pill">בקרוב</span></div>
+        </div>
+        <div class="shop-section">
+          <div class="shop-sec-head"><b>קטגוריות</b></div>
+          <div class="shop-cats">
+            <div class="shop-cat lock"><span>👕</span><b>מראה</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-cat lock"><span>⚡</span><b>כוחות</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-cat lock"><span>🎟️</span><b>מסלול עונה</b><span class="soon-pill">בקרוב</span></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
+  <!-- CLUBS: Brawl Stars clubs — «not in a club» landing = create / find, plus a preview
+       of what clubs unlock (chat · club league · roles). All actions «בקרוב» until built. -->
   <div id="clubs" class="screen hidden">
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
@@ -224,7 +264,49 @@
         <h2>מועדונים</h2>
       </div>
       <div class="subpage-body">
-        <div class="subpage-note"><b>🏰 מועדונים</b><span>הצטרף או צור מועדון · צ׳אט ומלחמות מועדון</span></div>
+        <div class="club-hero">
+          <span class="club-hero-ic">🏰</span>
+          <b>הצטרפו למועדון</b>
+          <small>שחקו יחד · צ׳אטו · התחרו בליגת מועדונים</small>
+        </div>
+        <button class="club-cta lock"><span class="club-cta-ic">➕</span><b>צור מועדון</b><span class="soon-pill">בקרוב</span></button>
+        <button class="club-cta lock"><span class="club-cta-ic">🔎</span><b>חפש מועדון</b><span class="soon-pill">בקרוב</span></button>
+        <div class="club-feats">
+          <div class="club-feat lock"><span class="club-feat-ic">💬</span><div class="club-feat-tx"><b>צ׳אט מועדון</b><small>תיאום משחקים ושיחה</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="club-feat lock"><span class="club-feat-ic">🏆</span><div class="club-feat-tx"><b>ליגת מועדונים</b><small>עונה תחרותית של שבועיים</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="club-feat lock"><span class="club-feat-ic">👑</span><div class="club-feat-tx"><b>תפקידים</b><small>נשיא · סגן · בכיר · חבר</small></div><span class="soon-pill">בקרוב</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RANK: Brawl Stars trophy/ranked pattern — live global position (from
+       /handle-friends/rank) on top, then the tier ladder (Bronze→Master) as the visual
+       basis. Season rewards + full leaderboard list are «בקרוב». -->
+  <div id="rank" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button class="subpage-back" data-home-back aria-label="חזרה">›</button>
+        <h2>דירוג</h2>
+      </div>
+      <div class="subpage-body">
+        <div class="rank-me">
+          <span class="rank-me-ic">🏅</span>
+          <div class="rank-me-tx"><b id="rank-me-pos">—</b><small id="rank-me-sub">שחקו משחק כדי להיכנס לטבלה</small></div>
+        </div>
+        <div class="rank-section"><b>דרגות</b></div>
+        <div class="rank-ladder">
+          <div class="rank-tier t-bronze"><span>🥉</span><b>ברונזה</b></div>
+          <div class="rank-tier t-silver"><span>🥈</span><b>כסף</b></div>
+          <div class="rank-tier t-gold"><span>🥇</span><b>זהב</b></div>
+          <div class="rank-tier t-diamond"><span>💎</span><b>יהלום</b></div>
+          <div class="rank-tier t-mythic"><span>🔮</span><b>מיתי</b></div>
+          <div class="rank-tier t-legend"><span>👑</span><b>אגדי</b></div>
+          <div class="rank-tier t-master"><span>🏆</span><b>אלוף</b></div>
+        </div>
+        <div class="rank-note lock"><b>פרסי עונה</b><span class="soon-pill">בקרוב</span></div>
+        <div class="rank-note lock"><b>טבלת מובילים מלאה</b><span class="soon-pill">בקרוב</span></div>
       </div>
     </div>
   </div>

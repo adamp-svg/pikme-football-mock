@@ -941,6 +941,96 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .subpage-note { text-align: center; color: #8ea08a; font-size: 13px; margin-top: 24px; }
 .subpage-note b { display: block; font: 900 20px "Arial Black", sans-serif; color: #fff4ca; margin-bottom: 6px; }
 
+/* ============================================================================
+   LOBBY SUB-SCREEN BASIS (news / shop / clubs / rank) — scaffolds modelled on
+   Brawl Stars + Fortnite + Roblox. Shared "coming soon" pill; per-screen blocks
+   below. Everything lives inside .subpage-body (already scroll + centred).
+   ============================================================================ */
+.soon-pill { flex: none; font: 900 9px "Arial Black", sans-serif; color: #2a1c05; background: #8ea08a;
+  padding: 2px 7px; border-radius: 5px; letter-spacing: .5px; align-self: center; }
+.subpage-body .lock { opacity: .62; cursor: not-allowed; }
+/* section wrapper reused by shop + rank */
+.shop-section, .rank-section, .club-feats { width: 100%; max-width: 460px; }
+.shop-sec-head, .rank-section { display: flex; align-items: baseline; justify-content: space-between; margin: 2px 2px 8px; }
+.shop-sec-head b, .rank-section b { font: 900 15px "Arial Black", sans-serif; color: #fff4ca; }
+
+/* --- NEWS: featured banner (MOTD) + feed of update cards --- */
+.news-feature { width: 100%; max-width: 460px; padding: 16px; text-align: right; color: #e7dcae;
+  background: linear-gradient(135deg, #1c3524, #102016); border: 3px solid #4c6b4f; box-shadow: 0 5px 0 #070b08; position: relative; }
+.news-feature .news-tag { position: absolute; top: 10px; left: 12px; font: 900 9px "Arial Black", sans-serif;
+  color: #2a1c05; background: var(--gold, #ffce4a); padding: 2px 7px; border-radius: 5px; }
+.news-feature b { display: block; font: 900 17px "Arial Black", sans-serif; color: #fff4ca; margin-bottom: 4px; }
+.news-feature small { font-size: 11px; color: #b8caa8; font-weight: 800; }
+.feed { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 10px; }
+.news-item { display: flex; direction: rtl; align-items: center; gap: 12px; padding: 12px;
+  background: rgba(19,27,22,.94); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08; }
+.news-item .news-ic { font-size: 26px; flex: none; }
+.news-item .news-tx { flex: 1; text-align: right; min-width: 0; }
+.news-item .news-tx b { display: block; font: 900 14px "Arial Black", sans-serif; color: #fff4ca; }
+.news-item .news-tx small { font-size: 10px; color: #8ea08a; font-weight: 800; }
+
+/* --- SHOP: wallet header + daily-deal row (timer) + featured + category tiles --- */
+.shop-wallet { margin-right: auto; display: flex; gap: 8px; }
+.wallet-chip { font: 900 12px "Arial Black", sans-serif; color: #fff4ca; background: rgba(11,16,12,.72);
+  border: 2px solid #34413a; border-radius: 8px; padding: 4px 8px; box-shadow: 0 3px 0 #070b08; }
+.wallet-chip.gem { color: #9fe0ff; }
+.shop-timer { font: 900 10px "Arial Black", sans-serif; color: #ffce4a; }
+.shop-row { display: flex; gap: 10px; }
+.shop-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px;
+  background: rgba(19,27,22,.94); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08; text-align: center; }
+.shop-item b { font: 900 11px "Arial Black", sans-serif; color: #fff4ca; }
+.shop-thumb { font-size: 30px; }
+.shop-thumb.big { font-size: 40px; }
+.shop-feature { display: flex; direction: rtl; align-items: center; gap: 12px; width: 100%; padding: 14px;
+  background: linear-gradient(135deg, #2a2140, #171528); border: 3px solid #6b5aa0; box-shadow: 0 5px 0 #070b08; }
+.shop-feat-tx { flex: 1; text-align: right; }
+.shop-feat-tx b { display: block; font: 900 15px "Arial Black", sans-serif; color: #fff4ca; }
+.shop-feat-tx small { font-size: 10px; color: #c9b8ff; font-weight: 800; }
+.shop-cats { display: flex; gap: 10px; }
+.shop-cat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 12px 6px;
+  background: rgba(19,27,22,.94); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08; font-size: 24px; }
+.shop-cat b { font: 900 11px "Arial Black", sans-serif; color: #fff4ca; }
+
+/* --- CLUBS: «join a club» hero + create/find CTAs + feature preview list --- */
+.club-hero { width: 100%; max-width: 460px; text-align: center; padding: 18px 14px; color: #e7dcae;
+  background: linear-gradient(135deg, #23331d, #121c12); border: 3px solid #5a7a3f; box-shadow: 0 5px 0 #070b08; }
+.club-hero-ic { font-size: 44px; }
+.club-hero b { display: block; font: 900 18px "Arial Black", sans-serif; color: #fff4ca; margin-top: 6px; }
+.club-hero small { display: block; font-size: 11px; color: #b8caa8; font-weight: 800; margin-top: 4px; }
+.club-cta { appearance: none; width: 100%; max-width: 460px; display: flex; direction: rtl; align-items: center; gap: 12px;
+  padding: 14px; background: rgba(19,27,22,.94); border: 3px solid #46543f; box-shadow: 0 5px 0 #070b08; }
+.club-cta .club-cta-ic { font-size: 24px; }
+.club-cta b { flex: 1; text-align: right; font: 900 15px "Arial Black", sans-serif; color: #fff4ca; }
+.club-feats { display: flex; flex-direction: column; gap: 10px; }
+.club-feat { display: flex; direction: rtl; align-items: center; gap: 12px; padding: 12px;
+  background: rgba(15,22,17,.82); border: 2px solid #39463b; box-shadow: 0 3px 0 #070b08; }
+.club-feat .club-feat-ic { font-size: 22px; flex: none; }
+.club-feat-tx { flex: 1; text-align: right; }
+.club-feat-tx b { display: block; font: 900 13px "Arial Black", sans-serif; color: #e7dcae; }
+.club-feat-tx small { font-size: 10px; color: #8ea08a; font-weight: 800; }
+
+/* --- RANK: live global position banner + tier ladder (Bronze→Master) --- */
+.rank-me { width: 100%; max-width: 460px; display: flex; direction: rtl; align-items: center; gap: 14px; padding: 16px;
+  background: linear-gradient(135deg, #3a2f12, #1a1608); border: 3px solid #a07d2a; box-shadow: 0 5px 0 #070b08; }
+.rank-me-ic { font-size: 38px; flex: none; }
+.rank-me-tx { flex: 1; text-align: right; }
+.rank-me-tx b { display: block; font: 900 26px "Arial Black", sans-serif; color: #ffce4a; line-height: 1; }
+.rank-me-tx small { display: block; font-size: 11px; color: #d8c98a; font-weight: 800; margin-top: 4px; }
+.rank-ladder { width: 100%; max-width: 460px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.rank-tier { flex: 0 0 auto; width: 60px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 4px;
+  background: rgba(19,27,22,.94); border: 2px solid #46543f; box-shadow: 0 3px 0 #070b08; font-size: 22px; }
+.rank-tier b { font: 900 10px "Arial Black", sans-serif; color: #e7dcae; }
+.rank-tier.t-bronze  { border-color: #a6702f; }
+.rank-tier.t-silver  { border-color: #b9c2cc; }
+.rank-tier.t-gold    { border-color: #e6b422; }
+.rank-tier.t-diamond { border-color: #4ec0e0; }
+.rank-tier.t-mythic  { border-color: #b46bff; }
+.rank-tier.t-legend  { border-color: #ff5b7f; }
+.rank-tier.t-master  { border-color: #ffce4a; }
+.rank-note { width: 100%; max-width: 460px; display: flex; align-items: center; justify-content: space-between; padding: 12px 14px;
+  background: rgba(15,22,17,.82); border: 2px solid #39463b; box-shadow: 0 3px 0 #070b08; }
+.rank-note b { font: 900 13px "Arial Black", sans-serif; color: #e7dcae; }
+
 /* ================= Match-start promo cinematic ================= */
 .promo {
   position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column;
