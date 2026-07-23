@@ -67,3 +67,13 @@
 - **Req #1** — Session start. Ground rules set: work in localhost, commit everything, log every request here for handoff, short-bullet answers. Task not yet assigned; awaiting task, will lock it on receipt.
   - State at start: branch `feat/build-bomb-cancel`, working tree clean.
   - Status: WAITING FOR TASK
+
+- **Hero-custom rework (agent `hero-custom`)** — 6-part wardrobe/picker task. Locks held: `football-mock:hero-picker` + `football-mock/server.js`. Built + verified LIVE on :3012 (I restarted `node server.js` PORT=3012 → new pid; HTTP 200, boot clean).
+  - 1. Big centre hero paints IN FRONT of both rails, never clipped — `style.css` `.wardrobe .wr-center/.pick-preview` z-index 4 + `overflow:visible`, rails z1.
+  - 2. Removed the picker Save button (`#pick-save` gone from index.html); every hero/costume tap now AUTO-SAVES (`commit()` on each select; outside-click just closes). Note: `#b-save`/`#ce-save` are other screens — untouched.
+  - 3. Hero order stays rarity striker→alien (already `HERO_KEYS` order); preserved through the gating changes.
+  - 4. Hero unlock gating: every 7 DISTINCT owned cards opens the next hero — `client.js` `distinctOwnedCount`/`unlockedHeroCount`/`isHeroUnlocked` (floor(distinct/7)+1, capped 9). Locked heroes not selectable (toast hint); on open, a locked saved hero clamps to best-unlocked.
+  - 5. Locked heroes render as a dark shadow + 🔒 badge — `style.css` `.pick-hero.locked`.
+  - 6. **server.js** bot draw capped to the highest hero tier any human in the room wears (`botCosmeticForRoom`), uniform striker..cap, 1/20 one tier above (clamped alien). Wired into `computeBotPlan` + `fillBots` fallback. Unit-tested (dist ~4.8% above-cap) + play-smoke on throwaway :3010 (match started, 355 frames, no errors). `test-cosmetics.mjs` still 7/7.
+  - ⚠️ COEXISTENCE (NOT committed): the working tree already held **bots-xp's** uncommitted XP-driven-bots work in `server.js`, `public/client.js`, `shared/difficulty.js` (RARITY_BY_LEVEL, quickMatch, bot level badge) AND another agent's `#cards` layout fixes in `public/style.css`. My edits sit cleanly ON TOP (node --check + smoke both green). I deliberately did NOT `git commit` — a pathspec commit would sweep bots-xp's + the cards agent's in-flight work (the known footgun). All my changes are live on :3012 from disk. Whoever commits should do it deliberately, per-hunk.
+  - Status: DONE (live on :3012, intentionally uncommitted pending owners of the co-touched files).

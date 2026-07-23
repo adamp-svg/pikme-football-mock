@@ -48,3 +48,25 @@ export function levelFromLegacy(tier) {
   const idx = { easy: 3, normal: 5, hard: 8, extreme: 11 }[tier];
   return idx == null ? DEFAULT_LEVEL : idx;
 }
+
+// --- XP-driven bot level (Task: bots reflect player XP) --------------------------------
+// Player XP -> football level, per the experience-agent spec shared with the hub XP bar:
+// level = floor((1+sqrt(1+xp/12.5))/2), min 1. Kept here so client + server agree.
+export function playerLevelFromXp(xp) {
+  return Math.max(1, Math.floor((1 + Math.sqrt(1 + Math.max(0, Number(xp) || 0) / 12.5)) / 2));
+}
+// Bot difficulty level (0..11) derived from the player's XP. Player level 1 (xp 0) => bot
+// level 0, so bots "start at level 0" and climb with the player, capping at 11 (the bot
+// stops progressing once the player passes it). TUNABLE: change the -1 offset / cap here.
+export function botLevelFromXp(xp) {
+  return clampLevel(playerLevelFromXp(xp) - 1);
+}
+// Representative XP for a bot at level L, shown in the countdown lobby. A bot at level L is
+// the player-equivalent of level (L+1); its XP is that level's start (base = 50*p*(p-1)),
+// matching the hub XP-bar math. So the badge reads like a real player of comparable XP.
+export function xpForBotLevel(level) {
+  const p = clampLevel(level) + 1; // player-equivalent level
+  return 50 * p * (p - 1);
+}
+// The רמה (level number) shown for a bot at difficulty level L — the player-equivalent level.
+export function displayLevelForBot(level) { return clampLevel(level) + 1; }

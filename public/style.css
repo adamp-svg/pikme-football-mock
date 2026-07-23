@@ -1386,6 +1386,17 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .wardrobe .pick-heroes .pick-hero canvas { width: 44px; height: 52px; }
 .wardrobe .pick-heroes .pick-hero span { font-size: 9px; }
 .picker-panel.wardrobe .play { margin-top: 0; padding: 9px; }
+/* req1: the big centre hero paints IN FRONT of both rails and is never clipped */
+.wardrobe .wr-center { position: relative; z-index: 4; overflow: visible; }
+.wardrobe .pick-preview { position: relative; z-index: 4; overflow: visible; }
+.wardrobe .wr-section { z-index: 1; }
+/* req5: heroes the player hasn't unlocked yet render as a dark shadow + lock badge */
+.wardrobe .pick-heroes .pick-hero { position: relative; }
+.pick-hero.locked { cursor: not-allowed; }
+.pick-hero.locked canvas { filter: brightness(0) grayscale(1); opacity: .45; }
+.pick-hero.locked span { color: #64726a; }
+.pick-hero.locked::after { content: '🔒'; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-60%);
+  font-size: 15px; filter: none; opacity: .85; pointer-events: none; }
 
 /* ============================================================================
    CARDS PAGE — equipped slots (tap to select) + album deck (tap to equip)
@@ -1699,15 +1710,23 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 #cards .cards-split { flex-direction: row; gap: 10px; align-items: stretch; overflow: hidden; min-height: 0; }
 #cards .cards-right { flex: 0 0 auto; width: 34%; max-width: 168px; min-width: 120px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 #cards .cards-right .pslot { width: 100%; }
-#cards .cards-tier { max-width: none; }   /* fill the wider left column — no 528px cap inside the split */
+/* In the split the deck is a flex COLUMN. The base .cards-tier carries `margin: 0 auto` (from the
+   single-column layout); auto side-margins in a flex column DISABLE align stretch, so each sleeve
+   collapsed to its content (~66px) and floated centered, clipping the fan to one card. Force full
+   width + kill the auto margins so every rarity sleeve fills the left column. */
+#cards .cards-tier { max-width: none; width: 100%; margin: 0 0 8px; }
 #cards .cards-right .cards-slots { display: flex; flex-direction: column; gap: 8px; }
 #cards .cards-left { flex: 1 1 auto; min-width: 0; overflow-y: auto; overflow-x: hidden; }
-#cards .cards-left .cards-deck { display: flex; flex-direction: column; gap: 8px; }
+/* Base .cards-deck is capped at 520px; in the split it must fill the left column, else the deck
+   (and its sleeves) right-align with a dead gap on the left — the "cards pushed too far right". */
+#cards .cards-left .cards-deck { display: flex; flex-direction: column; gap: 8px; max-width: none; width: 100%; }
 .cards-tier-empty { opacity: .5; font-size: 12px; padding: 6px; text-align: center; }
 
 /* Power-slots (and subpages): back button in the header. */
 .subpage-head { display: flex; align-items: center; gap: 10px; }
 .subpage-back { border: none; background: #33413a; color: #fff; border-radius: 10px; padding: 6px 12px; font-weight: 800; font-size: 14px; flex: 0 0 auto; }
-/* Fan shelf fits its column (no horizontal scroll); cards spread via calc left. */
-#cards .cards-fan { overflow: hidden; }
+/* Fan shelf fits its column (no horizontal scroll); cards spread via calc left. The base rule caps
+   it at 520px — in the split, let it fill the (now full-width) sleeve so cards spread across the
+   whole row instead of bunching in a 520px block pinned to the right (RTL). */
+#cards .cards-fan { overflow: hidden; max-width: none; width: 100%; }
 #cards .fan-track { width: 100%; }

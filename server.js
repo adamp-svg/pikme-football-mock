@@ -19,11 +19,11 @@ import {
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
 import { encodeKeyframe } from './shared/wire.js';
-import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC } from './shared/cosmetics.js';
+import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
 const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
-import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy } from './shared/difficulty.js';
+import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
 import { PEN, CENTER, TRAIN_ARENA, penDummy, trainingDummyInput, createSentryMem, trainingSentryInput, leashSentry } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -163,6 +163,21 @@ function trimLobbyBots(room) {
   while (room.lobbyBots.length && room.members.size + room.lobbyBots.length > MAX_PLAYERS) room.lobbyBots.pop();
 }
 
+// req6 — a match bot is drawn only UP TO the highest hero tier any human in the room has
+// selected (HERO_KEYS = the rarity ladder striker→alien). Below the cap it's uniform; very
+// rarely (1/20) one tier ABOVE the cap, clamped at alien. Skin stays random. Empty room ⇒ striker cap.
+function botCosmeticForRoom(room, rand = Math.random) {
+  let maxIdx = 0;
+  for (const m of (room.members || [])) {
+    if (m.inMatch) continue;
+    const i = HERO_KEYS.indexOf(normalizeCosmetic(m.cosmetic).split(':')[0]);
+    if (i > maxIdx) maxIdx = i;
+  }
+  const top = HERO_KEYS.length - 1;
+  const heroIdx = (rand() < 1 / 20 && maxIdx < top) ? maxIdx + 1 : Math.floor(rand() * (maxIdx + 1));
+  return `${HERO_KEYS[heroIdx]}:${SKIN_KEYS[Math.floor(rand() * SKIN_KEYS.length)]}`;
+}
+
 function fillBots(room, rosterOut) {
   if (room.mode === 'training') return; // training has its own fixed dummy + sentry — no backfill
   const teamCount = (t) => Object.values(room.state.players).filter((p) => p.team === t).length;
@@ -177,7 +192,7 @@ function fillBots(room, rosterOut) {
     const slot = usedSlots(team).has(0) ? 1 : 0;
     const id = `bot-${room.id}-${++room.botCounter}`;
     const planned = takePlanned(team, slot);
-    const cosmetic = (planned && planned.cosmetic) || randomBotCosmetic();
+    const cosmetic = (planned && planned.cosmetic) || botCosmeticForRoom(room);
     // Task 18 — a bot's CARDS mirror the humans: EXTREME bots keep a fixed strong 3-card loadout +
     // their movement-SPEED/power cheat; every other bot reuses its PREVIEWED loadout (or a fresh
     // RANDOM 1..human-equipped-count when no preview exists), and its buffs are DERIVED from that
@@ -191,7 +206,7 @@ function fillBots(room, rosterOut) {
       loadout = extremeBotLoadout();
       buffs = { cardShot: 1.4, speedBuff: 1.30, cardUtil: 0.65 };
     } else {
-      loadout = planned ? planned.loadout : randomBotLoadout(room.botLoadoutParams);
+      loadout = planned ? planned.loadout : botLoadoutForLevel(room.diffLevel);
       buffs = buffsFromLoadout(loadout);
     }
     addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic, buffs });
@@ -273,7 +288,7 @@ function transferHost(room) {
   }
 }
 
-function quickMatch(member) {
+function quickMatch(member, diffLevel) {
   leaveCurrentRoom(member);
   // Join the forming public room if there's space & it hasn't started; else open one.
   if (!publicRoom || publicRoom.phase === 'match' || publicRoom.members.size >= MAX_PLAYERS) {
@@ -281,6 +296,9 @@ function quickMatch(member) {
     rooms.set(publicRoom.id, publicRoom);
   }
   const room = publicRoom;
+  // Bots reflect the joining player's XP-driven level. Applied before the countdown/preview so the
+  // VS badge + previewed bot cards match from the first tick. Shared public room => last-writer-wins.
+  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
   addToRoom(member, room);
   send(member.ws, { type: 'roomJoined', mode: 'quick', code: null });
   // Room is full (all human slots taken) -> start now; no point waiting out the countdown.
@@ -691,7 +709,8 @@ function lobbyPayload(room) {
   // don't preview bots there — they still appear at the pre-kickoff reveal.
   const showBots = !room.isPrivate && room.phase !== 'match';
   const bots = (showBots && Array.isArray(room.botPlan))
-    ? room.botPlan.map((b, i) => ({ id: `botprev-${room.id}-${i}`, name: 'Bot', avatar: null, team: b.team, isBot: true, cards: b.cards, loadout: b.loadout }))
+    ? room.botPlan.map((b, i) => ({ id: `botprev-${room.id}-${i}`, name: 'Bot', avatar: null, team: b.team, isBot: true, cards: b.cards, loadout: b.loadout,
+        level: displayLevelForBot(room.diffLevel), xp: xpForBotLevel(room.diffLevel) })) // bot level+XP for the countdown badge
     : [];
   return {
     type: 'lobby',
@@ -876,6 +895,55 @@ function randomBotLoadout(params) {
 }
 // EXTREME bots show 3 fixed legendary cards (matching their fixed strong buffs).
 function extremeBotLoadout() { return [{ r: 'legendary', n: 1 }, { r: 'legendary', n: 2 }, { r: 'legendary', n: 3 }]; }
+
+// --- Level-based bot cards: a bot's cards reflect ITS OWN level (0..11), not the humans' -----
+// Smooth ramp: weak bots pull mostly commons and can have empty slots; strong bots pull epics/
+// legendaries and fill up; the top levels are GUARANTEED legendaries. `min`/`max` = card count
+// range, `w` = per-slot rarity weights (relative), `leg` = guaranteed legendary slots.
+// TUNABLE: endpoints are fixed (L0-1 ~rare legendary, L10-11 = 3 legendaries); the curve between
+// is free to adjust. Indexed by difficulty level 0..11.
+const RARITY_BY_LEVEL = [
+  { min: 0, max: 2, w: { common: 80, rare: 18, epic: 2,  legendary: 0 },   leg: 0 }, // L0
+  { min: 1, max: 2, w: { common: 72, rare: 22, epic: 4,  legendary: 2 },   leg: 0 }, // L1  ~2% legendary
+  { min: 1, max: 3, w: { common: 55, rare: 30, epic: 12, legendary: 3 },   leg: 0 }, // L2
+  { min: 2, max: 3, w: { common: 42, rare: 33, epic: 18, legendary: 7 },   leg: 0 }, // L3
+  { min: 2, max: 3, w: { common: 30, rare: 33, epic: 25, legendary: 12 },  leg: 0 }, // L4
+  { min: 2, max: 3, w: { common: 20, rare: 30, epic: 34, legendary: 16 },  leg: 0 }, // L5
+  { min: 3, max: 3, w: { common: 12, rare: 26, epic: 40, legendary: 22 },  leg: 0 }, // L6
+  { min: 3, max: 3, w: { common: 6,  rare: 20, epic: 44, legendary: 30 },  leg: 0 }, // L7  ~1 legendary
+  { min: 3, max: 3, w: { common: 0,  rare: 14, epic: 46, legendary: 40 },  leg: 1 }, // L8  >=1 guaranteed
+  { min: 3, max: 3, w: { common: 0,  rare: 6,  epic: 40, legendary: 54 },  leg: 2 }, // L9  >=2 guaranteed
+  { min: 3, max: 3, w: { common: 0,  rare: 0,  epic: 0,  legendary: 100 }, leg: 3 }, // L10 3 legendaries
+  { min: 3, max: 3, w: { common: 0,  rare: 0,  epic: 0,  legendary: 100 }, leg: 3 }, // L11 3 legendaries
+];
+// Weighted rarity pick from a level's relative weights.
+function weightedRarity(w) {
+  const total = (w.common || 0) + (w.rare || 0) + (w.epic || 0) + (w.legendary || 0);
+  if (total <= 0) return 'common';
+  let r = Math.random() * total;
+  if ((r -= w.common || 0) < 0) return 'common';
+  if ((r -= w.rare || 0) < 0) return 'rare';
+  if ((r -= w.epic || 0) < 0) return 'epic';
+  return 'legendary';
+}
+// A bot loadout drawn purely from ITS level. Places any guaranteed legendaries, rolls a card
+// count in [min,max], fills the rest by weighted rarity, then applies the same "no empty slot if
+// holding > rare" rule as randomBotLoadout. Card NUMBERS are random across the full 1..50 album.
+// Same [s0,s1,s2] shape, so buffsFromLoadout consumes it directly (display == gameplay).
+function botLoadoutForLevel(level) {
+  const spec = RARITY_BY_LEVEL[clampLevel(level)];
+  const out = [null, null, null];
+  const slots = shuffle([0, 1, 2]);
+  let placed = 0;
+  for (let i = 0; i < Math.min(3, spec.leg); i++) out[slots[placed++]] = { r: 'legendary', n: randomCardNum() };
+  const count = Math.max(spec.leg, spec.min + Math.floor(Math.random() * (spec.max - spec.min + 1)));
+  for (; placed < Math.min(3, count); placed++) out[slots[placed]] = { r: weightedRarity(spec.w), n: randomCardNum() };
+  // "Make sense" rule: no empty slot if holding a card stronger than RARE — fill empties with commons.
+  const strongRank = CARD_RARITIES.indexOf('rare');
+  const topRank = out.reduce((m, s) => (s ? Math.max(m, CARD_RARITIES.indexOf(s.r)) : m), -1);
+  if (topRank > strongRank) for (let s = 0; s < 3; s++) if (!out[s]) out[s] = { r: 'common', n: randomCardNum() };
+  return out;
+}
 // A loadout -> the compact [{r,n,c,w}] card list the roster/album UI expects.
 function loadoutToCards(loadout) {
   return (Array.isArray(loadout) ? loadout : []).filter(Boolean).map((s) => ({ r: s.r, n: s.n, c: 1, w: 0 }));
@@ -890,7 +958,6 @@ function computeBotPlan(room) {
   const assigned = [];
   for (const m of humans) { const t = m.team === 'B' ? 'B' : 'A'; if (teamSlots[t].length) assigned.push([m, t, teamSlots[t].shift()]); else assigned.push([m, null, null]); }
   for (const a of assigned) { if (a[1]) continue; const t = teamSlots.A.length ? 'A' : 'B'; a[1] = t; a[2] = teamSlots[t].shift(); }
-  const params = botLoadoutParamsFromHumans(assigned);
   const plan = [];
   const countT = (t) => assigned.filter((a) => a[1] === t).length + plan.filter((b) => b.team === t).length;
   const usedT = (t) => new Set([...assigned.filter((a) => a[1] === t).map((a) => a[2]), ...plan.filter((b) => b.team === t).map((b) => b.slot)]);
@@ -900,8 +967,8 @@ function computeBotPlan(room) {
     const team = countT('A') <= countT('B') ? 'A' : 'B';
     const slot = usedT(team).has(0) ? 1 : 0;
     const sideScalar = humanT[team] ? lvl.partner : lvl.enemy; // this preview-bot's side skill
-    const loadout = sideScalar >= 0.95 ? extremeBotLoadout() : randomBotLoadout(params);
-    plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: randomBotCosmetic() });
+    const loadout = sideScalar >= 0.95 ? extremeBotLoadout() : botLoadoutForLevel(room.diffLevel);
+    plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room) });
   }
   return plan;
 }
@@ -956,7 +1023,7 @@ wss.on('connection', (ws, req) => {
       // Card-powers loadout chosen on the home screen; validated vs the member's album,
       // baked into buffs at the next match start.
       if (msg.type === 'setLoadout') { member.loadout = sanitizeLoadout(msg.loadout, member.cards); return; }
-      if (msg.type === 'quickMatch') { quickMatch(member); return; }
+      if (msg.type === 'quickMatch') { quickMatch(member, msg.diffLevel); return; }
       if (msg.type === 'training') { startTraining(member); return; }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }

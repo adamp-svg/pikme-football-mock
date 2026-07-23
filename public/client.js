@@ -8,7 +8,7 @@ import {
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
-import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel } from '/shared/difficulty.js';
+import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import {
@@ -652,6 +652,11 @@ function myCards() {
   return raw.map((c) => (c && typeof c.r === 'string' && c.r !== c.r.toLowerCase())
     ? { ...c, r: c.r.toLowerCase() } : c);
 }
+// Hero unlocks: every 7 DISTINCT cards owned opens the next hero, in rarity order
+// (striker → alien). 0-6 → striker only, 7-13 → +dwarf, etc. Always ≥1 (striker free).
+function distinctOwnedCount() { return new Set(myCards().map((c) => c.r + '/' + c.n)).size; }
+function unlockedHeroCount() { return Math.max(1, Math.min(HERO_KEYS.length, Math.floor(distinctOwnedCount() / 7) + 1)); }
+function isHeroUnlocked(hk) { const i = HERO_KEYS.indexOf(hk); return i >= 0 && i < unlockedHeroCount(); }
 // Best-first: worth, then rarity, then copies. Drives the carousel + the top-3 intro.
 function rankCards(cards) {
   return [...(cards || [])].sort((a, b) =>
@@ -1460,6 +1465,7 @@ function startHomeDance() {
     heroesEl.querySelectorAll('.pick-hero').forEach((el) => {
       const on = el.dataset.hero === sel.hero;
       el.classList.toggle('on', on);
+      el.classList.toggle('locked', !isHeroUnlocked(el.dataset.hero)); // req5: shadow un-owned heroes
       drawThumb(el.querySelector('canvas'), el.dataset.hero);
     });
   }
@@ -1479,7 +1485,7 @@ function startHomeDance() {
     const c = document.createElement('canvas'); c.width = 60; c.height = 72;
     const lbl = document.createElement('span'); lbl.className = 'pick-lbl'; lbl.innerHTML = `<span class="dot"></span>${SKIN_NAMES[sk]}`;
     b.appendChild(c); b.appendChild(lbl);
-    b.addEventListener('click', () => { sel.skin = sk; refreshTierSel(); refreshHeroSel(); refreshName(); });
+    b.addEventListener('click', () => { sel.skin = sk; refreshTierSel(); refreshHeroSel(); refreshName(); commit(); });
     tiersEl.appendChild(b);
   });
   HERO_KEYS.forEach((hk) => {
@@ -1488,7 +1494,10 @@ function startHomeDance() {
     const c = document.createElement('canvas'); c.width = 66; c.height = 78;
     const lbl = document.createElement('span'); lbl.textContent = HERO_NAMES[hk];
     cell.appendChild(c); cell.appendChild(lbl);
-    cell.addEventListener('click', () => { sel.hero = hk; refreshHeroSel(); refreshSkinThumbs(); refreshName(); });
+    cell.addEventListener('click', () => {
+      if (!isHeroUnlocked(hk)) { toast(`נעול — ${(HERO_KEYS.indexOf(hk) * 7)} קלפים לפתיחה`); return; } // req4: locked heroes not selectable
+      sel.hero = hk; refreshHeroSel(); refreshSkinThumbs(); refreshName(); commit();
+    });
     heroesEl.appendChild(cell);
   });
 
@@ -1496,6 +1505,7 @@ function startHomeDance() {
     unlockAudio();
     const cut = myCosmetic.indexOf(':');
     sel = { hero: myCosmetic.slice(0, cut), skin: myCosmetic.slice(cut + 1) };
+    if (!isHeroUnlocked(sel.hero)) sel.hero = HERO_KEYS[unlockedHeroCount() - 1]; // clamp to best unlocked
     refreshTierSel(); refreshHeroSel(); refreshSkinThumbs(); refreshName();
     overlay.classList.remove('hidden');
     if (!previewRAF) {
@@ -1511,17 +1521,16 @@ function startHomeDance() {
     }
   }
   function close() { overlay.classList.add('hidden'); if (previewRAF) { cancelAnimationFrame(previewRAF); previewRAF = null; } }
-  function saveAndClose() {
+  // req2: no save button — every hero/costume tap auto-saves. Last pressed is the one kept.
+  function commit() {
     myCosmetic = normalizeCosmetic(`${sel.hero}:${sel.skin}`);
     saveCosmetic(myCosmetic);
     sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
     restartHomeRoutine();                       // fresh dance routine on every hero/costume change
-    close();
   }
 
   btnOpen.addEventListener('click', open);
-  document.getElementById('pick-save').addEventListener('click', saveAndClose);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }); // #15: outside-click closes (no ✕)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }); // outside-click closes (no ✕, no save)
 })();
 
 // The user/home screen is shown first (no title gate): render identity + card
@@ -1627,7 +1636,7 @@ document.addEventListener('click', (e) => {
 }, true);
 
 // Home actions.
-document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch' }); });
+document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }); });
 document.getElementById('friends-btn').addEventListener('click', () => {
   unlockAudio(); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';
@@ -1637,7 +1646,7 @@ document.getElementById('friends-btn').addEventListener('click', () => {
 document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); document.getElementById('train-choose')?.classList.remove('hidden'); });
 document.getElementById('tc-cancel')?.addEventListener('click', () => document.getElementById('train-choose')?.classList.add('hidden'));
 document.getElementById('tc-ground')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); sendMsg({ type: 'training' }); });
-document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); syncLoadout(); sendMsg({ type: 'botGame', diffLevel }); });
+document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); syncLoadout(); sendMsg({ type: 'botGame', diffLevel: xpDiffLevel() }); });
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Pick-best loadout (restored): null loadout => effectiveLoadout() auto-fills the album's
 // top-3 into the slots; persist, re-render the home slots, and tell the server live.
@@ -2387,8 +2396,12 @@ function enterMatch(msg) {
   me = { playerId: msg.playerId, team: msg.team, char: chosenChar };
   clearRoomRequests(); hideRoomWait();   // #14: drop any host/joiner room UI as the match starts
   if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
-  // apply this player's saved difficulty LEVEL to the match room
-  if (diffLevel !== DEFAULT_LEVEL && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', diffLevel }));
+  // apply this room's bot difficulty LEVEL. vs-bots + quick-match derive it from player XP;
+  // training / private / builder keep the manual slider value. (training isn't set until below,
+  // so read msg.mode here.)
+  const xpModes = msg.mode === 'quick' || msg.mode === 'botgame';
+  const lvlToSend = xpModes ? xpDiffLevel() : diffLevel;
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', diffLevel: lvlToSend }));
   // Reset all interpolation / prediction / sound state for the fresh match.
   latest = null; snaps = []; predicted = null; rendered = null; predVel = { x: 0, y: 0 };
   previousBallOwner = null; previousResetTimer = 0;
@@ -2508,6 +2521,13 @@ function fillIntroCol(colEl, players, team) {
       if (!isBot && p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
       else av.textContent = isBot ? '🤖' : memberInitials(p.name);
       nm.textContent = isBot ? (p.name || 'בוט') : (p.id === myMemberId ? `${p.name} (אני)` : p.name);
+      // Bot level + XP badge — the server previews each bot's level (from player-XP-driven difficulty).
+      if (isBot && Number.isFinite(+p.level)) {
+        const lv = document.createElement('span'); lv.className = 'ti-lvl';
+        lv.style.cssText = 'display:block;font-size:11px;font-weight:700;opacity:.78;margin-top:1px';
+        lv.textContent = `רמה ${+p.level} · ${fmtCompact(+p.xp || 0)} XP`;
+        nm.appendChild(lv);
+      }
       introCardsFor(p).forEach((c) => cw.appendChild(introCardEl(c))); // bots included (#18)
     } else { av.textContent = '🤖'; nm.textContent = 'בוט'; }
     row.append(av, nm, cw);
@@ -3027,8 +3047,16 @@ function syncSliderUI() {
 function sendSettings() {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', settings }));
 }
+// Bot level from the player's XP — vs-bots + quick-match derive the bot difficulty from XP
+// instead of a manual picker (bots reflect the player; start at level 0, cap at 11). Same
+// window.SALTIZ_XP source of truth as the hub XP bar; DEV_LOCAL falls back to the hub's 1240.
+function xpDiffLevel() {
+  const src = window.SALTIZ_XP;
+  const xp = src && Number.isFinite(+src.xp) ? +src.xp : (DEV_LOCAL ? 1240 : 0);
+  return botLevelFromXp(xp);
+}
 // Difficulty LADDER selector — a level index (enemy + partner skill live in shared/difficulty.js).
-// Persists locally, pushed live to the authoritative server.
+// Manual slider now only drives training / private / builder; persists locally, pushed live.
 let diffLevel = (() => { try { return clampLevel(parseInt(localStorage.getItem('pikme-diff-level'), 10)); } catch { return DEFAULT_LEVEL; } })();
 const diffContainer = document.getElementById('difficulty');
 const diffBtns = [];
@@ -3065,7 +3093,8 @@ function openSettings() {
   //  - main lobby / quick match: audio only
   const inGame = !gameEl.classList.contains('hidden');
   const trainingGround = inGame && training;
-  const diffAllowed = inGame && (training || roomMode === 'private' || roomMode === 'botgame' || roomMode === 'builder');
+  // vs-bots + quick-match derive difficulty from XP (no manual picker); training/private/builder keep it.
+  const diffAllowed = inGame && (training || roomMode === 'private' || roomMode === 'builder');
   document.getElementById('setting-controls')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-mechanics')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-difficulty')?.classList.toggle('hidden', !diffAllowed);
