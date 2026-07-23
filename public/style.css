@@ -1437,7 +1437,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-cards .cf-badge { font-size: 11px; padding: 1px 6px; }
 
 /* ===================== FIELD BUILDER ===================== */
-#builder { display: flex; flex-direction: column; background: #0e1a12; color: #eaf2ec; }
+#builder { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; background: #0e1a12; color: #eaf2ec; }
 #builder.hidden { display: none; }
 .builder-top { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; gap: 8px; }
 .builder-title { font-weight: 800; font-size: 16px; }
@@ -1470,10 +1470,20 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .bhandle { position: absolute; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%;
   background: #ffd54a; border: 2px solid #7a5c00; box-shadow: 0 1px 3px rgba(0,0,0,.5); z-index: 6; touch-action: none; }
 /* Stadium frame: seat-row stands around the play area (the pitch stays the coordinate space). */
-.builder-arena { position: relative; width: 100%; max-width: 1040px; max-height: 100%; padding: 3.4%; border-radius: 16px;
-  background: repeating-linear-gradient(0deg, #1c2b35 0 7px, #24384704 7px 14px), radial-gradient(circle at 50% 50%, #2a3f4c, #182430);
-  box-shadow: inset 0 0 0 3px #395767, 0 6px 20px rgba(0,0,0,.4); }
-.builder-arena::before, .builder-arena::after { content: ''; position: absolute; top: 8%; bottom: 8%; width: 2.6%;
-  background: repeating-linear-gradient(90deg, #33505f 0 3px, transparent 3px 8px); opacity: .6; }
-.builder-arena::before { left: 0.3%; } .builder-arena::after { right: 0.3%; }
-.builder-arena .builder-pitch { max-width: 100%; }
+/* Top-down STADIUM: a seat-dot bowl (tiled dots = packed stands) with team-tinted halves;
+   the pitch covers the centre so seats show only in the surrounding stands ring. */
+.builder-arena { position: relative; height: 100%; width: auto; aspect-ratio: 2000 / 1100; max-width: 100%; margin: auto; border-radius: 22px;
+  background-color: #16232b;
+  background-image:
+    radial-gradient(circle, rgba(140,168,192,.95) 38%, transparent 43%),
+    linear-gradient(90deg, rgba(59,130,246,.20), rgba(59,130,246,0) 42%, rgba(239,68,68,0) 58%, rgba(239,68,68,.20));
+  background-size: 2.5% 4.3%, 100% 100%;
+  box-shadow: inset 0 0 0 4px #2c4553, inset 0 0 70px rgba(0,0,0,.6), 0 8px 28px rgba(0,0,0,.45); }
+/* Pitch inset inside the arena so the seat-dot stands wrap it on all sides. */
+.builder-arena .builder-pitch { position: absolute; inset: 8% 5%; width: auto; max-width: none; max-height: none; aspect-ratio: auto; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22); }
+/* Pitch markings (top-down): centre circle + halfway + penalty boxes + netted goals. */
+.bp-circle { position: absolute; left: 50%; top: 50%; width: 17%; aspect-ratio: 1; transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,.4); border-radius: 50%; pointer-events: none; }
+.bp-box { position: absolute; top: 50%; transform: translateY(-50%); height: 56%; width: 16%; border: 2px solid rgba(255,255,255,.4); pointer-events: none; }
+.bp-box-l { left: 0; border-left: none; } .bp-box-r { right: 0; border-right: none; }
+.bp-goal { background: rgba(255,255,255,.18); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55);
+  background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.4) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, rgba(255,255,255,.4) 0 1px, transparent 1px 5px); }
