@@ -1425,10 +1425,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .cards-tier-name { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; letter-spacing: .3px; }
 .cards-tier-count { font: 800 11px "Arial Black", sans-serif; color: #8aa08c; }
-.cards-tier-head.rarity-legendary { border-color: #ffb800; } .cards-tier-head.rarity-legendary .cards-tier-name { color: #ffd873; }
+.cards-tier-head.rarity-legendary { border-color: #ffd23f; } .cards-tier-head.rarity-legendary .cards-tier-name { color: #ffe58a; }
 .cards-tier-head.rarity-epic { border-color: #b46bff; } .cards-tier-head.rarity-epic .cards-tier-name { color: #d9b6ff; }
 .cards-tier-head.rarity-rare { border-color: #4ea0ff; } .cards-tier-head.rarity-rare .cards-tier-name { color: #a9d2ff; }
-.cards-tier-head.rarity-common { border-color: #9ab0c5; } .cards-tier-head.rarity-common .cards-tier-name { color: #cdd8e2; }
+.cards-tier-head.rarity-common { border-color: #ff5a4d; } .cards-tier-head.rarity-common .cards-tier-name { color: #ffb3ab; }
 /* Overlapping "cards spread on a table" fan (one horizontal strip per tier). */
 .cards-deck.cards-deck-fan { display: block; }
 /* Each tier is enclosed in its OWN rarity-bordered box so its cards can never read as
@@ -1439,10 +1439,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 /* Each tier "sleeve" is an OPAQUE box in its own rarity colour (border all round, thick left
    accent) so the tier reads at a glance and the cards sit on a solid backing. */
-.cards-tier.rarity-legendary { border-color: #ffb800; background: #453611; }
+.cards-tier.rarity-legendary { border-color: #ffd23f; background: #453d11; }
 .cards-tier.rarity-epic      { border-color: #b46bff; background: #2c1c47; }
 .cards-tier.rarity-rare      { border-color: #4ea0ff; background: #132c49; }
-.cards-tier.rarity-common    { border-color: #9ab0c5; background: #272f37; }
+.cards-tier.rarity-common    { border-color: #ff5a4d; background: #3a1f1d; }
 .cards-fan {
   position: relative; width: 100%; max-width: 520px;
   overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
@@ -1465,10 +1465,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .fan-card.peek { transform: translateY(-4px) scale(1.12); z-index: 900; box-shadow: 0 10px 22px rgba(0,0,0,.6); }
 .fan-card.revealed { transform: translateY(-2px) scale(1.16); z-index: 999 !important; box-shadow: 0 12px 26px rgba(0,0,0,.65); touch-action: none; }
 .fan-card.equipped { outline: 3px solid var(--gold); outline-offset: -3px; }
-.fan-card.rarity-legendary { border-color: #ffb800; }
+.fan-card.rarity-legendary { border-color: #ffd23f; }
 .fan-card.rarity-epic { border-color: #b46bff; }
 .fan-card.rarity-rare { border-color: #4ea0ff; }
-.fan-card.rarity-common { border-color: #9ab0c5; }
+.fan-card.rarity-common { border-color: #ff5a4d; }
 .fan-card .cf-badge { position: absolute; bottom: 3px; left: 3px; z-index: 2; font: 900 10px "Arial Black", sans-serif; color: #fff; background: rgba(0,0,0,.7); padding: 1px 5px; border-radius: 6px; }
 .fan-card-tag { position: absolute; top: 3px; right: 3px; z-index: 3; font: 900 9px "Arial Black", sans-serif; color: #fff; background: rgba(0,0,0,.6); padding: 1px 4px; border-radius: 5px; opacity: 0; transition: opacity .12s; }
 .fan-card.revealed .fan-card-tag { opacity: 1; }
@@ -1692,7 +1692,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* Power-slot page: album (all tiers) on the LEFT, equipped slots on the RIGHT (RTL: first=right). */
 #cards .cards-split { flex-direction: row; gap: 10px; align-items: stretch; overflow: hidden; min-height: 0; }
-#cards .cards-right { flex: 0 0 auto; width: 30%; max-width: 240px; min-width: 148px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+#cards .cards-right { flex: 0 0 auto; width: 34%; max-width: 168px; min-width: 120px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+#cards .cards-right .pslot { width: 100%; }
+#cards .cards-tier { max-width: none; }   /* fill the wider left column — no 528px cap inside the split */
 #cards .cards-right .cards-slots { display: flex; flex-direction: column; gap: 8px; }
 #cards .cards-left { flex: 1 1 auto; min-width: 0; overflow-y: auto; overflow-x: hidden; }
 #cards .cards-left .cards-deck { display: flex; flex-direction: column; gap: 8px; }
