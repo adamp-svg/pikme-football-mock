@@ -74,3 +74,11 @@ Design (built on existing room/lobby infra):
       `FOOTBALL_TOKEN_SECRET=testsecret node test-party.mjs`.
 - Behaviour: 👥 friends button still opens the tabbed friends screen (code create/join fallback);
   «שחק עם חברים» now goes straight to the party lobby.
+
+## Request 4 + 5 (2026-07-23): split friends vs play-with-friends
+- (4) 👥 friends screen is now FRIENDS-ONLY (look/add/remove). Removed create-room + join-by-code
+  controls from #friends (index.html) and their handlers (client.js). Room errors now toast.
+- (5) «שחק עם חברים» opens a start sheet (#party-start): «צור משחק והזמן חברים» (create → lobby:
+  invite online friends + pick game) OR join-by-code (moved here from the friends screen). The host's
+  room code shows in the lobby («שתפו עם חברים») so outsiders can join via code (host-approval flow).
+- test-party.mjs extended: now also verifies the code-join path (pending→host approve→joined). 11/11 PASS.

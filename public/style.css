@@ -494,6 +494,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
 .game-select-head { display: flex; align-items: center; justify-content: space-between; }
 .game-select-head h2 { margin: 0; color: #fff; font: 900 18px "Arial Black", sans-serif; }
+.ps-or { display: flex; align-items: center; gap: 10px; color: #8aa08c; font-size: 12px; margin: 2px 0; }
+.ps-or::before, .ps-or::after { content: ""; flex: 1; height: 1px; background: #2c3830; }
 .friend-input { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #333; background: #1b1b1f; color: #fff; text-align: right; }
 .friend-list { display: flex; flex-direction: column; gap: 6px; }
 .friend-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #17171b; border-radius: 10px; }

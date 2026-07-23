@@ -240,15 +240,7 @@
         </div>
       </div>
 
-      <!-- Play-with-friends: private room create / join (unchanged mechanic). -->
-      <div class="fr-room">
-        <button id="create-room-btn" class="play compact-room"><span>צור חדר משחק</span><b>›</b></button>
-        <div class="join-row">
-          <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
-          <button id="join-room-btn" class="play join-btn">הצטרף</button>
-        </div>
-        <p id="room-error" class="room-error hidden"></p>
-      </div>
+      <!-- Friends-only screen: look / add / remove. Room creation lives in «שחק עם חברים». -->
       <button id="friends-back" class="play ghost small">‹ חזרה</button>
     </div>
   </div>
@@ -299,6 +291,23 @@
       <div class="room-wait-title">ממתין לאישור המארח…</div>
       <div class="room-wait-sub">הבקשה נשלחה · קוד חדר <b class="room-wait-code">···</b></div>
       <button id="room-wait-cancel" class="play ghost small">ביטול</button>
+    </div>
+  </div>
+
+  <!-- Party flow: start sheet (tap «שחק עם חברים»). Create a party (then invite friends +
+       pick a game in the lobby), OR join a friend's existing room by its shared code. -->
+  <div id="party-start" class="game-select hidden" dir="rtl">
+    <div class="game-select-card">
+      <div class="game-select-head">
+        <h2>שחק עם חברים</h2>
+        <button id="party-start-close" class="subpage-back" aria-label="סגור">›</button>
+      </div>
+      <button id="party-create-btn" class="play"><span>צור משחק והזמן חברים</span><b>›</b></button>
+      <div class="ps-or"><span>או הצטרף לחדר של חבר</span></div>
+      <div class="join-row">
+        <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
+        <button id="join-room-btn" class="play join-btn">הצטרף</button>
+      </div>
     </div>
   </div>
 

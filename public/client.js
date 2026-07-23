@@ -586,8 +586,6 @@ function showScreen(name) {
 const homeOnlineEl = document.getElementById('home-online');
 const homeFaceEl = document.getElementById('home-face');
 const homeNameEl = document.getElementById('home-name');
-const joinCodeEl = document.getElementById('join-code');
-const roomErrorEl = document.getElementById('room-error');
 // Lobby refs.
 const lobbyOnlineEl = document.getElementById('lobby-online');
 const lobbyTitleEl = document.getElementById('lobby-title');
@@ -688,7 +686,7 @@ function preloadCards(cards) { for (const c of (cards || [])) cardImage(c.r, c.n
 const specialIcon = () => '💣'; // special is Bomb
 function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
 function sendMsg(o) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(o)); }
-function showRoomError(msg) { roomErrorEl.textContent = msg; roomErrorEl.classList.remove('hidden'); }
+function showRoomError(msg) { toast(msg); } // room controls left the friends screen — errors now toast
 // Global toast: a top-level #fp-toast element (outside every .screen), so it's visible
 // regardless of which screen (home/lobby/game/friends) the user is on when it fires.
 const fpToastEl = document.getElementById('fp-toast');
@@ -1421,7 +1419,7 @@ document.addEventListener('click', (e) => {
 // Home actions.
 document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch' }); });
 document.getElementById('friends-btn').addEventListener('click', () => {
-  unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends');
+  unlockAudio(); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';
   renderSearch([]); setFriendsTab('list');
   loadFriends(); // #3: refresh on open (also self-heals a failed initial load / WS reconnect)
@@ -1444,19 +1442,11 @@ document.getElementById('select-best-btn')?.addEventListener('click', () => {
 // lobby, which shows the "invite online friends" panel. The old code create/join flow
 // stays available on the 👥 friends screen as a fallback.
 document.getElementById('play-friends-btn')?.addEventListener('click', () => {
-  unlockAudio(); roomErrorEl.classList.add('hidden');
-  syncLoadout();
-  loadFriends();                    // refresh friends + presence for the invite panel
-  sendMsg({ type: 'createRoom' });  // server -> roomJoined{host:true} -> lobby
-});
-// Friends actions.
-document.getElementById('create-room-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'createRoom' }); });
-document.getElementById('join-room-btn').addEventListener('click', () => {
   unlockAudio();
-  const code = (joinCodeEl.value || '').trim().toUpperCase();
-  if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
-  sendMsg({ type: 'joinRoom', code });
+  openPartyStart();                 // choose: create a party, or join a friend's room by code
 });
+// Friends screen is friends-only (look / add / remove). Room create/join moved to the
+// «שחק עם חברים» party flow, so the create-room + join-by-code controls were removed.
 document.getElementById('friends-back').addEventListener('click', () => showScreen('home'));
 
 // Friends redesign: segmented tabs (list · requests · add). Panes keep the original ids so
@@ -1716,6 +1706,28 @@ function showPartyInvite(code, fromName) {
   if (!confirm(`${fromName} מזמין אותך לקבוצה. להצטרף?`)) { sendMsg({ type: 'partyRespond', code, accept: false }); return; }
   sendMsg({ type: 'partyRespond', code, accept: true });
 }
+// Party start sheet: create a party (invite friends + pick a game in the lobby) OR join a
+// friend's existing room by its shared 3-digit code.
+const partyStartEl = document.getElementById('party-start');
+const joinCodeEl = document.getElementById('join-code');
+function openPartyStart() { if (joinCodeEl) joinCodeEl.value = ''; if (partyStartEl) partyStartEl.classList.remove('hidden'); }
+function closePartyStart() { if (partyStartEl) partyStartEl.classList.add('hidden'); }
+document.getElementById('party-start-close')?.addEventListener('click', closePartyStart);
+partyStartEl?.addEventListener('click', (e) => { if (e.target === partyStartEl) closePartyStart(); });
+document.getElementById('party-create-btn')?.addEventListener('click', () => {
+  unlockAudio(); syncLoadout();
+  loadFriends();                    // refresh friends + presence for the invite panel
+  closePartyStart();
+  sendMsg({ type: 'createRoom' });  // server -> roomJoined{host:true} -> lobby (invite + pick game)
+});
+document.getElementById('join-room-btn')?.addEventListener('click', () => {
+  unlockAudio();
+  const code = (joinCodeEl?.value || '').trim().toUpperCase();
+  if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
+  closePartyStart();
+  sendMsg({ type: 'joinRoom', code });
+});
+
 // Game picker overlay (host taps "בחר משחק"). Only 2v2 is live; picking it starts the match.
 const gameSelectEl = document.getElementById('game-select');
 function openGameSelect() { if (gameSelectEl) gameSelectEl.classList.remove('hidden'); }
@@ -1803,7 +1815,7 @@ function connect(name, avatar) {
     } else if (msg.type === 'roomError') {
       quickVs = false; hideVs(); hideRoomWait();
       showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
-      showScreen('friends');
+      showScreen('home'); // create/join failed → land on the hub (room controls left the friends screen)
     } else if (msg.type === ROOM_MSG.PENDING) {          // #14 joiner: waiting for host approval
       roomCode = msg.code || roomCode;
       showRoomWait(msg.code);

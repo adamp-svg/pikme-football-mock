@@ -88,6 +88,25 @@ try {
   const err = await C.wait('partyError', 3000).catch(() => null);
   ok(err && /הזמנה|התחיל|מלא/.test(err.msg || ''), `uninvited join rejected (${err ? err.msg : 'no error?'})`);
   C.ws.close();
+
+  // Code-join path: a NON-friend can still join by the shared room code (host-approval flow).
+  const D = client('userD', 'Dan');
+  const E = client('userE', 'Eve');
+  await Promise.all([D.open(), E.open()]);
+  D.send({ type: 'join', authToken: tok('userD', 'Dan'), name: 'Dan', cards: [], cosmetic: null, loadout: [null, null, null] });
+  E.send({ type: 'join', authToken: tok('userE', 'Eve'), name: 'Eve', cards: [], cosmetic: null, loadout: [null, null, null] });
+  await Promise.all([D.wait('welcome'), E.wait('welcome')]);
+  D.send({ type: 'createRoom' });
+  const drj = await D.wait('roomJoined');
+  E.send({ type: 'joinRoom', code: drj.code });          // join by code (not a friend, no invite)
+  const pend = await E.wait('joinPending');
+  ok(pend.code === drj.code, `E pending on host approval for ${drj.code}`);
+  const jreq = await D.wait('joinRequest');
+  ok(jreq.name === 'Eve', 'D (host) sees the join request');
+  D.send({ type: 'joinDecision', joinerId: jreq.joinerId, accept: true });
+  const erj = await E.wait('roomJoined');
+  ok(erj.code === drj.code && erj.host === false, 'E joined by code after host approval');
+  D.ws.close(); E.ws.close();
 } catch (e) {
   console.log('✗ EXCEPTION:', e.message); failed = true;
 }
