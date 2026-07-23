@@ -1588,8 +1588,8 @@ document.getElementById('play-friends-btn')?.addEventListener('click', () => {
   openFriendSelect();               // step 1: choose friends (or join by code)
 });
 // Friends screen is friends-only (look / add / remove). Room create/join moved to the
-// «שחק עם חברים» party flow, so the create-room + join-by-code controls were removed.
-document.getElementById('friends-back').addEventListener('click', () => showScreen('home'));
+// «שחק עם חברים» party flow. The screen matches the clubs sub-page layout and has NO back
+// button — you leave by tapping the empty background (see isDismissBackdrop wiring above).
 
 // Friends redesign: segmented tabs (list · requests · add). Panes keep the original ids so
 // loadFriends()/searchFriends()/render* are untouched — this only shows/hides the panes.

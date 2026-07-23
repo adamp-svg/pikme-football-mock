@@ -429,7 +429,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .timer.urgent { color: #ff5a4d; }
 
 /* ---- Home / friends menus ---- */
-.screen#home, .screen#friends {
+.screen#home {
   background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
 }
 .home-wrap {
@@ -461,7 +461,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .play.join-btn { width: auto; padding: 12px 22px; }
 
 /* ---- Friends panel (search / requests / list + presence) ---- */
-#friends-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; width: 100%; }
+#friends-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; width: 100%; max-width: 460px; }
 
 /* Friends redesign: segmented tabs + panes. */
 .fr-tabs { display: flex; gap: 6px; width: 100%; }
@@ -919,8 +919,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-mode.quick .hub-go { display: none; }
 .hub-mode.quick:active { transform: translateY(4px); box-shadow: inset 0 -4px #b9760f, 0 4px 0 #0b0f0b, 0 6px 12px rgba(0,0,0,.5); }
 
-/* --- Sub-screens (arena / news / shop / clubs) --- */
-.screen#arena, .screen#news, .screen#shop, .screen#clubs {
+/* --- Sub-screens (arena / news / shop / clubs / rank / friends) — all share the full-bleed
+   stadium backdrop + stretched .subpage, so friends & rank match clubs' look/transparency. --- */
+.screen#arena, .screen#news, .screen#shop, .screen#clubs, .screen#rank, .screen#friends {
   background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
   align-items: stretch; justify-content: stretch;
 }

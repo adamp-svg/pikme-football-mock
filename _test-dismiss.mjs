@@ -59,7 +59,6 @@ expectClose('cards: tap subpage-body whitespace → home', () => tap(q('#cards .
 
 // --- controls keep the page open -------------------------------------------
 expectStay('arena: tap 2v2 button stays', () => tap(q('#arena-2v2-btn')));
-expectStay('arena: tap back button stays', () => tap(q('#arena .subpage-back')));
 expectStay('cards: tap deck card (.fan-card) stays', () => tap(fan));
 expectStay('cards: tap inside card (img) stays', () => tap(fanChild));
 expectStay('cards: tap power slot (.pslot-item) stays', () => tap(pslot));
@@ -75,12 +74,24 @@ expectStay('arena: tap a locked mode card stays', () => tap(q('#arena .modecard.
 // --- drag guard: down on a card, click on backdrop → must NOT close ----------
 expectStay('cards: drag from card ending on body does NOT close', () => drag(fan, q('#cards .subpage-body')));
 
-// --- friends: stadium closes, panel interior stays --------------------------
-expectClose('friends: tap screen root (stadium) → home', () => tap(screens.friends));
-expectStay('friends: tap inside panel (.home-wrap) stays', () => tap(q('#friends .home-wrap')));
+// --- friends is now a clubs-style .subpage: empty whitespace closes ----------
+expectClose('friends: tap subpage-body whitespace → home', () => tap(q('#friends .subpage-body')));
+expectClose('friends: tap subpage whitespace → home', () => tap(q('#friends .subpage')));
+expectClose('friends: tap h2 → home', () => tap(q('#friends h2')));
 expectStay('friends: tap a tab stays', () => tap(q('#friends .fr-tab')));
 expectStay('friends: tap search input stays', () => tap(q('#friend-search')));
-expectStay('friends: tap friends-back stays', () => tap(q('#friends-back')));
+
+// --- structural: rank & friends match the clubs .subpage layout, no back btns ---
+const struct = (name, cond) => check(name, cond);
+struct('friends uses .subpage (not .home-wrap)', !!q('#friends .subpage') && !document.querySelector('#friends .home-wrap'));
+struct('friends has .subpage-head h2 "חברים"', q('#friends .subpage-head h2').textContent.trim() === 'חברים');
+struct('friends #friends-panel is inside .subpage-body', !!q('#friends .subpage-body #friends-panel'));
+struct('friends has no #friends-back button', !document.querySelector('#friends-back'));
+struct('rank uses .subpage with head h2', !!q('#rank .subpage .subpage-head h2'));
+for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards'])
+  struct(id + ' has no ‹ back button', !document.querySelector('#' + id + ' .subpage-back'));
+// Only the #builder editor keeps an explicit back button (excluded from tap-to-dismiss).
+struct('only #builder keeps a back button', document.querySelectorAll('[data-home-back]').length === 1 && !!document.querySelector('#builder [data-home-back]'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
