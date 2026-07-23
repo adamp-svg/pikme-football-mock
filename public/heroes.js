@@ -10,6 +10,7 @@ import { normalizeCosmetic } from '/shared/cosmetics.js';
 
 const PI = Math.PI;
 const lerp = (a, b, t) => a + (b - a) * (t < 0 ? 0 : t > 1 ? 1 : t);
+const S = Math.sin, C = Math.cos, abs = Math.abs;   // used by the emote/dance poses below
 
 function px(ctx, x, y, w, h, col) {
   ctx.fillStyle = col;
@@ -127,6 +128,12 @@ const FINISHES = { base: {}, gold: { jersey: '#f4c752', jerseyShade: '#b8892b', 
 // ======================================================================
 export const ACTION_DUR = { kick: 0.5, shoot: 0.5, bomb: 0.42, wall: 0.6, fly: 0.85, hit: 0.6 };
 
+// Lobby-hero emotes (chosen in the Hero Dance Lab). All play 1.5× faster than authored.
+const DANCE_SPEED = 1.5;
+// The random pool the idle lobby hero cycles through (re-rolled on hero/costume change).
+// 'walk' = the existing jog. NOTE 'hype' is a library emote but intentionally NOT here.
+export const LOBBY_DANCES = ['walk', 'floss', 'orange', 'takel', 'default', 'shuffle', 'pony', 'noodle'];
+
 function idlePose(time) { const b = Math.sin(time * 2.2);
   return { bob: (b * 0.5 + 0.5) * 0.8, pt: { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-6.5, 17 + b * 0.5], Rh: [6.5, 17 - b * 0.5] } }; }
 
@@ -228,9 +235,65 @@ function headHandsPose(time) { const ph = time * 1.8;                 // concede
   return { rot: 0.09 + Math.sin(ph) * 0.03, bob: -1,
     pt: { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-3, 1 + Math.sin(ph) * 0.4], Rh: [3, 1 + Math.sin(ph) * 0.4] } }; }
 
+// ======================================================================
+//  EMOTE / DANCE poses (Hero Dance Lab). Same sprite units as everything
+//  else (feet ±2.5,27 · hands ±6.5,17 · lower y = higher). sx/sy squash &
+//  stretch about the feet. Fed `time * DANCE_SPEED` by resolvePose.
+// ======================================================================
+function flossPose(t) { const s = S(t * 7);                           // arms one way, hips the other
+  return { bob: abs(C(t * 7)) * 0.6, dx: -s * 2, rot: s * 0.02,
+    pt: { Lf: [-3, 27], Rf: [3, 27], Lh: [-6.5 + s * 4.5, 17 + s * 2], Rh: [6.5 + s * 4.5, 17 - s * 2] } }; }
+function orangePose(t) { const a = t * 8, b = t * 5.3, c = t * 11;    // quirky freestyle flail
+  return { bob: abs(S(a)) * 0.9, rot: S(b) * 0.06, dx: S(b * 0.7) * 1.5,
+    pt: { Lf: [-2.5 + S(a) * 1.5, 27 - Math.max(0, S(a)) * 1.5], Rf: [2.5 + C(a) * 1.5, 27 - Math.max(0, -S(a)) * 1.5],
+      Lh: [-7 + S(c) * 3, 14 + C(a) * 4], Rh: [7 + C(c) * 3, 14 + S(a * 1.3) * 4] } }; }
+function takeLPose(t) { const sw = S(t * 3.2), kick = Math.max(0, sw); // skating kick + L on forehead
+  return { rot: sw * 0.14, bob: abs(C(t * 3.2)) * 1.2, dx: sw * 2.5,
+    pt: { Lf: [-3, 27], Rf: [3 + kick * 5, 27 - kick * 4], Lh: [-3, 1], Rh: [5, 15] } }; }
+function defaultDancePose(t) { const pump = S(t * 6);                 // the OG default — arm pump + sway
+  return { bob: abs(C(t * 3)) * 0.7, dx: S(t * 3) * 1.8, rot: S(t * 3) * 0.04,
+    pt: { Lf: [-3, 27], Rf: [3, 27], Lh: [-4, 3 + pump], Rh: [5 + Math.max(0, pump) * 3, 13 - Math.max(0, pump) * 2] } }; }
+function electroPose(t) { const f = t * 7, s = S(f);                  // Electro Shuffle running-man
+  return { bob: abs(C(f)) * 0.8, rot: s * 0.03,
+    pt: { Lf: [-3 + (s > 0 ? s * 3 : 0), 27 - Math.max(0, s) * 4], Rf: [3 + (s < 0 ? -s * 3 : 0), 27 - Math.max(0, -s) * 4],
+      Lk: [Math.max(0, s) * 2, -1], Rk: [Math.max(0, -s) * 2, -1], Lh: [-7, 15 + s * 3], Rh: [7, 15 - s * 3] } }; }
+function ponyPose(t) { const bounce = abs(S(t * 6)), lasso = t * 9;   // Ride the Pony gallop + lasso
+  return { bob: bounce * 1.6, dx: S(t * 3) * 2, rot: S(t * 3) * 0.05,
+    pt: { Lf: [-3, 27 - bounce * 1.5], Rf: [3, 27 - bounce * 1.5], Lk: [0, -2], Rk: [0, -2],
+      Lh: [-5, 15], Rh: [6 + C(lasso) * 3, 2 + S(lasso) * 3] } }; }
+function hypePose(t) { const u = (t % 1.1) / 1.1; let dy = 0, sy = 1, bob = 0, hy = 17;  // crouch → jump + fist pumps
+  if (u < 0.35) { const p = u / 0.35; sy = 1 - 0.18 * p; bob = -2 * p; hy = 15; }
+  else if (u < 0.62) { const p = (u - 0.35) / 0.27; dy = -9 * S(p * PI); sy = 1 + 0.12 * S(p * PI); hy = 2; }
+  else { const p = (u - 0.62) / 0.38; sy = 1 - 0.12 * (1 - p); hy = 17; }
+  return { dy, sy, bob, shScale: 1 + dy / 9 * 0.6, pt: { Lf: [-3, 27], Rf: [3, 27], Lh: [-4, hy], Rh: [4, hy] } }; }
+function cheerPose(t) { const j = S(t * 22) * 0.8;                    // both hands up, shaking
+  return { bob: abs(S(t * 4)) * 1.0, pt: { Lf: [-3, 27], Rf: [3, 27], Lh: [-4 + j, 1], Rh: [4 + j, 1] } }; }
+function wavePose(t) { const w = S(t * 7);                            // friendly one-hand wave
+  return { bob: abs(C(t * 3)) * 0.3, rot: 0.02, pt: { Lf: [-3, 27], Rf: [3, 27], Lh: [-6.5, 17], Rh: [7 + w * 1.2, 2] } }; }
+function jugglePose(t) { const f = t * 5, s = S(f), lk = Math.max(0, s), rk = Math.max(0, -s);  // keepy-uppy knees
+  return { bob: abs(C(f)) * 1.0,
+    pt: { Lf: [-3, 27 - lk * 8], Rf: [3, 27 - rk * 8], Lk: [lk * 3, -2], Rk: [rk * 3, -2], Lh: [-8, 16], Rh: [8, 16] } }; }
+function siuPose(t) { const u = (t % 1.5) / 1.5;                      // leap → land, arms spread (SIUUU)
+  let dy = 0, sy = 1, bob = 0, lf = [-2.5, 27], rf = [2.5, 27], lh = [-6.5, 17], rh = [6.5, 17];
+  if (u < 0.3) { const p = u / 0.3; bob = -1.5 * p; sy = 1 - 0.1 * p; }
+  else if (u < 0.55) { const p = (u - 0.3) / 0.25; dy = -9 * S(p * PI); sy = 1.1; lh = [-8, 15]; rh = [8, 15]; }
+  else if (u < 0.72) { const p = (u - 0.55) / 0.17; sy = 1 - 0.14 * S(p * PI); lf = [-5, 27]; rf = [5, 27]; lh = [-10, 20]; rh = [10, 20]; }
+  else { const p = (u - 0.72) / 0.28; sy = lerp(0.86, 1, p); lf = [lerp(-5, -2.5, p), 27]; rf = [lerp(5, 2.5, p), 27]; lh = [lerp(-10, -6.5, p), lerp(20, 17, p)]; rh = [lerp(10, 6.5, p), lerp(20, 17, p)]; }
+  return { dy, sy, bob, shScale: 1 + dy / 9 * 0.6, pt: { Lf: lf, Rf: rf, Lh: lh, Rh: rh } }; }
+function slidePose(t) { const u = (t % 1.6) / 1.6;                    // run-up → knee slide to the crowd
+  let dx = 0, rot = 0, bob = 0, lf = [-2.5, 27], rf = [2.5, 27], lh = [-8, 10], rh = [8, 10];
+  if (u < 0.2) { const p = u / 0.2; dx = lerp(-3, 0, p); bob = abs(S(t * 8)); }
+  else if (u < 0.6) { dx = lerp(0, 6, (u - 0.2) / 0.4); rot = -0.12; lf = [-1, 27]; rf = [5, 29]; lh = [-9, 6]; rh = [9, 6]; bob = -1; }
+  else { const p = (u - 0.6) / 0.4; dx = lerp(6, -3, p); rot = lerp(-0.12, 0, p); lf = [lerp(-1, -2.5, p), 27]; rf = [lerp(5, 2.5, p), 27]; lh = [lerp(-9, -8, p), lerp(6, 10, p)]; rh = [lerp(9, 8, p), lerp(6, 10, p)]; }
+  return { dx, rot, bob, pt: { Lf: lf, Rf: rf, Lh: lh, Rh: rh } }; }
+function noodlePose(t) { const a = t * 6, b = t * 6 + 2;              // boneless rubber-arm flail
+  return { bob: abs(S(t * 3)) * 0.8, rot: S(t * 4) * 0.08,
+    pt: { Lf: [-3 + S(a), 27], Rf: [3 + S(b), 27], Lk: [S(a) * 2, -1], Rk: [S(b) * 2, -1],
+      Lh: [-7 + S(a) * 4, 13 + C(a * 1.3) * 7], Rh: [7 + S(b) * 4, 13 + C(b * 1.1) * 7] } }; }
+
 const REST = { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-6.5, 17], Rh: [6.5, 17] };
 function resolvePose(anim, walkPhase, moving, time, dir) {
-  const base = { pt: REST, bob: 0, rot: 0, dx: 0, dy: 0, flip: 1, facing: 'front', exSign: dir >= 0 ? 1 : -1, swing: 0, shScale: 1 };
+  const base = { pt: REST, bob: 0, rot: 0, dx: 0, dy: 0, flip: 1, facing: 'front', exSign: dir >= 0 ? 1 : -1, swing: 0, shScale: 1, sx: 1, sy: 1 };
   if (!anim) return { ...base, ...(moving > 0.12 ? runScurry(walkPhase, moving) : idlePose(time)) };
   const a = anim, u = a.u || 0, aimFlip = (a.aimSign < 0) ? -1 : 1;
   switch (a.action) {
@@ -245,6 +308,20 @@ function resolvePose(anim, walkPhase, moving, time, dir) {
     case 'hit': return { ...base, ...hitPose(u, a.force || 0, a.dir || [-1, 0]) };
     case 'celebrate': return { ...base, ...shufflePose(time) };
     case 'concede': return { ...base, ...headHandsPose(time) };
+    // ---- lobby-hero emotes (Hero Dance Lab), authored 1× → played DANCE_SPEED× ----
+    case 'floss': return { ...base, ...flossPose(time * DANCE_SPEED) };
+    case 'orange': return { ...base, ...orangePose(time * DANCE_SPEED) };
+    case 'takel': return { ...base, ...takeLPose(time * DANCE_SPEED) };
+    case 'default': return { ...base, ...defaultDancePose(time * DANCE_SPEED) };
+    case 'shuffle': return { ...base, ...electroPose(time * DANCE_SPEED) };
+    case 'pony': return { ...base, ...ponyPose(time * DANCE_SPEED) };
+    case 'hype': return { ...base, ...hypePose(time * DANCE_SPEED) };
+    case 'cheer': return { ...base, ...cheerPose(time * DANCE_SPEED) };
+    case 'wave': return { ...base, ...wavePose(time * DANCE_SPEED) };
+    case 'juggle': return { ...base, ...jugglePose(time * DANCE_SPEED) };
+    case 'siu': return { ...base, ...siuPose(time * DANCE_SPEED) };
+    case 'slide': return { ...base, ...slidePose(time * DANCE_SPEED) };
+    case 'noodle': return { ...base, ...noodlePose(time * DANCE_SPEED) };
   }
   return base;
 }
@@ -298,6 +375,8 @@ export function drawHero(ctx, ox, feetY, sf, dir, walkPhase, moving, firing, cos
   // body transforms: aim flip, translate (incl. hover lift), lean/tumble about the feet
   if (A.flip < 0) { ctx.translate(ox, 0); ctx.scale(-1, 1); ctx.translate(-ox, 0); }
   ctx.translate((A.dx || 0) * sf, ((A.dy || 0) - lift) * sf);
+  if ((A.sx != null && A.sx !== 1) || (A.sy != null && A.sy !== 1)) {   // squash & stretch about the feet
+    ctx.translate(ox, feetY); ctx.scale(A.sx == null ? 1 : A.sx, A.sy == null ? 1 : A.sy); ctx.translate(-ox, -feetY); }
   if (A.rot) { ctx.translate(ox, feetY); ctx.rotate(A.rot); ctx.translate(-ox, -feetY); }
 
   if (skin.glow) { ctx.shadowColor = skin.glowCol || trueK.J; ctx.shadowBlur = sf * 2.2; }

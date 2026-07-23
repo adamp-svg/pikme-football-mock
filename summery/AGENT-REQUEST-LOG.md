@@ -33,3 +33,13 @@ Protocol: localhost only · commit everything · lock task via agent-orchestrati
 3. Add a `case` in `resolvePose` (heroes.js:232) OR drive it from the home-dance loop in `client.js:1232-1260` (`renderHomeCharacter`) by passing an `anim:{action:'<key>'}` / calling the pose directly.
 4. Home hero canvas = `#home-char` in `#pick-hero-btn` (index.html:63-64).
 **Not touched:** heroes.js / client.js / index.html (no game-code edits until user picks).
+
+## Request 3 — 2026-07-23
+**User pick / verdict on the 20:** Fortnite = all good · Brawl = drop all · Roblox = keep only Cheer + Wave · Football = all good · Style = keep only Noodle Wobble. → "add them to the game anime, all speed ×1.5". Main lobby hero: keep current walking + all Fortnite EXCEPT hype + noodle, start random & re-roll after each costume/hero change. Wardrobe (hero-change page): walking only.
+**Locks:** public/heroes.js, public/client.js, lobby-hero-dance-animation (agent dance-hero).
+**Implemented:**
+- `public/heroes.js`: added `S/C/abs` aliases; `DANCE_SPEED=1.5`; exported `LOBBY_DANCES=['walk','floss','orange','takel','default','shuffle','pony','noodle']`; 13 pose fns (flossPose, orangePose, takeLPose, defaultDancePose, electroPose['shuffle'], ponyPose, hypePose, cheerPose, wavePose, jugglePose, siuPose, slidePose, noodlePose); 13 `resolvePose` cases (fed `time*DANCE_SPEED`); `sx/sy` squash-&-stretch scale-about-feet in `drawHero` + `sx:1,sy:1` in resolvePose base. (Brawl bounce/victory/taunt/stomp, roblox dance/disco, robot = intentionally NOT added.)
+- `public/client.js`: import `LOBBY_DANCES`; module-scope `homeDanceAction` + `rerollHomeDance()` (random on load); `drawDancer` branches walk (moving .7) vs emote (`anim:{action}`); `saveAndClose()` calls `rerollHomeDance()`. Wardrobe preview (client.js ~1348 loop) + thumbnails UNCHANGED = walk/static only.
+**Library emotes added but NOT in lobby pool:** hype, cheer, wave, juggle, siu, slide (available via `anim:{action}` anywhere, e.g. match celebrations).
+**Verified:** node --check both modules; headless drive of REAL drawHero across walk+all 13 (5614 draws, 0 non-finite); sx/sy engaged for hype/siu; unknown action → base; server serves /,/client.js,/heroes.js = 200 with exports wired.
+**Status:** DONE — committed. Locks to release.

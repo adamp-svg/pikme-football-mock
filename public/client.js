@@ -10,7 +10,7 @@ import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
-import { drawHero, ACTION_DUR } from '/heroes.js';
+import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import {
   HERO_KEYS, HERO_NAMES, SIGNATURE_NAMES, SKIN_KEYS, SKIN_NAMES, SKIN_RARITY,
   DEFAULT_COSMETIC, normalizeCosmetic,
@@ -1233,15 +1233,24 @@ function renderMatchPowers() {
 const homeCharCanvas = document.getElementById('home-char');
 const homeCharCtx = homeCharCanvas ? homeCharCanvas.getContext('2d') : null;
 let homeDanceRAF = null;
-// Home preview: the player's chosen hero+skin, jogging gently in place. Uses the
+// The idle lobby hero cycles a RANDOM emote from LOBBY_DANCES ('walk' = the original
+// jog). It's re-rolled on every hero/costume change (see saveAndClose), so the hero
+// picks a fresh move each time you re-dress them. The wardrobe preview stays walk-only.
+let homeDanceAction = 'walk';
+function rerollHomeDance() { homeDanceAction = LOBBY_DANCES[Math.floor(Math.random() * LOBBY_DANCES.length)]; }
+rerollHomeDance();                             // random on first load
+// Home preview: the player's chosen hero+skin performing the current emote. Uses the
 // same drawHero() renderer as the pitch, so what you pick is exactly what you get.
 function drawDancer(g, W, H, t) {
   g.clearRect(0, 0, W, H);
   g.imageSmoothingEnabled = false;
   const sf = H / 46, ox = W / 2, feetY = H - sf * 4;
-  const walkPhase = t * 0.008;                 // gentle in-place jog
   const dir = Math.sin(t * 0.0009);            // slow look left/right
-  drawHero(g, ox, feetY, sf, dir, walkPhase, 0.7, false, myCosmetic, PREVIEW_KIT, t / 1000);
+  if (homeDanceAction === 'walk') {
+    drawHero(g, ox, feetY, sf, dir, t * 0.008, 0.7, false, myCosmetic, PREVIEW_KIT, t / 1000);  // gentle in-place jog
+  } else {
+    drawHero(g, ox, feetY, sf, dir, 0, 0, false, myCosmetic, PREVIEW_KIT, t / 1000, { action: homeDanceAction });
+  }
 }
 function startHomeDance() {
   if (!homeCharCtx || homeDanceRAF) return;
@@ -1346,6 +1355,7 @@ function startHomeDance() {
     myCosmetic = normalizeCosmetic(`${sel.hero}:${sel.skin}`);
     saveCosmetic(myCosmetic);
     sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
+    rerollHomeDance();                          // fresh lobby emote on every hero/costume change
     close();
   }
 
