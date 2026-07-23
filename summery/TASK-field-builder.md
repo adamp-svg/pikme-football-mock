@@ -1,7 +1,11 @@
 # TASK: Field Builder (place bush / rotatable hard wall / dry wall → play vs bots)
 
 **Owner:** opus-build78. Lock: `football-mock:task-field-builder`. Spec: `docs/superpowers/specs/2026-07-23-field-builder-design.md`.
-**Status:** PAUSED for de-confliction — another agent (friends-party) has uncommitted edits in the SAME files (server.js, index.html, client.js). User decision: **opus-game commits first, then me.** Waiting for a clean tree.
+**Status:** DONE — fully implemented + committed (engine, server, client render, UI). Awaiting visual test on :3012 + finalization push.
+
+_(historical de-confliction note below)_
+
+**(was) PAUSED for de-confliction** — another agent (friends-party) has uncommitted edits in the SAME files (server.js, index.html, client.js). User decision: **opus-game commits first, then me.** Waiting for a clean tree.
 
 ## DONE (committed 8e61c93, pushed)
 - Engine (arena.js/sim.js/constants.js): hardWall capsule (indestructible), dry wall (destructible, `DRY_WALL_HP=2`), `buildArenaFromField`, `dryWallSeeds`, `setField`, `seedFieldWalls` (reseed each kickoff), MAX_BUILT cap protects field walls.
