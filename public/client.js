@@ -1988,6 +1988,24 @@ function friendCardEl(f) {
   div.addEventListener('click', () => openFriendProfile(f)); // #5
   return div;
 }
+// Compact friend profile modal (#5): hero avatar, top power cards, division + XP/worth/owned.
+function openFriendProfile(f) {
+  const modal = document.getElementById('friend-profile-modal'); if (!modal) return;
+  const pfp = document.getElementById('fp-pfp'); pfp.innerHTML = ''; pfp.style.background = '';
+  const img = (f.image || '').toString();
+  if (/^https?:\/\//i.test(img)) { const im = document.createElement('img'); im.src = img; im.alt = ''; pfp.appendChild(im); }
+  else { pfp.textContent = memberInitials(f.nickName); if (f.color) pfp.style.background = f.color; }
+  document.getElementById('fp-online').classList.toggle('hidden', !(ONLINE.has(f.userId) || f.isBot));
+  document.getElementById('fp-name').textContent = f.nickName || '';
+  const { tier, sub } = rankTierFromLevel(f.level || 0);
+  document.getElementById('fp-div').textContent = `${tier.ic} ${tier.label} ${sub}`;
+  document.getElementById('fp-stats').textContent = ['XP ' + fmtCompact(f.xp || 0), 'שווי ' + fmtCompact(f.worth || 0), 'קלפים ' + (f.owned || 0)].join(' · ');
+  fillFriendSlots(document.getElementById('fp-slots'), f); // reuses the shared cache from B4
+  modal.classList.remove('hidden');
+}
+function closeFriendProfile() { document.getElementById('friend-profile-modal')?.classList.add('hidden'); }
+document.getElementById('fp-close')?.addEventListener('click', closeFriendProfile);
+document.getElementById('friend-profile-modal')?.addEventListener('click', (e) => { if (e.target.id === 'friend-profile-modal') closeFriendProfile(); });
 function renderFriends() {
   const el = document.getElementById('friend-list');
   if (el) {
