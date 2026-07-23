@@ -461,23 +461,25 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .play.join-btn { width: auto; padding: 12px 22px; }
 
 /* ---- Friends panel (search / requests / list + presence) ---- */
-#friends-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; width: 100%; max-width: 460px; }
+#friends-panel { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 460px; flex: 1 1 auto; min-height: 0; }
 
 /* Friends redesign: segmented tabs + panes. */
 .fr-tabs { display: flex; gap: 6px; width: 100%; }
 .fr-tab {
-  flex: 1; padding: 9px 6px; border: 1px solid #2c2c33; border-radius: 10px;
-  background: #17171b; color: #9aa0aa; font: 800 13px "Arial Black", sans-serif;
-  display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+  flex: 1; padding: 11px 6px; border: 3px solid #46543f;
+  background: rgba(19,27,22,.94); color: #c8d4bf; font: 900 13px "Arial Black", sans-serif;
+  display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  box-shadow: 0 4px 0 #070b08;
 }
-.fr-tab.active { background: #35d06a; color: #04240f; border-color: #35d06a; }
+.fr-tab.active { background: rgba(40,54,40,.98); color: #fff4ca; border-color: #7ea862; }
+.fr-tab:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
 .fr-badge {
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: #ff4d4d; color: #fff; font-size: 11px; line-height: 18px; text-align: center;
 }
 .fr-tab.active .fr-badge { background: #04240f; color: #fff; }
-.fr-pane { width: 100%; min-height: 96px; }
-.fr-pane .friend-list { max-height: 190px; overflow-y: auto; }
+.fr-pane { width: 100%; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.fr-pane .friend-list { max-height: none; }
 .fr-room { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 4px; }
 
 /* Party flow: invite-online-friends panel (in the private-room lobby). */
@@ -496,33 +498,36 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .game-select-head h2 { margin: 0; color: #fff; font: 900 18px "Arial Black", sans-serif; }
 .ps-or { display: flex; align-items: center; gap: 10px; color: #8aa08c; font-size: 12px; margin: 2px 0; }
 .ps-or::before, .ps-or::after { content: ""; flex: 1; height: 1px; background: #2c3830; }
-.friend-input { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #333; background: #1b1b1f; color: #fff; text-align: right; }
-.friend-list { display: flex; flex-direction: column; gap: 6px; }
-.friend-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #17171b; border-radius: 10px; }
+.friend-input { width: 100%; padding: 12px; border: 3px solid #46543f; background: rgba(11,16,12,.72); color: #fff4ca; text-align: right; font: 800 14px "Arial Black", sans-serif; box-shadow: 0 4px 0 #070b08; }
+.friend-input:focus { outline: none; border-color: #7ea862; }
+.friend-list { display: flex; flex-direction: column; gap: 10px; }
+.friend-row { display: flex; direction: rtl; align-items: center; gap: 12px; padding: 12px; background: rgba(19,27,22,.94); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08; }
 .friend-dot { width: 9px; height: 9px; border-radius: 50%; background: #555; flex: 0 0 auto; }
 .friend-row.online .friend-dot { background: #35d06a; box-shadow: 0 0 6px #35d06a; }
 .friend-pfp { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: #333; }
-.friend-name { flex: 1; text-align: right; color: #fff; }
-.friend-act { padding: 6px 12px; border-radius: 8px; border: 0; background: #35d06a; color: #04240f; font-weight: 700; }
-.friend-act:disabled { background: #333; color: #888; }
-.friend-act.ghost { background: transparent; border: 1px solid #444; color: #c9c9cf; }
+.friend-name { flex: 1; text-align: right; color: #fff4ca; font: 900 14px "Arial Black", sans-serif; }
+.friend-act { padding: 8px 14px; border: 0; background: #35d06a; color: #04240f; font: 900 12px "Arial Black", sans-serif; box-shadow: 0 3px 0 #1a7a3f; }
+.friend-act:active { transform: translateY(2px); box-shadow: 0 1px 0 #1a7a3f; }
+.friend-act:disabled { background: #46543f; color: #8ea08a; box-shadow: 0 3px 0 #070b08; }
+.friend-act.ghost { background: transparent; border: 3px solid #46543f; color: #c8d4bf; box-shadow: 0 3px 0 #070b08; }
 /* Built-in bot friends: subtle distinct row + a tag instead of a challenge button. */
-.friend-row.is-bot, .pi-row.is-bot { background: #14201a; }
+.friend-row.is-bot { background: rgba(20,32,26,.92); border-color: #3f5a44; }
+.pi-row.is-bot { background: #14201a; }
 .friend-bot-tag { font: 800 11px "Arial Black", sans-serif; color: #8fe0a6; background: #10241a;
   border: 1px solid #244b34; border-radius: 8px; padding: 5px 9px; white-space: nowrap; }
 
 /* Rich friend card: pfp · (name/rank/xp + top-3 cards). */
-.friend-card { display: flex; gap: 10px; align-items: center; padding: 8px; background: #17171b;
-  border: 1px solid #23232a; border-radius: 12px; }
-.friend-card.is-bot { background: #14201a; border-color: #244b34; }
+.friend-card { display: flex; direction: rtl; gap: 12px; align-items: center; padding: 12px; background: rgba(19,27,22,.94);
+  border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08; }
+.friend-card.is-bot { background: rgba(20,32,26,.92); border-color: #3f5a44; }
 .fc-pfp { width: 44px; height: 44px; border-radius: 50%; flex: 0 0 auto; background: #333; color: #fff;
   display: flex; align-items: center; justify-content: center; font: 900 15px "Arial Black", sans-serif; overflow: hidden; }
 .fc-pfp img { width: 100%; height: 100%; object-fit: cover; }
 .fc-pfp.sm { width: 34px; height: 34px; font-size: 12px; }
 .fc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .fc-top { display: flex; align-items: center; gap: 6px; }
-.fc-name { color: #fff; font: 800 14px "Arial Black", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fc-meta { color: #9fb3a4; font-size: 11px; }
+.fc-name { color: #fff4ca; font: 900 14px "Arial Black", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-meta { color: #b8caa8; font-size: 11px; font-weight: 800; }
 .fc-cards { display: flex; gap: 4px; margin-top: 2px; }
 .fc-card { width: 30px; height: 42px; border-radius: 5px; object-fit: cover; background: #0d0d10;
   border: 1.5px solid #333; image-rendering: pixelated; }
