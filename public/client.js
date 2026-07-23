@@ -1093,11 +1093,12 @@ function renderCardsPage() {
     if (!group.length) { const e = document.createElement('div'); e.className = 'cards-tier-empty'; e.textContent = 'ריק'; sec.appendChild(e); deckEl.appendChild(sec); return; }
     const fan = document.createElement('div'); fan.className = 'cards-fan';
     const track = document.createElement('div'); track.className = 'fan-track';
-    track.style.width = ((group.length - 1) * FAN_PEEK + FAN_CARD_W) + 'px';
+    track.style.width = '100%'; // shelf is a CONSTANT width; cards spread across it (see left calc)
     group.forEach((c, idx) => {
       const el = document.createElement('div');
       el.className = 'fan-card rarity-' + c.r;
-      el.style.left = (idx * FAN_PEEK) + 'px';
+      // Spread across the constant shelf: 2 cards = wide apart, ~50 = tightly overlapped.
+      el.style.left = group.length > 1 ? 'calc((100% - ' + FAN_CARD_W + 'px) * ' + idx + ' / ' + (group.length - 1) + ')' : '0px';
       el.style.zIndex = idx + 1;
       el.dataset.r = c.r; el.dataset.n = c.n;
       el.appendChild(slotCardEl(c, 'fan-card-art', FAN_CARD_W, 88));
@@ -2100,6 +2101,11 @@ document.getElementById('friend-select-close')?.addEventListener('click', cancel
 let fsDownBackdrop = false;
 friendSelectEl?.addEventListener('pointerdown', (e) => { fsDownBackdrop = isDismissBackdrop(e.target, friendSelectEl); });
 friendSelectEl?.addEventListener('click', (e) => { if (fsDownBackdrop && isDismissBackdrop(e.target, friendSelectEl)) { fsDownBackdrop = false; cancelInvite(); } });
+// Power-slots page: tap the empty background (outside the panel) to go back to the hub.
+const cardsScreenEl = document.getElementById('cards');
+let cardsDownBackdrop = false;
+cardsScreenEl?.addEventListener('pointerdown', (e) => { cardsDownBackdrop = isDismissBackdrop(e.target, cardsScreenEl); });
+cardsScreenEl?.addEventListener('click', (e) => { if (cardsDownBackdrop && isDismissBackdrop(e.target, cardsScreenEl)) { cardsDownBackdrop = false; showScreen('home'); } });
 document.getElementById('friend-select-go')?.addEventListener('click', () => {
   // Room already exists (created on open) → advance to the party ROSTER.
   unlockAudio();

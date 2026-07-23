@@ -1697,3 +1697,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 #cards .cards-left { flex: 1 1 auto; min-width: 0; overflow-y: auto; overflow-x: hidden; }
 #cards .cards-left .cards-deck { display: flex; flex-direction: column; gap: 8px; }
 .cards-tier-empty { opacity: .5; font-size: 12px; padding: 6px; text-align: center; }
+
+/* Power-slots (and subpages): back button in the header. */
+.subpage-head { display: flex; align-items: center; gap: 10px; }
+.subpage-back { border: none; background: #33413a; color: #fff; border-radius: 10px; padding: 6px 12px; font-weight: 800; font-size: 14px; flex: 0 0 auto; }
+/* Fan shelf fits its column (no horizontal scroll); cards spread via calc left. */
+#cards .cards-fan { overflow: hidden; }
+#cards .fan-track { width: 100%; }
