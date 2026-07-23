@@ -696,22 +696,34 @@ export function step(state, inputs, dt) {
         //   2 (OVERCHARGE): breaks through HARDEST
         // A keeper in their OWN box makes the SAVE — catches a weak/full kick dead; only an
         // OVERCHARGE kick still gets through them (reduced).
-        const nx = b.vx / bspeed, ny = b.vy / bspeed;
+        // SNOOKER model: the shove goes along the LINE OF CENTRES (ball -> player), so WHERE the
+        // ball strikes the player sets the deflection angle — a centred hit shoves them straight
+        // back, a glancing edge hit shoves them off to the side. The ball keeps its tangential
+        // (glancing) component and only its normal component is reflected/absorbed per tier.
+        let cnx = p.x - b.x, cny = p.y - b.y;
+        const cd = Math.hypot(cnx, cny) || 1;
+        cnx /= cd; cny /= cd;
+        const vn = b.vx * cnx + b.vy * cny;                 // speed along the line of centres (>0 = into the player)
+        const vtx = b.vx - vn * cnx, vty = b.vy - vn * cny; // tangential glance the ball keeps
         const tier = b.kickTier || 0;
         const mul = tier === 2 ? OVERCHARGE_MUL : tier === 1 ? FULL_BUMP_MUL : 1; // push: weak < full < overcharge
-        const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p);
-        p.kvx += nx * kb; p.kvy += ny * kb;
+        // Push scales with the HEAD-ON component (vn): a square hit transfers most, a glance little.
+        const kb = Math.max(0, vn) * BALL_BUMP_SCALE * mul * knockMul(p);
+        p.kvx += cnx * kb; p.kvy += cny * kb;
+        // Ball's normal component after contact (+ = keeps driving through, - = rebounds off).
+        let f;
         if (inOwnPenalty(p) && tier < 2) {
-          b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD;         // keeper catches it (a real save)
+          b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD; f = null; // keeper catches it (a real save)
         } else if (tier === 2) {
-          const roll = inOwnPenalty(p) ? KEEPER_BREAK_ROLL : OVERCHARGE_ROLL; // overcharge beats a keeper, reduced
-          b.vx *= roll; b.vy *= roll; b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
+          f = inOwnPenalty(p) ? KEEPER_BREAK_ROLL : OVERCHARGE_ROLL;   // overcharge beats a keeper, reduced
+          b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
         } else if (tier === 1) {
-          b.vx *= FULL_DRIVE_ROLL; b.vy *= FULL_DRIVE_ROLL;           // drives through with pace
+          f = FULL_DRIVE_ROLL;                                          // drives through with pace
         } else {
-          b.vx *= -KICK_BLOCK_REBOUND; b.vy *= -KICK_BLOCK_REBOUND;   // weak kick rebounds off the defender
+          f = -KICK_BLOCK_REBOUND;                                      // weak kick rebounds off the defender
           b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
         }
+        if (f != null) { b.vx = vtx + f * vn * cnx; b.vy = vty + f * vn * cny; } // glance kept, normal per tier
         b.kickTier = 0; // consumed — never re-bumps a second enemy on the same tier
         // Any kick that bumps an enemy earns overcharge: a FULL/OVERCHARGE kick fills it now,
         // a quick kick fills 1/3 (three hits). An overcharge kick's ball can't self-refill (b.overSpent).
