@@ -4643,7 +4643,9 @@ let fbResize = null; // { end: 0|1 } while dragging a wall end handle
 function fbResizeSel(wx, wy) {
   if (!fbSel || fbSel.type === 'bush') return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
   wx = fbSnap(wx); wy = fbSnap(wy);            // snap the dragged end to the cube grid
-  const fixed = fbEnds(L)[1 - fbResize.end];
+  // Use the anchor captured at drag START (not recomputed from the live wall — that drifts
+  // and collapses the wall to a dot).
+  const fixed = { x: fbResize.fx, y: fbResize.fy };
   const dx = wx - fixed.x, dy = wy - fixed.y;
   const len = Math.max(L.ht * 2, Math.hypot(dx, dy)); // clamp to a single cube minimum
   L.angle = Math.atan2(dy, dx);
@@ -4671,7 +4673,7 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); } 
   document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
   pit.addEventListener('pointerdown', (e) => {
     const hd = e.target.closest('.bhandle');
-    if (hd && fbSel && fbSel.type !== 'bush') { fbResize = { end: +hd.dataset.end }; fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} return; }
+    if (hd && fbSel && fbSel.type !== 'bush') { const end = +hd.dataset.end; const L0 = fbList(fbSel.type)[fbSel.i]; const f = fbEnds(L0)[1 - end]; fbResize = { end, fx: f.x, fy: f.y }; fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} return; }
     const el = e.target.closest('.bel');
     if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbTool = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.remove('active')); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
     else if (fbTool) { const w = fbToWorld(e.clientX, e.clientY); fbAdd(fbTool, w.x, w.y); fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} }
