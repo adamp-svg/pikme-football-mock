@@ -48,3 +48,9 @@ Protocol: localhost only · commit everything · lock task via agent-orchestrati
 **User:** Remove the Fortnite "Dance Moves" (OG default) entirely.
 **Done (heroes.js only):** dropped `'default'` from `LOBBY_DANCES`; removed `defaultDancePose` fn + its `resolvePose` case. Pool now = `['walk','floss','orange','takel','shuffle','pony','noodle']`. Verified: 0 residual refs, node --check OK.
 **Status:** DONE — committed.
+
+## Request 5 — 2026-07-23
+**User:** Lobby hero should start a dance, then after a couple seconds do a random dance move, then return to walking.
+**Done (client.js only):** replaced the static single-pick (`homeDanceAction`/`rerollHomeDance`) with a timed routine `advanceHomeRoutine(nowMs)` driven off `performance.now()`. Cycle = `[randomEmote 2.6s] → [other randomEmote 2.6s] → [walk 3.4s]`, looping with fresh randoms; 2nd emote avoids repeating the 1st. `LOBBY_EMOTES = LOBBY_DANCES − 'walk'`. Starts on a dance on load; `saveAndClose` now calls `restartHomeRoutine()` (clears queue → next frame starts fresh dance). Wardrobe preview still walk-only.
+**Verified:** node --check OK; timeline sim → `0.0 shuffle | 2.6 orange | 5.2 walk | 8.6 … (loops, fresh randoms)`, first action always a dance.
+**Status:** DONE — committed.

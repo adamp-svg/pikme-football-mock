@@ -1233,12 +1233,27 @@ function renderMatchPowers() {
 const homeCharCanvas = document.getElementById('home-char');
 const homeCharCtx = homeCharCanvas ? homeCharCanvas.getContext('2d') : null;
 let homeDanceRAF = null;
-// The idle lobby hero cycles a RANDOM emote from LOBBY_DANCES ('walk' = the original
-// jog). It's re-rolled on every hero/costume change (see saveAndClose), so the hero
-// picks a fresh move each time you re-dress them. The wardrobe preview stays walk-only.
-let homeDanceAction = 'walk';
-function rerollHomeDance() { homeDanceAction = LOBBY_DANCES[Math.floor(Math.random() * LOBBY_DANCES.length)]; }
-rerollHomeDance();                             // random on first load
+// The idle lobby hero runs a little routine: break into a random emote, then a
+// SECOND random emote a couple seconds later, then return to walking — looping
+// forever with fresh moves each cycle. It also restarts (dancing first) on any
+// hero/costume change. Emote pool = LOBBY_DANCES minus 'walk'. Wardrobe = walk only.
+const LOBBY_EMOTES = LOBBY_DANCES.filter((a) => a !== 'walk');
+const pickEmote = () => LOBBY_EMOTES[Math.floor(Math.random() * LOBBY_EMOTES.length)] || 'walk';
+const DANCE_MS = 2600, WALK_MS = 3400;         // "a couple of seconds" per emote, then a walk beat
+let homeQueue = [];                            // pending [action, durationMs] steps
+let homeCur = 'walk';                          // action playing right now
+let homeCurEnd = 0;                            // performance.now() ms when the current step ends
+function advanceHomeRoutine(nowMs) {
+  if (nowMs < homeCurEnd) return;              // current step still running
+  if (!homeQueue.length) {                     // build the next cycle: dance → other dance → walk
+    const a = pickEmote(); let b = pickEmote(), guard = 0;
+    while (b === a && LOBBY_EMOTES.length > 1 && guard++ < 8) b = pickEmote();  // avoid repeating the first
+    homeQueue = [[a, DANCE_MS], [b, DANCE_MS], ['walk', WALK_MS]];
+  }
+  const [act, dur] = homeQueue.shift();
+  homeCur = act; homeCurEnd = nowMs + dur;
+}
+function restartHomeRoutine() { homeQueue = []; homeCurEnd = 0; }   // next frame starts a fresh dance
 // Home preview: the player's chosen hero+skin performing the current emote. Uses the
 // same drawHero() renderer as the pitch, so what you pick is exactly what you get.
 function drawDancer(g, W, H, t) {
@@ -1246,10 +1261,11 @@ function drawDancer(g, W, H, t) {
   g.imageSmoothingEnabled = false;
   const sf = H / 46, ox = W / 2, feetY = H - sf * 4;
   const dir = Math.sin(t * 0.0009);            // slow look left/right
-  if (homeDanceAction === 'walk') {
+  advanceHomeRoutine(t);
+  if (homeCur === 'walk') {
     drawHero(g, ox, feetY, sf, dir, t * 0.008, 0.7, false, myCosmetic, PREVIEW_KIT, t / 1000);  // gentle in-place jog
   } else {
-    drawHero(g, ox, feetY, sf, dir, 0, 0, false, myCosmetic, PREVIEW_KIT, t / 1000, { action: homeDanceAction });
+    drawHero(g, ox, feetY, sf, dir, 0, 0, false, myCosmetic, PREVIEW_KIT, t / 1000, { action: homeCur });
   }
 }
 function startHomeDance() {
@@ -1355,7 +1371,7 @@ function startHomeDance() {
     myCosmetic = normalizeCosmetic(`${sel.hero}:${sel.skin}`);
     saveCosmetic(myCosmetic);
     sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
-    rerollHomeDance();                          // fresh lobby emote on every hero/costume change
+    restartHomeRoutine();                       // fresh dance routine on every hero/costume change
     close();
   }
 
