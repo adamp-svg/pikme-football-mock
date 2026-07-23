@@ -6,7 +6,7 @@ import {
   SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
-import { ARENA, resolveWalls, pointInBush, segBlockedByWall } from '/shared/arena.js';
+import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
@@ -1994,6 +1994,9 @@ function enterMatch(msg) {
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
   audienceReady = false; // rebuild seat assignment for this match's roster
   training = msg.mode === 'training';
+  // Field-builder match: server sends a custom arena layout — build the render/collision arena
+  // from it (hard walls + bushes). Dry walls ride the snapshot as built walls. null otherwise.
+  customArena = msg.arena ? buildArenaFromField(msg.arena) : null;
   document.getElementById('train-tag').classList.toggle('hidden', !training);
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
   renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
@@ -4051,12 +4054,27 @@ function drawBlockBox(box, pal, opts = {}) {
 }
 
 function drawWallBlock(w) {
+  if (w.angle != null && w.cx != null) return drawStoneSlab(w); // rotatable HARD wall (field builder)
   drawBlockBox(w, STONE_PAL, {
     texture: (ax, ay, aw, ah) => {           // stone courses on the top face
       ctx.fillStyle = 'rgba(0,0,0,.16)';
       for (let y = ay + Math.round(ws_(22)); y < ay + ah; y += Math.max(4, ws_(22))) ctx.fillRect(ax, Math.round(y), aw, 1);
     },
   });
+}
+// An angled INDESTRUCTIBLE hard wall — rotated stone slab (mirrors drawBuiltWall's slab,
+// stone palette, no HP/cracks). Runs inside the team-B mirror so world-space rotate is fine.
+function drawStoneSlab(w) {
+  const s = wallSlab(w), lift = Math.max(2, ws_(5));
+  ctx.save();
+  ctx.translate(s.cx, s.cy); ctx.rotate(s.angle);
+  ctx.fillStyle = 'rgba(0,0,0,.30)'; ctx.fillRect(-s.L / 2 + ws_(3), -s.T / 2 + ws_(4), s.L, s.T); // shadow
+  ctx.fillStyle = '#6b7280'; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T);                            // stone face
+  ctx.fillStyle = '#8b93a1'; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T - lift);                     // lit top
+  ctx.fillStyle = 'rgba(255,255,255,.22)'; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, Math.max(2, ws_(3))); // highlight
+  ctx.fillStyle = 'rgba(0,0,0,.18)';                                                                // stone courses
+  for (let x = -s.L / 2 + ws_(22); x < s.L / 2; x += Math.max(4, ws_(22))) ctx.fillRect(Math.round(x), -s.T / 2, 1, s.T);
+  ctx.restore();
 }
 
 // Built walls are CAPSULES with an `angle` (any orientation). Render as a rotated slab
@@ -4167,7 +4185,8 @@ function canSeePlayer(p) {
 }
 
 // Active obstacle layout: training swaps in its custom asymmetric field.
-function fieldArena() { return training ? TRAIN_ARENA : ARENA; }
+let customArena = null; // field-builder match: custom {walls,bushes} from matchStart.arena (else null)
+function fieldArena() { return customArena || (training ? TRAIN_ARENA : ARENA); }
 // Bush test against the active layout (pointInBush only knows the global one).
 function inBushAt(x, y) {
   for (const g of fieldArena().bushes) if (x > g.x && x < g.x + g.w && y > g.y && y < g.y + g.h) return true;
