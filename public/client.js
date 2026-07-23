@@ -2063,6 +2063,11 @@ function renderInvite() {
   if (!onlineEl || !pendEl || !accEl) return;
   const accepted = ((lastLobby || {}).members || []).filter((m) => m.id !== myMemberId);
   const accName = new Set(accepted.map((m) => m.name || ''));
+  // Skip rebuild when nothing changed (avoids re-loading friend avatars on every broadcast).
+  const cands = FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId));
+  const isig = cands.map((f) => (f.userId || f.nickName) + ':' + (ONLINE.has(f.userId) ? 1 : 0) + ':' + (invitedSet.has(f.userId) ? 1 : 0)).join('|') + '#' + accepted.map((m) => m.name).join(',');
+  if (isig === renderInvite._sig && onlineEl.childElementCount + pendEl.childElementCount + accEl.childElementCount) return;
+  renderInvite._sig = isig;
   onlineEl.innerHTML = ''; pendEl.innerHTML = ''; accEl.innerHTML = '';
   let nOnline = 0, nPend = 0;
   FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId)).forEach((f) => {
@@ -2200,9 +2205,16 @@ function partyBlock({ big, name, cosmetic, cards, rankText }) {
   wrap.appendChild(partyCardsRow(cards));
   return wrap;
 }
+let partyRenderSig = '';
 function renderParty(msg) {
   if (!partyRosterEl) return;
   const members = (msg || lastLobby || {}).members || [];
+  // Each block renders a hero canvas + card art (expensive). Lobby broadcasts fire often, so
+  // skip the full rebuild when the roster is unchanged (this was the friends→group lag).
+  const sig = members.map((m) => (m.id || '') + ':' + (m.name || '') + ':' + (m.isBot ? 1 : 0) + ':' + JSON.stringify(m.cosmetic || 0) + ':' + JSON.stringify(m.loadout || 0)).join('|')
+    + '#' + JSON.stringify(myCosmetic || 0) + '#' + JSON.stringify(effectiveLoadout()) + '#' + (isRoomHost ? 1 : 0) + '#' + MY_NAME;
+  if (sig === partyRenderSig && partyRosterEl.childElementCount) return; // unchanged → no rebuild
+  partyRenderSig = sig;
   const mates = members.filter((m) => m.id !== myMemberId);
   const meBlock = partyBlock({ big: true, name: MY_NAME + ' (אני)', cosmetic: myCosmetic, cards: effectiveLoadout(), rankText: myRankXpText() });
   const mateBlock = (m) => partyBlock({ big: false, name: (m.isBot ? '🤖 ' : '') + (m.name || ''), cosmetic: m.cosmetic, cards: m.loadout, rankText: mateRankText(m) });
