@@ -314,13 +314,17 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .ghost-btn { background: #0c1322; color: #9fb0d0; border: 1px solid #26324f !important; }
 
 /* Bot difficulty selector (settings panel) */
-.difficulty { display: flex; gap: 8px; margin-top: 6px; }
+/* Difficulty LADDER: a scrollable 2-column grid of levels (name + enemy/partner hint). */
+.difficulty { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; max-height: 190px; overflow-y: auto; padding: 2px; }
 .diff-btn {
-  flex: 1; padding: 11px 0; border-radius: 10px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 6px; border-radius: 10px; cursor: pointer;
   background: #0c1322; color: #9fb0d0; border: 1px solid #26324f;
-  font-size: 15px; font-weight: 800;
 }
+.diff-btn .diff-name { font-size: 14px; font-weight: 800; }
+.diff-btn .diff-hint { font-size: 10px; font-weight: 600; opacity: 0.7; }
 .diff-btn.active { background: #d99f29; color: #231706; border-color: #ffe49a; box-shadow: inset 0 -4px #8d5817; }
+.diff-btn.active .diff-hint { opacity: 0.85; }
 /* EXTREME ("קטלני" / lethal) — a red danger tint so it reads as a boss tier. */
 .diff-btn.diff-extreme { color: #ff9a8f; border-color: #6b2033; }
 .diff-btn.diff-extreme.active { background: #c8322f; color: #fff2ee; border-color: #ff8f7a; box-shadow: inset 0 -4px #7a1414; }

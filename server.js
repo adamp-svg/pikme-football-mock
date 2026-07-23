@@ -23,6 +23,7 @@ import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC } from './shared
 import { verifyFootballToken } from './shared/football-auth.js';
 const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
+import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy } from './shared/difficulty.js';
 import { PEN, CENTER, TRAIN_ARENA, penDummy, trainingDummyInput, createSentryMem, trainingSentryInput, leashSentry } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -97,6 +98,7 @@ function makeRoom(id, isPrivate, mode = 'match') {
     state: createState(),
     inputs: new Map(),       // playerId -> input
     botMem: createBotMemory(), // persistent bot-AI memory (roles, aim, beliefs)
+    diffLevel: DEFAULT_LEVEL,   // difficulty ladder index (enemy + partner skill) — see shared/difficulty.js
     botCounter: 0,
     matchCounter: 0,         // increments each match — feeds the stable per-match id
     hostId: null,            // member.id of a private room's creator/HOST — only they may accept/reject/kick
@@ -173,8 +175,12 @@ function fillBots(room, rosterOut) {
     // their movement-SPEED/power cheat; every other bot reuses its PREVIEWED loadout (or a fresh
     // RANDOM 1..human-equipped-count when no preview exists), and its buffs are DERIVED from that
     // same loadout (buffsFromLoadout) so what the intro/countdown shows == what the bot plays with.
+    // A bot gets the EXTREME fixed loadout + cheat buffs only when ITS side is at the top of the
+    // ladder: the partner scalar if this team holds a human, else the enemy scalar.
+    const teamHasHuman = Object.values(room.state.players).some((p) => !p.isBot && p.team === team);
+    const sideScalar = teamHasHuman ? levelAt(room.diffLevel).partner : levelAt(room.diffLevel).enemy;
     let loadout, buffs;
-    if (room.botDifficulty === 'extreme') {
+    if (sideScalar >= 0.95) {
       loadout = extremeBotLoadout();
       buffs = { cardShot: 1.4, speedBuff: 1.30, cardUtil: 0.65 };
     } else {
@@ -193,15 +199,28 @@ function fillBots(room, rosterOut) {
 // steering + fog-of-war stealth + skill/latency). Tests: test-bot-ai.mjs; A/B: bot-eval.mjs.
 // ---------------------------------------------------------------------------
 function updateBots(room) {
+  applyTeamSkill(room); // set per-team difficulty (enemy vs partner) before deciding inputs
   const inputs = computeBotInputs(room.state, room.botMem, DT);
   for (const id in inputs) room.inputs.set(id, inputs[id]);
+}
+// Map the room's difficulty LEVEL to a per-team skill scalar: the team(s) holding a human get
+// the PARTNER skill, the all-bot team gets the ENEMY skill. (No human on a team, e.g. pure-bot
+// or training, is treated as an enemy side.) Read live each tick by the bot AI.
+function applyTeamSkill(room) {
+  const lvl = levelAt(room.diffLevel);
+  const human = { A: false, B: false };
+  for (const p of Object.values(room.state.players)) if (!p.isBot && (p.team === 'A' || p.team === 'B')) human[p.team] = true;
+  room.botMem.teamSkill = { A: human.A ? lvl.partner : lvl.enemy, B: human.B ? lvl.partner : lvl.enemy };
 }
 
 // Training ground: drive the penned dummy from the shared, testable controller.
 function updateTrainingDummy(room) {
   const dummy = trainingDummyInput(room.state, room.dummyId);
   if (dummy) room.inputs.set(room.dummyId, dummy);
-  const sentry = trainingSentryInput(room.state, room.sentryId, room.sentryMem, DT, room.botDifficulty || 'normal');
+  // Training sentry is the "enemy": map the level's ENEMY scalar to the sentry's easy/normal/hard tier.
+  const et = levelAt(room.diffLevel).enemy;
+  const sentryTier = et < 0.18 ? 'easy' : et < 0.66 ? 'normal' : 'hard';
+  const sentry = trainingSentryInput(room.state, room.sentryId, room.sentryMem, DT, sentryTier);
   if (sentry) room.inputs.set(room.sentryId, sentry);
 }
 
@@ -400,7 +419,7 @@ function startMatch(room) {
   if (humans.length === 0) { endRoom(room); return; }
 
   room.state = createState();
-  room.botMem = createBotMemory(room.botDifficulty);
+  room.botMem = createBotMemory();
   room.inputs.clear();
   room.botCounter = 0;
 
@@ -454,7 +473,7 @@ function endRoom(room) {
   const hadHumans = [...room.members];
   if (room.isPrivate && room.members.size > 0) {
     room.phase = 'lobby'; room.countdownT = 0; room.endHoldT = 0;
-    room.state = createState(); room.botMem = createBotMemory(room.botDifficulty); room.inputs.clear(); room.botCounter = 0;
+    room.state = createState(); room.botMem = createBotMemory(); room.inputs.clear(); room.botCounter = 0;
     for (const m of room.members) { m.inMatch = false; m.afk = false; }
     for (const m of room.members) send(m.ws, { type: 'toLobby' });
     broadcastLobby(room);
@@ -803,10 +822,13 @@ function computeBotPlan(room) {
   const plan = [];
   const countT = (t) => assigned.filter((a) => a[1] === t).length + plan.filter((b) => b.team === t).length;
   const usedT = (t) => new Set([...assigned.filter((a) => a[1] === t).map((a) => a[2]), ...plan.filter((b) => b.team === t).map((b) => b.slot)]);
+  const humanT = { A: assigned.some((a) => a[1] === 'A'), B: assigned.some((a) => a[1] === 'B') };
+  const lvl = levelAt(room.diffLevel);
   while (humans.length + plan.length < MAX_PLAYERS) {
     const team = countT('A') <= countT('B') ? 'A' : 'B';
     const slot = usedT(team).has(0) ? 1 : 0;
-    const loadout = room.botDifficulty === 'extreme' ? extremeBotLoadout() : randomBotLoadout(params);
+    const sideScalar = humanT[team] ? lvl.partner : lvl.enemy; // this preview-bot's side skill
+    const loadout = sideScalar >= 0.95 ? extremeBotLoadout() : randomBotLoadout(params);
     plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: randomBotCosmetic() });
   }
   return plan;
@@ -816,7 +838,7 @@ function computeBotPlan(room) {
 function humanSignature(room) {
   const hs = [...room.members].filter((m) => !m.inMatch)
     .map((m) => `${m.id}:${m.team || ''}:${equippedCount(sanitizeLoadout(m.loadout, m.cards))}`).sort();
-  return `${room.botDifficulty}|${hs.join(',')}`;
+  return `${room.diffLevel}|${hs.join(',')}`;
 }
 function ensureBotPlan(room) {
   if (!room || room.mode === 'training' || room.phase === 'match') { room.botPlan = null; room.botPlanSig = null; return; }
@@ -976,10 +998,11 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'settings' && room) {
         if (msg.settings) applySettings(room, msg.settings);
-        if (['easy', 'normal', 'hard', 'extreme'].includes(msg.botDifficulty)) {
-          room.botDifficulty = msg.botDifficulty;
-          if (room.botMem) room.botMem.skill = msg.botDifficulty; // live — read each tick by the bot AI
-        }
+        // New: fluent difficulty LADDER — a level index that sets enemy + partner skill.
+        if (msg.diffLevel != null) room.diffLevel = clampLevel(msg.diffLevel);
+        // Legacy: a stale client may still send a string tier — bridge it to a level index.
+        else if (['easy', 'normal', 'hard', 'extreme'].includes(msg.botDifficulty)) room.diffLevel = levelFromLegacy(msg.botDifficulty);
+        if (room.botMem) applyTeamSkill(room); // apply live (also re-applied each tick)
         return;
       }
       if (msg.type === 'ping') { send(ws, { type: 'pong', t: msg.t }); return; }

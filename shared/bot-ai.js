@@ -63,8 +63,40 @@ export const BOT_SKILL = {
 };
 export const DEFAULT_SKILL = 'normal';
 
+// ---- FLUENT skill: a 0..1 scalar interpolated across the tiers above -------------------
+// t = 0 tutorial-weak, ~0.25 easy, 0.5 normal, ~0.82 hard, 1.0 extreme. Lets each SIDE of a
+// match carry its own continuous difficulty (see computeBotInputs' per-team skill), so enemy
+// and partner can be tuned independently and matched to game progression.
+const VERY_EASY = { react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9 };
+const SKILL_ANCHORS = [
+  { t: 0.00, v: VERY_EASY },
+  { t: 0.25, v: BOT_SKILL.easy },
+  { t: 0.50, v: BOT_SKILL.normal },
+  { t: 0.82, v: BOT_SKILL.hard },
+  { t: 1.00, v: BOT_SKILL.extreme },
+];
+const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'decisionHz', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul'];
+export function skillVec(t) {
+  t = Math.max(0, Math.min(1, t));
+  let a = SKILL_ANCHORS[0], b = SKILL_ANCHORS[SKILL_ANCHORS.length - 1];
+  for (let i = 0; i < SKILL_ANCHORS.length - 1; i++) { if (t >= SKILL_ANCHORS[i].t && t <= SKILL_ANCHORS[i + 1].t) { a = SKILL_ANCHORS[i]; b = SKILL_ANCHORS[i + 1]; break; } }
+  const f = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
+  const out = {};
+  for (const k of SKILL_KEYS) out[k] = a.v[k] + (b.v[k] - a.v[k]) * f;
+  if (t >= 0.95) { out.cheat = true; out.preCharge = true; out.cheatFlub = BOT_SKILL.extreme.cheatFlub; } // top of the ladder gets the cheat tier
+  return out;
+}
+// Resolve the skill vector a TEAM's bots should use. Priority: per-team numeric scalar
+// (mem.teamSkill[team]) → whole-mem numeric scalar (mem.skill) → legacy string tier.
+function memSkillVec(mem, team) {
+  if (mem.teamSkill && typeof mem.teamSkill[team] === 'number') return skillVec(mem.teamSkill[team]);
+  if (typeof mem.skill === 'number') return skillVec(mem.skill);
+  return BOT_SKILL[mem.skill] || BOT_SKILL[DEFAULT_SKILL];
+}
+
 export function createBotMemory(skill = DEFAULT_SKILL) {
-  return { skill, t: 0, teams: { A: null, B: null }, bots: {} };
+  // teamSkill (set by the server per match) overrides `skill` when present: { A: 0..1, B: 0..1 }.
+  return { skill, teamSkill: null, t: 0, teams: { A: null, B: null }, bots: {} };
 }
 
 // ---- tiny vector helpers ----
@@ -367,7 +399,7 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
 // onto the hidden player. Persisted on mem.belief[team].
 function updateBelief(state, team, mem) {
   const b = state.ball;
-  const sk = BOT_SKILL[mem.skill] || BOT_SKILL[DEFAULT_SKILL];
+  const sk = memSkillVec(mem, team);
   const bots = Object.values(state.players).filter((p) => p.team === team && p.isBot);
   let visible;
   if (b.owner) {
@@ -457,7 +489,6 @@ function predictBall(b, tau) {
 export function computeBotInputs(state, mem, dt, opts = {}) {
   mem.t += dt;
   for (const id in mem.bots) if (!state.players[id]) delete mem.bots[id]; // prune departed bots
-  const sk = BOT_SKILL[mem.skill] || BOT_SKILL[DEFAULT_SKILL];
   const out = {};
   const teams = opts.onlyTeam ? [opts.onlyTeam] : ['A', 'B'];
   for (const team of teams) assignRoles(state, team, mem, dt);
@@ -465,6 +496,7 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
   for (const team of teams) {
     const role = mem.teams[team];
     if (!role) continue;
+    const sk = memSkillVec(mem, team); // per-team difficulty (enemy vs partner may differ)
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
       // difficulty as mechanical power: harder bots charge full sooner + cool down faster

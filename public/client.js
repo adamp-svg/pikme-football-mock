@@ -8,6 +8,7 @@ import {
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
+import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { drawHero, ACTION_DUR } from '/heroes.js';
 import {
@@ -1288,7 +1289,10 @@ document.querySelectorAll('[data-home-back]').forEach((el) => {
   el.addEventListener('click', () => showScreen('home'));
 });
 // Arena "2 נגד 2" launches the same quick match as the home Quick Match button.
-document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
+// Push my live equipped loadout to the server right before entering a match, so the countdown/reveal
+// other players see (and my own server-side record) match my slots even if join raced card-loading.
+function syncLoadout() { sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); }
+document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch' }); });
 
 // Hub top-left: settings opens the shared settings/pause panel; exit asks the RN app host.
 document.getElementById('hub-settings')?.addEventListener('click', () => { unlockAudio(); openSettings(); });
@@ -1314,7 +1318,7 @@ document.addEventListener('click', (e) => {
 }, true);
 
 // Home actions.
-document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'quickMatch' }); });
+document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch' }); });
 document.getElementById('friends-btn').addEventListener('click', () => {
   unlockAudio(); roomErrorEl.classList.add('hidden'); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';
@@ -1364,6 +1368,7 @@ joinBtn.A.addEventListener('click', () => sendMsg({ type: 'setTeam', team: 'A' }
 joinBtn.B.addEventListener('click', () => sendMsg({ type: 'setTeam', team: 'B' }));
 playNowBtn.addEventListener('click', () => {
   unlockAudio();
+  syncLoadout();
   sendMsg({ type: 'ready' });
   playNowBtn.classList.add('armed');
   const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'מתחיל…';
@@ -1669,8 +1674,8 @@ function enterMatch(msg) {
   me = { playerId: msg.playerId, team: msg.team, char: chosenChar };
   clearRoomRequests(); hideRoomWait();   // #14: drop any host/joiner room UI as the match starts
   if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
-  // apply this player's saved bot-difficulty to the match room
-  if (botDifficulty && botDifficulty !== 'normal' && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', botDifficulty }));
+  // apply this player's saved difficulty LEVEL to the match room
+  if (diffLevel !== DEFAULT_LEVEL && ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', diffLevel }));
   // Reset all interpolation / prediction / sound state for the fresh match.
   latest = null; snaps = []; predicted = null; rendered = null; predVel = { x: 0, y: 0 };
   previousBallOwner = null; previousResetTimer = 0;
@@ -1764,6 +1769,10 @@ function introCardEl(c) {
 // and fall back to a human's album top-3 if no loadout came through.
 function introCardsFor(p) {
   if (!p) return [];
+  // MY row: render straight from my LIVE equipped loadout — the same source the power-slots UI uses —
+  // so the countdown always matches what's actually in my slots, even if the server echo lags a change
+  // (or the join raced card-loading and stored an empty loadout). Same source as the matchStart reveal.
+  if (p.id === myMemberId) return effectiveLoadout().filter(Boolean).map((s) => ({ r: s.r, n: +s.n }));
   if (Array.isArray(p.loadout)) return p.loadout.filter(Boolean).map((s) => ({ r: s.r, n: +s.n }));
   return rankCards(p.cards || []).slice(0, 3);
 }
@@ -2282,18 +2291,33 @@ function syncSliderUI() {
 function sendSettings() {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', settings }));
 }
-// Bot difficulty selector — persists locally, pushed live to the authoritative server.
-let botDifficulty = (() => { try { return localStorage.getItem('pikme-bot-diff') || 'normal'; } catch { return 'normal'; } })();
-const diffBtns = Array.from(document.querySelectorAll('#difficulty .diff-btn'));
-function syncDifficultyUI() { for (const b of diffBtns) b.classList.toggle('active', b.dataset.diff === botDifficulty); }
-function setDifficulty(d) {
-  botDifficulty = d;
-  try { localStorage.setItem('pikme-bot-diff', d); } catch { /* private mode */ }
+// Difficulty LADDER selector — a level index (enemy + partner skill live in shared/difficulty.js).
+// Persists locally, pushed live to the authoritative server.
+let diffLevel = (() => { try { return clampLevel(parseInt(localStorage.getItem('pikme-diff-level'), 10)); } catch { return DEFAULT_LEVEL; } })();
+const diffContainer = document.getElementById('difficulty');
+const diffBtns = [];
+if (diffContainer) {
+  diffContainer.innerHTML = '';
+  DIFFICULTY_LEVELS.forEach((lvl) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'diff-btn' + (lvl.enemy >= 0.95 ? ' diff-extreme' : '');
+    b.dataset.level = lvl.id;
+    b.innerHTML = `<span class="diff-name">${lvl.name}</span><span class="diff-hint">${lvl.hint}</span>`;
+    b.addEventListener('click', () => setDifficulty(lvl.id));
+    diffContainer.appendChild(b);
+    diffBtns.push(b);
+  });
+}
+function syncDifficultyUI() { for (const b of diffBtns) b.classList.toggle('active', +b.dataset.level === diffLevel); }
+function setDifficulty(i) {
+  diffLevel = clampLevel(i);
+  try { localStorage.setItem('pikme-diff-level', String(diffLevel)); } catch { /* private mode */ }
   syncDifficultyUI();
   playSound('ui', 0.5, 1.05);
-  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', botDifficulty: d }));
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', diffLevel }));
 }
-for (const b of diffBtns) b.addEventListener('click', () => setDifficulty(b.dataset.diff));
+syncDifficultyUI();
 
 function openSettings() {
   playSound('ui', 0.45);
