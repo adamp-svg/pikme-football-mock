@@ -1585,7 +1585,7 @@ const BOT_FRIENDS = [
     cards: [{ r: 'legendary', n: 1 }, { r: 'epic', n: 7 }, { r: 'rare', n: 22 }] },
   { userId: 'bot-friend-2', nickName: 'אורית', isBot: true, color: '#4ea0ff', level: 8, xp: 2600, rank: 11,
     cards: [{ r: 'epic', n: 3 }, { r: 'rare', n: 15 }, { r: 'common', n: 8 }] },
-  { userId: 'bot-friend-3', nickName: 'נווהת', isBot: true, color: '#b46bff', level: 15, xp: 7200, rank: 1,
+  { userId: 'bot-friend-3', nickName: 'נווה', isBot: true, color: '#b46bff', level: 15, xp: 7200, rank: 1,
     cards: [{ r: 'legendary', n: 5 }, { r: 'legendary', n: 2 }, { r: 'epic', n: 9 }] },
   { userId: 'bot-friend-4', nickName: 'פז', isBot: true, color: '#f0a934', level: 5, xp: 1200, rank: 24,
     cards: [{ r: 'rare', n: 31 }, { r: 'common', n: 3 }, { r: 'common', n: 12 }] },
