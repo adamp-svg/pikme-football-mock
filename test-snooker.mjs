@@ -26,6 +26,11 @@ function strike(dy) {
   return { kvx: e.kvx, kvy: e.kvy, bvx: b.vx, bvy: b.vy, missed: true };
 }
 
+const ang = (r) => Math.round(Math.atan2(r.kvy, r.kvx) * 180 / Math.PI); // push direction, degrees
+const mag = (r) => Math.hypot(r.kvx, r.kvy);
+const centre = strike(0);
+const CENTRE_MAG = mag(centre);
+
 // Ball ABOVE the enemy centre (smaller y): line of centres points down -> enemy driven DOWN,
 // cue ball deflects UP (the snooker 90°-ish glance).
 {
@@ -33,16 +38,20 @@ function strike(dy) {
   ok(!r.missed, 'above-centre hit connected');
   ok(r.kvy > 5, `enemy shoved DOWN when hit from above (kvy=${r.kvy.toFixed(0)})`);
   ok(r.kvx > 5, `enemy still driven forward (kvx=${r.kvx.toFixed(0)})`);
+  ok(Math.abs(r.kvy) > 0.35 * r.kvx, `PERCEPTIBLE angle, not near-straight (push ${ang(r)}°)`);
+  ok(mag(r) > 0.6 * CENTRE_MAG, `off-centre push keeps real punch (${mag(r).toFixed(0)} vs centre ${CENTRE_MAG.toFixed(0)})`);
   ok(r.bvy < -5, `ball glances UP off the top of the enemy (bvy=${r.bvy.toFixed(0)})`);
 }
 {
   const r = strike(24); // ball below enemy (larger y)
   ok(!r.missed, 'below-centre hit connected');
   ok(r.kvy < -5, `enemy shoved UP when hit from below (kvy=${r.kvy.toFixed(0)})`);
+  ok(Math.abs(r.kvy) > 0.35 * r.kvx, `PERCEPTIBLE angle, not near-straight (push ${ang(r)}°)`);
+  ok(mag(r) > 0.6 * CENTRE_MAG, `off-centre push keeps real punch (${mag(r).toFixed(0)} vs centre ${CENTRE_MAG.toFixed(0)})`);
   ok(r.bvy > 5, `ball glances DOWN off the bottom of the enemy (bvy=${r.bvy.toFixed(0)})`);
 }
 {
-  const r = strike(0); // dead centre
+  const r = centre; // dead centre
   ok(!r.missed, 'centre hit connected');
   ok(Math.abs(r.kvy) < 5, `centred hit pushes straight, ~no sideways shove (kvy=${r.kvy.toFixed(0)})`);
   ok(r.kvx > 5, `centred hit drives the enemy forward (kvx=${r.kvx.toFixed(0)})`);

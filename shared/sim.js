@@ -707,8 +707,12 @@ export function step(state, inputs, dt) {
         const vtx = b.vx - vn * cnx, vty = b.vy - vn * cny; // tangential glance the ball keeps
         const tier = b.kickTier || 0;
         const mul = tier === 2 ? OVERCHARGE_MUL : tier === 1 ? FULL_BUMP_MUL : 1; // push: weak < full < overcharge
-        // Push scales with the HEAD-ON component (vn): a square hit transfers most, a glance little.
-        const kb = Math.max(0, vn) * BALL_BUMP_SCALE * mul * knockMul(p);
+        // Push always goes ALONG the line of centres (so an off-centre hit visibly squirts the
+        // enemy off at an angle). Magnitude keeps most of its punch even on a glance: a square hit
+        // (cos=1) shoves full force, a hard graze (cos->0) still shoves ~half — floored so the
+        // angled knock is always felt, never a no-op like a strict cos(theta) transfer would be.
+        const headOn = Math.max(0, vn) / bspeed;            // cos(theta): 1 = dead-on, 0 = pure graze
+        const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p) * (0.5 + 0.5 * headOn);
         p.kvx += cnx * kb; p.kvy += cny * kb;
         // Ball's normal component after contact (+ = keeps driving through, - = rebounds off).
         let f;
