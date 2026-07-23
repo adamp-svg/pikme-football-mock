@@ -1449,10 +1449,13 @@ function isDismissBackdrop(t, screenEl) {
   if (!t) return false;
   if (t === screenEl) return true;                                    // stadium around a panel / outer page margin
   if (t.closest('.home-wrap')) return false;                          // inside the friends panel = main area → keep open
-  // Interactive controls keep the page open (buttons/links/inputs + non-button widgets).
+  // Interactive controls always keep the page open (buttons/links/inputs + non-button widgets).
   if (t.closest('button, a, input, textarea, select, label, [role="button"], [contenteditable], .pslot, .pslot-item, .fan-card, .cards-fan, .friend-row, .fr-tab')) return false;
-  // Otherwise it is empty space or inert content inside a full-bleed sub-page → dismiss.
-  return !!t.closest('.subpage');
+  // Dismiss only on the page's own EMPTY structural whitespace — outer padding of the sub-page,
+  // the body's gaps/side-margins, the header whitespace, or a bare heading. Visible content tiles
+  // (shop items, news/club cards, mode cards, …) are the "main area" and are left alone, so the
+  // default is always keep-open — content or controls added by other agents never trigger it.
+  return t.matches('.subpage, .subpage-body, .subpage-head, h2');
 }
 for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends']) {
   const scr = screens[id];
