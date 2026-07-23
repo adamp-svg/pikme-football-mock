@@ -1,12 +1,11 @@
-<title>Pixel Lab — Football Style Explorer</title>
+<title>Graphics Lab — Football Render Styles</title>
 <style>
   :root{
-    --bg:#0a0e0d; --bg2:#0e1413; --panel:#121a18; --panel2:#17211e;
-    --line:#26332f; --line2:#33443f;
+    --bg:#0a0e0d; --panel:#121a18; --line:#26332f; --line2:#33443f;
     --ink:#e9efe6; --ink-dim:#9fb0a6; --ink-faint:#6d7f76;
     --gold:#ffcb43; --gold-dim:#c69a2e;
-    --rail: 216px;
-    --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --rail:216px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   *{ box-sizing:border-box; }
@@ -19,86 +18,58 @@
     font-family:var(--sans); line-height:1.5;
     padding:0 clamp(12px,3vw,40px) 64px;
   }
-  .lab-head{ max-width:1180px; margin:0 auto; padding:36px 4px 20px; }
-  .kicker{
-    font-family:var(--mono); font-size:12px; letter-spacing:.32em; text-transform:uppercase;
-    color:var(--gold-dim); display:flex; align-items:center; gap:10px; margin:0 0 14px;
-  }
+  .lab-head{ max-width:1200px; margin:0 auto; padding:36px 4px 18px; }
+  .kicker{ font-family:var(--mono); font-size:12px; letter-spacing:.32em; text-transform:uppercase;
+    color:var(--gold-dim); display:flex; align-items:center; gap:10px; margin:0 0 14px; }
   .kicker::before{ content:""; height:2px; flex:0 0 22px; background:var(--gold-dim); opacity:.6; }
-  .kicker::after{ content:""; height:2px; flex:1; background:var(--gold-dim); opacity:.25; }
-  h1{
-    font-size:clamp(30px,6vw,58px); line-height:.98; margin:0 0 10px; font-weight:850;
-    letter-spacing:-.015em; text-wrap:balance;
-    text-shadow:0 2px 0 #000, 3px 4px 0 rgba(0,0,0,.35);
-  }
+  .kicker::after{ content:""; height:2px; flex:1; background:var(--gold-dim); opacity:.22; }
+  h1{ font-size:clamp(30px,6vw,56px); line-height:.98; margin:0 0 10px; font-weight:850;
+    letter-spacing:-.015em; text-wrap:balance; text-shadow:0 2px 0 #000, 3px 4px 0 rgba(0,0,0,.35); }
   h1 .hl{ color:var(--gold); }
-  .lede{ max-width:64ch; color:var(--ink-dim); font-size:clamp(14px,1.7vw,17px); margin:0 0 22px; }
+  .lede{ max-width:66ch; color:var(--ink-dim); font-size:clamp(14px,1.7vw,17px); margin:0 0 20px; }
   .lede b{ color:var(--ink); font-weight:650; }
   .legend{ display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; }
-  .chip{
-    font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--ink-dim);
-    border:1px solid var(--line2); background:var(--panel); padding:5px 9px;
-    display:inline-flex; align-items:center; gap:7px;
-  }
+  .chip{ font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--ink-dim);
+    border:1px solid var(--line2); background:var(--panel); padding:5px 9px; display:inline-flex; align-items:center; gap:7px; }
   .chip b{ color:var(--ink); font-weight:600; }
-  .dot{ width:9px; height:9px; display:inline-block; }
-  .dot.feel{ background:var(--gold); }
-  .dot.dith{ background:repeating-conic-gradient(var(--ink) 0 25%, transparent 0 50%) 0 0/6px 6px; }
-  .dot.out{ background:#000; outline:2px solid var(--ink); outline-offset:-2px; }
 
-  .matrix{ max-width:1180px; margin:22px auto 0; }
-  .cols-head{
-    position:sticky; top:0; z-index:5;
-    display:grid; grid-template-columns:var(--rail) repeat(3,1fr); gap:14px;
-    padding:10px 12px; margin-bottom:6px;
-    background:linear-gradient(180deg, var(--bg) 62%, transparent);
-    backdrop-filter:blur(2px);
-  }
-  .cols-head .ch{
-    font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
-    color:var(--ink); display:flex; align-items:baseline; gap:8px;
-  }
+  .matrix{ max-width:1200px; margin:20px auto 0; }
+  .cols-head{ position:sticky; top:0; z-index:5; display:grid; grid-template-columns:var(--rail) repeat(3,1fr);
+    gap:14px; padding:10px 12px; margin-bottom:6px;
+    background:linear-gradient(180deg, var(--bg) 62%, transparent); backdrop-filter:blur(2px); }
+  .cols-head .ch{ font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--ink); display:flex; align-items:baseline; gap:8px; }
   .cols-head .ch small{ color:var(--ink-faint); letter-spacing:.05em; text-transform:none; font-size:11px; }
   .cols-head .ch.rail-h{ color:var(--gold-dim); }
 
-  .row{
-    display:grid; grid-template-columns:var(--rail) repeat(3,1fr); gap:14px;
-    padding:14px 12px; border-top:1px solid var(--line);
-    align-items:stretch;
-  }
-  .row:hover{ background:rgba(255,255,255,.015); }
+  .row{ display:grid; grid-template-columns:var(--rail) repeat(3,1fr); gap:14px;
+    padding:14px 12px; border-top:1px solid var(--line); align-items:stretch; }
+  .row.now{ border-top:2px solid var(--gold-dim); background:rgba(255,203,67,.05); }
+  .row:hover{ background:rgba(255,255,255,.02); }
 
-  .rail{ display:flex; flex-direction:column; gap:9px; min-width:0; }
+  .rail{ display:flex; flex-direction:column; gap:8px; min-width:0; }
   .rail .rname{ font-weight:800; font-size:17px; letter-spacing:-.01em; line-height:1.1; }
-  .rail .rera{ font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); line-height:1.4; }
-  .rail .rvibe{ font-size:12.5px; color:var(--ink-dim); font-style:italic; }
-  .swatches{ display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--line2); width:max-content; max-width:100%; }
-  .swatches i{ width:19px; height:19px; display:block; }
-  .tags{ display:flex; flex-wrap:wrap; gap:5px; }
-  .tag{
-    font-family:var(--mono); font-size:10px; letter-spacing:.03em; color:var(--ink-dim);
-    border:1px solid var(--line2); padding:3px 6px; text-transform:lowercase;
-  }
+  .rail .rname .now-pill{ font-family:var(--mono); font-size:9px; letter-spacing:.1em; color:#0a0e0d;
+    background:var(--gold); padding:2px 6px; margin-inline-start:6px; vertical-align:middle; text-transform:uppercase; }
+  .rail .rref{ font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); line-height:1.4; }
+  .rail .rvibe{ font-size:12.5px; color:var(--ink-dim); }
+  .tags{ display:flex; flex-wrap:wrap; gap:5px; margin-top:2px; }
+  .tag{ font-family:var(--mono); font-size:10px; letter-spacing:.03em; color:var(--ink-dim);
+    border:1px solid var(--line2); padding:3px 6px; text-transform:lowercase; }
   .tag.on{ color:#0a0e0d; background:var(--gold); border-color:var(--gold); font-weight:700; }
 
   .cell{ display:flex; flex-direction:column; gap:7px; min-width:0; }
-  .cvwrap{
-    position:relative; aspect-ratio:4/3; width:100%;
-    border:2px solid #05100c; background:#05100c;
-    box-shadow:0 3px 0 rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.04);
-    overflow:hidden;
-  }
+  .cvwrap{ position:relative; aspect-ratio:4/3; width:100%; border:2px solid #05100c; background:#0a1a14;
+    box-shadow:0 3px 0 rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.04); overflow:hidden; }
   canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; image-rendering:pixelated; }
-  .elbl{
-    position:absolute; top:0; left:0; z-index:2;
-    font-family:var(--mono); font-size:9px; letter-spacing:.14em; text-transform:uppercase;
-    color:var(--ink); background:rgba(5,16,12,.78); padding:3px 6px;
-    border-right:1px solid var(--line2); border-bottom:1px solid var(--line2);
-  }
+  canvas.sm{ image-rendering:auto; }
+  .elbl{ position:absolute; top:0; left:0; z-index:2; font-family:var(--mono); font-size:9px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink); background:rgba(5,16,12,.78); padding:3px 6px;
+    border-right:1px solid var(--line2); border-bottom:1px solid var(--line2); }
   .idea{ font-size:12px; color:var(--ink-dim); margin:0; }
   .idea b{ color:var(--ink); font-weight:600; }
 
-  footer{ max-width:1180px; margin:34px auto 0; padding:18px 12px 0; border-top:1px solid var(--line);
+  footer{ max-width:1200px; margin:34px auto 0; padding:18px 12px 0; border-top:1px solid var(--line);
     font-size:12.5px; color:var(--ink-faint); }
   footer b{ color:var(--ink-dim); }
 
@@ -107,7 +78,6 @@
     .cols-head{ display:none; }
     .row{ grid-template-columns:1fr; gap:12px; padding:18px 6px; }
     .rail{ padding-bottom:6px; border-bottom:1px dashed var(--line); }
-    .cell .elbl{ font-size:10px; }
   }
   @media (prefers-reduced-motion:no-preference){
     .row{ opacity:0; transform:translateY(6px); animation:rise .5s ease forwards; }
@@ -117,19 +87,18 @@
 
 <div class="wrap">
   <header class="lab-head">
-    <p class="kicker">Pixel Lab · art direction</p>
-    <h1>Football, in <span class="hl">15 pixel styles</span></h1>
-    <p class="lede">Each row is a different pixel-art direction we could take the game; each column is the same three things drawn that way — the <b>lobby</b> (stadium + menu), the <b>field</b> (the pitch), and the <b>hero</b> (a player sprite). Every tile is real pixel art rendered live from that style's verified palette and resolution — so you're comparing the actual look, and every pixel is snapped to the palette shown on the left.</p>
+    <p class="kicker">Graphics Lab · how we render it</p>
+    <h1>Same football, <span class="hl">8 ways to render it</span></h1>
+    <p class="lede">Each row is a different <b>graphics treatment</b> — not a colour choice but how the world is actually built and lit: flat 2D pixels (what we ship now), Minecraft-style <b>textured blocks</b>, low-poly 3D, cel-shaded toon, clay, paper cut-outs. Columns are the same three things each time — the <b>lobby</b>, the <b>field</b>, and the <b>hero</b> — so you can hold "what we have" against "blocks with texture" and the rest, side by side. Every tile is drawn live in the browser.</p>
     <div class="legend">
-      <span class="chip"><span class="dot feel"></span>pixel size — <b>chunky → fine</b></span>
-      <span class="chip"><span class="dot dith"></span>dithering — <b>on / off</b></span>
-      <span class="chip"><span class="dot out"></span>hard outline — <b>on / off</b></span>
-      <span class="chip">palette shown left of each row</span>
+      <span class="chip"><b>Row 1</b> = the current look</span>
+      <span class="chip">geometry — <b>2D · blocks · 3D</b></span>
+      <span class="chip">surface — <b>flat · textured</b></span>
     </div>
   </header>
 
   <div class="cols-head">
-    <div class="ch rail-h">Style</div>
+    <div class="ch rail-h">Treatment</div>
     <div class="ch">Lobby <small>· menu</small></div>
     <div class="ch">Field <small>· pitch</small></div>
     <div class="ch">Hero <small>· player</small></div>
@@ -138,267 +107,370 @@
   <div class="matrix" id="matrix"></div>
 
   <footer>
-    <b>How to read this:</b> tiles are procedural previews generated from each style's real palette, pixel resolution, dithering and outline rules — a faithful way to compare directions before committing an artist; final assets would be hand-drawn. Palettes verified against hardware / reference sources — Lospec, the official PICO-8 set, C64 Pepto, NES 2C02, and Genesis DAC levels.
+    <b>How to read this:</b> tiles are live procedural renders that stand in for each graphics pipeline — enough to judge the <em>feel</em> (dimensionality, surface, lighting, silhouette) before committing an artist or an engine. The point of the exercise is the jump from our flat 2D sprites to a textured-block / 3D world. Real assets would be modelled or hand-drawn in the chosen treatment.
   </footer>
 </div>
 
 <script>
 (() => {
   "use strict";
-  // ---------- color helpers ----------
-  const h2rgb = (h) => { h = h.replace('#',''); if (h.length===3) h = h.split('').map(c=>c+c).join(''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; };
-  const lum = (h) => { const [r,g,b]=h2rgb(h); return 0.299*r+0.587*g+0.114*b; };
-  const sat = (h) => { let [r,g,b]=h2rgb(h).map(v=>v/255); const mx=Math.max(r,g,b),mn=Math.min(r,g,b); if(mx===mn) return 0; const l=(mx+mn)/2, d=mx-mn; return d/(1-Math.abs(2*l-1)); };
-  const grn = (h) => { const [r,g,b]=h2rgb(h); return g-(r+b)/2; };
-  const warm = (h) => { const [r,g,b]=h2rgb(h); return (r-b)+lum(h)*0.2; };
-  const mix = (a,b,t) => { const A=h2rgb(a),B=h2rgb(b); return `rgb(${A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',')})`; };
+  // ---------- shared scene palette (differentiator here is MATERIAL, not colour) ----------
+  const C = {
+    sky:'#8ec9f0', skyHi:'#cbe9ff', night:'#20304a',
+    grassL:'#66bd49', grassM:'#4e9e3a', grassD:'#3c7f2e', dirt:'#7d5430', dirtD:'#5d3d22',
+    line:'#f2f6ec', skin:'#e3aa78', hair:'#3a2a1a',
+    jersey:'#e23b3b', shorts:'#2c3038', sock:'#eef2e6', ball:'#f4f6ee',
+    wood:'#a06a3c', steel:'#8a94a0', gold:'#ffcb43', outline:'#1c2019',
+    crowd:['#e23b3b','#2d6cdf','#ffcb43','#eaeaea','#37b34a','#ff8a3d']
+  };
+  // ---------- colour utils ----------
+  const h2rgb = (h)=>{ h=h.replace('#',''); if(h.length===3) h=h.split('').map(c=>c+c).join(''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; };
+  const toRGB = (c)=>{ if(c[0]==='#') return h2rgb(c); const m=c.match(/[\d.]+/g); return [+m[0],+m[1],+m[2]]; };
+  const mix = (a,b,t)=>{ const A=toRGB(a),B=toRGB(b); return `rgb(${A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',')})`; };
+  const rng = (s)=>{ let a=s>>>0; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; };
 
-  // Every fill is snapped to the current style's palette so each row is strictly in-palette.
-  let CURPAL = null;
-  const setPal = (p) => { CURPAL = p.map(h=>[h,h2rgb(h)]); };
-  const toRGB = (c) => { if(c[0]==='#') return h2rgb(c); const m=c.match(/\d+/g); return [+m[0],+m[1],+m[2]]; };
-  const snap = (c) => { if(!CURPAL) return c; const [r,g,b]=toRGB(c); let bh=CURPAL[0][0], bd=1e18; for(const [hex,[R,G,B]] of CURPAL){ const d=(r-R)**2+(g-G)**2+(b-B)**2; if(d<bd){ bd=d; bh=hex; } } return bh; };
-  const px = (ctx,x,y,c,w=1,h=1) => { ctx.fillStyle=snap(c); ctx.fillRect(x|0,y|0,w,h); };
+  // ---------- primitives ----------
+  function poly(ctx,pts,fill){ ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); ctx.closePath(); if(fill){ ctx.fillStyle=fill; ctx.fill(); } }
+  function rr(ctx,x,y,w,h,r){ r=Math.min(r,w/2,h/2); ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
-  function roles(s){
-    const p = s.palette.slice();
-    const byL = [...p].sort((a,b)=>lum(a)-lum(b));
-    const dark = byL[0], light = byL[byL.length-1], mid = byL[(byL.length/2)|0];
-    let acc=p[0], bs=-1; for(const c of p){ if(c===dark) continue; const v=sat(c)*180 + lum(c)*0.25; if(v>bs){ bs=v; acc=c; } }
-    let grass=mid, bg=-1e9; for(const c of p){ const v=grn(c)+lum(c)*0.05; if(v>bg){ bg=v; grass=c; } }
-    let grass2=grass, best=1e9; for(const c of p){ if(c===grass) continue; const d=Math.abs(lum(c)-lum(grass)); if(d<best){ best=d; grass2=c; } }
-    let sky=light, sd=-1e9; for(const c of p){ const v=lum(c)*0.6 - grn(c)*0.4; if(v>sd && c!==grass){ sd=v; sky=c; } }
-    let skin=light, wk=-1e9; for(const c of p){ const v=warm(c); if(v>wk){ wk=v; skin=c; } }
-    return { p, dark, light, mid, acc, grass, grass2, sky, skin };
+  // iso cube faces centred on (cx,cy); s=half-width, h=vertical height
+  const F = {
+    top:(cx,cy,s,h)=>[[cx,cy-s*0.5],[cx+s,cy],[cx,cy+s*0.5],[cx-s,cy]],
+    left:(cx,cy,s,h)=>[[cx-s,cy],[cx,cy+s*0.5],[cx,cy+s*0.5+h],[cx-s,cy+h]],
+    right:(cx,cy,s,h)=>[[cx+s,cy],[cx,cy+s*0.5],[cx,cy+s*0.5+h],[cx+s,cy+h]]
+  };
+  function faceTex(ctx,pts,base,seed,dens){
+    ctx.save(); poly(ctx,pts); ctx.clip();
+    const r=rng(seed), xs=Math.min(...pts.map(p=>p[0])),ys=Math.min(...pts.map(p=>p[1])),xe=Math.max(...pts.map(p=>p[0])),ye=Math.max(...pts.map(p=>p[1])), u=Math.max(1,(xe-xs)/10);
+    for(let k=0;k<dens;k++){ ctx.fillStyle=mix(base, r()>0.5?'#000':'#fff', 0.12+r()*0.12); ctx.fillRect((xs+r()*(xe-xs))|0,(ys+r()*(ye-ys))|0,u,u); }
+    ctx.restore();
+  }
+  // one iso block; `base` is the top colour, sides auto-shaded per engine
+  function block(ctx,cx,cy,s,h,base,S,opt={}){
+    let top=base, l=mix(base,'#000',.24), r=mix(base,'#000',.42);
+    if(S.engine==='cubetoy'){ top=mix(base,'#fff',.14); l=mix(base,'#000',.12); r=mix(base,'#000',.24); }
+    if(S.engine==='lego'){ top=mix(base,'#fff',.08); l=mix(base,'#000',.20); r=mix(base,'#000',.34); }
+    poly(ctx,F.left(cx,cy,s,h),l); poly(ctx,F.right(cx,cy,s,h),r); poly(ctx,F.top(cx,cy,s,h),top);
+    if(S.engine==='voxel' && opt.tex!==false){ const d=Math.round(s*s/5);
+      faceTex(ctx,F.top(cx,cy,s,h),top,(opt.seed||1),d);
+      faceTex(ctx,F.left(cx,cy,s,h),l,(opt.seed||1)+7,Math.round(d*0.7));
+      faceTex(ctx,F.right(cx,cy,s,h),r,(opt.seed||1)+13,Math.round(d*0.7)); }
+    if(S.engine==='lego' && opt.studs!==false){ const t=F.top(cx,cy,s,h);
+      ctx.fillStyle=mix(top,'#000',.16); ctx.beginPath(); ctx.ellipse(cx,cy+1,s*0.34,s*0.17,0,0,7); ctx.fill();
+      ctx.fillStyle=mix(top,'#fff',.22); ctx.beginPath(); ctx.ellipse(cx,cy-s*0.05,s*0.30,s*0.15,0,0,7); ctx.fill(); }
+    if(S.engine==='cubetoy'){ ctx.strokeStyle='rgba(255,255,255,.22)'; ctx.lineWidth=1; poly(ctx,F.top(cx,cy,s,h)); ctx.stroke(); }
+    if(S.engine==='lego'){ ctx.strokeStyle='rgba(0,0,0,.28)'; ctx.lineWidth=1; poly(ctx,F.top(cx,cy,s,h)); ctx.stroke(); }
+  }
+  const isCube = (S)=> S.engine==='voxel'||S.engine==='cubetoy'||S.engine==='lego';
+
+  // ---------- material 2D primitives (cel / clay / paper) ----------
+  function matRect(ctx,x,y,w,h,rad,color,mat){
+    if(mat==='paper'){ ctx.save(); ctx.fillStyle='rgba(15,22,16,.24)'; rr(ctx,x+3,y+4,w,h,rad); ctx.fill(); ctx.restore();
+      ctx.fillStyle=color; rr(ctx,x,y,w,h,rad); ctx.fill(); return; }
+    if(mat==='clay'){ ctx.save(); ctx.shadowColor='rgba(8,14,9,.4)'; ctx.shadowBlur=Math.max(4,w*0.05); ctx.shadowOffsetY=h*0.05;
+      const g=ctx.createLinearGradient(x,y,x,y+h); g.addColorStop(0,mix(color,'#fff',.3)); g.addColorStop(.55,color); g.addColorStop(1,mix(color,'#000',.2));
+      ctx.fillStyle=g; rr(ctx,x,y,w,h,Math.max(rad,h*0.3)); ctx.fill(); ctx.restore(); return; }
+    if(mat==='cel'){ ctx.save(); rr(ctx,x,y,w,h,rad); ctx.clip(); ctx.fillStyle=color; ctx.fillRect(x,y,w,h);
+      ctx.fillStyle=mix(color,'#000',.16); ctx.fillRect(x,y+h*0.56,w,h*0.44);
+      ctx.fillStyle=mix(color,'#fff',.22); ctx.fillRect(x,y,w,h*0.14); ctx.restore();
+      ctx.lineJoin='round'; ctx.lineWidth=Math.max(2,w*0.02); ctx.strokeStyle=C.outline; rr(ctx,x,y,w,h,rad); ctx.stroke(); return; }
+    ctx.fillStyle=color; rr(ctx,x,y,w,h,rad); ctx.fill();
+  }
+  function matCircle(ctx,cx,cy,rad,color,mat){
+    if(mat==='paper'){ ctx.save(); ctx.fillStyle='rgba(15,22,16,.24)'; ctx.beginPath(); ctx.arc(cx+3,cy+4,rad,0,7); ctx.fill(); ctx.restore();
+      ctx.fillStyle=color; ctx.beginPath(); ctx.arc(cx,cy,rad,0,7); ctx.fill(); return; }
+    if(mat==='clay'){ ctx.save(); ctx.shadowColor='rgba(8,14,9,.4)'; ctx.shadowBlur=rad*0.5; ctx.shadowOffsetY=rad*0.18;
+      const g=ctx.createRadialGradient(cx-rad*0.3,cy-rad*0.35,rad*0.15,cx,cy,rad); g.addColorStop(0,mix(color,'#fff',.4)); g.addColorStop(.6,color); g.addColorStop(1,mix(color,'#000',.22));
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,rad,0,7); ctx.fill(); ctx.restore(); return; }
+    if(mat==='cel'){ ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,rad,0,7); ctx.clip(); ctx.fillStyle=color; ctx.fillRect(cx-rad,cy-rad,rad*2,rad*2);
+      ctx.fillStyle=mix(color,'#000',.16); ctx.beginPath(); ctx.arc(cx,cy+rad*0.5,rad,0,7); ctx.fill(); ctx.restore();
+      ctx.lineWidth=Math.max(2,rad*0.14); ctx.strokeStyle=C.outline; ctx.beginPath(); ctx.arc(cx,cy,rad,0,7); ctx.stroke(); return; }
+    ctx.fillStyle=color; ctx.beginPath(); ctx.arc(cx,cy,rad,0,7); ctx.fill();
   }
 
-  const rng = (seed) => { let a=seed>>>0; return () => { a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; };
-  const ring = (ctx,cx,cy,r,c) => { for(let a=0;a<360;a+=6){ px(ctx, Math.round(cx+Math.cos(a*Math.PI/180)*r), Math.round(cy+Math.sin(a*Math.PI/180)*r), c); } };
-
-  // ---------- shared footballer sprite (12x16), recoloured per style ----------
-  const SPRITE = [
-    "....KKKK....","...KKKKKK...","..KKSSSSKK..","..KSSSSSSK..",
-    "...SSSSSS...","....SSSS....","...JJJJJJ...",".JJJJJJJJJJ.",
-    "JJJJJ11JJJJJ","SJJJJJJJJJJS",".JJJJJJJJJJ.","..PPPPPPPP..",
-    "..PPP..PPP..","..SS....SS..","..SS....SS..",".KKK...KKK.."
-  ];
-
-  function drawHero(ctx,W,H,s,R){
-    const gy = Math.round(H*0.72);
-    // sky band (snapped) + optional checker for dithered styles
-    for(let y=0;y<gy;y++) for(let x=0;x<W;x++){
-      let c = mix(R.sky, mix(R.acc,R.sky,.4), y/gy*0.6);
-      if(s.dither!=='none' && ((x+y)&1) && y>gy*0.4) c = R.sky;
-      px(ctx,x,y,c);
-    }
-    // ground
-    for(let y=gy;y<H;y++) for(let x=0;x<W;x++) px(ctx,x,y, (y<gy+2)?mix(R.grass,R.dark,.25):R.grass);
-    // sprite
-    const sc = Math.max(1, Math.floor((H*0.82)/16));
-    const sw=12*sc, sh=16*sc, ox=Math.round((W-sw)/2), oy=Math.round(gy-sh+sc*1.5);
-    const col = { K:R.dark, S:R.skin, J:R.acc, '1':R.light, P:mix(R.dark,R.mid,.5) };
-    const OUT = (s.outline && s.outline!=='none') ? s.outline : null;
-    // shadow
-    for(let i=-1;i<13;i++) px(ctx, ox+i*sc, gy+sc, mix(R.grass,R.dark,.5), sc, Math.max(1,sc>>1));
-    if(OUT){ ctx.fillStyle=snap(OUT);
-      for(let j=0;j<16;j++) for(let i=0;i<12;i++){ if(SPRITE[j][i]==='.') continue;
-        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>ctx.fillRect(ox+i*sc+dx, oy+j*sc+dy, sc, sc)); } }
-    for(let j=0;j<16;j++) for(let i=0;i<12;i++){ const ch=SPRITE[j][i]; if(ch==='.') continue; ctx.fillStyle=snap(col[ch]||R.mid); ctx.fillRect(ox+i*sc, oy+j*sc, sc, sc); }
-    // ball at feet-right
-    const bx=ox+12*sc+sc, by=gy-sc*2, br=Math.max(2,Math.round(sc*1.6));
-    ctx.fillStyle=snap(R.light); ctx.beginPath(); ctx.arc(bx,by,br,0,7); ctx.fill();
-    if(OUT){ ctx.strokeStyle=snap(OUT); ctx.lineWidth=Math.max(1,sc*0.5); ctx.stroke(); }
-    px(ctx, Math.round(bx-br*0.3), Math.round(by-br*0.2), R.dark, Math.max(1,br>>1), Math.max(1,br>>1));
+  // ======================================================= LOBBY
+  function LOBBY(ctx,W,H,S){
+    ctx.fillStyle = S.dark? C.night : C.sky; ctx.fillRect(0,0,W,H);
+    if(isCube(S)) return cubeLobby(ctx,W,H,S);
+    if(S.engine==='lowpoly') return lpLobby(ctx,W,H,S);
+    if(S.engine==='flat2d') return pxLobby(ctx,W,H,S);
+    return vecLobby(ctx,W,H,S,S.engine);
+  }
+  function cubeLobby(ctx,W,H,S){
+    // sky gradient bands
+    for(let y=0;y<H*0.5;y++){ ctx.fillStyle=mix(S.dark?C.night:C.skyHi, S.dark?'#0a0e1a':C.sky, y/(H*0.5)); ctx.fillRect(0,y,W,1); }
+    const s=W*0.085, h=s*0.8, list=[];
+    // tiered stand: 3 rows of blocks rising toward the back
+    for(let t=0;t<3;t++){ const cy=H*0.30 - t*h*0.55, y0=cy; for(let i=0;i<7;i++){ const cx=W*0.16 + i*s*1.0; list.push({cx,cy:y0,s:s*0.5,h,base:C.steel,seed:i+t*9,tex:true}); } }
+    list.sort((a,b)=>a.cy-b.cy); list.forEach(c=>block(ctx,c.cx,c.cy,c.s,c.h,c.base,S,{seed:c.seed,tex:c.tex}));
+    // crowd blocks on the tiers
+    const r=rng(S.seed); for(let t=0;t<3;t++){ const cy=H*0.30 - t*h*0.55 - h*0.5; for(let i=0;i<7;i++){ if(r()>0.5){ const cx=W*0.16+i*s*1.0; block(ctx,cx,cy,s*0.24,h*0.5,C.crowd[(r()*C.crowd.length)|0],S,{tex:false}); } } }
+    // grass field strip (row of grass blocks)
+    const gy=H*0.66; for(let i=0;i<8;i++){ const cx=W*0.10+i*s*0.92; block(ctx,cx,gy,s*0.5,h*0.7,(i%2?C.grassM:C.grassL),S,{seed:100+i,tex:true}); }
+    // PLAY plate
+    playButton(ctx,W,H,S,'block');
+  }
+  function vecLobby(ctx,W,H,S,mat){
+    // sky
+    if(mat==='clay'||mat==='cel'){ const g=ctx.createLinearGradient(0,0,0,H*0.55); g.addColorStop(0,C.skyHi); g.addColorStop(1,C.sky); ctx.fillStyle=g; ctx.fillRect(0,0,W,H*0.55); }
+    else { ctx.fillStyle=C.sky; ctx.fillRect(0,0,W,H*0.55); }
+    // stand band (trapezoid-ish rounded)
+    matRect(ctx, W*0.06, H*0.24, W*0.88, H*0.26, H*0.05, C.steel, mat);
+    // crowd dots
+    const r=rng(S.seed); for(let y=H*0.28;y<H*0.46;y+=H*0.05) for(let x=W*0.12;x<W*0.88;x+=W*0.05){ if(r()>0.35){ ctx.fillStyle=C.crowd[(r()*C.crowd.length)|0]; ctx.beginPath(); ctx.arc(x+r()*4,y,Math.max(2,W*0.012),0,7); ctx.fill(); } }
+    // grass strip
+    matRect(ctx, 0, H*0.62, W, H*0.4, 0, C.grassM, mat);
+    for(let i=0;i<6;i++){ ctx.fillStyle = i%2?mix(C.grassM,'#000',.08):mix(C.grassM,'#fff',.06); ctx.fillRect(i*W/6,H*0.62,W/6,H*0.4); }
+    playButton(ctx,W,H,S,mat);
+  }
+  function lpLobby(ctx,W,H,S){
+    const g=ctx.createLinearGradient(0,0,0,H*0.6); g.addColorStop(0,C.skyHi); g.addColorStop(1,C.sky); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    // faceted tiered stand (zigzag triangles)
+    const n=8, bx=W*0.06, bw=W*0.88, base=H*0.5, top=H*0.24;
+    for(let i=0;i<n;i++){ const x0=bx+i*bw/n, x1=bx+(i+1)*bw/n, shade=i%2?C.steel:mix(C.steel,'#000',.12);
+      poly(ctx,[[x0,base],[x1,base],[x0,top]],shade); poly(ctx,[[x1,base],[x1,top],[x0,top]],mix(shade,'#fff',.1)); }
+    // crowd facets
+    const r=rng(S.seed); for(let k=0;k<40;k++){ const x=bx+r()*bw, y=top+r()*(base-top); ctx.fillStyle=C.crowd[(r()*C.crowd.length)|0]; poly(ctx,[[x,y],[x+W*0.02,y+W*0.01],[x,y+W*0.02]],ctx.fillStyle); }
+    // grass facets
+    for(let i=0;i<6;i++){ const x0=i*W/6,x1=(i+1)*W/6; poly(ctx,[[x0,H*0.6],[x1,H*0.6],[x0,H]],i%2?C.grassM:C.grassL); poly(ctx,[[x1,H*0.6],[x1,H],[x0,H]],i%2?C.grassL:C.grassD); }
+    playButton(ctx,W,H,S,'lp');
+  }
+  function pxLobby(ctx,W,H,S){
+    const skyH=Math.round(H*0.42); for(let y=0;y<skyH;y++){ ctx.fillStyle=mix(C.skyHi,C.sky,y/skyH); ctx.fillRect(0,y,W,1); }
+    const standH=Math.round(H*0.26); ctx.fillStyle=C.steel; ctx.fillRect(0,skyH,W,standH);
+    const r=rng(S.seed); for(let y=skyH+2;y<skyH+standH;y+=2) for(let x=1;x<W;x+=2){ if(r()>0.45){ ctx.fillStyle=C.crowd[(r()*C.crowd.length)|0]; ctx.fillRect(x,y,1,1); } }
+    for(let y=skyH+standH;y<H;y++){ ctx.fillStyle=((y)&1)?C.grassM:C.grassL; ctx.fillRect(0,y,W,1); }
+    playButton(ctx,W,H,S,'px');
+  }
+  function playButton(ctx,W,H,S,kind){
+    const bw=W*0.4, bh=H*0.15, bx=(W-bw)/2, by=H*0.72;
+    if(kind==='px'){ ctx.fillStyle=C.gold; ctx.fillRect(bx|0,by|0,bw|0,bh|0); ctx.fillStyle=mix(C.gold,'#000',.4); ctx.fillRect(bx|0,(by+bh)|0-1,bw|0,1); }
+    else if(kind==='block'){ block(ctx,W*0.5,by,bw*0.5,bh*0.7,C.gold,S,{tex:false,studs:false}); }
+    else { matRect(ctx,bx,by,bw,bh,bh*0.35,C.gold, (kind==='lp'?'flat':kind)); }
+    // chevron
+    ctx.strokeStyle=C.outline; ctx.lineWidth=Math.max(2,W*0.014); ctx.lineCap='round';
+    const chx=bx+bw*0.66, chy=by+bh*0.5, a=bh*0.24;
+    ctx.beginPath(); ctx.moveTo(chx-a,chy-a); ctx.lineTo(chx+a*0.4,chy); ctx.lineTo(chx-a,chy+a); ctx.stroke();
   }
 
-  function drawField(ctx,W,H,s,R){
-    const stripe = Math.max(2, Math.round(H/7));
-    for(let y=0;y<H;y++){ const band=(y/stripe)|0; const base=band%2?R.grass:R.grass2, other=band%2?R.grass2:R.grass;
-      for(let x=0;x<W;x++){ let c=base; if(s.dither!=='none' && ((x+y)&1)) c=other; px(ctx,x,y,c); } }
-    let line=R.light; if(Math.abs(lum(line)-lum(R.grass))<38) line=R.acc;
-    for(let x=1;x<W-1;x++){ px(ctx,x,1,line); px(ctx,x,H-2,line); }
-    for(let y=1;y<H-1;y++){ px(ctx,1,y,line); px(ctx,W-2,y,line); }
-    for(let y=1;y<H-1;y++) px(ctx,(W/2|0),y,line);
-    ring(ctx, W/2, H/2, Math.max(3,H/6), line); px(ctx,(W/2|0),(H/2|0),line);
-    const bh=Math.round(H*0.44), bw=Math.round(W*0.12);
-    const y0=(H-bh)/2|0, y1=(H+bh)/2|0;
-    for(let y=y0;y<y1;y++){ px(ctx,1,y,line); px(ctx,1+bw,y,line); px(ctx,W-2,y,line); px(ctx,W-2-bw,y,line); }
-    for(let x=1;x<=1+bw;x++){ px(ctx,x,y0,line); px(ctx,x,y1,line); }
-    for(let x=W-2-bw;x<=W-2;x++){ px(ctx,x,y0,line); px(ctx,x,y1,line); }
+  // ======================================================= FIELD
+  function FIELD(ctx,W,H,S){
+    if(isCube(S)) return cubeField(ctx,W,H,S);
+    if(S.engine==='lowpoly') return lpField(ctx,W,H,S);
+    if(S.engine==='flat2d') return pxField(ctx,W,H,S);
+    return vecField(ctx,W,H,S,S.engine);
+  }
+  function cubeField(ctx,W,H,S){
+    ctx.fillStyle=S.dark?C.night:mix(C.sky,'#fff',.2); ctx.fillRect(0,0,W,H);
+    const GX=5,GY=5, s=W*0.11, h=s*0.45, cx0=W*0.5, cy0=H*0.30, list=[];
+    for(let j=0;j<GY;j++) for(let i=0;i<GX;i++){ const cx=cx0+(i-j)*s, cy=cy0+(i+j)*(s*0.5);
+      let base = ((i+j)%2)?C.grassM:C.grassL;
+      if(i===2||j===2) base = mix(C.line,'#000',.05);       // centre cross = white blocks
+      list.push({cx,cy,base,seed:i*9+j*3}); }
+    list.sort((a,b)=>a.cy-b.cy); list.forEach(c=>block(ctx,c.cx,c.cy,s,h,c.base,S,{seed:c.seed}));
+    // ball on top
+    const bx=cx0+ s*0.4, by=cy0+ (GX+GY-2)*(s*0.5)*0.5 - h; ballSphere(ctx,bx,by,s*0.42);
+  }
+  function vecField(ctx,W,H,S,mat){
+    ctx.fillStyle=mix(C.grassD,'#000',.2); ctx.fillRect(0,0,W,H);
+    const pad=W*0.05; matRect(ctx,pad,pad,W-2*pad,H-2*pad,W*0.03,C.grassM,mat);
+    ctx.save(); rr(ctx,pad,pad,W-2*pad,H-2*pad,W*0.03); ctx.clip();
+    for(let i=0;i<7;i++){ ctx.fillStyle=i%2?mix(C.grassM,'#000',.08):mix(C.grassM,'#fff',.06); ctx.fillRect(pad,pad+i*(H-2*pad)/7,W-2*pad,(H-2*pad)/7); }
+    ctx.strokeStyle=C.line; ctx.lineWidth=Math.max(2,W*0.012);
+    ctx.strokeRect(pad+6,pad+6,W-2*pad-12,H-2*pad-12);
+    ctx.beginPath(); ctx.moveTo(W/2,pad+6); ctx.lineTo(W/2,H-pad-6); ctx.stroke();
+    ctx.beginPath(); ctx.arc(W/2,H/2,H*0.13,0,7); ctx.stroke();
+    ctx.restore();
+    ballSphere(ctx, W*0.5, H*0.5, W*0.035, mat);
+  }
+  function lpField(ctx,W,H,S){
+    // receding faceted plane
+    poly(ctx,[[0,0],[W,0],[W,H],[0,H]],C.grassM);
+    const n=6; for(let j=0;j<4;j++) for(let i=0;i<n;i++){ const x0=i*W/n,x1=(i+1)*W/n,y0=j*H/4,y1=(j+1)*H/4;
+      const c = ((i+j)%2)? mix(C.grassM,'#fff',.07) : mix(C.grassM,'#000',.07);
+      poly(ctx,[[x0,y0],[x1,y0],[x0,y1]],c); poly(ctx,[[x1,y0],[x1,y1],[x0,y1]],mix(c,'#000',.05)); }
+    ctx.strokeStyle=C.line; ctx.lineWidth=Math.max(2,W*0.012);
+    ctx.strokeRect(W*0.06,H*0.08,W*0.88,H*0.84); ctx.beginPath(); ctx.moveTo(W/2,H*0.08); ctx.lineTo(W/2,H*0.92); ctx.stroke();
+    ctx.beginPath(); ctx.arc(W/2,H/2,H*0.14,0,7); ctx.stroke();
+    // faceted ball (hexagon)
+    hexBall(ctx,W*0.5,H*0.5,W*0.045);
+  }
+  function pxField(ctx,W,H,S){
+    const stripe=Math.max(2,Math.round(H/7));
+    for(let y=0;y<H;y++){ ctx.fillStyle=((y/stripe|0)%2)?C.grassM:C.grassL; ctx.fillRect(0,y,W,1); }
+    ctx.fillStyle=C.line; for(let x=1;x<W-1;x++){ ctx.fillRect(x,1,1,1); ctx.fillRect(x,H-2,1,1); }
+    for(let y=1;y<H-1;y++){ ctx.fillRect(1,y,1,1); ctx.fillRect(W-2,y,1,1); ctx.fillRect(W/2|0,y,1,1); }
+    for(let a=0;a<360;a+=8){ ctx.fillRect((W/2+Math.cos(a*Math.PI/180)*H/6)|0,(H/2+Math.sin(a*Math.PI/180)*H/6)|0,1,1); }
+    // pixel ball
+    ctx.fillStyle=C.ball; ctx.fillRect((W*0.5)|0,(H*0.5)|0,3,3); ctx.fillStyle=C.outline; ctx.fillRect((W*0.5+1)|0,(H*0.5+1)|0,1,1);
   }
 
-  function drawLobby(ctx,W,H,s,R){
-    const rnd = rng(s.seed||7);
-    const skyH=Math.round(H*0.38);
-    for(let y=0;y<skyH;y++){ const t=y/skyH, c=mix(R.sky, mix(R.acc,R.sky,.5), t*0.7);
-      for(let x=0;x<W;x++){ let cc=c; if(s.dither!=='none' && ((x+y)&1) && t>0.5) cc=mix(c,R.light,.3); px(ctx,x,y,cc); } }
-    const standH=Math.round(H*0.30);
-    for(let y=skyH;y<skyH+standH;y++) for(let x=0;x<W;x++) px(ctx,x,y, y<skyH+2?R.dark:mix(R.mid,R.dark,.35));
-    const crowd=[R.acc,R.light,R.mid,mix(R.acc,R.light,.5)];
-    for(let y=skyH+2;y<skyH+standH-1;y+=2) for(let x=1;x<W-1;x+=2){ if(rnd()>0.45) px(ctx,x,y, crowd[(rnd()*crowd.length)|0]); }
-    for(let y=skyH+standH;y<H;y++) for(let x=0;x<W;x++) px(ctx,x,y, ((x+y)&1)&&s.dither!=='none'?R.grass2:R.grass);
-    for(let x=2;x<W-2;x++) px(ctx,x,skyH+standH+2, mix(R.light,R.grass,.1));
-    // PLAY button
-    const bw=Math.round(W*0.42), bh=Math.max(6,Math.round(H*0.16)), bx=(W-bw)/2|0, by=Math.round(H*0.60);
-    const OUT=(s.outline&&s.outline!=='none')?s.outline:R.dark;
-    px(ctx,bx,by,R.acc,bw,bh);
-    for(let x=bx;x<bx+bw;x++){ px(ctx,x,by,mix(R.acc,R.light,.55)); px(ctx,x,by+bh-1,OUT); }
-    for(let y=by;y<by+bh;y++){ px(ctx,bx,y,mix(R.acc,R.light,.35)); px(ctx,bx+bw-1,y,OUT); }
-    const cxs=bx+bw-Math.round(bw*0.22), cy=by+(bh/2|0), a=Math.max(1,bh>>2);
-    for(let k=0;k<a;k++){ px(ctx,cxs+k,cy-a+k,OUT); px(ctx,cxs+k,cy+a-k,OUT); }
+  // ======================================================= HERO
+  function HERO(ctx,W,H,S){
+    ctx.fillStyle = S.dark? mix(C.night,'#000',.2) : mix(C.sky,'#fff',.1); ctx.fillRect(0,0,W,H*0.72);
+    ctx.fillStyle = C.grassM; ctx.fillRect(0,H*0.72,W,H*0.28);
+    if(isCube(S)) return cubeHero(ctx,W,H,S);
+    if(S.engine==='lowpoly') return lpHero(ctx,W,H,S);
+    if(S.engine==='flat2d') return pxHero(ctx,W,H,S);
+    return vecHero(ctx,W,H,S,S.engine);
+  }
+  function cubeHero(ctx,W,H,S){
+    const cx=W*0.5, s=W*0.15, gy=H*0.70;
+    // grass base
+    block(ctx,cx,gy,s*1.1,s*0.5,C.grassM,S,{seed:5});
+    const bw=s*0.62, u=s*0.5;
+    // legs
+    block(ctx,cx-bw*0.5,gy-u*1.0,bw*0.5,u*1.4,C.shorts,S,{tex:false});
+    block(ctx,cx+bw*0.5,gy-u*1.0,bw*0.5,u*1.4,C.shorts,S,{tex:false});
+    // body (jersey)
+    block(ctx,cx,gy-u*2.2,bw,u*1.5,C.jersey,S,{seed:2});
+    // arms
+    block(ctx,cx-bw*1.3,gy-u*2.1,bw*0.4,u*1.3,C.jersey,S,{tex:false});
+    block(ctx,cx+bw*1.3,gy-u*2.1,bw*0.4,u*1.3,C.jersey,S,{tex:false});
+    // head
+    block(ctx,cx,gy-u*3.6,bw*0.72,u*1.2,C.skin,S,{seed:8});
+    // simple face on the top-front of head (right face)
+    ctx.fillStyle=C.outline; ctx.fillRect((cx-bw*0.2)|0,(gy-u*3.15)|0,Math.max(1,s*0.08),Math.max(1,s*0.08));
+    ctx.fillRect((cx+bw*0.12)|0,(gy-u*3.15)|0,Math.max(1,s*0.08),Math.max(1,s*0.08));
+    // ball
+    ballSphere(ctx,cx+s*1.5,gy-s*0.2,s*0.5);
+  }
+  function vecHero(ctx,W,H,S,mat){
+    const cx=W*0.5, gy=H*0.74, u=W*0.11;
+    ctx.save(); ctx.fillStyle='rgba(8,14,9,.28)'; ctx.beginPath(); ctx.ellipse(cx,gy+u*0.3,u*1.5,u*0.4,0,0,7); ctx.fill(); ctx.restore();
+    // legs
+    matRect(ctx,cx-u*0.95,gy-u*1.4,u*0.8,u*1.7,u*0.25,C.skin,mat);
+    matRect(ctx,cx+u*0.15,gy-u*1.4,u*0.8,u*1.7,u*0.25,C.skin,mat);
+    matRect(ctx,cx-u*1.0,gy-u*2.0,u*2.0,u*0.9,u*0.2,C.shorts,mat);
+    // body
+    matRect(ctx,cx-u*1.15,gy-u*3.6,u*2.3,u*1.9,u*0.35,C.jersey,mat);
+    // arms
+    matRect(ctx,cx-u*1.7,gy-u*3.4,u*0.6,u*1.6,u*0.25,C.jersey,mat);
+    matRect(ctx,cx+u*1.1,gy-u*3.4,u*0.6,u*1.6,u*0.25,C.jersey,mat);
+    // head
+    matCircle(ctx,cx,gy-u*4.4,u*1.0,C.skin,mat);
+    ctx.fillStyle=C.hair; ctx.beginPath(); ctx.arc(cx,gy-u*4.7,u*0.95,Math.PI*1.05,Math.PI*1.95); ctx.fill();
+    // ball
+    ballSphere(ctx,cx+u*2.2,gy-u*0.2,u*0.75,mat);
+  }
+  function lpHero(ctx,W,H,S){
+    const cx=W*0.5, gy=H*0.74, u=W*0.11;
+    ctx.fillStyle='rgba(8,14,9,.28)'; ctx.beginPath(); ctx.ellipse(cx,gy+u*0.3,u*1.5,u*0.4,0,0,7); ctx.fill();
+    const J=C.jersey, Jd=mix(J,'#000',.18), Jl=mix(J,'#fff',.14);
+    // torso facets
+    poly(ctx,[[cx-u*1.2,gy-u*3.6],[cx+u*1.2,gy-u*3.6],[cx,gy-u*1.8]],Jl);
+    poly(ctx,[[cx-u*1.2,gy-u*3.6],[cx,gy-u*1.8],[cx-u*1.1,gy-u*1.9]],Jd);
+    poly(ctx,[[cx+u*1.2,gy-u*3.6],[cx,gy-u*1.8],[cx+u*1.1,gy-u*1.9]],J);
+    // legs
+    poly(ctx,[[cx-u*0.9,gy-u*2.0],[cx-u*0.1,gy-u*2.0],[cx-u*0.5,gy]],mix(C.skin,'#000',.05));
+    poly(ctx,[[cx+u*0.1,gy-u*2.0],[cx+u*0.9,gy-u*2.0],[cx+u*0.5,gy]],C.skin);
+    // arms
+    poly(ctx,[[cx-u*1.2,gy-u*3.4],[cx-u*1.7,gy-u*1.9],[cx-u*1.0,gy-u*2.4]],Jd);
+    poly(ctx,[[cx+u*1.2,gy-u*3.4],[cx+u*1.7,gy-u*1.9],[cx+u*1.0,gy-u*2.4]],Jl);
+    // head hexagon
+    const hx=cx,hy=gy-u*4.4,hr=u*1.05, pts=[]; for(let k=0;k<6;k++){ const a=Math.PI/6+k*Math.PI/3; pts.push([hx+Math.cos(a)*hr,hy+Math.sin(a)*hr]); }
+    poly(ctx,pts,C.skin); poly(ctx,[pts[0],pts[1],pts[2],[hx,hy]],mix(C.skin,'#fff',.12)); poly(ctx,[pts[3],pts[4],pts[5],[hx,hy]],mix(C.skin,'#000',.1));
+    hexBall(ctx,cx+u*2.1,gy-u*0.2,u*0.8);
+  }
+  const SPR=["....KKKK....","...KKKKKK...","..KKSSSSKK..","..KSSSSSSK..","...SSSSSS...","....SSSS....","...JJJJJJ...",".JJJJJJJJJJ.","JJJJJ11JJJJJ","SJJJJJJJJJJS",".JJJJJJJJJJ.","..PPPPPPPP..","..PPP..PPP..","..SS....SS..","..SS....SS..",".KKK...KKK.."];
+  function pxHero(ctx,W,H,S){
+    const gy=Math.round(H*0.70), sc=Math.max(1,Math.floor((H*0.8)/16)), sw=12*sc, ox=Math.round((W-sw)/2), oy=Math.round(gy-16*sc+sc*1.5);
+    const col={K:C.outline,S:C.skin,J:C.jersey,'1':C.line,P:C.shorts};
+    ctx.fillStyle='rgba(8,14,9,.3)'; ctx.fillRect(ox-sc,gy+sc,sw+2*sc,Math.max(1,sc));
+    for(let j=0;j<16;j++)for(let i=0;i<12;i++){ const ch=SPR[j][i]; if(ch==='.')continue; ctx.fillStyle=col[ch]||C.grassM; ctx.fillRect(ox+i*sc,oy+j*sc,sc,sc); }
+    ctx.fillStyle=C.ball; ctx.fillRect((ox+13*sc)|0,(gy-2*sc)|0,Math.max(2,sc*2),Math.max(2,sc*2));
   }
 
-  // ---------- STYLES — palettes verified by research (Lospec / PICO-8 / C64 Pepto / NES 2C02 / Genesis DAC) ----------
+  // shared ball renderers
+  function ballSphere(ctx,cx,cy,r,mat){
+    if(mat==='clay'){ return matCircle(ctx,cx,cy,r,C.ball,'clay'); }
+    ctx.fillStyle=C.ball; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill();
+    ctx.fillStyle=mix(C.ball,'#000',.12); ctx.beginPath(); ctx.arc(cx+r*0.15,cy+r*0.2,r,Math.PI*0.15,Math.PI*0.9); ctx.fill();
+    ctx.fillStyle=C.outline; for(let k=0;k<3;k++){ ctx.beginPath(); ctx.arc(cx+Math.cos(k*2.1)*r*0.4,cy+Math.sin(k*2.1)*r*0.4,r*0.22,0,7); ctx.fill(); }
+  }
+  function hexBall(ctx,cx,cy,r){ const p=[]; for(let k=0;k<6;k++){ const a=Math.PI/6+k*Math.PI/3; p.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]); } poly(ctx,p,C.ball);
+    ctx.fillStyle=C.outline; ctx.beginPath(); ctx.moveTo(cx,cy); for(let k=0;k<3;k++){ ctx.lineTo(p[k][0],p[k][1]); } ctx.closePath(); ctx.fill(); }
+
+  // ======================================================= STYLES (render treatments)
   const STYLES = [
-    { name:"Game Boy DMG", era:"Nintendo GB, 1989 · Super Mario Land", feel:"chunky", dither:"checker", outline:"#0f380f", seed:3,
-      palette:["#0f380f","#306230","#8bac0f","#9bbc0f"],
-      vibe:"Cozy handheld pea-soup nostalgia — 4 greens, no black.",
-      lobby:"Flat green tiers, crowd faked with 2×2 checker dither, beveled pale-green PLAY box.",
-      field:"Palest green pitch, 1px dark-green lines, mowing stripes dithered between the mid tones.",
-      hero:"~16px striker in two greens with a darkest-green outline — no skin colour, pure DMG." },
+    { engine:'flat2d', now:true, name:"Flat 2D Pixel", ref:"what the game ships today", geo:"2D", surf:"flat",
+      vibe:"Hard-edged pixel sprites, top-down. Cheap, fast, readable — our baseline.",
+      lobby:"Flat pixel stands, dithered crowd, a solid pixel PLAY bar over a striped pitch.",
+      field:"Top-down striped pitch with 1px white lines and a 3px ball — exactly today's look.",
+      hero:"The current 12×16 sprite footballer — flat colours, no depth." },
 
-    { name:"1-bit Monochrome", era:"Obra Dinn / Downwell", feel:"medium", dither:"ordered", outline:"none", seed:11,
-      palette:["#000000","#ffffff"],
-      vibe:"Stark ink-print — shape + Bayer dither do everything.",
-      lobby:"Black & white only; sky, stands and crowd are pure ordered-dither density. Obra-Dinn energy.",
-      field:"Pitch as negative space; lines solid black, grass a Bayer dither gradient.",
-      hero:"Bold inked silhouette — volume from dither, motion from pose, never hue." },
+    { engine:'voxel', name:"Voxel / Minecraft", ref:"blocks with textured faces", geo:"3D blocks", surf:"textured",
+      vibe:"A world built from textured cubes — grass blocks, blocky crowd, cube characters.",
+      lobby:"Tiered cube stands with noisy textured faces, blocky crowd, a row of grass blocks and a gold PLAY block.",
+      field:"Iso field of grass blocks (dirt sides showing), white blocks marking the centre, a blocky ball.",
+      hero:"A cube-built player — cuboid body & limbs, textured cube head with a pixel face. Full Minecraft." },
 
-    { name:"ZX Spectrum", era:"Sinclair, 1982 · Match Day", feel:"chunky", dither:"checker", outline:"#000000", seed:5,
-      palette:["#000000","#0000d8","#d80000","#d800d8","#00d800","#00d8d8","#d8d800","#ffffff"],
-      vibe:"Garish, punchy, attribute-clash 8-bit Britain.",
-      lobby:"Saturated primary stands in blocky 8×8 colour cells, clash fringing, cyan/yellow title.",
-      field:"One bright-green pitch, white lines — a player on a line tints the whole cell.",
-      hero:"One-ink player (magenta/cyan) with hard black edges, bleeding colour into the tile behind." },
+    { engine:'cubetoy', name:"Cube Toy (Crossy Road)", ref:"chunky bright voxels", geo:"3D blocks", surf:"flat",
+      vibe:"Same cubes, but bright, clean and rounded — glossy toy blocks, no grit.",
+      lobby:"Crisp pastel cube tiers with light-rimmed edges, cheerful crowd blocks, a candy PLAY block.",
+      field:"Bright clean grass cubes with soft top highlights — a tidy toy pitch you'd tap on mobile.",
+      hero:"A cute chunky cube mascot — big head block, bright kit, friendly and low-detail." },
 
-    { name:"Commodore 64", era:"Commodore, 1982 · Intl. Soccer", feel:"chunky", dither:"checker", outline:"#000000", seed:8,
-      palette:["#000000","#626262","#6d5412","#5cab5e","#6abfc6","#a1683c","#c9d487","#ffffff"],
-      vibe:"Warm, dithered, demoscene-slick 8-bit.",
-      lobby:"Dark stadium using the signature grey ramp + checker crowd, framed by the C64 screen border.",
-      field:"Dark-green pitch checker-dithered toward light green; wide fat pixels soften everything.",
-      hero:"Stubby multicolor player: warm skin #a1683c, one bold kit colour, black outline." },
+    { engine:'lego', name:"LEGO / Brick", ref:"studded plastic bricks", geo:"3D blocks", surf:"glossy",
+      vibe:"Every block is a plastic brick with studs and gloss — build-your-stadium energy.",
+      lobby:"Brick-built stands with visible studs, glossy plastic crowd, a stud-topped gold PLAY brick.",
+      field:"A baseplate of studded green bricks, white brick lines — a table-top LEGO pitch.",
+      hero:"A minifig-style player assembled from studded bricks — instantly toy-shop familiar." },
 
-    { name:"CGA (Palette 1)", era:"IBM PC, 1981 · mode 4 hi-intensity", feel:"chunky", dither:"ordered", outline:"#000000", seed:14,
-      palette:["#000000","#aa00aa","#00aaaa","#ff55ff","#55ffff","#ffffff"],
-      vibe:"Eye-searing early-DOS cyan & magenta.",
-      lobby:"Black void, cyan stands, magenta crowd & PLAY, blocky white text — unmistakably DOS.",
-      field:"Cyan pitch with magenta lines, grass faked entirely from checker dither.",
-      hero:"Magenta kit, cyan shorts, white highlights, black outline — all shading is dither." },
+    { engine:'lowpoly', smooth:true, name:"Low-Poly 3D", ref:"faceted flat-shaded", geo:"3D", surf:"flat",
+      vibe:"Faceted triangles, flat shading, clean gradients — modern, light, App-Store friendly.",
+      lobby:"Angular faceted stands over a gradient sky, triangle crowd specks, a faceted PLAY tab.",
+      field:"A receding faceted turf plane with subtly varied facets and crisp lines; a hexagon ball.",
+      hero:"A geometric footballer made of flat-shaded facets — sleek and contemporary." },
 
-    { name:"NES 8-bit", era:"Nintendo, 1985 · Nintendo World Cup", feel:"chunky", dither:"checker", outline:"#000000", seed:21,
-      palette:["#000000","#0000fc","#e40058","#00b800","#bcbcbc","#f0d0b0","#fcfcfc"],
-      vibe:"Toy-like, punchy, unmistakably retro.",
-      lobby:"Flat single-colour sky & stands from repeating tiles, bold white-on-black menu banner.",
-      field:"Solid #00B800 pitch, 1px white lines, zero texture — arcade-clean.",
-      hero:"~16px 3-colour sprite (skin #F0D0B0 + kit + black outline), oversized head, stiff run." },
+    { engine:'cel', smooth:true, name:"Cel-Shaded 3D (toon)", ref:"outlined, 2-tone lit", geo:"3D", surf:"flat",
+      vibe:"Smooth models, flat 2-tone light and bold ink outlines — a proper cartoon 3D look.",
+      lobby:"Clean toon stadium with a bright band of lit/shaded stands and a chunky outlined PLAY button.",
+      field:"Smooth green pitch with a hard shadow band and inked white lines — animated-cartoon clean.",
+      hero:"A rounded, outlined toon player with flat highlight/shade — think Rocket League meets FIFA-toon." },
 
-    { name:"SNES 16-bit", era:"Nintendo, 1992 · Super Soccer", feel:"medium", dither:"ordered", outline:"#182848", seed:33,
-      palette:["#182848","#3868b0","#38a048","#78c848","#f0c098","#e8e8f0","#f8f8f8"],
-      vibe:"Lush, smooth, storybook-warm.",
-      lobby:"Parallax stands, gradient sky, warm rim-light, beveled 3–4-shade buttons — cosy RPG menu.",
-      field:"Mode-7 receding pitch with a horizon, 3–4 green shades, mowing stripes, AA lines.",
-      hero:"~28px sprite with 4–5-shade ramps, cloth folds, cheek blush, squash-stretch kicks." },
+    { engine:'clay', smooth:true, name:"Claymation", ref:"soft matte clay", geo:"stylized", surf:"textured",
+      vibe:"Everything looks pinched from clay — soft gradients, rounded forms, gentle shadows.",
+      lobby:"Matte clay stands with soft shadows, dough-like crowd blobs and a squishy clay PLAY button.",
+      field:"A soft rounded clay pitch with gently shaded stripes and a matte clay ball.",
+      hero:"A tactile clay footballer with rounded limbs and soft radial shading — Gang Beasts charm." },
 
-    { name:"PICO-8", era:"Fantasy console, 2015 · fixed 16 colours", feel:"chunky", dither:"checker", outline:"#1d2b53", seed:2,
-      palette:["#000000","#1d2b53","#7e2553","#5f574f","#008751","#29adff","#ff004d","#ffa300","#ffec27","#fff1e8"],
-      vibe:"Charming, jammy, confident minimalism.",
-      lobby:"Fixed-16 night: navy sky, #29ADFF floodlights, pink crowd dots, yellow selection highlight.",
-      field:"#008751 pitch with brighter stripe accents and #FFF1E8 lines; players read as 8px blobs.",
-      hero:"8–16px sprite, 3 colours + navy outline; personality from silhouette, not shading." },
-
-    { name:"Genesis / Mega Drive", era:"Sega, 1993 · Worldwide Soccer", feel:"medium", dither:"ordered", outline:"#000000", seed:27,
-      palette:["#000000","#003490","#ce0034","#00ac34","#ffac74","#ffce00","#ffffff"],
-      vibe:"Bold, edgy, arcade-hot.",
-      lobby:"High-contrast dusk stadium, neon accents over dark, sharp black-bordered buttons.",
-      field:"Vivid #00AC34 turf with dithered darker bands, few mid-tones, strong player shadows.",
-      hero:"~28px saturated sprite, 2–3 hard shade steps, aggressive black outline, exaggerated poses." },
-
-    { name:"Arcade CPS / Neo-Geo", era:"Capcom/SNK, 1994 · Super Sidekicks", feel:"fine", dither:"none", outline:"#000000", seed:41,
-      palette:["#000000","#220044","#3322aa","#ee2233","#22aa33","#ffbb88","#ffdd22","#ffffff"],
-      vibe:"Slick, muscular, coin-op showpiece.",
-      lobby:"Glossy dramatic lighting, specular highlights, chrome/beveled logos — maximum polish.",
-      field:"Detailed pitch with baked lighting and reflective line paint; large, cinematic sprites.",
-      hero:"48–64px sprite, smooth hand-blended ramps, muscular build, bold black keyline + rim light." },
-
-    { name:"HD-2D Diorama", era:"Square Enix, 2018 · Octopath Traveler", feel:"medium", dither:"none", outline:"none", seed:52,
-      palette:["#17142b","#33284a","#6b4a3a","#4a90a4","#c9a24b","#e8d5a8","#f6edd2"],
-      vibe:"Nostalgic sprite in a glowing 3D snow-globe.",
-      lobby:"Miniature lit stadium: tilt-shift back rows, warm point-lights spilling off the crowd, bloom haze.",
-      field:"Pitch as a shallow 3D plane with a focal band across midfield, cast shadows, soft vignette.",
-      hero:"~48px painterly sprite, billboarded with a true drop shadow and warm rim on one shoulder." },
-
-    { name:"Hi-Bit Modern", era:"Blasphemous / Dead Cells", feel:"fine", dither:"ordered", outline:"none", seed:60,
-      palette:["#14121c","#2d2438","#5a4a63","#b02a3a","#c77b4e","#d9a066","#e7cba6"],
-      vibe:"Retro DNA, zero retro limits — lush and cinematic.",
-      lobby:"Hand-detailed concourse: parallax stands, torch glow, ornate beveled metal buttons.",
-      field:"Painterly turf with worn patches and raking single-source light; crisp front, soft dark back.",
-      hero:"64–96px sprite, dozens of shades, hand-placed AA, crimson kit popping off muted earth tones." },
-
-    { name:"Isometric City-Builder", era:"SimCity 2000 · 2:1 dimetric", feel:"medium", dither:"ordered", outline:"none", seed:71,
-      palette:["#2b3a4a","#4a6b5a","#8a8f99","#6fa85a","#9ac26b","#c94f3d","#dccfbf"],
-      vibe:"Orderly toy-town — a stadium you could zone and bulldoze.",
-      lobby:"The menu IS a buildable stadium in 2:1 dimetric — modular seating, jumbotron, light towers.",
-      field:"Pitch on the dimetric grid, dither-checker mow pattern, consistent down-right shadows.",
-      hero:"~32px iso footballer from flat planes (one shadow + one highlight per face), diamond shadow." },
-
-    { name:"Cozy Farm-Sim", era:"Stardew Valley, 2016", feel:"chunky", dither:"none", outline:"#2b1d10", seed:83,
-      palette:["#2b1d10","#6b4a2a","#4c8a3f","#6fbfd6","#7cb342","#e0c07a","#f4d47c"],
-      vibe:"Wholesome, sunlit, everyone's-invited kickabout.",
-      lobby:"Golden-hour clubhouse: wooden bleachers, bunting, hand-painted sign, chunky cream buttons.",
-      field:"Saturated friendly pitch, tidy chalk lines, picket fence & trees, warm sunlight wash.",
-      hero:"~28px chibi: big head, tiny body, dot eyes, rosy cheek, flat cheerful kit, soft shadow." },
-
-    { name:"Synthwave Neon", era:"80s retrowave / vaporwave", feel:"medium", dither:"checker", outline:"#ff2975", seed:96,
-      palette:["#1a0b2e","#3b1157","#7b1fa2","#ff2975","#f222ff","#00e5ff","#ffd319"],
-      vibe:"1984 arcade fever dream in magenta & cyan.",
-      lobby:"Neon dusk: purple sky, dithered sun disc, receding cyan grid floor, glowing chrome PLAY.",
-      field:"Pitch as a glowing wireframe — cyan grid on near-black turf, magenta lines, neon ball trail.",
-      hero:"~48px dark silhouette rimmed in cyan-magenta neon, chrome kit number, afterimage glow." }
+    { engine:'paper', smooth:true, name:"Paper Cut-out", ref:"layered flat paper + shadow", geo:"stylized", surf:"flat",
+      vibe:"Flat paper shapes stacked with drop shadows — craft, storybook, Paper-Mario feel.",
+      lobby:"Layered paper stands and cut-out crowd over a paper sky, with a shadowed paper PLAY tab.",
+      field:"A green paper pitch with cut white lines casting tiny shadows — everything one sheet above the last.",
+      hero:"A player assembled from cut paper pieces with soft drop shadows — flat but with real depth." }
   ];
 
   // ---------- build ----------
-  const ELEMS = [ ["Lobby", drawLobby], ["Field", drawField], ["Hero", drawHero] ];
-  const feelRes = { chunky:[44,33], medium:[60,45], fine:[82,62] };
-  const matrix = document.getElementById('matrix');
-  const toDraw = [];
-
-  STYLES.forEach((s) => {
-    const R = roles(s);
-    const row = document.createElement('div'); row.className='row';
-
-    const rail = document.createElement('div'); rail.className='rail';
-    const nm = document.createElement('div'); nm.className='rname'; nm.textContent=s.name;
-    const era = document.createElement('div'); era.className='rera'; era.textContent=s.era;
-    const sw = document.createElement('div'); sw.className='swatches';
-    s.palette.forEach(c=>{ const i=document.createElement('i'); i.style.background=c; i.title=c; sw.appendChild(i); });
-    const tags = document.createElement('div'); tags.className='tags';
+  const ELEMS=[["Lobby",LOBBY],["Field",FIELD],["Hero",HERO]];
+  const matrix=document.getElementById('matrix');
+  const jobs=[];
+  STYLES.forEach((S)=>{
+    if(!S.seed) S.seed = 40 + (S.name.length*7)%97;
+    const row=document.createElement('div'); row.className='row'+(S.now?' now':'');
+    const rail=document.createElement('div'); rail.className='rail';
+    const nm=document.createElement('div'); nm.className='rname'; nm.innerHTML=S.name+(S.now?'<span class="now-pill">now</span>':'');
+    const ref=document.createElement('div'); ref.className='rref'; ref.textContent=S.ref;
+    const tags=document.createElement('div'); tags.className='tags';
     const mk=(t,on)=>{ const e=document.createElement('span'); e.className='tag'+(on?' on':''); e.textContent=t; return e; };
-    tags.append(mk(s.feel), mk('dither', s.dither!=='none'), mk('outline', !!(s.outline && s.outline!=='none')));
-    const vibe = document.createElement('div'); vibe.className='rvibe'; vibe.textContent=s.vibe;
-    rail.append(nm, era, sw, tags, vibe);
-    row.appendChild(rail);
-
-    ELEMS.forEach(([label, fn]) => {
-      const cell = document.createElement('div'); cell.className='cell';
-      const wrap = document.createElement('div'); wrap.className='cvwrap';
-      const lb = document.createElement('span'); lb.className='elbl'; lb.textContent=label;
-      const cv = document.createElement('canvas');
-      const [w,h] = feelRes[s.feel]; cv.width=w; cv.height=h;
-      wrap.append(lb, cv);
-      const idea = document.createElement('p'); idea.className='idea';
-      idea.innerHTML = '<b>'+label+':</b> ' + s[label.toLowerCase()];
-      cell.append(wrap, idea);
-      row.appendChild(cell);
-      toDraw.push([cv, fn, w, h, s, R]);
+    tags.append(mk(S.geo,true), mk(S.surf, S.surf==='textured'||S.surf==='glossy'));
+    const vibe=document.createElement('div'); vibe.className='rvibe'; vibe.textContent=S.vibe;
+    rail.append(nm,ref,tags,vibe); row.appendChild(rail);
+    ELEMS.forEach(([label,fn])=>{
+      const cell=document.createElement('div'); cell.className='cell';
+      const wrap=document.createElement('div'); wrap.className='cvwrap';
+      const lb=document.createElement('span'); lb.className='elbl'; lb.textContent=label;
+      const cv=document.createElement('canvas');
+      if(S.smooth){ cv.width=300; cv.height=225; cv.className='sm'; } else { cv.width=132; cv.height=99; }
+      wrap.append(lb,cv);
+      const idea=document.createElement('p'); idea.className='idea'; idea.innerHTML='<b>'+label+':</b> '+S[label.toLowerCase()];
+      cell.append(wrap,idea); row.appendChild(cell);
+      jobs.push([cv,fn,S]);
     });
-
     matrix.appendChild(row);
   });
-
-  toDraw.forEach(([cv, fn, w, h, s, R]) => {
-    const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled=false;
-    setPal(s.palette);
-    try { fn(ctx, w, h, s, R); } catch(e){ ctx.fillStyle='#300'; ctx.fillRect(0,0,w,h); }
-  });
+  jobs.forEach(([cv,fn,S])=>{ const ctx=cv.getContext('2d'); ctx.imageSmoothingEnabled=!!S.smooth; ctx.lineCap='round'; ctx.lineJoin='round';
+    try{ fn(ctx,cv.width,cv.height,S); }catch(e){ ctx.fillStyle='#301515'; ctx.fillRect(0,0,cv.width,cv.height); } });
 })();
 </script>
