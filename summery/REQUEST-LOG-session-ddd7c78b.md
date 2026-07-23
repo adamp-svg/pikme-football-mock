@@ -40,6 +40,18 @@ Sibling logs (other agents): `AGENT-REQUEST-LOG.md`, `REQUEST-LOG.md`.
 - **Verify:** css served 200 on 3013, brace-balanced, values live. NOT visually confirmed on device.
 - **Status:** DONE (pending real-device visual confirm).
 
+## R4 — 2026-07-23 — Pixel-art style explorer (artifact, research)
+- **User:** explore different pixel-art styles we could use instead. Deliver an artifact: matrix with COLUMNS = lobby / field / hero, ROWS = each style, ≥10 styles. Use subagents to research.
+- **Approach:** 3 background research subagents (retro-low-res / 8-16-bit console / modern-stylized) each return authentic palettes + per-element ideas; I build a self-contained HTML artifact that renders each cell as REAL procedural pixel art on canvas (drawLobby/drawField/drawHero parameterized by each style's palette+resolution+dither+outline).
+- **File:** `summery/pixel-style-explorer.html` (committed) + published as an Artifact.
+- **Not a code change to the game** — pure design exploration to pick a direction.
+- **DONE — commit `cc0a392`; artifact published:** https://claude.ai/code/artifact/d4989ef6-770b-4e39-b508-232f5db2d147
+- **Result:** `summery/pixel-style-explorer.html` — 15 styles × {lobby, field, hero}, each cell REAL procedural pixel art on canvas (shared 12×16 footballer sprite + procedural pitch/stadium), every pixel snapped to the row's palette; feel→resolution (chunky/medium/fine), dither + outline per style.
+- **15 styles:** Game Boy DMG, 1-bit Mono, ZX Spectrum, C64, CGA, NES, SNES, PICO-8, Genesis/Mega Drive, Arcade CPS/Neo-Geo, HD-2D, Hi-Bit Modern, Isometric, Cozy Farm-Sim, Synthwave.
+- **Research:** 3 background subagents (retro-low / 8-16-bit / modern) returned hardware-verified palettes (Lospec, official PICO-8 16, C64 Pepto, NES 2C02, Genesis DAC levels) + per-element ideas; folded into the STYLES array.
+- **Verify:** script syntax OK; runtime under mock canvas/DOM ran all 45 draws clean (125,376 fillRects, 15 balls), no errors. Not visually eyeballed (no browser here) — user views the published artifact.
+- **Status:** DONE.
+
 ## R2 — 2026-07-23 — Cards page: news look + drag cards out of / between slots
 - **User:** (1) make the page look like the news page (background + opacity); (2) let the user pull a card out of a slot — dropped anywhere outside a slot it goes back to the relevant tier; (3) allow swiping cards from slots.
 - **DONE — commit `fa72828`.**
