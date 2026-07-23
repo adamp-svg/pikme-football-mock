@@ -1183,6 +1183,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .cards-slots .pslot { height: 84px; max-height: none; width: 66px; }
 .cards-slots .pslot-cap { font-size: 11px; }
 .cards-hint { font: 800 12px "Arial Black", sans-serif; color: #8aa08c; text-align: center; }
+.cards-best {
+  align-self: center; padding: 9px 18px; border: 0; border-radius: 12px; cursor: pointer;
+  background: linear-gradient(180deg, #ffd873, #ffb800); color: #3a2a00;
+  font: 900 14px "Arial Black", sans-serif; box-shadow: 0 4px 0 #a97400, 0 6px 10px rgba(0,0,0,.4);
+}
+.cards-best:active { transform: translateY(3px); box-shadow: 0 1px 0 #a97400; }
 .cards-deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 10px; width: 100%; max-width: 520px; }
 .cards-deck-card {
   position: relative; aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden; cursor: pointer;

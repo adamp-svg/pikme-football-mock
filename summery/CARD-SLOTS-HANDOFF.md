@@ -73,7 +73,21 @@ NOTE: swap confirmed CORRECT / kept as-is (user chose "keep swap").
 COMMIT HYGIENE: client.js & style.css also hold ANOTHER agent's uncommitted friends-tabs + rank
 work. Committed ONLY my hunks via `git apply --cached` (their work left intact in the tree).
 
+## Iteration 4 — power-slot room: info popup, "equip best", hide equipped from album
+Requests: (1) tapping a slot (or its card) shows the power info + explanation; (2) add an
+"equip best" button in the room; (3) a card equipped from a tier is removed from the album.
+- (1) room slot tap now calls the existing `showSlotInfo(i)` popup (was: select slot). Popup's
+  remove button now also `renderCardsPage()` so the freed card returns to the album.
+- (2) `#cards-best-btn` (index.html, in #cards subpage) -> handler after bindFanDrag: same as
+  home #select-best-btn (rankForLoadout top-3) + refreshes room & lobby. CSS `.cards-best` (gold).
+- (3) album groups now `filter(... && !isEquipped(c))` — equipped cards leave the album; the
+  fan-card `.equipped` outline is now dead (removed). Drag-equip already re-renders (removes it);
+  remove-from-slot re-adds it.
+- NOTE: other agent committed their friends+rank work (3cca650), so my files no longer collide;
+  staged normally this round (verified diff is 100% mine before commit).
+
 ## Request log
 - 2026-07-23: initial 3-point task (above).
 - 2026-07-23: iteration 2 — fanned overlapping album, tap-reveal + drag-to-slot equip.
 - 2026-07-23: iteration 3 — fix legendary-under-Epic (enclosed tier boxes; layout, not grouping).
+- 2026-07-23: iteration 4 — room slot-info popup + "equip best" button + hide equipped from album.

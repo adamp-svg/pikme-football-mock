@@ -1003,7 +1003,7 @@ function renderCardsPage() {
     el.dataset.slot = i;
     if (card) el.appendChild(slotCardEl(card, 'pslot-art', 62, 80));
     else { const ic = document.createElement('span'); ic.className = 'pslot-emptyic'; ic.textContent = meta.icon; el.appendChild(ic); }
-    el.addEventListener('click', () => { cardsSelSlot = i; renderCardsPage(); });
+    el.addEventListener('click', () => showSlotInfo(i)); // tap slot (or its card) -> power info + explanation
     const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label;
     item.appendChild(el); item.appendChild(cap);
     slotsEl.appendChild(item);
@@ -1018,8 +1018,10 @@ function renderCardsPage() {
   // (gestures handled by bindFanDrag() below). FAN_PEEK = visible sliver width per card.
   const TIER_ORDER = ['legendary', 'epic', 'rare', 'common'];
   const byWorth = (a, b) => (b.w || 0) - (a.w || 0);
+  const isEquipped = (c) => eff.some((s) => s && s.r === c.r && +s.n === +c.n);
   TIER_ORDER.forEach((rar) => {
-    const group = all.filter((c) => c.r === rar).sort(byWorth);
+    // Equipped cards leave the album (they now live in a slot); removing one puts it back.
+    const group = all.filter((c) => c.r === rar && !isEquipped(c)).sort(byWorth);
     if (!group.length) return;
     // Each tier is its OWN enclosed box (rarity-colored border) so cards can never read as
     // belonging to a neighbouring tier's header.
@@ -1033,7 +1035,7 @@ function renderCardsPage() {
     track.style.width = ((group.length - 1) * FAN_PEEK + FAN_CARD_W) + 'px';
     group.forEach((c, idx) => {
       const el = document.createElement('div');
-      el.className = 'fan-card rarity-' + c.r + (eff.some((s) => s && s.r === c.r && +s.n === +c.n) ? ' equipped' : '');
+      el.className = 'fan-card rarity-' + c.r;
       el.style.left = (idx * FAN_PEEK) + 'px';
       el.style.zIndex = idx + 1;
       el.dataset.r = c.r; el.dataset.n = c.n;
@@ -1107,6 +1109,16 @@ function renderCardsPage() {
   deck.addEventListener('pointerup', end);
   deck.addEventListener('pointercancel', reset);
 })();
+// "Equip best" inside the cards room: auto-fill the 3 slots with the best cards (rarity, then
+// copies — same as the home #select-best-btn), then refresh both the room and the lobby slots.
+document.getElementById('cards-best-btn')?.addEventListener('click', () => {
+  unlockAudio();
+  const top = rankForLoadout(myCards()).slice(0, 3);
+  myLoadout = [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
+  saveLoadout(myLoadout);
+  renderPowerSlots(); renderCardsPage();
+  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+});
 // ---- Lobby slot gestures (delegated on #power-slots, survives re-renders) --------------
 // TAP a slot            -> open the cards room, targeting that slot.
 // DRAG a filled slot onto another slot -> SWAP the two cards.
@@ -1189,7 +1201,7 @@ function showSlotInfo(i) {
     + '<div class="pinfo-tiers">נדירות הקלף קובעת את החוזק: נפוץ +3% · נדיר +7% · אדיר +12% · אגדי +20%</div>'
     + (card ? '<button class="pinfo-remove">הסר קלף מהחריץ</button>' : '');
   const rm = box.querySelector('.pinfo-remove');
-  if (rm) rm.addEventListener('click', () => { setSlotCard(i, null); hidePowerInfo(); });
+  if (rm) rm.addEventListener('click', () => { setSlotCard(i, null); hidePowerInfo(); renderCardsPage(); }); // removed card returns to the album
   powerInfoEl.classList.remove('hidden');
 }
 // In-match HUD: the 3 equipped cards next to the timer (read-only).

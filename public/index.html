@@ -193,7 +193,9 @@
   </div>
 
   <!-- Cards / loadout page — opened by tapping a power slot on the home hub. Renders the
-       3 equipped slots (tap to select) + the album deck (tap a card to equip it). -->
+       3 equipped slots (tap a slot for its power info) + the album deck (tap a card to reveal,
+       drag onto a slot to equip). Equipped cards are hidden from the album. "צייד הכי טוב"
+       auto-fills the 3 best cards. -->
   <div id="cards" class="screen hidden">
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
@@ -203,7 +205,8 @@
       </div>
       <div class="subpage-body">
         <div id="cards-slots" class="cards-slots"></div>
-        <div class="cards-hint">הקש קלף לחשיפה · גרור קלף אל חריץ כדי לצייד</div>
+        <button id="cards-best-btn" class="cards-best">✨ צייד את הכי טוב</button>
+        <div class="cards-hint">הקש חריץ להסבר · הקש קלף לחשיפה · גרור קלף אל חריץ כדי לצייד</div>
         <div id="cards-deck" class="cards-deck"></div>
       </div>
     </div>
