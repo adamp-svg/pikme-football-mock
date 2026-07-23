@@ -821,12 +821,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-arena {
   appearance: none; flex: 0 0 auto; display: flex; direction: rtl; align-items: center; gap: 8px;
   width: 168px; height: 46px; padding: 4px 12px; cursor: pointer; position: relative; z-index: 3;
-  background: rgba(15,22,17,.82); border: 2px solid #3a473c; color: #cdd8c8; box-shadow: 0 3px 0 #070b08;
+  background: rgba(15,22,17,.82); border: 2px solid #3a473c; color: #cdd8c8; box-shadow: 0 3px 0 #070b08; overflow: hidden;
 }
 .hub-arena:active { transform: translateY(2px); box-shadow: 0 1px 0 #070b08; }
-.hub-arena-ic { font-size: 18px; }
-.hub-arena-tx { flex: 1; text-align: right; }
-.hub-arena-tx b { display: block; font: 900 12px "Arial Black", sans-serif; color: #e7dcae; white-space: nowrap; }
+.hub-arena-ic { font-size: 18px; flex: none; }
+.hub-arena-tx { flex: 1; min-width: 0; text-align: right; }
+.hub-arena-tx b { display: block; font: 900 12px "Arial Black", sans-serif; color: #e7dcae; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* subtitle + chevron hidden in the compact pill so the arena reads as a single line (like Training) */
 .hub-arena-tx small { display: none; }
 .hub-arena-chev { display: none; }
@@ -843,12 +843,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   appearance: none; flex: none; cursor: pointer; text-align: right;
   display: flex; direction: rtl; align-items: center; gap: 8px; padding: 5px 13px;
   background: rgba(19,27,22,.92); border: 3px solid #39463b; color: #e7dcae;
-  box-shadow: inset 0 -5px #0b100c, 0 5px 0 rgba(0,0,0,.35);
+  box-shadow: inset 0 -5px #0b100c, 0 5px 0 rgba(0,0,0,.35); overflow: hidden;
 }
 .hub-mode .hub-mic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; font-size: 16px; background: rgba(0,0,0,.28); }
-.hub-mtx { min-width: 0; }
-.hub-mtx b { display: block; font: 900 13px "Arial Black", sans-serif; }
-.hub-mtx small { display: block; color: #8aa08c; font-size: 9px; font-weight: 800; margin-top: 2px; }
+/* Label column clips to the button so long Hebrew strings never overflow the box. */
+.hub-mtx { min-width: 0; overflow: hidden; }
+.hub-mtx b { display: block; font: 900 13px "Arial Black", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hub-mtx small { display: block; color: #8aa08c; font-size: 9px; font-weight: 800; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hub-mode .hub-go { margin-right: auto; font: 900 20px "Arial Black", sans-serif; color: #8aa08c; }
 .hub-mode:active { transform: translateY(3px); box-shadow: inset 0 -3px #0b100c, 0 2px 0 rgba(0,0,0,.35); }
 /* secondary (Training): smaller + quieter than the primary; sits bottom-left. */
@@ -868,7 +869,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   box-shadow: inset 0 -8px #b9760f, 0 8px 0 #0b0f0b, 0 10px 20px rgba(0,0,0,.5);
 }
 .hub-mode.quick .hub-mic { width: 38px; height: 38px; font-size: 22px; background: rgba(0,0,0,.12); }
-.hub-mode.quick .hub-mtx { text-align: center; }
+.hub-mode.quick .hub-mtx { text-align: center; width: 100%; }
 .hub-mode.quick .hub-mtx b { font-size: 18px; letter-spacing: .5px; line-height: 1; }
 .hub-mode.quick .hub-mtx small { color: #6a4a08; font-size: 8px; display: block; margin-top: 2px; }
 .hub-mode.quick .hub-go { display: none; }
