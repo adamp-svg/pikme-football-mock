@@ -1,0 +1,404 @@
+<title>Pixel Lab — Football Style Explorer</title>
+<style>
+  :root{
+    --bg:#0a0e0d; --bg2:#0e1413; --panel:#121a18; --panel2:#17211e;
+    --line:#26332f; --line2:#33443f;
+    --ink:#e9efe6; --ink-dim:#9fb0a6; --ink-faint:#6d7f76;
+    --gold:#ffcb43; --gold-dim:#c69a2e;
+    --rail: 216px;
+    --mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; }
+  .wrap{
+    min-height:100vh; color:var(--ink);
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,.014) 0 2px, transparent 2px 4px),
+      radial-gradient(120% 80% at 50% -10%, #14201d 0%, var(--bg) 62%);
+    font-family:var(--sans); line-height:1.5;
+    padding:0 clamp(12px,3vw,40px) 64px;
+  }
+  .lab-head{ max-width:1180px; margin:0 auto; padding:36px 4px 20px; }
+  .kicker{
+    font-family:var(--mono); font-size:12px; letter-spacing:.32em; text-transform:uppercase;
+    color:var(--gold-dim); display:flex; align-items:center; gap:10px; margin:0 0 14px;
+  }
+  .kicker::before{ content:""; height:2px; flex:0 0 22px; background:var(--gold-dim); opacity:.6; }
+  .kicker::after{ content:""; height:2px; flex:1; background:var(--gold-dim); opacity:.25; }
+  h1{
+    font-size:clamp(30px,6vw,58px); line-height:.98; margin:0 0 10px; font-weight:850;
+    letter-spacing:-.015em; text-wrap:balance;
+    text-shadow:0 2px 0 #000, 3px 4px 0 rgba(0,0,0,.35);
+  }
+  h1 .hl{ color:var(--gold); }
+  .lede{ max-width:64ch; color:var(--ink-dim); font-size:clamp(14px,1.7vw,17px); margin:0 0 22px; }
+  .lede b{ color:var(--ink); font-weight:650; }
+  .legend{ display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; }
+  .chip{
+    font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--ink-dim);
+    border:1px solid var(--line2); background:var(--panel); padding:5px 9px;
+    display:inline-flex; align-items:center; gap:7px;
+  }
+  .chip b{ color:var(--ink); font-weight:600; }
+  .dot{ width:9px; height:9px; display:inline-block; }
+  .dot.feel{ background:var(--gold); }
+  .dot.dith{ background:repeating-conic-gradient(var(--ink) 0 25%, transparent 0 50%) 0 0/6px 6px; }
+  .dot.out{ background:#000; outline:2px solid var(--ink); outline-offset:-2px; }
+
+  .matrix{ max-width:1180px; margin:22px auto 0; }
+  .cols-head{
+    position:sticky; top:0; z-index:5;
+    display:grid; grid-template-columns:var(--rail) repeat(3,1fr); gap:14px;
+    padding:10px 12px; margin-bottom:6px;
+    background:linear-gradient(180deg, var(--bg) 62%, transparent);
+    backdrop-filter:blur(2px);
+  }
+  .cols-head .ch{
+    font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--ink); display:flex; align-items:baseline; gap:8px;
+  }
+  .cols-head .ch small{ color:var(--ink-faint); letter-spacing:.05em; text-transform:none; font-size:11px; }
+  .cols-head .ch.rail-h{ color:var(--gold-dim); }
+
+  .row{
+    display:grid; grid-template-columns:var(--rail) repeat(3,1fr); gap:14px;
+    padding:14px 12px; border-top:1px solid var(--line);
+    align-items:stretch;
+  }
+  .row:hover{ background:rgba(255,255,255,.015); }
+
+  .rail{ display:flex; flex-direction:column; gap:9px; min-width:0; }
+  .rail .rname{ font-weight:800; font-size:17px; letter-spacing:-.01em; line-height:1.1; }
+  .rail .rera{ font-family:var(--mono); font-size:10.5px; color:var(--ink-faint); line-height:1.4; }
+  .rail .rvibe{ font-size:12.5px; color:var(--ink-dim); font-style:italic; }
+  .swatches{ display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--line2); width:max-content; max-width:100%; }
+  .swatches i{ width:19px; height:19px; display:block; }
+  .tags{ display:flex; flex-wrap:wrap; gap:5px; }
+  .tag{
+    font-family:var(--mono); font-size:10px; letter-spacing:.03em; color:var(--ink-dim);
+    border:1px solid var(--line2); padding:3px 6px; text-transform:lowercase;
+  }
+  .tag.on{ color:#0a0e0d; background:var(--gold); border-color:var(--gold); font-weight:700; }
+
+  .cell{ display:flex; flex-direction:column; gap:7px; min-width:0; }
+  .cvwrap{
+    position:relative; aspect-ratio:4/3; width:100%;
+    border:2px solid #05100c; background:#05100c;
+    box-shadow:0 3px 0 rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.04);
+    overflow:hidden;
+  }
+  canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; image-rendering:pixelated; }
+  .elbl{
+    position:absolute; top:0; left:0; z-index:2;
+    font-family:var(--mono); font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink); background:rgba(5,16,12,.78); padding:3px 6px;
+    border-right:1px solid var(--line2); border-bottom:1px solid var(--line2);
+  }
+  .idea{ font-size:12px; color:var(--ink-dim); margin:0; }
+  .idea b{ color:var(--ink); font-weight:600; }
+
+  footer{ max-width:1180px; margin:34px auto 0; padding:18px 12px 0; border-top:1px solid var(--line);
+    font-size:12.5px; color:var(--ink-faint); }
+  footer b{ color:var(--ink-dim); }
+
+  @media (max-width:760px){
+    :root{ --rail:1fr; }
+    .cols-head{ display:none; }
+    .row{ grid-template-columns:1fr; gap:12px; padding:18px 6px; }
+    .rail{ padding-bottom:6px; border-bottom:1px dashed var(--line); }
+    .cell .elbl{ font-size:10px; }
+  }
+  @media (prefers-reduced-motion:no-preference){
+    .row{ opacity:0; transform:translateY(6px); animation:rise .5s ease forwards; }
+    @keyframes rise{ to{ opacity:1; transform:none; } }
+  }
+</style>
+
+<div class="wrap">
+  <header class="lab-head">
+    <p class="kicker">Pixel Lab · art direction</p>
+    <h1>Football, in <span class="hl">15 pixel styles</span></h1>
+    <p class="lede">Each row is a different pixel-art direction we could take the game; each column is the same three things drawn that way — the <b>lobby</b> (stadium + menu), the <b>field</b> (the pitch), and the <b>hero</b> (a player sprite). Every tile is real pixel art rendered live from that style's verified palette and resolution — so you're comparing the actual look, and every pixel is snapped to the palette shown on the left.</p>
+    <div class="legend">
+      <span class="chip"><span class="dot feel"></span>pixel size — <b>chunky → fine</b></span>
+      <span class="chip"><span class="dot dith"></span>dithering — <b>on / off</b></span>
+      <span class="chip"><span class="dot out"></span>hard outline — <b>on / off</b></span>
+      <span class="chip">palette shown left of each row</span>
+    </div>
+  </header>
+
+  <div class="cols-head">
+    <div class="ch rail-h">Style</div>
+    <div class="ch">Lobby <small>· menu</small></div>
+    <div class="ch">Field <small>· pitch</small></div>
+    <div class="ch">Hero <small>· player</small></div>
+  </div>
+
+  <div class="matrix" id="matrix"></div>
+
+  <footer>
+    <b>How to read this:</b> tiles are procedural previews generated from each style's real palette, pixel resolution, dithering and outline rules — a faithful way to compare directions before committing an artist; final assets would be hand-drawn. Palettes verified against hardware / reference sources — Lospec, the official PICO-8 set, C64 Pepto, NES 2C02, and Genesis DAC levels.
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  // ---------- color helpers ----------
+  const h2rgb = (h) => { h = h.replace('#',''); if (h.length===3) h = h.split('').map(c=>c+c).join(''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; };
+  const lum = (h) => { const [r,g,b]=h2rgb(h); return 0.299*r+0.587*g+0.114*b; };
+  const sat = (h) => { let [r,g,b]=h2rgb(h).map(v=>v/255); const mx=Math.max(r,g,b),mn=Math.min(r,g,b); if(mx===mn) return 0; const l=(mx+mn)/2, d=mx-mn; return d/(1-Math.abs(2*l-1)); };
+  const grn = (h) => { const [r,g,b]=h2rgb(h); return g-(r+b)/2; };
+  const warm = (h) => { const [r,g,b]=h2rgb(h); return (r-b)+lum(h)*0.2; };
+  const mix = (a,b,t) => { const A=h2rgb(a),B=h2rgb(b); return `rgb(${A.map((v,i)=>Math.round(v+(B[i]-v)*t)).join(',')})`; };
+
+  // Every fill is snapped to the current style's palette so each row is strictly in-palette.
+  let CURPAL = null;
+  const setPal = (p) => { CURPAL = p.map(h=>[h,h2rgb(h)]); };
+  const toRGB = (c) => { if(c[0]==='#') return h2rgb(c); const m=c.match(/\d+/g); return [+m[0],+m[1],+m[2]]; };
+  const snap = (c) => { if(!CURPAL) return c; const [r,g,b]=toRGB(c); let bh=CURPAL[0][0], bd=1e18; for(const [hex,[R,G,B]] of CURPAL){ const d=(r-R)**2+(g-G)**2+(b-B)**2; if(d<bd){ bd=d; bh=hex; } } return bh; };
+  const px = (ctx,x,y,c,w=1,h=1) => { ctx.fillStyle=snap(c); ctx.fillRect(x|0,y|0,w,h); };
+
+  function roles(s){
+    const p = s.palette.slice();
+    const byL = [...p].sort((a,b)=>lum(a)-lum(b));
+    const dark = byL[0], light = byL[byL.length-1], mid = byL[(byL.length/2)|0];
+    let acc=p[0], bs=-1; for(const c of p){ if(c===dark) continue; const v=sat(c)*180 + lum(c)*0.25; if(v>bs){ bs=v; acc=c; } }
+    let grass=mid, bg=-1e9; for(const c of p){ const v=grn(c)+lum(c)*0.05; if(v>bg){ bg=v; grass=c; } }
+    let grass2=grass, best=1e9; for(const c of p){ if(c===grass) continue; const d=Math.abs(lum(c)-lum(grass)); if(d<best){ best=d; grass2=c; } }
+    let sky=light, sd=-1e9; for(const c of p){ const v=lum(c)*0.6 - grn(c)*0.4; if(v>sd && c!==grass){ sd=v; sky=c; } }
+    let skin=light, wk=-1e9; for(const c of p){ const v=warm(c); if(v>wk){ wk=v; skin=c; } }
+    return { p, dark, light, mid, acc, grass, grass2, sky, skin };
+  }
+
+  const rng = (seed) => { let a=seed>>>0; return () => { a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; };
+  const ring = (ctx,cx,cy,r,c) => { for(let a=0;a<360;a+=6){ px(ctx, Math.round(cx+Math.cos(a*Math.PI/180)*r), Math.round(cy+Math.sin(a*Math.PI/180)*r), c); } };
+
+  // ---------- shared footballer sprite (12x16), recoloured per style ----------
+  const SPRITE = [
+    "....KKKK....","...KKKKKK...","..KKSSSSKK..","..KSSSSSSK..",
+    "...SSSSSS...","....SSSS....","...JJJJJJ...",".JJJJJJJJJJ.",
+    "JJJJJ11JJJJJ","SJJJJJJJJJJS",".JJJJJJJJJJ.","..PPPPPPPP..",
+    "..PPP..PPP..","..SS....SS..","..SS....SS..",".KKK...KKK.."
+  ];
+
+  function drawHero(ctx,W,H,s,R){
+    const gy = Math.round(H*0.72);
+    // sky band (snapped) + optional checker for dithered styles
+    for(let y=0;y<gy;y++) for(let x=0;x<W;x++){
+      let c = mix(R.sky, mix(R.acc,R.sky,.4), y/gy*0.6);
+      if(s.dither!=='none' && ((x+y)&1) && y>gy*0.4) c = R.sky;
+      px(ctx,x,y,c);
+    }
+    // ground
+    for(let y=gy;y<H;y++) for(let x=0;x<W;x++) px(ctx,x,y, (y<gy+2)?mix(R.grass,R.dark,.25):R.grass);
+    // sprite
+    const sc = Math.max(1, Math.floor((H*0.82)/16));
+    const sw=12*sc, sh=16*sc, ox=Math.round((W-sw)/2), oy=Math.round(gy-sh+sc*1.5);
+    const col = { K:R.dark, S:R.skin, J:R.acc, '1':R.light, P:mix(R.dark,R.mid,.5) };
+    const OUT = (s.outline && s.outline!=='none') ? s.outline : null;
+    // shadow
+    for(let i=-1;i<13;i++) px(ctx, ox+i*sc, gy+sc, mix(R.grass,R.dark,.5), sc, Math.max(1,sc>>1));
+    if(OUT){ ctx.fillStyle=snap(OUT);
+      for(let j=0;j<16;j++) for(let i=0;i<12;i++){ if(SPRITE[j][i]==='.') continue;
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>ctx.fillRect(ox+i*sc+dx, oy+j*sc+dy, sc, sc)); } }
+    for(let j=0;j<16;j++) for(let i=0;i<12;i++){ const ch=SPRITE[j][i]; if(ch==='.') continue; ctx.fillStyle=snap(col[ch]||R.mid); ctx.fillRect(ox+i*sc, oy+j*sc, sc, sc); }
+    // ball at feet-right
+    const bx=ox+12*sc+sc, by=gy-sc*2, br=Math.max(2,Math.round(sc*1.6));
+    ctx.fillStyle=snap(R.light); ctx.beginPath(); ctx.arc(bx,by,br,0,7); ctx.fill();
+    if(OUT){ ctx.strokeStyle=snap(OUT); ctx.lineWidth=Math.max(1,sc*0.5); ctx.stroke(); }
+    px(ctx, Math.round(bx-br*0.3), Math.round(by-br*0.2), R.dark, Math.max(1,br>>1), Math.max(1,br>>1));
+  }
+
+  function drawField(ctx,W,H,s,R){
+    const stripe = Math.max(2, Math.round(H/7));
+    for(let y=0;y<H;y++){ const band=(y/stripe)|0; const base=band%2?R.grass:R.grass2, other=band%2?R.grass2:R.grass;
+      for(let x=0;x<W;x++){ let c=base; if(s.dither!=='none' && ((x+y)&1)) c=other; px(ctx,x,y,c); } }
+    let line=R.light; if(Math.abs(lum(line)-lum(R.grass))<38) line=R.acc;
+    for(let x=1;x<W-1;x++){ px(ctx,x,1,line); px(ctx,x,H-2,line); }
+    for(let y=1;y<H-1;y++){ px(ctx,1,y,line); px(ctx,W-2,y,line); }
+    for(let y=1;y<H-1;y++) px(ctx,(W/2|0),y,line);
+    ring(ctx, W/2, H/2, Math.max(3,H/6), line); px(ctx,(W/2|0),(H/2|0),line);
+    const bh=Math.round(H*0.44), bw=Math.round(W*0.12);
+    const y0=(H-bh)/2|0, y1=(H+bh)/2|0;
+    for(let y=y0;y<y1;y++){ px(ctx,1,y,line); px(ctx,1+bw,y,line); px(ctx,W-2,y,line); px(ctx,W-2-bw,y,line); }
+    for(let x=1;x<=1+bw;x++){ px(ctx,x,y0,line); px(ctx,x,y1,line); }
+    for(let x=W-2-bw;x<=W-2;x++){ px(ctx,x,y0,line); px(ctx,x,y1,line); }
+  }
+
+  function drawLobby(ctx,W,H,s,R){
+    const rnd = rng(s.seed||7);
+    const skyH=Math.round(H*0.38);
+    for(let y=0;y<skyH;y++){ const t=y/skyH, c=mix(R.sky, mix(R.acc,R.sky,.5), t*0.7);
+      for(let x=0;x<W;x++){ let cc=c; if(s.dither!=='none' && ((x+y)&1) && t>0.5) cc=mix(c,R.light,.3); px(ctx,x,y,cc); } }
+    const standH=Math.round(H*0.30);
+    for(let y=skyH;y<skyH+standH;y++) for(let x=0;x<W;x++) px(ctx,x,y, y<skyH+2?R.dark:mix(R.mid,R.dark,.35));
+    const crowd=[R.acc,R.light,R.mid,mix(R.acc,R.light,.5)];
+    for(let y=skyH+2;y<skyH+standH-1;y+=2) for(let x=1;x<W-1;x+=2){ if(rnd()>0.45) px(ctx,x,y, crowd[(rnd()*crowd.length)|0]); }
+    for(let y=skyH+standH;y<H;y++) for(let x=0;x<W;x++) px(ctx,x,y, ((x+y)&1)&&s.dither!=='none'?R.grass2:R.grass);
+    for(let x=2;x<W-2;x++) px(ctx,x,skyH+standH+2, mix(R.light,R.grass,.1));
+    // PLAY button
+    const bw=Math.round(W*0.42), bh=Math.max(6,Math.round(H*0.16)), bx=(W-bw)/2|0, by=Math.round(H*0.60);
+    const OUT=(s.outline&&s.outline!=='none')?s.outline:R.dark;
+    px(ctx,bx,by,R.acc,bw,bh);
+    for(let x=bx;x<bx+bw;x++){ px(ctx,x,by,mix(R.acc,R.light,.55)); px(ctx,x,by+bh-1,OUT); }
+    for(let y=by;y<by+bh;y++){ px(ctx,bx,y,mix(R.acc,R.light,.35)); px(ctx,bx+bw-1,y,OUT); }
+    const cxs=bx+bw-Math.round(bw*0.22), cy=by+(bh/2|0), a=Math.max(1,bh>>2);
+    for(let k=0;k<a;k++){ px(ctx,cxs+k,cy-a+k,OUT); px(ctx,cxs+k,cy+a-k,OUT); }
+  }
+
+  // ---------- STYLES — palettes verified by research (Lospec / PICO-8 / C64 Pepto / NES 2C02 / Genesis DAC) ----------
+  const STYLES = [
+    { name:"Game Boy DMG", era:"Nintendo GB, 1989 · Super Mario Land", feel:"chunky", dither:"checker", outline:"#0f380f", seed:3,
+      palette:["#0f380f","#306230","#8bac0f","#9bbc0f"],
+      vibe:"Cozy handheld pea-soup nostalgia — 4 greens, no black.",
+      lobby:"Flat green tiers, crowd faked with 2×2 checker dither, beveled pale-green PLAY box.",
+      field:"Palest green pitch, 1px dark-green lines, mowing stripes dithered between the mid tones.",
+      hero:"~16px striker in two greens with a darkest-green outline — no skin colour, pure DMG." },
+
+    { name:"1-bit Monochrome", era:"Obra Dinn / Downwell", feel:"medium", dither:"ordered", outline:"none", seed:11,
+      palette:["#000000","#ffffff"],
+      vibe:"Stark ink-print — shape + Bayer dither do everything.",
+      lobby:"Black & white only; sky, stands and crowd are pure ordered-dither density. Obra-Dinn energy.",
+      field:"Pitch as negative space; lines solid black, grass a Bayer dither gradient.",
+      hero:"Bold inked silhouette — volume from dither, motion from pose, never hue." },
+
+    { name:"ZX Spectrum", era:"Sinclair, 1982 · Match Day", feel:"chunky", dither:"checker", outline:"#000000", seed:5,
+      palette:["#000000","#0000d8","#d80000","#d800d8","#00d800","#00d8d8","#d8d800","#ffffff"],
+      vibe:"Garish, punchy, attribute-clash 8-bit Britain.",
+      lobby:"Saturated primary stands in blocky 8×8 colour cells, clash fringing, cyan/yellow title.",
+      field:"One bright-green pitch, white lines — a player on a line tints the whole cell.",
+      hero:"One-ink player (magenta/cyan) with hard black edges, bleeding colour into the tile behind." },
+
+    { name:"Commodore 64", era:"Commodore, 1982 · Intl. Soccer", feel:"chunky", dither:"checker", outline:"#000000", seed:8,
+      palette:["#000000","#626262","#6d5412","#5cab5e","#6abfc6","#a1683c","#c9d487","#ffffff"],
+      vibe:"Warm, dithered, demoscene-slick 8-bit.",
+      lobby:"Dark stadium using the signature grey ramp + checker crowd, framed by the C64 screen border.",
+      field:"Dark-green pitch checker-dithered toward light green; wide fat pixels soften everything.",
+      hero:"Stubby multicolor player: warm skin #a1683c, one bold kit colour, black outline." },
+
+    { name:"CGA (Palette 1)", era:"IBM PC, 1981 · mode 4 hi-intensity", feel:"chunky", dither:"ordered", outline:"#000000", seed:14,
+      palette:["#000000","#aa00aa","#00aaaa","#ff55ff","#55ffff","#ffffff"],
+      vibe:"Eye-searing early-DOS cyan & magenta.",
+      lobby:"Black void, cyan stands, magenta crowd & PLAY, blocky white text — unmistakably DOS.",
+      field:"Cyan pitch with magenta lines, grass faked entirely from checker dither.",
+      hero:"Magenta kit, cyan shorts, white highlights, black outline — all shading is dither." },
+
+    { name:"NES 8-bit", era:"Nintendo, 1985 · Nintendo World Cup", feel:"chunky", dither:"checker", outline:"#000000", seed:21,
+      palette:["#000000","#0000fc","#e40058","#00b800","#bcbcbc","#f0d0b0","#fcfcfc"],
+      vibe:"Toy-like, punchy, unmistakably retro.",
+      lobby:"Flat single-colour sky & stands from repeating tiles, bold white-on-black menu banner.",
+      field:"Solid #00B800 pitch, 1px white lines, zero texture — arcade-clean.",
+      hero:"~16px 3-colour sprite (skin #F0D0B0 + kit + black outline), oversized head, stiff run." },
+
+    { name:"SNES 16-bit", era:"Nintendo, 1992 · Super Soccer", feel:"medium", dither:"ordered", outline:"#182848", seed:33,
+      palette:["#182848","#3868b0","#38a048","#78c848","#f0c098","#e8e8f0","#f8f8f8"],
+      vibe:"Lush, smooth, storybook-warm.",
+      lobby:"Parallax stands, gradient sky, warm rim-light, beveled 3–4-shade buttons — cosy RPG menu.",
+      field:"Mode-7 receding pitch with a horizon, 3–4 green shades, mowing stripes, AA lines.",
+      hero:"~28px sprite with 4–5-shade ramps, cloth folds, cheek blush, squash-stretch kicks." },
+
+    { name:"PICO-8", era:"Fantasy console, 2015 · fixed 16 colours", feel:"chunky", dither:"checker", outline:"#1d2b53", seed:2,
+      palette:["#000000","#1d2b53","#7e2553","#5f574f","#008751","#29adff","#ff004d","#ffa300","#ffec27","#fff1e8"],
+      vibe:"Charming, jammy, confident minimalism.",
+      lobby:"Fixed-16 night: navy sky, #29ADFF floodlights, pink crowd dots, yellow selection highlight.",
+      field:"#008751 pitch with brighter stripe accents and #FFF1E8 lines; players read as 8px blobs.",
+      hero:"8–16px sprite, 3 colours + navy outline; personality from silhouette, not shading." },
+
+    { name:"Genesis / Mega Drive", era:"Sega, 1993 · Worldwide Soccer", feel:"medium", dither:"ordered", outline:"#000000", seed:27,
+      palette:["#000000","#003490","#ce0034","#00ac34","#ffac74","#ffce00","#ffffff"],
+      vibe:"Bold, edgy, arcade-hot.",
+      lobby:"High-contrast dusk stadium, neon accents over dark, sharp black-bordered buttons.",
+      field:"Vivid #00AC34 turf with dithered darker bands, few mid-tones, strong player shadows.",
+      hero:"~28px saturated sprite, 2–3 hard shade steps, aggressive black outline, exaggerated poses." },
+
+    { name:"Arcade CPS / Neo-Geo", era:"Capcom/SNK, 1994 · Super Sidekicks", feel:"fine", dither:"none", outline:"#000000", seed:41,
+      palette:["#000000","#220044","#3322aa","#ee2233","#22aa33","#ffbb88","#ffdd22","#ffffff"],
+      vibe:"Slick, muscular, coin-op showpiece.",
+      lobby:"Glossy dramatic lighting, specular highlights, chrome/beveled logos — maximum polish.",
+      field:"Detailed pitch with baked lighting and reflective line paint; large, cinematic sprites.",
+      hero:"48–64px sprite, smooth hand-blended ramps, muscular build, bold black keyline + rim light." },
+
+    { name:"HD-2D Diorama", era:"Square Enix, 2018 · Octopath Traveler", feel:"medium", dither:"none", outline:"none", seed:52,
+      palette:["#17142b","#33284a","#6b4a3a","#4a90a4","#c9a24b","#e8d5a8","#f6edd2"],
+      vibe:"Nostalgic sprite in a glowing 3D snow-globe.",
+      lobby:"Miniature lit stadium: tilt-shift back rows, warm point-lights spilling off the crowd, bloom haze.",
+      field:"Pitch as a shallow 3D plane with a focal band across midfield, cast shadows, soft vignette.",
+      hero:"~48px painterly sprite, billboarded with a true drop shadow and warm rim on one shoulder." },
+
+    { name:"Hi-Bit Modern", era:"Blasphemous / Dead Cells", feel:"fine", dither:"ordered", outline:"none", seed:60,
+      palette:["#14121c","#2d2438","#5a4a63","#b02a3a","#c77b4e","#d9a066","#e7cba6"],
+      vibe:"Retro DNA, zero retro limits — lush and cinematic.",
+      lobby:"Hand-detailed concourse: parallax stands, torch glow, ornate beveled metal buttons.",
+      field:"Painterly turf with worn patches and raking single-source light; crisp front, soft dark back.",
+      hero:"64–96px sprite, dozens of shades, hand-placed AA, crimson kit popping off muted earth tones." },
+
+    { name:"Isometric City-Builder", era:"SimCity 2000 · 2:1 dimetric", feel:"medium", dither:"ordered", outline:"none", seed:71,
+      palette:["#2b3a4a","#4a6b5a","#8a8f99","#6fa85a","#9ac26b","#c94f3d","#dccfbf"],
+      vibe:"Orderly toy-town — a stadium you could zone and bulldoze.",
+      lobby:"The menu IS a buildable stadium in 2:1 dimetric — modular seating, jumbotron, light towers.",
+      field:"Pitch on the dimetric grid, dither-checker mow pattern, consistent down-right shadows.",
+      hero:"~32px iso footballer from flat planes (one shadow + one highlight per face), diamond shadow." },
+
+    { name:"Cozy Farm-Sim", era:"Stardew Valley, 2016", feel:"chunky", dither:"none", outline:"#2b1d10", seed:83,
+      palette:["#2b1d10","#6b4a2a","#4c8a3f","#6fbfd6","#7cb342","#e0c07a","#f4d47c"],
+      vibe:"Wholesome, sunlit, everyone's-invited kickabout.",
+      lobby:"Golden-hour clubhouse: wooden bleachers, bunting, hand-painted sign, chunky cream buttons.",
+      field:"Saturated friendly pitch, tidy chalk lines, picket fence & trees, warm sunlight wash.",
+      hero:"~28px chibi: big head, tiny body, dot eyes, rosy cheek, flat cheerful kit, soft shadow." },
+
+    { name:"Synthwave Neon", era:"80s retrowave / vaporwave", feel:"medium", dither:"checker", outline:"#ff2975", seed:96,
+      palette:["#1a0b2e","#3b1157","#7b1fa2","#ff2975","#f222ff","#00e5ff","#ffd319"],
+      vibe:"1984 arcade fever dream in magenta & cyan.",
+      lobby:"Neon dusk: purple sky, dithered sun disc, receding cyan grid floor, glowing chrome PLAY.",
+      field:"Pitch as a glowing wireframe — cyan grid on near-black turf, magenta lines, neon ball trail.",
+      hero:"~48px dark silhouette rimmed in cyan-magenta neon, chrome kit number, afterimage glow." }
+  ];
+
+  // ---------- build ----------
+  const ELEMS = [ ["Lobby", drawLobby], ["Field", drawField], ["Hero", drawHero] ];
+  const feelRes = { chunky:[44,33], medium:[60,45], fine:[82,62] };
+  const matrix = document.getElementById('matrix');
+  const toDraw = [];
+
+  STYLES.forEach((s) => {
+    const R = roles(s);
+    const row = document.createElement('div'); row.className='row';
+
+    const rail = document.createElement('div'); rail.className='rail';
+    const nm = document.createElement('div'); nm.className='rname'; nm.textContent=s.name;
+    const era = document.createElement('div'); era.className='rera'; era.textContent=s.era;
+    const sw = document.createElement('div'); sw.className='swatches';
+    s.palette.forEach(c=>{ const i=document.createElement('i'); i.style.background=c; i.title=c; sw.appendChild(i); });
+    const tags = document.createElement('div'); tags.className='tags';
+    const mk=(t,on)=>{ const e=document.createElement('span'); e.className='tag'+(on?' on':''); e.textContent=t; return e; };
+    tags.append(mk(s.feel), mk('dither', s.dither!=='none'), mk('outline', !!(s.outline && s.outline!=='none')));
+    const vibe = document.createElement('div'); vibe.className='rvibe'; vibe.textContent=s.vibe;
+    rail.append(nm, era, sw, tags, vibe);
+    row.appendChild(rail);
+
+    ELEMS.forEach(([label, fn]) => {
+      const cell = document.createElement('div'); cell.className='cell';
+      const wrap = document.createElement('div'); wrap.className='cvwrap';
+      const lb = document.createElement('span'); lb.className='elbl'; lb.textContent=label;
+      const cv = document.createElement('canvas');
+      const [w,h] = feelRes[s.feel]; cv.width=w; cv.height=h;
+      wrap.append(lb, cv);
+      const idea = document.createElement('p'); idea.className='idea';
+      idea.innerHTML = '<b>'+label+':</b> ' + s[label.toLowerCase()];
+      cell.append(wrap, idea);
+      row.appendChild(cell);
+      toDraw.push([cv, fn, w, h, s, R]);
+    });
+
+    matrix.appendChild(row);
+  });
+
+  toDraw.forEach(([cv, fn, w, h, s, R]) => {
+    const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled=false;
+    setPal(s.palette);
+    try { fn(ctx, w, h, s, R); } catch(e){ ctx.fillStyle='#300'; ctx.fillRect(0,0,w,h); }
+  });
+})();
+</script>
