@@ -1578,7 +1578,15 @@ async function apiPost(path, body) {
   } catch { toast('החיבור נכשל, נסה שוב'); return false; }
 }
 
-let FRIENDS = [];          // [{userId, nickName, image}]
+// 3 built-in BOT friends — always available (online), invitable into a party from the
+// invite panel (→ addBot). They fill out the friends list so solo players can "play with
+// friends" immediately. Not real users: they don't go through search/request/presence.
+const BOT_FRIENDS = [
+  { userId: 'bot-friend-1', nickName: 'רובי', isBot: true },
+  { userId: 'bot-friend-2', nickName: 'טיטאן', isBot: true },
+  { userId: 'bot-friend-3', nickName: 'זיפ', isBot: true },
+];
+let FRIENDS = [...BOT_FRIENDS];   // [{userId, nickName, image, isBot?}] — bots always present
 let ONLINE = new Set();    // userIds currently online (from friendsPresence)
 let friendsBusy = false;   // in-flight guard so the friends fetch isn't stacked
 let searchSeq = 0;         // drops out-of-order search responses
@@ -1598,15 +1606,17 @@ function listMsg(id, text, onClick) {
 async function loadFriends() {
   // No app identity (web/dev, or token not injected) -> say so instead of showing a blank,
   // silently-broken panel.
-  if (!FOOTBALL_TOKEN || !MY_USER_ID) { listMsg('friend-list', 'התחברו דרך האפליקציה כדי לראות חברים'); return; }
+  // No app identity (web/dev): still show the built-in bot friends so the list isn't empty.
+  if (!FOOTBALL_TOKEN || !MY_USER_ID) { FRIENDS = [...BOT_FRIENDS]; renderFriends(); return; }
   if (friendsBusy) return;
   friendsBusy = true;
   listMsg('friend-list', 'טוען חברים…');
   const res = await apiGet('/handle-friends');
   friendsBusy = false;
-  if (res === null) { listMsg('friend-list', 'טעינת החברים נכשלה — הקישו לניסיון חוזר', loadFriends); return; }
-  FRIENDS = Array.isArray(res) ? res : [];
-  sendMsg({ type: 'setFriends', friends: FRIENDS.map((f) => f.userId) });
+  if (res === null) { FRIENDS = [...BOT_FRIENDS]; renderFriends(); return; } // load failed → at least the bots
+  const real = Array.isArray(res) ? res : [];
+  sendMsg({ type: 'setFriends', friends: real.map((f) => f.userId) }); // real ids only (presence)
+  FRIENDS = [...real, ...BOT_FRIENDS];
   renderFriends();
   loadRequests();
 }
@@ -1627,15 +1637,21 @@ async function searchFriends(q) {
 }
 
 function friendRow(f, opts = {}) {
-  const online = ONLINE.has(f.userId);
+  const online = ONLINE.has(f.userId) || !!f.isBot;   // built-in bot friends are always available
   const div = document.createElement('div');
-  div.className = 'friend-row' + (online ? ' online' : '');
+  div.className = 'friend-row' + (online ? ' online' : '') + (f.isBot ? ' is-bot' : '');
   const dot = document.createElement('span'); dot.className = 'friend-dot';
   const pfp = document.createElement('img'); pfp.className = 'friend-pfp';
   const imgUrl = (f.image || '').toString();
   if (/^https?:\/\//i.test(imgUrl)) pfp.src = imgUrl;
   const nm = document.createElement('span'); nm.className = 'friend-name'; nm.textContent = f.nickName || '';
   div.append(dot, pfp, nm);
+  // Bots in the friends list: no challenge/remove — just a tag. They're invitable in the party panel.
+  if (f.isBot && opts.kind !== 'search') {
+    const tag = document.createElement('span'); tag.className = 'friend-bot-tag'; tag.textContent = '🤖 בוט';
+    div.appendChild(tag);
+    return div;
+  }
   const btn = document.createElement('button');
   btn.className = 'friend-act';
   if (opts.kind === 'search') { btn.textContent = 'הוסף'; btn.onclick = async () => { if (await apiPost('/handle-friends/request', { toUserId: f.userId })) { btn.textContent = 'נשלח'; btn.disabled = true; } }; }
@@ -1678,21 +1694,26 @@ function renderPartyInvite() {
   const show = isRoomHost && roomMode === 'private';
   el.classList.toggle('hidden', !show);
   if (!show) return;
-  const online = FRIENDS.filter((f) => ONLINE.has(f.userId));
+  // Online real friends + the always-available bot friends.
+  const online = FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId));
   el.innerHTML = '';
-  const h = document.createElement('div'); h.className = 'pi-h'; h.textContent = 'הזמן חברים מחוברים';
+  const h = document.createElement('div'); h.className = 'pi-h'; h.textContent = 'הזמן חברים למשחק';
   el.appendChild(h);
   if (!online.length) {
     const d = document.createElement('div'); d.className = 'pi-empty';
-    d.textContent = FRIENDS.length ? 'אין חברים מחוברים כרגע' : 'אין חברים עדיין — הוסיפו דרך 👥';
+    d.textContent = 'אין חברים מחוברים כרגע';
     el.appendChild(d); return;
   }
   online.forEach((f) => {
-    const row = document.createElement('div'); row.className = 'pi-row';
+    const row = document.createElement('div'); row.className = 'pi-row' + (f.isBot ? ' is-bot' : '');
     const dot = document.createElement('span'); dot.className = 'friend-dot';
-    const nm = document.createElement('span'); nm.className = 'pi-name'; nm.textContent = f.nickName || '';
+    const nm = document.createElement('span'); nm.className = 'pi-name'; nm.textContent = (f.isBot ? '🤖 ' : '') + (f.nickName || '');
     const btn = document.createElement('button'); btn.className = 'friend-act'; btn.textContent = 'הזמן';
-    btn.onclick = () => { sendMsg({ type: 'inviteFriend', toUserId: f.userId }); btn.textContent = 'הוזמן'; btn.disabled = true; };
+    // Bots aren't WS peers — invite them via addBot; real friends go through inviteFriend.
+    btn.onclick = () => {
+      if (f.isBot) sendMsg({ type: 'addBot', name: f.nickName });
+      else { sendMsg({ type: 'inviteFriend', toUserId: f.userId }); btn.textContent = 'הוזמן'; btn.disabled = true; }
+    };
     row.append(dot, nm, btn); el.appendChild(row);
   });
 }

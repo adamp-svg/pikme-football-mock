@@ -98,6 +98,18 @@ try {
   await Promise.all([D.wait('welcome'), E.wait('welcome')]);
   D.send({ type: 'createRoom' });
   const drj = await D.wait('roomJoined');
+
+  // Bot-as-friend: host adds a bot to the party → shows as an isBot member in the lobby.
+  // (Poll the LATEST lobby — D already got one at room creation.)
+  D.send({ type: 'addBot', name: 'רובי' });
+  let bot = null;
+  for (let i = 0; i < 20 && !bot; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    const last = D.got.filter((m) => m.type === 'lobby').pop();
+    bot = (last?.members || []).find((m) => m.isBot && m.name === 'רובי');
+  }
+  ok(!!bot, `addBot puts a bot in the lobby (${bot ? bot.name : 'none'})`);
+
   E.send({ type: 'joinRoom', code: drj.code });          // join by code (not a friend, no invite)
   const pend = await E.wait('joinPending');
   ok(pend.code === drj.code, `E pending on host approval for ${drj.code}`);

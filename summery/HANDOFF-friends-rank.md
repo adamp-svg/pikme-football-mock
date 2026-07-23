@@ -91,3 +91,12 @@ Design (built on existing room/lobby infra):
   now reads "חיפוש לפי כינוי או מספר טלפון…".
 - Logic unit-verified (phone detection + variant generation). NOT DB-verified — pikme-server still
   can't boot on node 26 (old jsonwebtoken/SlowBuffer). Next agent: confirm live against Mongo.
+
+## Request 7 (2026-07-23): add 3 bots as friends
+- Client (client.js): BOT_FRIENDS = 3 always-online bot entries (רובי/טיטאן/זיפ, isBot). Merged into
+  FRIENDS (also shown when not app-authed). friendRow shows a 🤖 tag (no challenge) for bots;
+  renderPartyInvite lists them (always) with «הזמן» → sendMsg addBot (bots aren't WS peers).
+- Server (server.js): room.lobbyBots[] + `addBot` handler (host-only, capped at MAX_PLAYERS) → bot
+  shows as an isBot member in the lobby; kick of an 'lbot-' id removes it; trimLobbyBots on human
+  admit; lobbyBots cleared at startMatch (fillBots creates the real match bots). balancedTeam counts bots.
+- test-party.mjs: added addBot lobby check. Full suite 12/12 PASS.

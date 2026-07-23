@@ -104,6 +104,7 @@ function makeRoom(id, isPrivate, mode = 'match') {
     hostId: null,            // member.id of a private room's creator/HOST — only they may accept/reject/kick
     pending: new Map(),      // memberId -> member awaiting the host's approval to join (private rooms)
     invited: new Set(),      // userIds the host invited to the party — they auto-admit (no approval step)
+    lobbyBots: [],           // bots invited from the friends list — shown in the lobby, become match bots at kickoff
     members: new Set(),      // member objects
     slotIds: null, slotTeam: null, rosterVersion: 0, // binary-snapshot slot->id/team mapping
   };
@@ -154,7 +155,12 @@ function applySettings(room, s) {
 function balancedTeam(room) {
   let A = 0, B = 0;
   for (const m of room.members) (m.team === 'B' ? B++ : A++);
+  for (const b of (room.lobbyBots || [])) (b.team === 'B' ? B++ : A++);
   return A <= B ? 'A' : 'B';
+}
+// Keep humans + invited lobby bots within the room cap (drop excess bots when humans arrive).
+function trimLobbyBots(room) {
+  while (room.lobbyBots.length && room.members.size + room.lobbyBots.length > MAX_PLAYERS) room.lobbyBots.pop();
 }
 
 function fillBots(room, rosterOut) {
@@ -464,6 +470,7 @@ function startMatch(room) {
   const humans = [...room.members].filter((m) => !m.inMatch).slice(0, MAX_PLAYERS);
   if (humans.length === 0) { endRoom(room); return; }
 
+  room.lobbyBots = []; // reservation consumed — fillBots creates the real match bots
   room.state = createState();
   room.botMem = createBotMemory();
   room.inputs.clear();
@@ -652,6 +659,8 @@ function lobbyPayload(room) {
   // cards they actually picked in their power slots — matching what the pre-kickoff reveal shows. Without
   // this the client falls back to album top-3 during the countdown, so humans and bots looked inconsistent.
   const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards) }));
+  // Invited lobby bots render as members (isBot) so the party looks populated before kickoff.
+  for (const b of (room.lobbyBots || [])) list.push({ id: b.id, name: b.name, avatar: null, team: b.team, inMatch: false, isBot: true, cards: [], loadout: [null, null, null] });
   // #18: on the quick-match VS, show the bots that WILL fill the empty slots (with their cards) while
   // you wait. Private rooms also backfill bots at kickoff, but their lobby is for real friends, so we
   // don't preview bots there — they still appear at the pre-kickoff reveal.
@@ -941,6 +950,7 @@ wss.on('connection', (ws, req) => {
         joiner.pendingRoom = null;
         if (msg.accept && r.members.size < MAX_PLAYERS && r.phase !== 'match') {
           addToRoom(joiner, r);
+          trimLobbyBots(r); // a real human takes priority over an invited bot
           send(joiner.ws, { type: 'roomJoined', mode: 'private', code: r.id, host: false });
           broadcastLobby(r); // updated roster to everyone waiting in the room
         } else {
@@ -953,6 +963,13 @@ wss.on('connection', (ws, req) => {
         if (!r || r.hostId !== member.id) return;
         const targetId = (msg.memberId || '').toString();
         if (!targetId || targetId === r.hostId) return; // a host can't kick themselves
+        // A "lobby bot" (invited from the friends list) is just a reservation — drop it directly.
+        if (targetId.startsWith('lbot-')) {
+          const n = r.lobbyBots.length;
+          r.lobbyBots = r.lobbyBots.filter((b) => b.id !== targetId);
+          if (r.lobbyBots.length !== n) broadcastLobby(r);
+          return;
+        }
         let target = null;
         for (const t of r.members) if (t.id === targetId) { target = t; break; }
         if (!target) return;
@@ -1016,9 +1033,22 @@ wss.on('connection', (ws, req) => {
         if (r.members.size >= MAX_PLAYERS) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
         leaveCurrentRoom(member);            // drop any current room / pending request first
         addToRoom(member, r);                // AUTO-admit — the host invited them
+        trimLobbyBots(r);                    // a real human takes priority over an invited bot
         send(ws, { type: 'roomJoined', mode: 'private', code: r.id, host: false });
         const host = hostMember(r);
         if (host) send(host.ws, { type: 'partyInviteAccepted', name: member.name });
+        broadcastLobby(r);
+        return;
+      }
+      // Add a BOT to the party (invited from the friends list). Host-only; shows in the lobby
+      // and becomes a match bot at kickoff (fillBots). name is the friend-list bot's display name.
+      if (msg.type === 'addBot') {
+        const r = member.room;
+        if (!r || !r.isPrivate || r.hostId !== member.id) return;
+        if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
+        if (r.members.size + r.lobbyBots.length >= MAX_PLAYERS) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
+        const name = (msg.name || 'בוט').toString().slice(0, 24);
+        r.lobbyBots.push({ id: `lbot-${r.id}-${++r.botCounter}`, name, team: balancedTeam(r) });
         broadcastLobby(r);
         return;
       }

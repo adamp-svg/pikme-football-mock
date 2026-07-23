@@ -506,6 +506,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .friend-act { padding: 6px 12px; border-radius: 8px; border: 0; background: #35d06a; color: #04240f; font-weight: 700; }
 .friend-act:disabled { background: #333; color: #888; }
 .friend-act.ghost { background: transparent; border: 1px solid #444; color: #c9c9cf; }
+/* Built-in bot friends: subtle distinct row + a tag instead of a challenge button. */
+.friend-row.is-bot, .pi-row.is-bot { background: #14201a; }
+.friend-bot-tag { font: 800 11px "Arial Black", sans-serif; color: #8fe0a6; background: #10241a;
+  border: 1px solid #244b34; border-radius: 8px; padding: 5px 9px; white-space: nowrap; }
 .friends-h { color: #aaa; margin: 8px 0 0; text-align: right; }
 
 /* Global toast (top-level, outside every .screen) — hidden by the shared .hidden rule. */
