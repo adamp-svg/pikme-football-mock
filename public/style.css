@@ -946,10 +946,31 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* --- Sub-screens (arena / news / shop / clubs / rank / friends) — all share the full-bleed
    stadium backdrop + stretched .subpage, so friends & rank match clubs' look/transparency. --- */
-.screen#arena, .screen#news, .screen#shop, .screen#clubs, .screen#rank, .screen#friends, .screen#cards {
+.screen#arena, .screen#news, .screen#shop, .screen#clubs, .screen#rank, .screen#friends, .screen#cards, .screen#party {
   background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
   align-items: stretch; justify-content: stretch;
 }
+
+/* ---- Play With Friends · party roster (YOU centered, party members flanking) ---- */
+.party-roster { width: 100%; max-width: 640px; display: flex; flex-direction: row; flex-wrap: wrap;
+  align-items: flex-end; justify-content: center; gap: 12px; }
+.pr-me, .pr-mate { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 12px;
+  background: rgba(19,27,22,.9); border: 2px solid #46543f; box-shadow: 0 3px 0 #070b08; }
+.pr-me { border-color: #7ea862; background: rgba(28,40,28,.94); padding: 10px 16px; }
+.pr-rank { font: 900 10px "Arial Black", sans-serif; color: #ffce4a; letter-spacing: .5px; }
+.pr-name { font: 900 12px "Arial Black", sans-serif; color: #fff4ca; }
+.pr-me .pr-name { font-size: 14px; }
+.pr-hero { display: block; image-rendering: pixelated; }
+.pr-hero-big { width: 92px; height: 108px; }
+.pr-hero-sm { width: 56px; height: 66px; }
+.pr-cards { display: flex; gap: 3px; }
+.pr-card { width: 22px; height: 31px; object-fit: cover; background: #0d0d10; border: 2px solid #46543f; image-rendering: pixelated; }
+.pr-me .pr-card { width: 28px; height: 39px; }
+.pr-card.rarity-legendary { border-color: #ffb800; } .pr-card.rarity-epic { border-color: #b46bff; }
+.pr-card.rarity-rare { border-color: #4ea0ff; } .pr-card.rarity-common { border-color: #9ab0c5; }
+.pr-empty { align-self: center; color: #8ea08a; font: 800 12px "Arial Black", sans-serif; padding: 0 6px; }
+.party-games { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.party-games-h { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; text-align: right; }
 .subpage { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; padding: 14px 18px 20px; }
 .subpage-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .subpage-back {

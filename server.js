@@ -658,9 +658,9 @@ function lobbyPayload(room) {
   // #18 fix: send each human's EQUIPPED loadout (not just their album) so the VS/countdown shows the
   // cards they actually picked in their power slots — matching what the pre-kickoff reveal shows. Without
   // this the client falls back to album top-3 during the countdown, so humans and bots looked inconsistent.
-  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards) }));
+  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cosmetic: m.cosmetic || DEFAULT_COSMETIC, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards) }));
   // Invited lobby bots render as members (isBot) so the party looks populated before kickoff.
-  for (const b of (room.lobbyBots || [])) list.push({ id: b.id, name: b.name, avatar: null, team: b.team, inMatch: false, isBot: true, cards: [], loadout: [null, null, null] });
+  for (const b of (room.lobbyBots || [])) list.push({ id: b.id, name: b.name, avatar: null, team: b.team, inMatch: false, isBot: true, cosmetic: b.cosmetic || DEFAULT_COSMETIC, cards: [], loadout: [null, null, null] });
   // #18: on the quick-match VS, show the bots that WILL fill the empty slots (with their cards) while
   // you wait. Private rooms also backfill bots at kickoff, but their lobby is for real friends, so we
   // don't preview bots there — they still appear at the pre-kickoff reveal.

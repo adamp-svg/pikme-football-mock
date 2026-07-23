@@ -1544,7 +1544,7 @@ fitHub();
 
 // ---- Lobby-redesign sub-screens (arena / news / shop / clubs) ---------------
 // Register the new .screen divs so the existing showScreen() drives open/close.
-for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank']) {
+for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party']) {
   const el = document.getElementById(id);
   if (el) screens[id] = el;
 }
@@ -1987,6 +1987,7 @@ function renderPartyInvite() {
 // Incoming party invite → simple accept/decline (matches showChallengePrompt's pattern).
 function showPartyInvite(code, fromName) {
   if (!confirm(`${fromName} מזמין אותך לקבוצה. להצטרף?`)) { sendMsg({ type: 'partyRespond', code, accept: false }); return; }
+  partyFlow = true;   // invited member also lands on the #party roster
   sendMsg({ type: 'partyRespond', code, accept: true });
 }
 // Party flow: STEP 1 — pick which friends to play with (multi-select). STEP 2 — pick the
@@ -1998,6 +1999,8 @@ const joinCodeEl = document.getElementById('join-code');
 const partySel = new Set();          // userIds selected for the party
 let selectedGame = null;             // chosen minigame (set in step 2, drives the lobby start)
 let pendingPartyApply = false;       // apply the picks once the fresh room's roomJoined arrives
+let partyFlow = false;               // true while in the play-with-friends flow (host OR invited member) → land on the #party roster
+let lastLobby = null;                // last lobby payload, so the party roster can re-render as members accept
 function partyCandidates() { return FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId)); } // available to invite
 function renderFriendSelect() {
   const el = document.getElementById('friend-select-list'); if (!el) return;
@@ -2019,7 +2022,7 @@ function renderFriendSelect() {
   });
 }
 function openFriendSelect() {
-  partySel.clear(); selectedGame = null;
+  partySel.clear(); selectedGame = null; partyFlow = false;
   if (joinCodeEl) joinCodeEl.value = '';
   syncLoadout(); loadFriends();               // refresh presence so online friends show as candidates
   renderFriendSelect();
@@ -2029,7 +2032,12 @@ function closeFriendSelect() { friendSelectEl?.classList.add('hidden'); }
 document.getElementById('friend-select-close')?.addEventListener('click', closeFriendSelect);
 friendSelectEl?.addEventListener('click', (e) => { if (e.target === friendSelectEl) closeFriendSelect(); });
 document.getElementById('friend-select-go')?.addEventListener('click', () => {
-  unlockAudio(); closeFriendSelect(); openGameSelect('setup');   // step 2: pick the minigame
+  // New flow: create the party room now and open the ROSTER (#party); picked friends are
+  // invited immediately (applyPartyPicks) and appear as they accept. Game pick happens on
+  // the roster, then → groups (#lobby).
+  unlockAudio(); closeFriendSelect();
+  partyFlow = true; selectedGame = null; pendingPartyApply = true;
+  sendMsg({ type: 'createRoom' });
 });
 document.getElementById('join-room-btn')?.addEventListener('click', () => {
   unlockAudio();
@@ -2072,6 +2080,86 @@ function applyPartyPicks() {
   const n = partySel.size;
   toast(n ? `מזמין ${n} חברים…` : 'החדר מוכן — הזמינו חברים או התחילו');
 }
+
+// ---- Play With Friends · party ROSTER (#party) ------------------------------
+// YOU render big in the middle (rank/xp chip above, power cards below); each party
+// member renders smaller alongside. Driven by the room's `lobby` members (cosmetic +
+// loadout carried in the payload). rank/xp is best-effort (self from window.SALTIZ_XP;
+// mates matched to the friends list by avatar/name) and hidden when unknown.
+const partyEl = document.getElementById('party');
+const partyRosterEl = document.getElementById('party-roster');
+function partyHeroCanvas(cosmetic, big) {
+  const cv = document.createElement('canvas');
+  cv.width = big ? 92 : 56; cv.height = big ? 108 : 66;
+  cv.className = 'pr-hero ' + (big ? 'pr-hero-big' : 'pr-hero-sm');
+  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
+  const sf = cv.height / 42, ox = cv.width / 2, feetY = cv.height - sf * 3;
+  drawHero(g, ox, feetY, sf, 0.4, 0, 0.6, false, cosmetic || DEFAULT_COSMETIC, PREVIEW_KIT, 0);
+  return cv;
+}
+function partyCardsRow(cards) {
+  const row = document.createElement('div'); row.className = 'pr-cards';
+  (cards || []).filter(Boolean).slice(0, 3).forEach((c) => {
+    const im = document.createElement('img'); im.className = 'pr-card rarity-' + c.r; im.alt = '';
+    im.loading = 'lazy'; im.onerror = () => im.removeAttribute('src');
+    im.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`;
+    row.appendChild(im);
+  });
+  return row;
+}
+function myRankXpText() {
+  const x = window.SALTIZ_XP; if (!x) return '';
+  const xp = +x.xp || 0; const lvl = +x.level || levelFromXp(xp);
+  return `דרגה ${lvl} · XP ${fmtCompact(xp)}`;
+}
+function mateRankText(m) {
+  if (m.isBot) return '';
+  const f = FRIENDS.find((fr) => (m.avatar && fr.image === m.avatar) || fr.nickName === m.name);
+  if (!f) return '';
+  const bits = [];
+  if (f.rank != null) bits.push('#' + f.rank);
+  if (f.level != null) bits.push('דרגה ' + f.level);
+  return bits.join(' · ');
+}
+function partyBlock({ big, name, cosmetic, cards, rankText }) {
+  const wrap = document.createElement('div'); wrap.className = big ? 'pr-me' : 'pr-mate';
+  if (rankText) { const r = document.createElement('div'); r.className = 'pr-rank'; r.textContent = rankText; wrap.appendChild(r); }
+  wrap.appendChild(partyHeroCanvas(cosmetic, big));
+  const nm = document.createElement('div'); nm.className = 'pr-name'; nm.textContent = name; wrap.appendChild(nm);
+  wrap.appendChild(partyCardsRow(cards));
+  return wrap;
+}
+function renderParty(msg) {
+  if (!partyRosterEl) return;
+  const members = (msg || lastLobby || {}).members || [];
+  const mates = members.filter((m) => m.id !== myMemberId);
+  const meBlock = partyBlock({ big: true, name: MY_NAME + ' (אני)', cosmetic: myCosmetic, cards: effectiveLoadout(), rankText: myRankXpText() });
+  const mateBlock = (m) => partyBlock({ big: false, name: (m.isBot ? '🤖 ' : '') + (m.name || ''), cosmetic: m.cosmetic, cards: m.loadout, rankText: mateRankText(m) });
+  // YOU sit in the MIDDLE with mates flanking you left + right (one row, wraps if needed).
+  partyRosterEl.innerHTML = '';
+  const half = Math.ceil(mates.length / 2);
+  mates.slice(0, half).forEach((m) => partyRosterEl.appendChild(mateBlock(m)));
+  partyRosterEl.appendChild(meBlock);
+  mates.slice(half).forEach((m) => partyRosterEl.appendChild(mateBlock(m)));
+  if (!mates.length) { const e = document.createElement('div'); e.className = 'pr-empty'; e.textContent = 'הזמינו חברים…'; partyRosterEl.appendChild(e); }
+  // Only the host advances to the groups page; others wait.
+  const g = partyEl && partyEl.querySelector('.modecard[data-party-game]');
+  if (g) { g.classList.toggle('lock', !isRoomHost); g.style.pointerEvents = isRoomHost ? '' : 'none'; }
+  const hint = document.getElementById('party-hint');
+  if (hint) hint.classList.toggle('hidden', isRoomHost);
+}
+// Host taps a live game → groups (#lobby, existing team-pick + play-now). Tapping the
+// empty background LEAVES the party room (sub-page convention), sent via leaveToLobby().
+let partyDownBackdrop = false;
+partyEl?.addEventListener('pointerdown', (e) => { partyDownBackdrop = isDismissBackdrop(e.target, partyEl); });
+partyEl?.addEventListener('click', (e) => {
+  const card = e.target.closest('.modecard[data-party-game]');
+  if (card && !card.classList.contains('lock')) {
+    if (!isRoomHost) return;
+    unlockAudio(); syncLoadout(); selectedGame = card.dataset.partyGame || '2v2'; showScreen('lobby'); return;
+  }
+  if (partyDownBackdrop && isDismissBackdrop(e.target, partyEl)) { partyDownBackdrop = false; leaveToLobby(); }
+});
 
 document.getElementById('friend-search')?.addEventListener('input', (e) => searchFriends(e.target.value.trim()));
 
@@ -2136,15 +2224,17 @@ function connect(name, avatar) {
       clearRoomRequests(); hideRoomWait();     // fresh room: no stale pending UI / waiting overlay
       clearLobbyLists(); resetPlayNow();
       if (msg.mode === 'quick') { quickVs = true; showScreen('home'); startLobbyMusic(); } // VS + countdown overlay drives the wait
+      else if (partyFlow) { quickVs = false; hideVs(); showScreen('party'); startLobbyMusic(); renderParty(); } // party: roster first, then a game → groups
       else { quickVs = false; hideVs(); showScreen('lobby'); startLobbyMusic(); }           // #12: lobby theme instantly
       if (pendingPartyApply && isRoomHost) { pendingPartyApply = false; applyPartyPicks(); } // add picked bots + invite friends
     } else if (msg.type === 'toHome') {
       if (msg.online != null) homeOnlineEl.textContent = msg.online;
       me = { playerId: null, team: null, char: chosenChar };
+      partyFlow = false; lastLobby = null;
       clearRoomRequests(); hideRoomWait();   // #14: no stale host/joiner room UI back home
       quickVs = false; hideVs(); showScreen('home');
     } else if (msg.type === 'roomError') {
-      quickVs = false; hideVs(); hideRoomWait();
+      quickVs = false; hideVs(); hideRoomWait(); partyFlow = false;
       showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
       showScreen('home'); // create/join failed → land on the hub (room controls left the friends screen)
     } else if (msg.type === ROOM_MSG.PENDING) {          // #14 joiner: waiting for host approval
@@ -2169,7 +2259,8 @@ function connect(name, avatar) {
       pendingReqs.delete(msg.joinerId);
       renderRoomRequests();
     } else if (msg.type === 'lobby') {
-      if (quickVs) updateVsCountdown(msg); else updateLobbyUI(msg);
+      if (quickVs) { updateVsCountdown(msg); }
+      else { lastLobby = msg; updateLobbyUI(msg); if (partyFlow && partyEl && !partyEl.classList.contains('hidden')) renderParty(msg); }
     } else if (msg.type === 'matchStart') {
       enterMatch(msg);
     } else if (msg.type === 'toLobby') {
@@ -2254,6 +2345,7 @@ function exitToLobby() {
 // the exit feels instant even before that reply lands.
 function leaveToLobby() {
   sendMsg({ type: 'leaveRoom' });
+  partyFlow = false; lastLobby = null;
   quickVs = false; hideVs(); hideTeamIntro(); hideRoomWait(); clearRoomRequests();
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
