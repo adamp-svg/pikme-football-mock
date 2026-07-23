@@ -5,6 +5,11 @@
 
 ## 2026-07-23
 
+- **Req #7** — Task (continuation, same lock `football-mock:hero-rank-badge`). (a) Make both badges a bit smaller; (b) render the hero IN FRONT of the hero badge (`#hub-tier` was z6, over the hero's face — user wants the hero over the badge, badge peeking from behind).
+  - Impl (style.css only): both badges 60×50 → 50×42; shrank `.px-ic` 22→18px, text 10→9px, padding 4→3px, hero padding-bottom 9→8px + bar inset. Baked pos: `#hub-rank` left 283 width 50 (re-centred on worth-chip centre x308), `#hub-tier` left 590 width 50, **z-index 6→3** (hero `.hub-hero` is z4 → now paints over the badge).
+  - Verified: :3010 serves both at 50×42; `#hub-rank` centre 283+25=308 == `#chip-worth` centre 278+30=308 (aligned); `#hub-tier` z3 < hero z4 (hero in front). Committed locally (not pushed — user rule = local + commit).
+  - Status: DONE
+
 - **Review + Push (agent-82027)** — User: "review all agents + stuff feeding localhost:3012, commit & push whatever you can."
   - Found: working tree effectively clean (all agents had committed their work); only in-flight file was `public/style.css`, **actively locked by opus-football** — left untouched, did NOT sweep it into a commit.
   - Action: pushed `feat/build-bomb-cancel` to origin. Clean fast-forward `95d2f9e → 87e9ab7` (15 commits: hero-drag log, lobby sub-screens/rank badges, cards page peek/pull/sleeves/2x slots, field-builder). Verified `origin/feat/build-bomb-cancel == 87e9ab7`.

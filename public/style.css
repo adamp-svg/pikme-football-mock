@@ -782,7 +782,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   --c1: #ffe27a; --c2: #e0a92a;
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   position: relative; white-space: nowrap; box-sizing: border-box;
-  color: #241a05; padding: 4px;
+  color: #241a05; padding: 3px;
   background: linear-gradient(180deg, var(--c1) 0 50%, var(--c2) 50% 100%);
   box-shadow: inset 2px 2px 0 rgba(255,255,255,.5), inset -2px -2px 0 rgba(0,0,0,.42);
   filter: drop-shadow(0 3px 0 #070b08);
@@ -794,13 +794,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
     3px 100%, 3px calc(100% - 3px), 0 calc(100% - 3px)
   );
 }
-.hub-rank .px-ic, .hub-tier .px-ic { font-size: 22px; line-height: 1; }
-.hub-rank .px-word, .hub-tier .px-sub { font: 900 10px "Arial Black", sans-serif; line-height: 1.05; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
+.hub-rank .px-ic, .hub-tier .px-ic { font-size: 18px; line-height: 1; }
+.hub-rank .px-word, .hub-tier .px-sub { font: 900 9px "Arial Black", sans-serif; line-height: 1.05; text-shadow: 0 1px 0 rgba(255,255,255,.35); }
 .hub-tier .hub-tier-lbl { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; }
 .hub-tier .px-sub { text-align: center; }
 /* hero badge only: reserve the bottom strip for the slim sub-rank progress bar (square, pixel) */
-.hub-tier { padding-bottom: 9px; }
-.hub-tier .hub-tier-bar { position: absolute; left: 5px; right: 5px; bottom: 3px; height: 3px;
+.hub-tier { padding-bottom: 8px; }
+.hub-tier .hub-tier-bar { position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px;
   background: rgba(0,0,0,.4); overflow: hidden; }
 .hub-tier .hub-tier-bar b { display: block; height: 100%; width: 0%; background: #241a05; }
 /* profile pill: face (right) + name/XP (left) */
@@ -1498,10 +1498,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub > #chip-copies   { left: 210px; top: 15px; width: 60px; z-index: 5; }
 .hub > #chip-worth    { left: 278px; top: 15px; width: 60px; z-index: 5; }
 .hub > #chip-cards    { left: 346px; top: 15px; width: 60px; z-index: 5; }
-/* collector badge: same 60px column as the worth chip (left 278) → directly aligned below it; squarish 60×50 */
-.hub > #hub-rank      { left: 278px; top: 58px; width: 60px; height: 50px; z-index: 5; }
-/* hero rank badge: SAME 60×50 box, centred over the hero (hero: left 490 + 250px canvas → centre x≈615 → left 585) */
-.hub > #hub-tier      { left: 585px; top: 58px; width: 60px; height: 50px; z-index: 6; }
+/* collector badge: centred on the worth chip's column (chip centre x=308) → directly aligned below it; squarish 50×42 */
+.hub > #hub-rank      { left: 283px; top: 58px; width: 50px; height: 42px; z-index: 5; }
+/* hero rank badge: SAME 50×42 box, centred over the hero (centre x≈615 → left 590). z-index 3 < hero (.hub-hero z4)
+   so the HERO paints OVER the badge — the badge peeks out from behind the hero. */
+.hub > #hub-tier      { left: 590px; top: 58px; width: 50px; height: 42px; z-index: 3; }
 
 /* edge controls: equal 52px squares; symmetric — news/shop left (x95), friends/clubs right (x795) */
 .hub > .hub-sat { width: 52px; height: 52px; }
