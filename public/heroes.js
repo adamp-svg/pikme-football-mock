@@ -132,7 +132,7 @@ export const ACTION_DUR = { kick: 0.5, shoot: 0.5, bomb: 0.42, wall: 0.6, fly: 0
 const DANCE_SPEED = 1.5;
 // The random pool the idle lobby hero cycles through (re-rolled on hero/costume change).
 // 'walk' = the existing jog. NOTE 'hype' is a library emote but intentionally NOT here.
-export const LOBBY_DANCES = ['walk', 'floss', 'orange', 'takel', 'default', 'shuffle', 'pony', 'noodle'];
+export const LOBBY_DANCES = ['walk', 'floss', 'orange', 'takel', 'shuffle', 'pony', 'noodle'];
 
 function idlePose(time) { const b = Math.sin(time * 2.2);
   return { bob: (b * 0.5 + 0.5) * 0.8, pt: { Lf: [-2.5, 27], Rf: [2.5, 27], Lh: [-6.5, 17 + b * 0.5], Rh: [6.5, 17 - b * 0.5] } }; }
@@ -250,9 +250,6 @@ function orangePose(t) { const a = t * 8, b = t * 5.3, c = t * 11;    // quirky 
 function takeLPose(t) { const sw = S(t * 3.2), kick = Math.max(0, sw); // skating kick + L on forehead
   return { rot: sw * 0.14, bob: abs(C(t * 3.2)) * 1.2, dx: sw * 2.5,
     pt: { Lf: [-3, 27], Rf: [3 + kick * 5, 27 - kick * 4], Lh: [-3, 1], Rh: [5, 15] } }; }
-function defaultDancePose(t) { const pump = S(t * 6);                 // the OG default — arm pump + sway
-  return { bob: abs(C(t * 3)) * 0.7, dx: S(t * 3) * 1.8, rot: S(t * 3) * 0.04,
-    pt: { Lf: [-3, 27], Rf: [3, 27], Lh: [-4, 3 + pump], Rh: [5 + Math.max(0, pump) * 3, 13 - Math.max(0, pump) * 2] } }; }
 function electroPose(t) { const f = t * 7, s = S(f);                  // Electro Shuffle running-man
   return { bob: abs(C(f)) * 0.8, rot: s * 0.03,
     pt: { Lf: [-3 + (s > 0 ? s * 3 : 0), 27 - Math.max(0, s) * 4], Rf: [3 + (s < 0 ? -s * 3 : 0), 27 - Math.max(0, -s) * 4],
@@ -312,7 +309,6 @@ function resolvePose(anim, walkPhase, moving, time, dir) {
     case 'floss': return { ...base, ...flossPose(time * DANCE_SPEED) };
     case 'orange': return { ...base, ...orangePose(time * DANCE_SPEED) };
     case 'takel': return { ...base, ...takeLPose(time * DANCE_SPEED) };
-    case 'default': return { ...base, ...defaultDancePose(time * DANCE_SPEED) };
     case 'shuffle': return { ...base, ...electroPose(time * DANCE_SPEED) };
     case 'pony': return { ...base, ...ponyPose(time * DANCE_SPEED) };
     case 'hype': return { ...base, ...hypePose(time * DANCE_SPEED) };

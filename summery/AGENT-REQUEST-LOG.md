@@ -43,3 +43,8 @@ Protocol: localhost only · commit everything · lock task via agent-orchestrati
 **Library emotes added but NOT in lobby pool:** hype, cheer, wave, juggle, siu, slide (available via `anim:{action}` anywhere, e.g. match celebrations).
 **Verified:** node --check both modules; headless drive of REAL drawHero across walk+all 13 (5614 draws, 0 non-finite); sx/sy engaged for hype/siu; unknown action → base; server serves /,/client.js,/heroes.js = 200 with exports wired.
 **Status:** DONE — committed. Locks to release.
+
+## Request 4 — 2026-07-23
+**User:** Remove the Fortnite "Dance Moves" (OG default) entirely.
+**Done (heroes.js only):** dropped `'default'` from `LOBBY_DANCES`; removed `defaultDancePose` fn + its `resolvePose` case. Pool now = `['walk','floss','orange','takel','shuffle','pony','noodle']`. Verified: 0 residual refs, node --check OK.
+**Status:** DONE — committed.
