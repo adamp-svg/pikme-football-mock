@@ -5,6 +5,12 @@
 
 ## 2026-07-23
 
+- **Req #6** — Task (continuation, same lock). (a) Move the cards/collector badge `#hub-rank` to align directly with the worth chip `#chip-worth`; (b) make `#hub-rank` + hero `#hub-tier` the SAME dimensions — a squarish, slightly-longer box.
+  - Impl: both badges → fixed 60×50 (matches chip width 60 = «a bit longer square»), layout switched from row to column (icon over text) so they fill a squarish box. Baked pos: `#hub-rank` left 278 width 60 (exact worth-chip column), `#hub-tier` left 585 width 60 (centred over hero, dropped translateX). style.css shared `.hub-rank,.hub-tier` block + baked-position rules. CSS-only (no HTML/JS change).
+  - Verified: server :3010 serves `#hub-rank {left:278 width:60 height:50}` = same left+width as `#chip-worth {left:278 width:60}` (directly aligned column); `#hub-tier {left:585 width:60 height:50}` (same 60×50, centred over hero); `flex-direction: column` + icon `font-size: 22px` present. NOTE: 50px-tall hero badge sits over the hero's upper area — visual glance on localhost may want a top nudge.
+  - Committed style.css + this log.
+  - Status: DONE
+
 - **Req #5** — Task (continuation of #4, same lock `football-mock:hero-rank-badge`). Make BOTH badges — collector `#hub-rank` («אספן…» over the cards) and hero rank `#hub-tier` — more pixel-art: less box, less text.
   - Approach: unified 8-bit emblem style on `.hub-rank, .hub-tier` — notched pixel corners (`clip-path` L-notch), hard 2-band fill via `--c1/--c2`, raised bevel (inset box-shadows), chunky bottom shadow kept via `filter: drop-shadow` (box-shadow is clipped by clip-path, so must use filter). Icon-forward: `.px-ic` big, tiny `.px-word`/`.px-sub`.
   - Less text: collector drops the «אספן » prefix → icon + one word (מתחיל/נפוץ/נדיר/אדיר/אגדי); hero drops the tier word → icon + sub-rank number only (tier read from icon+colour). `HUB_RANKS` → {ic,word}; renderHubStats + renderHubTier now set innerHTML (px-ic/px-word/px-sub); renderHubTier sets `--c1/--c2` (not inline background).
