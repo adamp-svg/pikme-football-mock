@@ -739,11 +739,11 @@ function cardsSig() {
 }
 function renderHubStats() {
   const cards = myCards();
-  const videos = new Set(cards.map((c) => c.n)).size;              // distinct card moments owned (of 50)
+  const owned = new Set(cards.map((c) => c.r + '/' + c.n)).size;   // distinct cards owned, of the 200-card album (r+n = one card)
   const worth = cards.reduce((s, c) => s + (c.w || 0), 0);
-  const copies = cards.reduce((s, c) => s + (c.c || 1), 0);
+  const copies = cards.reduce((s, c) => s + (c.c || 1), 0);        // total copies held (duplicates included)
   const views = window.SALTIZ_PROFILE && Number(window.SALTIZ_PROFILE.views);
-  setTxt('hub-count', videos + '/50');
+  setTxt('hub-count', owned + '/200');
   setTxt('hub-worth', fmtCompact(worth));
   if (Number.isFinite(views) && views > 0) { setTxt('hub-extra', fmtCompact(views)); setTxt('hub-extra-l', 'צפיות'); }
   else { setTxt('hub-extra', fmtCompact(copies)); setTxt('hub-extra-l', 'עותקים'); }
@@ -1544,7 +1544,7 @@ fitHub();
 
 // ---- Lobby-redesign sub-screens (arena / news / shop / clubs) ---------------
 // Register the new .screen divs so the existing showScreen() drives open/close.
-for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party']) {
+for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party', 'friend-select']) {
   const el = document.getElementById(id);
   if (el) screens[id] = el;
 }
@@ -1631,7 +1631,10 @@ document.getElementById('friends-btn').addEventListener('click', () => {
   renderSearch([]); setFriendsTab('list');
   loadFriends(); // #3: refresh on open (also self-heals a failed initial load / WS reconnect)
 });
-document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); sendMsg({ type: 'training' }); });
+document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); document.getElementById('train-choose')?.classList.remove('hidden'); });
+document.getElementById('tc-cancel')?.addEventListener('click', () => document.getElementById('train-choose')?.classList.add('hidden'));
+document.getElementById('tc-ground')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); sendMsg({ type: 'training' }); });
+document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); syncLoadout(); sendMsg({ type: 'botGame', diffLevel }); });
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Pick-best loadout (restored): null loadout => effectiveLoadout() auto-fills the album's
 // top-3 into the slots; persist, re-render the home slots, and tell the server live.
@@ -2071,25 +2074,28 @@ function renderInvite() {
   document.getElementById('fs-accepted-wrap')?.classList.toggle('hidden', !accepted.length);
 }
 function openFriendSelect() {
-  // Create the party room up front so invites + accepts are LIVE on this screen.
+  // Create the party room up front so invites + accepts are LIVE on this screen (now a full sub-page).
   selectedGame = null; partyFlow = true; partyStage = 'invite'; invitedSet.clear();
   if (joinCodeEl) joinCodeEl.value = '';
   syncLoadout(); loadFriends();               // refresh presence so online friends show as candidates
-  sendMsg({ type: 'createRoom' });            // roomJoined (invite stage) keeps this overlay + renders sections
-  renderInvite();
-  friendSelectEl?.classList.remove('hidden');
+  sendMsg({ type: 'createRoom' });            // roomJoined (invite stage) renders the sections
+  showScreen('friend-select'); renderInvite();
 }
 function closeFriendSelect() { friendSelectEl?.classList.add('hidden'); }
-// Cancelling the invite screen dissolves the just-created party room (no orphan left behind).
+// Leaving the invite screen dissolves the just-created party room (no orphan) and returns to the hub.
 function cancelInvite() {
-  closeFriendSelect();
   if (partyFlow && partyStage === 'invite') { sendMsg({ type: 'leaveRoom' }); partyFlow = false; lastLobby = null; }
+  partyStage = 'invite';
+  showScreen('home');
 }
 document.getElementById('friend-select-close')?.addEventListener('click', cancelInvite);
-friendSelectEl?.addEventListener('click', (e) => { if (e.target === friendSelectEl) cancelInvite(); });
+// Tap the empty background to leave (sub-page convention), drag-safe via isDismissBackdrop.
+let fsDownBackdrop = false;
+friendSelectEl?.addEventListener('pointerdown', (e) => { fsDownBackdrop = isDismissBackdrop(e.target, friendSelectEl); });
+friendSelectEl?.addEventListener('click', (e) => { if (fsDownBackdrop && isDismissBackdrop(e.target, friendSelectEl)) { fsDownBackdrop = false; cancelInvite(); } });
 document.getElementById('friend-select-go')?.addEventListener('click', () => {
   // Room already exists (created on open) → advance to the party ROSTER.
-  unlockAudio(); closeFriendSelect();
+  unlockAudio();
   partyStage = 'roster';
   showScreen('party'); renderParty();
 });
@@ -2098,7 +2104,6 @@ document.getElementById('join-room-btn')?.addEventListener('click', () => {
   const code = (joinCodeEl?.value || '').trim().toUpperCase();
   if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
   if (partyFlow && partyStage === 'invite') { sendMsg({ type: 'leaveRoom' }); partyFlow = false; } // drop the orphan party room
-  closeFriendSelect();
   sendMsg({ type: 'joinRoom', code });
 });
 
@@ -2933,7 +2938,7 @@ if (buildBtn) {
   buildBtn.addEventListener('pointercancel', endBuildDrag);
 }
 updateSoundButton();
-soundBtn.addEventListener('click', () => {
+soundBtn?.addEventListener('click', () => {
   unlockAudio();
   if (soundEnabled) playSound('ui', 0.55);
   soundEnabled = !soundEnabled;
@@ -3023,6 +3028,10 @@ function openSettings() {
   playSound('ui', 0.45);
   holding = false; chargeStart = null; fireQueued = false; specialQueued = false; aimHold = null;
   settingsPanel.classList.remove('hidden');
+  // Difficulty (bots) is selectable ONLY in training or a friends (private) room.
+  const diffAllowed = training || roomMode === 'private';
+  document.getElementById('setting-difficulty')?.classList.toggle('hidden', !diffAllowed);
+  document.getElementById('settings-empty-note')?.classList.toggle('hidden', diffAllowed);
   syncSliderUI();
   syncDifficultyUI();
 }
@@ -3108,7 +3117,7 @@ addEventListener('touchstart', (e) => {
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   if (editingControls) return; // the layout editor owns all touches while open
   for (const t of e.changedTouches) {
-    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || soundBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target))) continue; // buttons aren't sticks
+    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target))) continue; // buttons aren't sticks
     const ad = adBoardAt(t.clientX, t.clientY); if (ad) { openAd(ad); continue; } // board tap, not a stick
     const which = claimStick(t);
     if (which === 'L' && touchL.id === null) {
@@ -4861,7 +4870,15 @@ function fbMirror(mode) {
   addCopies('hard', wall); addCopies('dry', wall); addCopies('bush', bush);
   fbSel = null; fbRender(); fbPush();
 }
-function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbHistInit(); fbUpdateHistBtns(); }
+// Field zoom: scale the arena's layout HEIGHT (aspect keeps width in step) so the stage's
+// overflow gives native scroll-to-pan; fbToWorld reads the live rect, so placement stays exact.
+let fbZoom = 1;
+function fbSetZoom(z) {
+  fbZoom = Math.max(1, Math.min(3, Math.round(z * 100) / 100));
+  const a = document.querySelector('#builder .builder-arena');
+  if (a) a.style.setProperty('--bz', fbZoom);
+}
+function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
@@ -4874,6 +4891,10 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
   document.getElementById('b-redo')?.addEventListener('click', fbRedo);
   document.getElementById('b-save')?.addEventListener('click', () => { fbSave(); const h = document.querySelector('#builder .builder-hint'); if (h) { const p = h.textContent; h.textContent = 'נשמר ✓'; h.style.color = '#7CFC7C'; setTimeout(() => { h.textContent = p; h.style.color = ''; }, 1200); } });
   document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
+  document.getElementById('b-zoom-in')?.addEventListener('click', () => fbSetZoom(fbZoom + 0.25));
+  document.getElementById('b-zoom-out')?.addEventListener('click', () => fbSetZoom(fbZoom - 0.25));
+  document.getElementById('b-zoom-reset')?.addEventListener('click', () => fbSetZoom(1));
+  document.querySelector('#builder .builder-stage')?.addEventListener('wheel', (e) => { e.preventDefault(); fbSetZoom(fbZoom + (e.deltaY < 0 ? 0.2 : -0.2)); }, { passive: false });
   pit.addEventListener('pointerdown', (e) => {
     const w = fbToWorld(e.clientX, e.clientY);
     const el = e.target.closest('.bel');

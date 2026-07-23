@@ -947,7 +947,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* --- Sub-screens (arena / news / shop / clubs / rank / friends) — all share the full-bleed
    stadium backdrop + stretched .subpage, so friends & rank match clubs' look/transparency. --- */
-.screen#arena, .screen#news, .screen#shop, .screen#clubs, .screen#rank, .screen#friends, .screen#cards, .screen#party {
+.screen#arena, .screen#news, .screen#shop, .screen#clubs, .screen#rank, .screen#friends, .screen#cards, .screen#party, .screen#friend-select {
   background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
   align-items: stretch; justify-content: stretch;
 }
@@ -973,7 +973,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .party-games { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .party-games-h { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; text-align: right; }
 /* Invite screen sections (online / pending / accepted) */
-.fs-sections { display: flex; flex-direction: column; gap: 12px; max-height: 52vh; overflow-y: auto; margin-bottom: 10px; }
+.fs-sections { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
 .fs-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin-bottom: 6px; letter-spacing: .3px; }
 .subpage { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; padding: 14px 18px 20px; }
 .subpage-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
@@ -1612,12 +1612,22 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* ===================== FIELD BUILDER ===================== */
 #builder { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; background: #0e1a12; color: #eaf2ec; }
 #builder.hidden { display: none; }
+/* Body: actions rail (left) · field (center) · materials rail (right). dir:ltr fixes L/R order. */
+.builder-body { flex: 1; min-height: 0; display: flex; flex-direction: row; align-items: stretch; gap: 6px; padding: 4px 8px 2px; direction: ltr; }
+.builder-side { flex: none; width: 92px; display: flex; flex-direction: column; gap: 6px; justify-content: center; overflow-y: auto; }
+.builder-side .bact, .builder-side .btool { width: 100%; }
+/* Zoom controls, overlaid bottom-left of the (now scrollable) stage. */
+.builder-zoom { position: absolute; left: 8px; bottom: 8px; z-index: 6; display: flex; flex-direction: column; gap: 5px; }
+.builder-zoom button { width: 38px; height: 38px; border: none; border-radius: 9px; background: rgba(20,32,24,.92); color: #eaf2ec; font: 900 18px "Arial Black", sans-serif; box-shadow: 0 3px 0 #070b08; cursor: pointer; }
+.builder-zoom button:active { transform: translateY(2px); box-shadow: 0 1px 0 #070b08; }
 .builder-top { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; gap: 8px; }
 .builder-title { font-weight: 800; font-size: 16px; }
 .builder-btn { border: none; border-radius: 10px; padding: 8px 14px; font-weight: 800; font-size: 14px; color: #fff; }
 .builder-back { background: #33413a; }
 .builder-play { background: #2fbf5e; }
-.builder-stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 6px 10px; min-height: 0; }
+/* Stage scrolls (pan) when the field is zoomed past its fit size; block flow + margin:auto on
+   the arena centres it when it fits and scrolls cleanly from the origin when it overflows. */
+.builder-stage { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 6px; }
 /* Uniform scale: aspect-ratio keeps px/world identical on both axes, so CSS rotate() is true. */
 .builder-pitch { position: relative; width: 100%; max-width: 980px; aspect-ratio: 2000 / 1100; max-height: 100%;
   background: radial-gradient(circle at 50% 50%, #2f7d43, #256a38); border: 3px solid rgba(255,255,255,.5); border-radius: 8px;
@@ -1645,7 +1655,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Stadium frame: seat-row stands around the play area (the pitch stays the coordinate space). */
 /* Top-down STADIUM: a seat-dot bowl (tiled dots = packed stands) with team-tinted halves;
    the pitch covers the centre so seats show only in the surrounding stands ring. */
-.builder-arena { position: relative; height: 100%; width: auto; aspect-ratio: 2000 / 1100; max-width: 100%; margin: auto; border-radius: 22px;
+.builder-arena { position: relative; height: calc(100% * var(--bz, 1)); width: auto; aspect-ratio: 2000 / 1100; max-width: none; margin: auto; border-radius: 22px;
   display: flex; align-items: center; justify-content: center;
   background-color: #16232b;
   background-image:
@@ -1669,3 +1679,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .bp-box-l { left: 0; border-left: none; } .bp-box-r { right: 0; border-right: none; }
 .bp-goal { background: rgba(255,255,255,.18); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55);
   background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.4) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, rgba(255,255,255,.4) 0 1px, transparent 1px 5px); }
+
+/* Training chooser + lean settings note */
+.train-choose-opts { display: flex; gap: 12px; margin: 10px 0 4px; flex-wrap: wrap; }
+.tc-opt { flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: 4px; padding: 16px; border: none; border-radius: 14px; background: #2a3a30; color: #eaf2ec; text-align: center; }
+.tc-opt b { font-size: 16px; } .tc-opt small { opacity: .8; font-size: 12px; }
+#tc-bots { background: #2fbf5e; color: #06210f; }
+.setting-empty { opacity: .55; font-size: 13px; padding: 10px; text-align: center; }

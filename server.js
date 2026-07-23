@@ -382,6 +382,31 @@ function startBuilderMatch(member, field) {
   room.rosterVersion++; broadcastRoster(room);
 }
 
+// Training option: a full 2v2 MATCH vs bots only (default arena, real clock). Instant,
+// solo entry; the human is team A and every other slot is a bot. Difficulty from the client.
+function startBotGame(member, diffLevel) {
+  leaveCurrentRoom(member);
+  const room = makeRoom(`bots-${++roomCounter}`, false, 'match');
+  rooms.set(room.id, room);
+  addToRoom(member, room);
+  room.state = createState();
+  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
+  room.inputs.clear();
+  room.botCounter = 0;
+  addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(member.loadout) });
+  room.inputs.set(member.id, emptyInput());
+  member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
+  const matchId = `${room.id}-${++matchSeq}`;
+  const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [], cosmetic: member.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(member.loadout, member.cards), isBot: false }];
+  room.phase = 'match';
+  fillBots(room, roster); // fill the other 3 slots with bots
+  attachBall(room.state, 'A');
+  room.endHoldT = 0;
+  send(member.ws, { type: 'roomJoined', mode: 'match', code: null });
+  send(member.ws, { type: 'matchStart', mode: 'match', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+  room.rosterVersion++; broadcastRoster(room);
+}
+
 // A challenge accept drops both players into a fresh private room on opposite teams
 // and starts the normal countdown → match. Reuses the private-room lifecycle.
 function startChallengeMatch(a, b) {
@@ -934,6 +959,7 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'quickMatch') { quickMatch(member); return; }
       if (msg.type === 'training') { startTraining(member); return; }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field); return; }
+      if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
       if (msg.type === 'resetBall') { // training only: recenter the ball on demand
         const r = member.room;
         if (r && r.mode === 'training' && r.phase === 'match') attachBall(r.state, member.team);
