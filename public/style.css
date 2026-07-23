@@ -534,6 +534,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   border: 1.5px solid #333; image-rendering: pixelated; }
 .fc-card.rarity-legendary { border-color: #ffb800; } .fc-card.rarity-epic { border-color: #b46bff; }
 .fc-card.rarity-rare { border-color: #4ea0ff; } .fc-card.rarity-common { border-color: #9ab0c5; }
+.fc-slots { display: flex; gap: 6px; margin-top: 6px; }
+.fc-slot { position: relative; width: 40px; height: 52px; border-radius: 7px; border: 2px solid #4a5a4c; background: #16211a; overflow: hidden; }
+.fc-slot-empty { border-style: dashed; opacity: .8; }
+.fc-slot-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+.fc-slot.rarity-legendary { border-color: #ffb800; }
+.fc-slot.rarity-epic { border-color: #b46bff; }
+.fc-slot.rarity-rare { border-color: #4ea0ff; }
+.fc-slot.rarity-common { border-color: #9ab0c5; }
 
 /* Friend-select (step 1) multi-select rows. */
 .fs-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; width: 100%; }

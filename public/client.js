@@ -10,6 +10,7 @@ import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
+import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import {
   HERO_KEYS, HERO_NAMES, SIGNATURE_NAMES, SKIN_KEYS, SKIN_NAMES, SKIN_RARITY,
@@ -1925,7 +1926,41 @@ function renderList(id, items, opts, emptyText) {
   if (!items || !items.length) { if (emptyText) listMsg(id, emptyText); return; }
   items.forEach((f) => el.appendChild(friendRow(f, opts)));
 }
-// Rich friend card for the friends window: profile pic, name, xp/rank, top-3 cards.
+const friendCardsCache = new Map(); // userId -> [{r,n}] top cards (lazy, per session)
+
+// Render 3 power slots into `container`: filled with top-3 art, empty = dashed placeholder.
+function paintFriendSlots(container, cards) {
+  container.innerHTML = '';
+  const top = rankFriendTop(cards, 3);
+  for (let i = 0; i < 3; i++) {
+    const c = top[i];
+    const slot = document.createElement('div');
+    slot.className = 'fc-slot' + (c ? ' rarity-' + c.r : ' fc-slot-empty');
+    if (c) {
+      const im = document.createElement('img'); im.className = 'fc-slot-art'; im.loading = 'lazy'; im.alt = '';
+      im.onerror = () => im.removeAttribute('src'); im.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`;
+      slot.appendChild(im);
+    }
+    container.appendChild(slot);
+  }
+}
+
+// Fill a friend's slots: bots/inline cards render immediately; real friends lazy-fetch (cached).
+function fillFriendSlots(container, f) {
+  const inline = Array.isArray(f.cards) ? f.cards : null;
+  if (inline) { paintFriendSlots(container, inline); return; }
+  const cached = friendCardsCache.get(f.userId);
+  if (cached) { paintFriendSlots(container, cached); return; }
+  paintFriendSlots(container, []); // placeholders while loading
+  if (!f.userId || !FOOTBALL_TOKEN) return;
+  apiGet(`/handle-friends/${f.userId}/cards`).then((res) => {
+    const cards = res && Array.isArray(res.cards) ? res.cards : [];
+    friendCardsCache.set(f.userId, cards);
+    if (container.isConnected) paintFriendSlots(container, cards);
+  });
+}
+
+// Rich friend card: profile pic, name, presence, always-present stats row + 3 power slots.
 function friendCardEl(f) {
   const online = ONLINE.has(f.userId) || !!f.isBot;
   const div = document.createElement('div');
@@ -1941,18 +1976,16 @@ function friendCardEl(f) {
   top.append(dot, nm);
   if (f.isBot) { const t = document.createElement('span'); t.className = 'friend-bot-tag'; t.textContent = '🤖'; top.appendChild(t); }
   main.appendChild(top);
-  const metaBits = [];
-  if (f.rank != null) metaBits.push('🏅 #' + f.rank);
-  if (f.level != null) metaBits.push('דרגה ' + f.level);
-  if (f.xp != null) metaBits.push('XP ' + fmtCompact(f.xp));
-  if (metaBits.length) { const meta = document.createElement('div'); meta.className = 'fc-meta'; meta.textContent = metaBits.join(' · '); main.appendChild(meta); }
-  const cards = Array.isArray(f.cards) ? f.cards.slice(0, 3) : [];
-  if (cards.length) {
-    const row = document.createElement('div'); row.className = 'fc-cards';
-    cards.forEach((c) => { const im = document.createElement('img'); im.className = 'fc-card rarity-' + c.r; im.loading = 'lazy'; im.alt = ''; im.onerror = () => im.removeAttribute('src'); im.src = `${CARD_ART_BASE}/${c.r}/${c.n}.webp`; row.appendChild(im); });
-    main.appendChild(row);
-  }
+  // Stats row — always shown, zeros when unknown.
+  const meta = document.createElement('div'); meta.className = 'fc-meta';
+  meta.textContent = ['דרגה ' + (f.level || 0), 'XP ' + fmtCompact(f.xp || 0), 'שווי ' + fmtCompact(f.worth || 0), 'קלפים ' + (f.owned || 0)].join(' · ');
+  main.appendChild(meta);
+  // Power slots — always 3; filled with top cards (inline for bots, lazy-fetched for real friends).
+  const slots = document.createElement('div'); slots.className = 'fc-slots';
+  main.appendChild(slots);
+  fillFriendSlots(slots, f);
   div.append(pfp, main);
+  div.addEventListener('click', () => openFriendProfile(f)); // #5
   return div;
 }
 function renderFriends() {
