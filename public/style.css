@@ -1356,10 +1356,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    scrolling (the deck is the tall part — every tier + the slots must fit at once). */
 #cards .subpage-body { gap: 7px; padding-bottom: 4px; }
 #cards .subpage-head { margin-bottom: 8px; }
-.cards-slots { display: flex; direction: rtl; gap: 12px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
-.cards-slots .pslot-item { flex: 0 0 auto; gap: 3px; }
-.cards-slots .pslot { height: 72px; max-height: none; width: 60px; touch-action: none; }  /* touch-action:none so a slot card can be dragged out/between slots without the page scrolling */
-.cards-slots .pslot-cap { font-size: 10px; }
+/* Power slots ~2x bigger and pushed down the page (the marquee of the cards room). Width is
+   held so the 3 stay in one row even on a 375px phone (3x106 + 2x10 gap = 338). */
+.cards-slots { display: flex; direction: rtl; gap: 10px; align-items: flex-start; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
+.cards-slots .pslot-item { flex: 0 0 auto; gap: 5px; }
+.cards-slots .pslot { height: 140px; max-height: none; width: 106px; touch-action: none; }  /* touch-action:none so a slot card can be dragged out/between slots without the page scrolling */
+.cards-slots .pslot-cap { font-size: 12px; }
 .cards-hint { font: 800 11px "Arial Black", sans-serif; color: #8aa08c; text-align: center; }
 .cards-best {
   align-self: center; padding: 6px 16px; border: 0; border-radius: 10px; cursor: pointer;
@@ -1400,12 +1402,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    belonging to a neighbouring tier's header (fixes "legendary shown under Epic"). */
 .cards-tier {
   border: 1px solid #2c3830; border-inline-start-width: 4px; border-radius: 10px;
-  background: rgba(255,255,255,.02); padding: 3px 4px 4px; margin: 0 auto 7px; max-width: 528px;
+  background: #1a2320; padding: 3px 4px 4px; margin: 0 auto 7px; max-width: 528px;   /* opaque base; rarity rules tint it below */
 }
-.cards-tier.rarity-legendary { border-inline-start-color: #ffb800; }
-.cards-tier.rarity-epic { border-inline-start-color: #b46bff; }
-.cards-tier.rarity-rare { border-inline-start-color: #4ea0ff; }
-.cards-tier.rarity-common { border-inline-start-color: #9ab0c5; }
+/* Each tier "sleeve" is an OPAQUE box in its own rarity colour (border all round, thick left
+   accent) so the tier reads at a glance and the cards sit on a solid backing. */
+.cards-tier.rarity-legendary { border-color: #ffb800; background: #453611; }
+.cards-tier.rarity-epic      { border-color: #b46bff; background: #2c1c47; }
+.cards-tier.rarity-rare      { border-color: #4ea0ff; background: #132c49; }
+.cards-tier.rarity-common    { border-color: #9ab0c5; background: #272f37; }
 .cards-fan {
   position: relative; width: 100%; max-width: 520px;
   overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
