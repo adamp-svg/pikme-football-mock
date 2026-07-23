@@ -282,7 +282,7 @@ export function seedFieldWalls(state) {
   for (const s of (state.fieldDryWalls || [])) {
     // A dry wall over a bush/penalty is WEAK (hp 1, one hit) so it isn't "extra tough",
     // but stays SOLID (fragile:false) so it renders visibly over the bush (not glassy).
-    const weak = boxInBush(state, s.x, s.y, s.w, s.h) || boxInPenalty(s.x, s.y, s.w, s.h);
+    const weak = wallInBush(state, s.cx, s.cy, s.angle, s.hl, s.ht) || wallInPenalty(s.cx, s.cy, s.angle, s.hl, s.ht);
     const hp = weak ? FRAGILE_HP : s.maxHp;
     state.builtWalls.push({ ...s, id: state._nid++, hp, maxHp: hp });
   }
@@ -796,17 +796,33 @@ function useSpecial(state, p, ch, sax = 0, say = 0) {
 // BUILD skill — spawn a small destructible wall in front of the player, oriented
 // perpendicular to their aim (so it shields the direction they're facing). Costs
 // one build charge (regenerates one every BUILD_RELOAD seconds).
-function boxOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
-  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+// A wall is a rotated CAPSULE (core segment ± ht). The weak-zone test must use that true
+// shape, not the wall's axis-aligned bounding box — an angled wall's AABB is a big square
+// whose diagonal pokes into a nearby bush/penalty even when the wall body is well outside,
+// which wrongly flagged walls "near but not on" the penalty as weak (rendered cracked-by-one).
+function segHitsBox(x0, y0, x1, y1, minx, miny, maxx, maxy) { // Liang–Barsky: does the segment touch the AABB?
+  let t0 = 0, t1 = 1; const dx = x1 - x0, dy = y1 - y0;
+  for (const [p, q] of [[-dx, x0 - minx], [dx, maxx - x0], [-dy, y0 - miny], [dy, maxy - y0]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+    else { if (r < t0) return false; if (r < t1) t1 = r; }
+  }
+  return true;
 }
-function boxInBush(state, x, y, w, h) {
-  for (const g of arenaOf(state).bushes) if (boxOverlap(x, y, w, h, g.x, g.y, g.w, g.h)) return true;
+function capsuleHitsBox(cx, cy, angle, hl, ht, bx, by, bw, bh) { // capsule ≈ core segment vs box grown by ht
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return segHitsBox(cx - c * hl, cy - s * hl, cx + c * hl, cy + s * hl,
+                    bx - ht, by - ht, bx + bw + ht, by + bh + ht);
+}
+function wallInBush(state, cx, cy, angle, hl, ht) {
+  for (const g of arenaOf(state).bushes) if (capsuleHitsBox(cx, cy, angle, hl, ht, g.x, g.y, g.w, g.h)) return true;
   return false;
 }
-function boxInPenalty(x, y, w, h) {
+function wallInPenalty(cx, cy, angle, hl, ht) {
   const d = PENALTY.depth;
-  return boxOverlap(x, y, w, h, 0, PENALTY_TOP, d, PENALTY.width) ||
-         boxOverlap(x, y, w, h, FIELD.W - d, PENALTY_TOP, d, PENALTY.width);
+  return capsuleHitsBox(cx, cy, angle, hl, ht, 0, PENALTY_TOP, d, PENALTY.width) ||
+         capsuleHitsBox(cx, cy, angle, hl, ht, FIELD.W - d, PENALTY_TOP, d, PENALTY.width);
 }
 function buildWall(state, p) {
   const al = Math.hypot(p.aimX, p.aimY) || 1;
@@ -826,7 +842,7 @@ function buildWall(state, p) {
   const x = cx - w / 2, y = cy - h / 2;
   // Building inside a bush or penalty area is allowed, but the wall is FRAGILE (hp 1):
   // any bullet breaks it and a power kick smashes through (see the ball/bullet handling).
-  const fragile = boxInBush(state, x, y, w, h) || boxInPenalty(x, y, w, h);
+  const fragile = wallInBush(state, cx, cy, angle, hl, ht) || wallInPenalty(cx, cy, angle, hl, ht);
   const hp = fragile ? FRAGILE_HP : BUILT_WALL.hp;
   state.builtWalls.push({
     id: state._nid++, x, y, w, h, hp, maxHp: hp, fragile,

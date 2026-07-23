@@ -143,12 +143,8 @@
          attrs are preserved so the existing #builder handlers still bind. -->
     <div class="builder-body">
       <div class="builder-side builder-actions" dir="rtl">
-        <button id="b-save" class="bact">💾 שמור</button>
-        <button id="b-clear" class="bact">✕ נקה הכל</button>
-        <span class="builder-sep"></span>
         <button id="b-undo" class="bact">↶</button>
         <button id="b-redo" class="bact">↷</button>
-        <button id="b-delete" class="bact">🗑️ מחק</button>
         <span class="builder-sep"></span>
         <button class="bact" data-mirror="sides">⇆ צד</button>
         <button class="bact" data-mirror="top">⇅ עליון</button>
@@ -179,7 +175,12 @@
         <button class="btool" data-tool="eraser">🩹 מחק</button>
       </div>
     </div>
-    <div class="builder-hint">קיר: גרור לצייר קו (בכל זווית) · שיח: גרור מלבן · 🩹 מחק בגרירה · שיקוף: צד / עליון / אלכסון</div>
+    <!-- Bottom bar MIRRORS the top bar: clear-all sits under ‹ back (left), save under play (right). -->
+    <div class="builder-bottom">
+      <button id="b-clear" class="builder-btn builder-clear">✕ נקה הכל</button>
+      <span class="builder-hint">קיר: גרור לצייר קו (בכל זווית) · שיח: גרור מלבן · 🩹 מחק בגרירה · שיקוף: צד / עליון / אלכסון</span>
+      <button id="b-save" class="builder-btn builder-save">💾 שמור</button>
+    </div>
   </div>
 
   <!-- ================= NEW SUB-SCREENS (arena / news / shop / clubs) ================= -->
@@ -674,13 +675,15 @@
   <!-- Wardrobe / character picker overlay — costumes carousel (top) · large hero (center) ·
        hero-types carousel (bottom). All ids preserved so setupHeroPicker() wiring is intact. -->
   <div id="hero-picker" class="picker hidden" dir="rtl">
+    <!-- full-screen per-hero pixel ambience (hero-fx.js) — frameless, translucent, behind the panel -->
+    <canvas id="wardrobe-fx" class="wr-fx" width="200" height="140" aria-hidden="true"></canvas>
     <div class="picker-panel wardrobe">
       <div class="wr-section wr-top">
         <div class="wr-rail-label">חליפות</div>
         <div id="pick-tiers" class="pick-tiers wr-carousel"></div>
       </div>
       <div class="wr-center">
-        <canvas id="pick-preview" class="pick-preview" width="180" height="200"></canvas>
+        <canvas id="pick-preview" class="pick-preview" width="240" height="240"></canvas>
         <div id="pick-name" class="pick-name"></div>
       </div>
       <div class="wr-section wr-bottom">

@@ -12,6 +12,7 @@ import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/s
 import { decodeSnapshot } from '/shared/wire.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
+import { mountHeroFx } from '/hero-fx.js';
 import {
   HERO_KEYS, HERO_NAMES, SIGNATURE_NAMES, SKIN_KEYS, SKIN_NAMES, SKIN_RARITY,
   DEFAULT_COSMETIC, normalizeCosmetic,
@@ -655,9 +656,11 @@ function myCards() {
 }
 // Hero unlocks: every 7 DISTINCT cards owned opens the next hero, in rarity order
 // (striker → alien). 0-6 → striker only, 7-13 → +dwarf, etc. Always ≥1 (striker free).
+// DEV: unlock every hero for testing. Set false to restore the 7-distinct-cards-per-hero gating.
+const DEV_UNLOCK_ALL = true;
 function distinctOwnedCount() { return new Set(myCards().map((c) => c.r + '/' + c.n)).size; }
-function unlockedHeroCount() { return Math.max(1, Math.min(HERO_KEYS.length, Math.floor(distinctOwnedCount() / 7) + 1)); }
-function isHeroUnlocked(hk) { const i = HERO_KEYS.indexOf(hk); return i >= 0 && i < unlockedHeroCount(); }
+function unlockedHeroCount() { return DEV_UNLOCK_ALL ? HERO_KEYS.length : Math.max(1, Math.min(HERO_KEYS.length, Math.floor(distinctOwnedCount() / 7) + 1)); }
+function isHeroUnlocked(hk) { if (DEV_UNLOCK_ALL) return HERO_KEYS.includes(hk); const i = HERO_KEYS.indexOf(hk); return i >= 0 && i < unlockedHeroCount(); }
 // Best-first: worth, then rarity, then copies. Drives the carousel + the top-3 intro.
 function rankCards(cards) {
   return [...(cards || [])].sort((a, b) =>
@@ -969,9 +972,9 @@ function stopCarouselAuto() { if (cfTimer) { clearInterval(cfTimer); cfTimer = n
 // display and tell the server which card sits in which slot.
 const RARITY_PCT = { legendary: 20, epic: 12, rare: 7, common: 3 };
 const SLOT_META = [
-  { icon: '⚡', label: 'בעיטה', desc: 'הבעיטה נטענת מהר יותר — קל יותר לשחרר בעיטת עוצמה מלאה לעבר השער.' },   // Shot: faster charge
-  { icon: '🏃', label: 'מהירות', desc: 'רצים מהר יותר בלי הכדור — מגיעים ראשונים לכל כדור חופשי.' },            // Speed: faster move
-  { icon: '🛡️', label: 'הגנה', desc: 'זמני התאוששות וטעינת קיר קצרים יותר — הפצצה והחומה חוזרות מהר.' },       // Utility: faster cooldowns / wall reload
+  { icon: '⚡', label: 'בעיטה', buff: 'טעינה', desc: 'הבעיטה נטענת מהר יותר — קל יותר לשחרר בעיטת עוצמה מלאה לעבר השער.' },   // Shot: faster charge
+  { icon: '🏃', label: 'מהירות', buff: 'ריצה', desc: 'רצים מהר יותר בלי הכדור — מגיעים ראשונים לכל כדור חופשי.' },            // Speed: faster move
+  { icon: '🛡️', label: 'הגנה', buff: 'קירור', desc: 'זמני התאוששות וטעינת קיר קצרים יותר — הפצצה והחומה חוזרות מהר.' },       // Utility: faster cooldowns / wall reload
 ];
 const HEB_RAR = { common: 'נפוץ', rare: 'נדיר', epic: 'אדיר', legendary: 'אגדי' };
 function cardOwned(r, n) { return myCards().some((c) => c.r === r && +c.n === +n); }
@@ -1053,8 +1056,16 @@ function renderPowerSlots() {
 // Tap a slot to select it, then tap a deck card to equip it there (reuses setSlotCard, so
 // it persists + tells the server, exactly like the home carousel drag-to-equip).
 let cardsSelSlot = 0;
-const FAN_CARD_W = 66;  // card width in the album fan
+const FAN_CARD_W = 66;  // card width in the album fan (MUST match .fan-card CSS width)
+const FAN_GAP = 8;      // breathing gap between cards while the sleeve still has room
 const FAN_PEEK = 26;    // visible sliver per overlapped card (so ~50 fit as a scrollable spread)
+// One-shot "landed in a slot" pop — called AFTER renderCardsPage() rebuilds the node.
+function popCardsSlot(i) {
+  const el = document.querySelector('#cards-slots .pslot[data-slot="' + i + '"]');
+  if (!el || el.classList.contains('pslot-empty')) return;   // don't pop an emptied slot
+  el.classList.add('pslot-pop');
+  el.addEventListener('animationend', () => el.classList.remove('pslot-pop'), { once: true });
+}
 function renderCardsPage() {
   const slotsEl = document.getElementById('cards-slots');
   const deckEl = document.getElementById('cards-deck');
@@ -1063,16 +1074,24 @@ function renderCardsPage() {
   slotsEl.innerHTML = '';
   eff.forEach((card, i) => {
     const meta = SLOT_META[i];
-    const item = document.createElement('div'); item.className = 'pslot-item';
+    const item = document.createElement('div');
+    item.className = 'pslot-item' + (card ? ' is-filled rarity-' + card.r : ' is-empty');
     const el = document.createElement('div');
     el.className = 'pslot' + (card ? ' rarity-' + card.r : ' pslot-empty') + (i === cardsSelSlot ? ' pslot-sel' : '');
     el.dataset.slot = i;
-    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 62, 80));
-    else { const ic = document.createElement('span'); ic.className = 'pslot-emptyic'; ic.textContent = meta.icon; el.appendChild(ic); }
+    // Power-icon coin: ALWAYS visible (card or not) so the player knows what this slot boosts.
+    const pwr = document.createElement('span'); pwr.className = 'pslot-pwr'; pwr.textContent = meta.icon; el.appendChild(pwr);
+    if (card) el.appendChild(slotCardEl(card, 'pslot-art', 48, 62));
+    else { const add = document.createElement('span'); add.className = 'pslot-add pslot-emptyic'; add.textContent = '+'; el.appendChild(add); }
     // Tap = power info; drag a filled slot = swap onto another slot, or drop off every slot to
     // unequip (card returns to its rarity tier). Handled by the delegated bindCardsSlotDrag() below.
+    const info = document.createElement('div'); info.className = 'pslot-info';
     const cap = document.createElement('span'); cap.className = 'pslot-cap'; cap.textContent = meta.label;
-    item.appendChild(el); item.appendChild(cap);
+    const buff = document.createElement('span'); buff.className = 'pslot-buffline';
+    if (card) buff.innerHTML = '<b>+' + (RARITY_PCT[card.r] || 0) + '%</b> ' + (meta.buff || 'חוזק');
+    else buff.textContent = 'גרור קלף לכאן';
+    info.appendChild(cap); info.appendChild(buff);
+    item.appendChild(el); item.appendChild(info);
     slotsEl.appendChild(item);
   });
   deckEl.innerHTML = '';
@@ -1099,13 +1118,20 @@ function renderCardsPage() {
     if (!group.length) { const e = document.createElement('div'); e.className = 'cards-tier-empty'; e.textContent = 'ריק'; sec.appendChild(e); deckEl.appendChild(sec); return; }
     const fan = document.createElement('div'); fan.className = 'cards-fan';
     const track = document.createElement('div'); track.className = 'fan-track';
-    track.style.width = '100%'; // shelf is a CONSTANT width; cards spread across it (see left calc)
+    track.style.width = '100%'; // shelf is a CONSTANT width; cards pack from the right across it
+    const n = group.length;
+    // Pack from the RIGHT (RTL: best first) at a fixed pitch (card + gap) while the sleeve has
+    // room; once it's dense the pitch compresses so all n still fit the full-width shelf — that's
+    // when the cards start to overlap. No horizontal scroll: the row always fits the sleeve.
+    //   pitch = min(card+gap, (100% - card) / (n-1)) ; each card offset from the right by pitch*idx.
+    const pitch = 'min(' + (FAN_CARD_W + FAN_GAP) + 'px, (100% - ' + FAN_CARD_W + 'px) / ' + Math.max(1, n - 1) + ')';
     group.forEach((c, idx) => {
       const el = document.createElement('div');
       el.className = 'fan-card rarity-' + c.r;
-      // Spread across the constant shelf: 2 cards = wide apart, ~50 = tightly overlapped.
-      el.style.left = group.length > 1 ? 'calc((100% - ' + FAN_CARD_W + 'px) * ' + idx + ' / ' + (group.length - 1) + ')' : '0px';
-      el.style.zIndex = idx + 1;
+      // Anchor from the right so the fan opens right→left; rightmost (best) sits on top.
+      el.style.left = 'auto';
+      el.style.right = n > 1 ? 'calc(' + pitch + ' * ' + idx + ')' : '0px';
+      el.style.zIndex = n - idx;
       el.dataset.r = c.r; el.dataset.n = c.n;
       el.appendChild(slotCardEl(c, 'fan-card-art', FAN_CARD_W, 88));
       if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
@@ -1192,7 +1218,7 @@ function renderCardsPage() {
     if (sx == null) { reset(); return; }
     if (mode === 'lift') {
       const slot = slotUnder(e.clientX, e.clientY);
-      if (slot && slot.dataset.slot != null) { setSlotCard(+slot.dataset.slot, { r: card.r, n: +card.n }); renderCardsPage(); }
+      if (slot && slot.dataset.slot != null) { setSlotCard(+slot.dataset.slot, { r: card.r, n: +card.n }); renderCardsPage(); popCardsSlot(+slot.dataset.slot); }
     } else if (mode == null && cardEl) {
       const was = cardEl.classList.contains('revealed');   // tap toggles reveal (one at a time)
       deck.querySelectorAll('.fan-card.revealed').forEach((el) => el.classList.remove('revealed'));
@@ -1253,6 +1279,7 @@ function renderCardsPage() {
       else if (!slot) setSlotCard(srcSlot, null);   // dropped off every slot -> unequip, card returns to its tier
       // dropped back on the same slot -> no-op
       renderCardsPage();
+      if (slot && slot.dataset.slot != null) popCardsSlot(+slot.dataset.slot);   // pop the destination on a swap
     } else {
       showSlotInfo(srcSlot);   // a tap -> power info popup
     }
@@ -1269,6 +1296,7 @@ document.getElementById('cards-best-btn')?.addEventListener('click', () => {
   myLoadout = [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
   saveLoadout(myLoadout);
   renderPowerSlots(); renderCardsPage();
+  [0, 1, 2].forEach((i, k) => setTimeout(() => popCardsSlot(i), k * 70));   // staggered "all landed" cascade
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
 });
 // ---- Lobby slot gestures (delegated on #power-slots, survives re-renders) --------------
@@ -1447,6 +1475,8 @@ function startHomeDance() {
   const nameEl = document.getElementById('pick-name');
   const tiersEl = document.getElementById('pick-tiers');
   const heroesEl = document.getElementById('pick-heroes');
+  const fxCanvas = document.getElementById('wardrobe-fx');
+  const heroFx = fxCanvas ? mountHeroFx(fxCanvas) : null;   // per-hero ambience background
   let sel = { hero: 'striker', skin: 'base' };
   let previewRAF = null;
 
@@ -1497,7 +1527,7 @@ function startHomeDance() {
     cell.appendChild(c); cell.appendChild(lbl);
     cell.addEventListener('click', () => {
       if (!isHeroUnlocked(hk)) { toast(`נעול — ${(HERO_KEYS.indexOf(hk) * 7)} קלפים לפתיחה`); return; } // req4: locked heroes not selectable
-      sel.hero = hk; refreshHeroSel(); refreshSkinThumbs(); refreshName(); commit();
+      sel.hero = hk; if (heroFx) heroFx.setHero(hk); refreshHeroSel(); refreshSkinThumbs(); refreshName(); commit();
     });
     heroesEl.appendChild(cell);
   });
@@ -1509,19 +1539,20 @@ function startHomeDance() {
     if (!isHeroUnlocked(sel.hero)) sel.hero = HERO_KEYS[unlockedHeroCount() - 1]; // clamp to best unlocked
     refreshTierSel(); refreshHeroSel(); refreshSkinThumbs(); refreshName();
     overlay.classList.remove('hidden');
+    if (heroFx) { heroFx.resize(); heroFx.setHero(sel.hero); heroFx.start(); }
     if (!previewRAF) {
       const loop = () => {
         const t = performance.now();
         previewCtx.clearRect(0, 0, previewCv.width, previewCv.height);
         previewCtx.imageSmoothingEnabled = false;
-        const sf = previewCv.height / 34, ox = previewCv.width / 2, feetY = previewCv.height - sf * 3;
+        const sf = previewCv.height / 44, ox = previewCv.width / 2, feetY = previewCv.height - sf * 5; // headroom so tall hats / hover / sig skins never clip the bitmap
         drawHero(previewCtx, ox, feetY, sf, Math.sin(t * 0.0009), t * 0.008, 0.7, false, `${sel.hero}:${sel.skin}`, PREVIEW_KIT, t / 1000);
         previewRAF = requestAnimationFrame(loop);
       };
       loop();
     }
   }
-  function close() { overlay.classList.add('hidden'); if (previewRAF) { cancelAnimationFrame(previewRAF); previewRAF = null; } }
+  function close() { overlay.classList.add('hidden'); if (heroFx) heroFx.stop(); if (previewRAF) { cancelAnimationFrame(previewRAF); previewRAF = null; } }
   // req2: no save button — every hero/costume tap auto-saves. Last pressed is the one kept.
   function commit() {
     myCosmetic = normalizeCosmetic(`${sel.hero}:${sel.skin}`);
@@ -4827,7 +4858,7 @@ function renderFrame() {
     // Don't draw the ball if a HIDDEN enemy is carrying it — the ball would betray their spot.
     const bCarrier = bOwner && bOwner !== me.playerId ? view.players.find((pp) => pp.id === bOwner) : null;
     const ballHidden = bCarrier && bCarrier.team !== me.team && !canSeePlayer(bCarrier);
-    if (!ballHidden) drawBall(ballDraw);
+    // (ball is drawn AFTER the players below, so a body standing over it never hides it)
 
     // Aim-to-shoot indicator for the local player: infinite line, grey normally,
     // RED when overcharged (the meter is up). Owner-only — never drawn for others.
@@ -4845,6 +4876,7 @@ function renderFrame() {
         ctx.save(); ctx.globalAlpha = 0.5; drawPlayer(dp); ctx.restore();
       } else drawPlayer(dp);
     }
+    if (!ballHidden) drawBall(ballDraw); // ball ON TOP of the bodies — always visible when on-screen
     for (const pr of view.projectiles) drawProjectile(pr);
     for (const impact of view.impacts) drawImpact(impact);
     drawOffscreenBallArrow(view.ball);
@@ -4949,6 +4981,60 @@ function fbFlash(msg) { const h = document.querySelector('#builder .builder-hint
 function fbToWorld(cx, cy) { const r = fbPit().getBoundingClientRect(); return { x: Math.max(0, Math.min(FB_W, (cx - r.left) / r.width * FB_W)), y: Math.max(0, Math.min(FB_H, (cy - r.top) / r.height * FB_H)) }; }
 // Capsule end points (along `angle`) — matches segBlockedByWall's c0/c1.
 function fbEnds(w) { const ca = Math.cos(w.angle), sa = Math.sin(w.angle); return [{ x: w.cx - ca * w.hl, y: w.cy - sa * w.hl }, { x: w.cx + ca * w.hl, y: w.cy + sa * w.hl }]; }
+// --- Overlap RESOLUTION (merge instead of reject) ---
+function fbBoxOverlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+// Overlapping bushes MERGE into one: the union bounding box (all coords are grid-snapped, so
+// the union stays cell-aligned). Repeats until the grown bush overlaps nothing new.
+function fbMergeBushesInto(idx) {
+  let again = true;
+  while (again) {
+    again = false; const base = fbField.bushes[idx]; if (!base) return idx;
+    for (let i = fbField.bushes.length - 1; i >= 0; i--) {
+      if (i === idx) continue; const o = fbField.bushes[i];
+      if (!fbBoxOverlap(base, o)) continue;
+      const x0 = Math.min(base.x, o.x), y0 = Math.min(base.y, o.y);
+      const x1 = Math.max(base.x + base.w, o.x + o.w), y1 = Math.max(base.y + base.h, o.y + o.h);
+      base.x = x0; base.y = y0; base.w = x1 - x0; base.h = y1 - y0;
+      fbField.bushes.splice(i, 1); if (i < idx) idx--; again = true;
+    }
+  }
+  return idx;
+}
+// Smallest angle between two capsule directions, folded into [0, PI/2] (walls are undirected).
+function fbAngleDiff(a, b) { let d = Math.abs(a - b) % Math.PI; return d > Math.PI / 2 ? Math.PI - d : d; }
+// Perpendicular distance from wall w's infinite centre-line to a point.
+function fbLineDist(w, px, py) { const ca = Math.cos(w.angle), sa = Math.sin(w.angle); return Math.abs((px - w.cx) * -sa + (py - w.cy) * ca); }
+// Merge two (near-)collinear walls into one spanning capsule along a's direction.
+function fbMergeWall(a, b) {
+  const ang = a.angle, ux = Math.cos(ang), uy = Math.sin(ang);
+  let tmin = Infinity, tmax = -Infinity;
+  for (const p of [...fbEnds(a), ...fbEnds(b)]) { const t = (p.x - a.cx) * ux + (p.y - a.cy) * uy; if (t < tmin) tmin = t; if (t > tmax) tmax = t; }
+  const midT = (tmin + tmax) / 2;
+  return { cx: Math.round(a.cx + ux * midT), cy: Math.round(a.cy + uy * midT), angle: ang, hl: Math.round((tmax - tmin) / 2), ht: Math.max(a.ht, b.ht) };
+}
+// Resolve a just-placed/moved wall against same-type walls:
+//  · collinear overlap  → MERGE into one longer wall
+//  · crossing (angled)  → ALLOW (an intersection, e.g. a "+")
+//  · parallel-but-offset overlap (the "weird Y") → REJECT (not placeable there)
+// Returns { ok, idx } — idx tracks the wall through any splices.
+function fbResolveWall(type, idx) {
+  const arr = fbList(type); if (!arr[idx]) return { ok: true, idx };
+  let again = true;
+  while (again) {
+    again = false; const w = arr[idx]; if (!w) break;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (i === idx) continue; const o = arr[i];
+      if (!fbPairOverlap(fbFoot(w, type), fbFoot(o, type))) continue;
+      if (fbAngleDiff(w.angle, o.angle) >= 0.18) continue; // crossing → allowed intersection
+      // near-parallel: collinear (both endpoints near w's line) → merge; else offset → reject
+      const collinear = fbLineDist(w, o.cx, o.cy) < w.ht + o.ht;
+      if (!collinear) return { ok: false, idx };
+      Object.assign(w, fbMergeWall(w, o));
+      arr.splice(i, 1); if (i < idx) idx--; again = true; break;
+    }
+  }
+  return { ok: true, idx };
+}
 function fbRender() {
   const pit = fbPit(); if (!pit) return;
   pit.querySelectorAll('.bel,.bhandle').forEach((e) => e.remove());
@@ -4968,9 +5054,10 @@ function fbRender() {
 // Move a selected element to (wx,wy) — grid-snapped.
 function fbMoveSel(wx, wy) {
   if (!fbSel) return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
-  wx = fbSnap(wx); wy = fbSnap(wy);
-  if (fbSel.type === 'bush') { L.x = wx - L.w / 2; L.y = wy - L.h / 2; }
-  else { L.cx = wx; L.cy = wy; }
+  // Bushes snap their TOP-LEFT CORNER to a grid line (matches how they're drawn) so a moved
+  // bush stays cell-aligned; centre-snapping put even-width bushes half a cell off the grid.
+  if (fbSel.type === 'bush') { L.x = fbSnap(wx - L.w / 2); L.y = fbSnap(wy - L.h / 2); }
+  else { L.cx = fbSnap(wx); L.cy = fbSnap(wy); }
   fbRender();
 }
 let fbDraw = null; // { type, ax, ay, i } while DRAWING a new wall/bush from a fixed anchor
@@ -5080,13 +5167,20 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
     if (!fbDrag) return;
     try { pit.releasePointerCapture(e.pointerId); } catch (x) {}
     if (fbDraw) {
-      const L = fbList(fbDraw.type)[fbDraw.i];
-      if (L && fbOverlapsAny(L, fbDraw.type, fbDraw.i)) { fbList(fbDraw.type).splice(fbDraw.i, 1); fbSel = null; fbRender(); fbFlash('אי אפשר לחפוף אלמנטים'); }
-      else fbPush();
+      // Overlaps no longer reject outright: bushes MERGE, walls merge-if-collinear / allow-if-crossing.
+      if (fbDraw.type === 'bush') { fbDraw.i = fbMergeBushesInto(fbDraw.i); fbSel = { type: 'bush', i: fbDraw.i }; fbRender(); fbPush(); }
+      else {
+        const res = fbResolveWall(fbDraw.type, fbDraw.i);
+        if (!res.ok) { fbList(fbDraw.type).splice(fbDraw.i, 1); fbSel = null; fbRender(); fbFlash('אי אפשר להניח קיר כאן'); }
+        else { fbSel = { type: fbDraw.type, i: res.idx }; fbRender(); fbPush(); }
+      }
     } else if (fbDrag.move && fbSel) {
-      const L = fbList(fbSel.type)[fbSel.i];
-      if (L && fbOverlapsAny(L, fbSel.type, fbSel.i)) { fbRestore(fbDrag.pre); fbFlash('אי אפשר לחפוף אלמנטים'); }
-      else if (fbDrag.pre !== fbSnapshot()) fbPush();
+      if (fbSel.type === 'bush') { fbSel.i = fbMergeBushesInto(fbSel.i); fbRender(); if (fbDrag.pre !== fbSnapshot()) fbPush(); }
+      else {
+        const res = fbResolveWall(fbSel.type, fbSel.i);
+        if (!res.ok) { fbRestore(fbDrag.pre); fbFlash('אי אפשר להניח קיר כאן'); }
+        else { fbSel.i = res.idx; fbRender(); if (fbDrag.pre !== fbSnapshot()) fbPush(); }
+      }
     } else if (fbDrag.erase) {
       if (fbDrag.pre !== fbSnapshot()) fbPush();
     }

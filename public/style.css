@@ -962,6 +962,21 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   background: #172219 url('/assets/block-stadium.webp') center/cover no-repeat;
   align-items: stretch; justify-content: stretch;
 }
+/* Cards page: blur + darken the stadium behind the album so the sleeves read clearly on top —
+   matching the wardrobe / hero-suits backdrop (dark rgba + blur). A ::before carries a blurred,
+   dimmed copy of the bg (scaled + inset -24px so the blur has no bright edge); ::after is the
+   dark wash; all page content sits above via z-index:1. */
+.screen#cards { overflow: hidden; }
+.screen#cards::before {
+  content: ''; position: absolute; inset: -24px; z-index: 0; pointer-events: none;
+  background: #0b120d url('/assets/block-stadium.webp') center/cover no-repeat;
+  filter: blur(7px) brightness(.42) saturate(.9); transform: scale(1.06);
+}
+.screen#cards::after {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: rgba(4,8,10,.5);
+}
+.screen#cards > * { position: relative; z-index: 1; }
 
 /* ---- Play With Friends · party roster (YOU centered, party members flanking) ---- */
 .party-roster { width: 100%; max-width: 640px; display: flex; flex-direction: row; flex-wrap: wrap;
@@ -1274,6 +1289,75 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 
 /* ============================================================================
+   CARDS-PAGE power-slot MICRO-MOTION (GPU-cheap: transform/opacity only).
+   Equip pop + sheen · rarity glow · empty-slot idle hint · drop-hover breathe ·
+   ghost spawn/remove. Scoped to .cards-slots so the tiny lobby #power-slots
+   overlay stays static. All .pslot* gesture hooks are left intact.
+   ============================================================================ */
+/* --- Equip/swap landing: one-shot bounce (JS adds .pslot-pop after re-render) --- */
+@keyframes pslotPop   { 0% { transform: scale(.86); } 55% { transform: scale(1.10); } 100% { transform: scale(1); } }
+@keyframes pslotSheen { to { transform: translateX(120%); } }
+.cards-slots .pslot.pslot-pop { animation: pslotPop .28s cubic-bezier(.34,1.56,.64,1) both; }
+.cards-slots .pslot.pslot-pop::after {
+  content: ''; position: absolute; inset: 0; z-index: 5; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%);
+  transform: translateX(-120%); animation: pslotSheen .5s ease-out .05s both;
+}
+/* --- Rarity glow on FILLED slots (inset so it shows over the pixel art; clipped) --- */
+@keyframes pslotLegend { 0%,100% { opacity: .35; } 50% { opacity: .85; } }
+.cards-slots .pslot.rarity-legendary::before,
+.cards-slots .pslot.rarity-epic::before,
+.cards-slots .pslot.rarity-rare::before,
+.cards-slots .pslot.rarity-common::before {
+  content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; opacity: .4;
+}
+.cards-slots .pslot.rarity-epic::before   { box-shadow: inset 0 0 10px 1px rgba(180,107,255,.6); }
+.cards-slots .pslot.rarity-rare::before   { box-shadow: inset 0 0 10px 1px rgba(78,160,255,.6); }
+.cards-slots .pslot.rarity-common::before { box-shadow: inset 0 0 8px 1px rgba(154,176,197,.45); }
+.cards-slots .pslot.rarity-legendary::before {
+  box-shadow: inset 0 0 12px 2px rgba(255,196,64,.75), inset 0 0 3px rgba(255,255,255,.5);
+  opacity: .5; animation: pslotLegend 2.4s ease-in-out infinite;
+}
+/* --- Selected slot: stronger STATIC gold cue (no pseudo — avoids ::after clash) --- */
+.cards-slots .pslot.pslot-sel {
+  outline-width: 3px;
+  box-shadow: 0 0 0 3px rgba(255,203,67,.35),
+              inset 0 2px 0 rgba(255,255,255,.16), inset 0 -6px 0 rgba(0,0,0,.5),
+              0 5px 0 #0b120d, 0 7px 10px rgba(0,0,0,.5);
+}
+/* --- Empty slot: subtle idle hint inviting a drop (glyph + gold ring, NOT the box) --- */
+@keyframes pslotIdleIc   { 0%,100% { opacity: .6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
+@keyframes pslotIdleRing { 0%,100% { opacity: 0; } 50% { opacity: 1; } }
+.cards-slots .pslot-empty .pslot-emptyic { animation: pslotIdleIc 2.6s ease-in-out infinite; }
+.cards-slots .pslot-empty::before {
+  content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; opacity: 0;
+  box-shadow: inset 0 0 8px rgba(255,203,67,.5), inset 0 0 0 2px rgba(255,203,67,.35);
+  animation: pslotIdleRing 2.6s ease-in-out infinite;
+}
+/* --- Drop-hover: gentle "drop here" breathe (base .pslot-over keeps its box-shadow) --- */
+@keyframes pslotOver { 0%,100% { transform: scale(1.06); } 50% { transform: scale(1.12); } }
+.cards-slots .pslot.pslot-over { animation: pslotOver .6s ease-in-out infinite; }
+/* --- Drag ghost: pop-in on spawn; pulse while in "release to remove" state --- */
+@keyframes pslotGhostIn     { from { transform: rotate(-4deg) scale(.7);  opacity: 0; } to { transform: rotate(-4deg) scale(1); opacity: .92; } }
+@keyframes pslotGhostRemove { 0%,100% { transform: rotate(-4deg) scale(1); } 50% { transform: rotate(-4deg) scale(1.08); } }
+.pslot-ghost { animation: pslotGhostIn .16s ease-out both; }
+.pslot-ghost-remove { animation: pslotGhostRemove .5s ease-in-out infinite; }
+/* --- Respect reduced motion: drop all motion, keep the static end-states --- */
+@media (prefers-reduced-motion: reduce) {
+  .cards-slots .pslot.pslot-pop,
+  .cards-slots .pslot.rarity-legendary::before,
+  .cards-slots .pslot-empty .pslot-emptyic,
+  .cards-slots .pslot-empty::before,
+  .cards-slots .pslot.pslot-over,
+  .pslot-ghost, .pslot-ghost-remove { animation: none !important; }
+  .cards-slots .pslot.pslot-pop::after { display: none; }
+  .cards-slots .pslot.rarity-legendary::before,
+  .cards-slots .pslot-empty::before { opacity: .5; }
+  .cards-slots .pslot.pslot-over { transform: scale(1.08); }
+  .pslot-ghost { transform: rotate(-4deg); opacity: .92; }
+}
+
+/* ============================================================================
    Parallel-edit batch — #13 compact room controls · #14 room requests/kick/waiting ·
    #15 (✕ removed in markup; outside-click in client.js) · #16 no scrollbars + fit ·
    #17 leave-to-lobby button · #3 friends states
@@ -1368,7 +1452,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    (object-fit keeps its aspect), and the Save button is always in view (no scrolling). */
 .picker-panel.wardrobe {
   max-width: 560px; width: 100%; height: 94vh; max-height: 94vh; gap: 3px; padding: 9px 14px;
-  display: flex; flex-direction: column; overflow: hidden;
+  display: flex; flex-direction: column; overflow: visible;
+  background: none; border: 0; box-shadow: none; /* drop the panel frame — only the blurred backdrop remains */
 }
 .wr-section { width: 100%; flex: 0 0 auto; position: relative; }
 /* label overlays the section's top-right so it costs no vertical space */
@@ -1399,7 +1484,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .picker-panel.wardrobe .play { margin-top: 0; padding: 9px; }
 /* req1: the big centre hero paints IN FRONT of both rails and is never clipped */
 .wardrobe .wr-center { position: relative; z-index: 4; overflow: visible; }
-.wardrobe .pick-preview { position: relative; z-index: 4; overflow: visible; }
+/* full-screen per-hero ambience — frameless & translucent, behind the whole picker panel */
+.picker .wr-fx { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0;
+  image-rendering: pixelated; border: 0; border-radius: 0; pointer-events: none; }
+.picker-panel.wardrobe { position: relative; z-index: 1; }
+/* hero preview transparent so the ambience shows behind it (was a solid green disc) */
+.wardrobe .pick-preview { background: none; border: 0; }
+.wardrobe .pick-preview { position: relative; z-index: 60; overflow: visible; pointer-events: none;
+  background: none; border: 0; border-radius: 0; } /* drop the box + green stage; hero paints above everything (even buttons), never clipped, clicks pass through */
 .wardrobe .wr-section { z-index: 1; }
 /* req5: heroes the player hasn't unlocked yet render as a dark shadow + lock badge */
 .wardrobe .pick-heroes .pick-hero { position: relative; }
@@ -1415,16 +1507,75 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Compact the whole cards page so all 4 rarity tiers stay visible without vertical
    scrolling (the deck is the tall part — every tier + the slots must fit at once). */
 #cards .subpage-body { gap: 7px; padding-bottom: 4px; }
-#cards .subpage-head { margin-bottom: 8px; }
+/* Center the "הקלפים שלי" title in the header frame: back button pinned to the start edge
+   (right, in RTL), title centered across the full width regardless of the button. */
+#cards .subpage-head { margin-bottom: 8px; position: relative; justify-content: center; }
+/* No wording on the sleeves — each tier is identified by its rarity border/glow, so the header
+   row (rarity name + count) is dropped and the cards get that space instead. */
+#cards .cards-tier-head { display: none; }
+#cards .subpage-head h2 { text-align: center; margin: 0; }
+/* Back button: the global .subpage-back (below) flattens it to a plain grey pill — restore the
+   game's chunky depth-button look here (cream text, framed, drop shadow) so it reads on the dark
+   backdrop and matches the rest of the UI. Absolutely pinned so it doesn't push the title off-centre. */
+#cards .subpage-back {
+  appearance: none; position: absolute; inset-inline-start: 0; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+  min-height: 44px; padding: 10px 20px; border-radius: 12px; color: #fff4ca; letter-spacing: .4px;
+  font: 900 16px "Arial Black", sans-serif;
+  background: linear-gradient(180deg, rgba(43,56,46,.92), rgba(19,27,22,.9)); border: 3px solid #52624a;
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.10), 0 4px 0 #070b08, 0 7px 13px rgba(0,0,0,.45);
+}
+#cards .subpage-back:active { transform: translateY(calc(-50% + 2px)); box-shadow: inset 0 2px 0 rgba(255,255,255,.08), 0 2px 0 #070b08, 0 4px 8px rgba(0,0,0,.4); }
 /* Power slots ~2x bigger and pushed down the page (the marquee of the cards room). Width is
    held so the 3 stay in one row even on a 375px phone (3x106 + 2x10 gap = 338). */
-.cards-slots { display: flex; direction: rtl; gap: 10px; align-items: flex-start; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
-.cards-slots .pslot-item { flex: 0 0 auto; gap: 5px; }
-.cards-slots .pslot { height: 140px; max-height: none; width: 106px; touch-action: none; }  /* touch-action:none so a slot card can be dragged out/between slots without the page scrolling */
-.cards-slots .pslot-cap { font-size: 12px; }
-.cards-hint { font: 800 11px "Arial Black", sans-serif; color: #8aa08c; text-align: center; }
+/* Equipped-powers rail: the 3 slots are the HERO of this column. Each slot is a compact
+   horizontal "loadout row" — a rarity-framed pixel-art tile (RTL-leading / right) carrying an
+   always-visible power coin (⚡🏃🛡️, so you know what the slot boosts even when filled), plus a
+   label + an inline buff line (+X% <effect>) so the buff reads WITHOUT tapping. Sized to fit a
+   short (<420px) landscape viewport; .cards-right keeps overflow-y:auto as a safety net. */
+.cards-slots { display: flex; flex-direction: column; direction: rtl; gap: 7px; margin: 0; }
+.cards-slots .pslot-item {
+  position: relative; flex: 0 0 auto; flex-direction: row; align-items: center;
+  gap: 9px; width: 100%; padding: 7px 8px; border-radius: 12px;
+  background: linear-gradient(160deg, #1d2822, #131c16); border: 1px solid #2c3830;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 3px 0 rgba(0,0,0,.35);
+  transition: border-color .12s, box-shadow .12s, background .12s;
+}
+.cards-slots .pslot-item.is-empty { border-style: dashed; border-color: #3d4d40; background: linear-gradient(160deg, #182019, #121a15); }
+/* Filled: tint the whole row in the card's rarity so the loadout reads at a glance. */
+.cards-slots .pslot-item.rarity-legendary { border-color: rgba(255,184,0,.6);   box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 12px rgba(255,184,0,.16),  0 3px 0 rgba(0,0,0,.35); background: linear-gradient(160deg, #2a2410, #14120a); }
+.cards-slots .pslot-item.rarity-epic      { border-color: rgba(180,107,255,.6);  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 12px rgba(180,107,255,.16), 0 3px 0 rgba(0,0,0,.35); background: linear-gradient(160deg, #221836, #140f1e); }
+.cards-slots .pslot-item.rarity-rare      { border-color: rgba(78,160,255,.6);   box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 12px rgba(78,160,255,.16),  0 3px 0 rgba(0,0,0,.35); background: linear-gradient(160deg, #142338, #0e1622); }
+.cards-slots .pslot-item.rarity-common    { border-color: rgba(154,176,197,.55); box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 3px 0 rgba(0,0,0,.35); background: linear-gradient(160deg, #1e262c, #141a1e); }
+/* the art box IS the drop target (.pslot) */
+.cards-slots .pslot { height: 62px; width: 48px; max-height: none; aspect-ratio: auto; border-width: 3px; border-radius: 8px; touch-action: none; flex: 0 0 auto; }
+.cards-slots .pslot-empty { border-style: dashed; opacity: 1; background: linear-gradient(180deg, #1a241d, #10160f); }
+.cards-slots .pslot-add { position: relative; z-index: 2; font: 900 26px "Arial Black", sans-serif; color: #6f8a72; line-height: 1; opacity: 1; filter: none; }
+/* Power-icon coin: ALWAYS shown (what the slot boosts), card or not. */
+.cards-slots .pslot-pwr {
+  position: absolute; z-index: 4; top: 3px; inset-inline-start: 3px;
+  width: 18px; height: 18px; display: grid; place-items: center; font-size: 10px; line-height: 1;
+  border-radius: 50%; border: 2px solid #0b120d;
+  background: radial-gradient(circle at 38% 30%, #4a5a44, #10160f); box-shadow: 0 1px 2px rgba(0,0,0,.6);
+}
+/* Info column: label + buff line. */
+.cards-slots .pslot-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; text-align: start; }
+.cards-slots .pslot-cap { display: block; font: 900 14px "Arial Black", sans-serif; color: #eef3e8; letter-spacing: .2px; text-shadow: 0 1px 0 #050705; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cards-slots .pslot-buffline { direction: rtl; line-height: 1.2; font: 800 11px "Arial Black", sans-serif; color: #9fb0a2; letter-spacing: .2px; }
+.cards-slots .pslot-buffline b { color: var(--gold); font-weight: 900; }
+.cards-slots .pslot-item.is-empty .pslot-buffline { color: #7f9a83; }
+/* Keep the label visible even on short landscape (the global @media(max-height:400px) rule
+   blanks .pslot-cap for the in-match column). id specificity wins. */
+#cards .cards-slots .pslot-cap { display: block; }
+/* Rail header — marquee of the column. */
+#cards .cards-right::before {
+  content: "כוחות מצוידים"; display: block; direction: rtl;
+  font: 900 12px "Arial Black", sans-serif; letter-spacing: .5px; color: #fff4ca;
+  padding: 0 2px 4px; border-bottom: 2px solid #2c3830; margin-bottom: 2px;
+}
+.cards-hint { font: 800 10px "Arial Black", sans-serif; line-height: 1.4; color: #a4bda9; text-align: center; text-shadow: 0 1px 0 rgba(0,0,0,.55); }
 .cards-best {
-  align-self: center; padding: 6px 16px; border: 0; border-radius: 10px; cursor: pointer;
+  align-self: stretch; margin-top: auto; padding: 8px 12px; border: 0; border-radius: 10px; cursor: pointer;
   background: linear-gradient(180deg, #ffd873, #ffb800); color: #3a2a00;
   font: 900 13px "Arial Black", sans-serif; box-shadow: 0 3px 0 #a97400, 0 5px 9px rgba(0,0,0,.4);
 }
@@ -1466,22 +1617,29 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 /* Each tier "sleeve" is an OPAQUE box in its own rarity colour (border all round, thick left
    accent) so the tier reads at a glance and the cards sit on a solid backing. */
-.cards-tier.rarity-legendary { border-color: #ffd23f; background: #453d11; }
-.cards-tier.rarity-epic      { border-color: #b46bff; background: #2c1c47; }
-.cards-tier.rarity-rare      { border-color: #4ea0ff; background: #132c49; }
-.cards-tier.rarity-common    { border-color: #ff5a4d; background: #3a1f1d; }
+/* On the blurred near-black backdrop, each sleeve gets a colored 1px ring + soft glow + an inner
+   top-highlight / bottom-shade so the rarity blocks pop and read as distinct, physical shelves.
+   (epic/rare fills nudged lighter — the originals were too dark to separate from the bg.) */
+.cards-tier.rarity-legendary { border-color: #ffd23f; background: rgba(69,61,17,.46);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 -14px 22px rgba(0,0,0,.28), 0 0 0 1px rgba(255,210,63,.22), 0 2px 11px rgba(255,184,0,.16); }
+.cards-tier.rarity-epic      { border-color: #b46bff; background: rgba(52,33,90,.46);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 -14px 22px rgba(0,0,0,.28), 0 0 0 1px rgba(180,107,255,.24), 0 2px 11px rgba(180,107,255,.18); }
+.cards-tier.rarity-rare      { border-color: #4ea0ff; background: rgba(22,52,87,.46);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 -14px 22px rgba(0,0,0,.28), 0 0 0 1px rgba(78,160,255,.24), 0 2px 11px rgba(78,160,255,.18); }
+.cards-tier.rarity-common    { border-color: #ff5a4d; background: rgba(58,31,29,.46);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 -14px 22px rgba(0,0,0,.28), 0 0 0 1px rgba(255,90,77,.22), 0 2px 11px rgba(255,90,77,.14); }
 .cards-fan {
   position: relative; width: 100%; max-width: 520px;
   overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
   touch-action: none;                  /* JS drives the scroll so the peek can track the finger + pull-up can grab */
-  padding: 16px 4px 2px;               /* top room so a peeked/revealed card can rise without clipping */
+  padding: 10px 8px 4px;               /* top room for a peeked/revealed card + side room so the reveal scale(1.16) on the edge card isn't clipped */
   scrollbar-width: thin;
 }
 .cards-fan::-webkit-scrollbar { height: 5px; }
 .cards-fan::-webkit-scrollbar-thumb { background: #2c3830; border-radius: 3px; }
-.fan-track { position: relative; height: 72px; }
+.fan-track { position: relative; height: 92px; }
 .fan-card {
-  position: absolute; bottom: 0; width: 60px; height: 72px; border-radius: 8px; overflow: hidden;
+  position: absolute; bottom: 0; width: 66px; height: 92px; border-radius: 8px; overflow: hidden;
   border: 3px solid #2c3830; background: #10192e; box-shadow: 0 4px 10px rgba(0,0,0,.5);
   cursor: pointer; will-change: transform; transition: transform .14s, box-shadow .14s;
 }
@@ -1640,16 +1798,22 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 #builder { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; background: #0e1a12; color: #eaf2ec; }
 #builder.hidden { display: none; }
 /* Body: actions rail (left) · field (center) · materials rail (right). dir:ltr fixes L/R order. */
-.builder-body { flex: 1; min-height: 0; display: flex; flex-direction: row; align-items: stretch; gap: 6px; padding: 4px 8px 2px; direction: ltr; }
-.builder-side { flex: none; width: 92px; display: flex; flex-direction: column; gap: 6px; justify-content: center; overflow-y: auto; }
+/* Rails pulled in toward the centre with a side gap that matches the main lobby (its side
+   buttons sit ~10% in from the edge), and never inside the landscape notch/rounded corners. */
+.builder-body { flex: 1; min-height: 0; display: flex; flex-direction: row; align-items: stretch; gap: 8px; direction: ltr;
+  padding: 4px max(10%, env(safe-area-inset-right)) 2px max(10%, env(safe-area-inset-left)); }
+.builder-side { flex: none; width: 88px; display: flex; flex-direction: column; gap: 6px; justify-content: center; overflow-y: auto; }
 .builder-side .bact, .builder-side .btool { width: 100%; }
 /* Zoom controls, overlaid bottom-left of the (now scrollable) stage. */
 .builder-zoom { position: absolute; left: 8px; bottom: 8px; z-index: 6; display: flex; flex-direction: column; gap: 5px; }
 .builder-zoom button { width: 38px; height: 38px; border: none; border-radius: 9px; background: rgba(20,32,24,.92); color: #eaf2ec; font: 900 18px "Arial Black", sans-serif; box-shadow: 0 3px 0 #070b08; cursor: pointer; }
 .builder-zoom button:active { transform: translateY(2px); box-shadow: 0 1px 0 #070b08; }
-.builder-top { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; gap: 8px; }
+/* Extra top/bottom inset keeps back/play (top) and clear/save (bottom) a bit off the screen edges. */
+.builder-top { display: flex; align-items: center; justify-content: space-between; padding: max(14px, env(safe-area-inset-top)) 12px 6px; gap: 8px; }
+/* Bottom bar mirrors the top bar layout: clear-all (left) under back, save (right) under play. */
+.builder-bottom { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px max(14px, env(safe-area-inset-bottom)); gap: 8px; }
 .builder-title { font-weight: 800; font-size: 16px; }
-.builder-btn { border: none; border-radius: 10px; padding: 8px 14px; font-weight: 800; font-size: 14px; color: #fff; }
+.builder-btn { border: none; border-radius: 10px; padding: 8px 14px; font-weight: 800; font-size: 14px; color: #fff; flex: none; }
 .builder-back { background: #33413a; }
 .builder-play { background: #2fbf5e; }
 /* Stage scrolls (pan) when the field is zoomed past its fit size; block flow + margin:auto on
@@ -1673,7 +1837,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .bact { background: #33413a; }
 #b-clear { background: #6e2b2b; }
 .builder-sep { width: 1px; align-self: stretch; background: rgba(255,255,255,.15); margin: 0 2px; }
-.builder-hint { text-align: center; font-size: 11px; opacity: .7; padding: 0 10px 8px; }
+.builder-hint { flex: 1; min-width: 0; text-align: center; font-size: 11px; opacity: .7; padding: 0 8px; }
 /* Pitch markings must never intercept taps (placement/selection happen on the pitch). */
 .bp-goal, .bp-mid { pointer-events: none; }
 /* Wall resize handles (drag an end to lengthen/shorten + rotate). */
@@ -1682,7 +1846,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Stadium frame: seat-row stands around the play area (the pitch stays the coordinate space). */
 /* Top-down STADIUM: a seat-dot bowl (tiled dots = packed stands) with team-tinted halves;
    the pitch covers the centre so seats show only in the surrounding stands ring. */
-.builder-arena { position: relative; height: calc(100% * var(--bz, 1)); width: auto; aspect-ratio: 2000 / 1100; max-width: none; margin: auto; border-radius: 22px;
+/* Fit rule: at zoom 1 the whole stadium must fit inside the stage (max-width caps it so a
+   narrow/tall stage shrinks it instead of overflowing); zoom>1 scales both dims to enable pan. */
+.builder-arena { position: relative; height: calc(100% * var(--bz, 1)); width: auto; aspect-ratio: 2000 / 1100; max-width: calc(100% * var(--bz, 1)); margin: auto; border-radius: 22px;
   display: flex; align-items: center; justify-content: center;
   background-color: #16232b;
   background-image:
@@ -1693,7 +1859,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Pitch inset inside the arena so the seat-dot stands wrap it on all sides. */
 /* Pitch keeps EXACT 2000:1100 aspect (uniform world->screen scale => correct placement +
    un-skewed rotated walls); centred at 88% so the seat-bowl stands show as a ring. */
-.builder-arena .builder-pitch { position: relative; inset: auto; width: 88%; height: auto; max-width: 88%; max-height: 88%; aspect-ratio: 2000 / 1100; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22);
+.builder-arena .builder-pitch { position: relative; inset: auto; width: 92%; height: auto; max-width: 92%; max-height: 92%; aspect-ratio: 2000 / 1100; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22);
   /* Brawl-style cell grid (20x11) drawn behind the placed elements. */
   background-image: linear-gradient(rgba(255,255,255,.11) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.11) 1px, transparent 1px), radial-gradient(circle at 50% 50%, #2f7d43, #256a38);
   background-size: 2.5% 4.5454%, 2.5% 4.5454%, 100% 100%; }
@@ -1715,12 +1881,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .setting-empty { opacity: .55; font-size: 13px; padding: 10px; text-align: center; }
 
 /* Keep builder rows clear of the iPhone notch/rounded corners (landscape safe-area). */
-.builder-top, .builder-palette, .builder-hint { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+.builder-top, .builder-bottom, .builder-palette { padding-left: max(10%, env(safe-area-inset-left)); padding-right: max(10%, env(safe-area-inset-right)); }
 
 /* Power-slot page: album (all tiers) on the LEFT, equipped slots on the RIGHT (RTL: first=right). */
 #cards .cards-split { flex-direction: row; gap: 10px; align-items: stretch; overflow: hidden; min-height: 0; }
-#cards .cards-right { flex: 0 0 auto; width: 34%; max-width: 168px; min-width: 120px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-#cards .cards-right .pslot { width: 100%; }
+#cards .cards-right { flex: 0 0 auto; width: 34%; max-width: 168px; min-width: 120px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
+  border-inline-end: 1px solid rgba(255,255,255,.07); padding-inline-end: 10px; }  /* hairline between the rail and the album (inline-end = left edge in this RTL row) */
+#cards .cards-right .pslot { width: 48px; }
 /* In the split the deck is a flex COLUMN. The base .cards-tier carries `margin: 0 auto` (from the
    single-column layout); auto side-margins in a flex column DISABLE align stretch, so each sleeve
    collapsed to its content (~66px) and floated centered, clipping the fan to one card. Force full
@@ -1731,7 +1898,15 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Base .cards-deck is capped at 520px; in the split it must fill the left column, else the deck
    (and its sleeves) right-align with a dead gap on the left — the "cards pushed too far right". */
 #cards .cards-left .cards-deck { display: flex; flex-direction: column; gap: 8px; max-width: none; width: 100%; }
-.cards-tier-empty { opacity: .5; font-size: 12px; padding: 6px; text-align: center; }
+/* Empty sleeve matches a FILLED sleeve's body height (16 + fan-track 72 + 2 = 90px) so the 4
+   stacked tiers never look ragged; "ריק" is centered in a faint dashed frame so it reads as
+   intentional, not broken. */
+.cards-tier-empty {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 106px; margin: 2px; border: 1px dashed rgba(255,255,255,.10); border-radius: 8px;
+  font: 800 12px "Arial Black", sans-serif; letter-spacing: 2px;
+  color: rgba(233,240,232,.45); opacity: 1; text-align: center; padding: 6px;
+}
 
 /* Power-slots (and subpages): back button in the header. */
 .subpage-head { display: flex; align-items: center; gap: 10px; }
