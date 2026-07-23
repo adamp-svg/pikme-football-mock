@@ -1318,15 +1318,19 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* ============================================================================
    CARDS PAGE — equipped slots (tap to select) + album deck (tap to equip)
    ============================================================================ */
-.cards-slots { display: flex; direction: rtl; gap: 14px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
-.cards-slots .pslot-item { flex: 0 0 auto; gap: 4px; }
-.cards-slots .pslot { height: 84px; max-height: none; width: 66px; }
-.cards-slots .pslot-cap { font-size: 11px; }
-.cards-hint { font: 800 12px "Arial Black", sans-serif; color: #8aa08c; text-align: center; }
+/* Compact the whole cards page so all 4 rarity tiers stay visible without vertical
+   scrolling (the deck is the tall part — every tier + the slots must fit at once). */
+#cards .subpage-body { gap: 7px; padding-bottom: 4px; }
+#cards .subpage-head { margin-bottom: 8px; }
+.cards-slots { display: flex; direction: rtl; gap: 12px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+.cards-slots .pslot-item { flex: 0 0 auto; gap: 3px; }
+.cards-slots .pslot { height: 72px; max-height: none; width: 60px; }
+.cards-slots .pslot-cap { font-size: 10px; }
+.cards-hint { font: 800 11px "Arial Black", sans-serif; color: #8aa08c; text-align: center; }
 .cards-best {
-  align-self: center; padding: 9px 18px; border: 0; border-radius: 12px; cursor: pointer;
+  align-self: center; padding: 6px 16px; border: 0; border-radius: 10px; cursor: pointer;
   background: linear-gradient(180deg, #ffd873, #ffb800); color: #3a2a00;
-  font: 900 14px "Arial Black", sans-serif; box-shadow: 0 4px 0 #a97400, 0 6px 10px rgba(0,0,0,.4);
+  font: 900 13px "Arial Black", sans-serif; box-shadow: 0 3px 0 #a97400, 0 5px 9px rgba(0,0,0,.4);
 }
 .cards-best:active { transform: translateY(3px); box-shadow: 0 1px 0 #a97400; }
 .cards-deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 10px; width: 100%; max-width: 520px; }
@@ -1348,9 +1352,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Album tier headers: full-width rows between rarity groups (legendary first). */
 .cards-tier-head {
   display: flex; align-items: center; justify-content: space-between;
-  direction: rtl; margin: 0 0 2px; padding: 2px 6px 4px; border-bottom: 2px solid #2c3830;
+  direction: rtl; margin: 0 0 1px; padding: 1px 6px 3px; border-bottom: 2px solid #2c3830;
 }
-.cards-tier-name { font: 900 14px "Arial Black", sans-serif; color: #fff4ca; letter-spacing: .3px; }
+.cards-tier-name { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; letter-spacing: .3px; }
 .cards-tier-count { font: 800 11px "Arial Black", sans-serif; color: #8aa08c; }
 .cards-tier-head.rarity-legendary { border-color: #ffb800; } .cards-tier-head.rarity-legendary .cards-tier-name { color: #ffd873; }
 .cards-tier-head.rarity-epic { border-color: #b46bff; } .cards-tier-head.rarity-epic .cards-tier-name { color: #d9b6ff; }
@@ -1362,7 +1366,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    belonging to a neighbouring tier's header (fixes "legendary shown under Epic"). */
 .cards-tier {
   border: 1px solid #2c3830; border-inline-start-width: 4px; border-radius: 10px;
-  background: rgba(255,255,255,.02); padding: 4px 4px 6px; margin: 0 auto 14px; max-width: 528px;
+  background: rgba(255,255,255,.02); padding: 3px 4px 4px; margin: 0 auto 7px; max-width: 528px;
 }
 .cards-tier.rarity-legendary { border-inline-start-color: #ffb800; }
 .cards-tier.rarity-epic { border-inline-start-color: #b46bff; }
@@ -1372,20 +1376,23 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   position: relative; width: 100%; max-width: 520px;
   overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
   touch-action: pan-x;                 /* horizontal = browse the fan; vertical stays for lift */
-  padding: 12px 4px 4px;               /* modest top room: a revealed card scales up from its base */
+  padding: 16px 4px 2px;               /* top room so a peeked/revealed card can rise without clipping */
   scrollbar-width: thin;
 }
 .cards-fan::-webkit-scrollbar { height: 5px; }
 .cards-fan::-webkit-scrollbar-thumb { background: #2c3830; border-radius: 3px; }
-.fan-track { position: relative; height: 88px; }
+.fan-track { position: relative; height: 72px; }
 .fan-card {
-  position: absolute; bottom: 0; width: 66px; height: 88px; border-radius: 8px; overflow: hidden;
+  position: absolute; bottom: 0; width: 60px; height: 72px; border-radius: 8px; overflow: hidden;
   border: 3px solid #2c3830; background: #10192e; box-shadow: 0 4px 10px rgba(0,0,0,.5);
   cursor: pointer; will-change: transform; transition: transform .14s, box-shadow .14s;
 }
 .fan-card-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .fan-card { transform-origin: bottom center; }
-.fan-card.revealed { transform: scale(1.12); z-index: 999 !important; box-shadow: 0 12px 26px rgba(0,0,0,.65); touch-action: none; }
+/* PEEK: the card the finger is currently over while swiping the fan — pops up a bit so you
+   can see which card you're on (the resting fan shows only a 26px sliver per card). */
+.fan-card.peek { transform: translateY(-4px) scale(1.12); z-index: 900; box-shadow: 0 10px 22px rgba(0,0,0,.6); }
+.fan-card.revealed { transform: translateY(-2px) scale(1.16); z-index: 999 !important; box-shadow: 0 12px 26px rgba(0,0,0,.65); touch-action: none; }
 .fan-card.equipped { outline: 3px solid var(--gold); outline-offset: -3px; }
 .fan-card.rarity-legendary { border-color: #ffb800; }
 .fan-card.rarity-epic { border-color: #b46bff; }
