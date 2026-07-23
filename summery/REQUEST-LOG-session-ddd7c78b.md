@@ -30,6 +30,16 @@ Sibling logs (other agents): `AGENT-REQUEST-LOG.md`, `REQUEST-LOG.md`.
 - **Locks:** released client.js + style.css.
 - **Status:** DONE (pending real-device visual confirm).
 
+## R3 — 2026-07-23 — Cards page: opaque rarity tier sleeves + 2× power slots (style.css only)
+- **User:** tier sleeve should be opaque + tier color; the power slots (cards power) should be ~2× bigger and more down.
+- **DONE — commit `7d434f5` (style.css only, no client.js lock needed).**
+  - Tier `.cards-tier`: opaque base `#1a2320`; per-rarity full border + opaque tint — legendary `#453611`, epic `#2c1c47`, rare `#132c49`, common `#272f37`.
+  - `.cards-slots .pslot` 60×72 → 106×140 (~2×); `.cards-slots{margin-top:20px}` (more down); cap font 10→12, item gap 3→5, row gap 12→10. Width 106 held so 3 stay one row down to 375px.
+  - Slot art buffer unchanged (client.js slotCardEl 62×80) → upscales pixelated (on-brand crunchy look); bump buffer only if user wants crisper.
+- **Trade-off:** bigger slots + opaque tiers use more vertical space — on shorter phones the deck may now scroll (subpage-body overflow-y:auto). User asked for big slots; accepted.
+- **Verify:** css served 200 on 3013, brace-balanced, values live. NOT visually confirmed on device.
+- **Status:** DONE (pending real-device visual confirm).
+
 ## R2 — 2026-07-23 — Cards page: news look + drag cards out of / between slots
 - **User:** (1) make the page look like the news page (background + opacity); (2) let the user pull a card out of a slot — dropped anywhere outside a slot it goes back to the relevant tier; (3) allow swiping cards from slots.
 - **DONE — commit `fa72828`.**
