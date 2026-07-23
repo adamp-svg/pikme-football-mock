@@ -2739,17 +2739,15 @@ function drawFanWall(x0, y0, x1, y1, color) {
 // The empty stadium seats are baked into the STATIC background (drawSeatChairs); the
 // card spectators sit in those seats and BOB per-frame as animated layers on top —
 // the local player's own album on their side (home), pooled on the far side.
-// The crowd animates as offscreen layers. Each layer = one WAVE COLUMN (a vertical slice of
-// the bowl along X) × one ASYNC SUBGROUP. The column index drives a travelling Mexican wave
-// (phase steps across X); the subgroup gives each fan its own out-of-phase bob, so within the
-// same column neighbours jump ASYNCHRONOUSLY rather than as one block.
-const WAVE_COLS = 10;                       // wave resolution across the bowl width
-const SUBGROUPS = 3;                        // async jitter groups within a column
-const N_LAYERS = WAVE_COLS * SUBGROUPS;     // baked layers (~30 drawImage/frame)
-// Per-subgroup bob params — distinct freq/phase/amp so the three groups never sync up.
-const SUB = Array.from({ length: SUBGROUPS }, (_, i) => ({
-  fy: 8.5 + i * 2.3, phy: i * 2.1, ay: 15 + i * 6,          // vertical jump: fast, varied
-  fx: 4.5 + i * 0.9, phx: i * 2.7 + 1, ax: 0.6 + (i % 2) * 0.8, // slight side sway
+// The crowd animates as offscreen layers, one per WAVE COLUMN (a narrow vertical slice of the
+// bowl along X, ~2 seats wide). Each column has its OWN out-of-phase bob (so columns jump
+// ASYNCHRONOUSLY, not as one block) plus a wave-phase that steps across X to roll a travelling
+// MEXICAN WAVE. 12 columns ≈ 12 drawImage/frame (was 6 — still light).
+const N_LAYERS = 12;                        // = wave columns
+// Per-column bob params — pseudo-random-ish freq/phase/amp so no two columns sync up.
+const LAYERS = Array.from({ length: N_LAYERS }, (_, i) => ({
+  fy: 8 + (i * 2.7 % 5), phy: i * 1.7, ay: 16 + (i % 4) * 6,      // vertical jump: fast, varied
+  fx: 4.5 + (i % 3) * 0.9, phx: i * 2.7 + 1, ax: 0.6 + (i % 2) * 0.8, // slight side sway
 }));
 let audSeats = [];
 // The crowd is filled from ALL players' cards (see the fill block below + allCards): highest
@@ -2806,30 +2804,21 @@ function buildAudienceSeats() {
       // alternate rows → a packed stand receding upward, not a flat grid.
       let sx = ox + c * ROW_X, sy = oy + r * ROW_Y;
       if (rank % 2 === 1) { if (isEnd) sy += ROW_Y * 0.5; else sx += ROW_X * 0.5; }
-      // Seat cells are ~card-sized with a gap (negligible overlap), so the crowd LAYER no
-      // longer needs to encode depth for front-on-top. Instead bucket by WORLD-X: shifting a
-      // whole layer vertically then rolls a Mexican WAVE across the stands (see drawAudience).
+      // Layer = wave-column by WORLD-X: drives both the async per-column bob and the travelling
+      // wave (adjacent columns are out of phase, so the crowd never moves as one flat block).
       const wcol = clamp(Math.round((sx + BACK) / (FIELD.W + 2 * BACK) * (N_LAYERS - 1)), 0, N_LAYERS - 1);
       audSeats.push({ x: sx, y: sy, r: null, n: null, color, team, nf, layer: wcol });
     }
   }
-  // FILL: place ALL the players' cards into seats — highest rarity in the FRONT, seating from
-  // MY side + position outward until the cards run out (or the bowl is full). No ratio cap, so a
-  // big album shows in full. Seat priority: my side first, then FRONT rows (nf), then nearest to
-  // where I stand — so my rarest cards sit right in front of me and the crowd grows outward.
-  const myTeam = me.team === 'B' ? 'B' : 'A';
-  const pool = allCards();     // every player's cards, rarity-first (rarest index 0)
-  const ax = rendered ? rendered.x : (myTeam === 'A' ? FIELD.W * 0.25 : FIELD.W * 0.75); // my position/side
-  const ay = rendered ? rendered.y : FIELD.H / 2;
-  const seatKey = (s) => {
-    const dx = (s.x - ax) / FIELD.W, dy = (s.y - ay) / FIELD.H;
-    return (s.team === myTeam ? 0 : 1000)   // my whole side before the away side
-      + (1 - s.nf) * 100                     // front rows (nf≈1) before back rows
-      + (dx * dx + dy * dy) * 4;             // then nearest to my position first
-  };
-  const order = audSeats.map((_, i) => i).sort((a, b) => seatKey(audSeats[a]) - seatKey(audSeats[b]));
-  const fill = Math.min(pool.length, order.length);
-  for (let k = 0; k < fill; k++) { const s = audSeats[order[k]], c = pool[k]; s.r = c.r; s.n = c.n; }
+  // FILL: scatter cards RANDOMLY across the WHOLE bowl and fill as many seats as possible — if
+  // the album is smaller than the bowl the pool CYCLES so the stands still read full (a real
+  // crowd is the same faces repeated), rather than a sparse cluster on one side.
+  const pool = allCards();     // every player's cards, duplicates expanded
+  if (pool.length) {
+    const order = audSeats.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; const t = order[i]; order[i] = order[j]; order[j] = t; } // shuffle seats
+    for (let k = 0; k < order.length; k++) { const s = audSeats[order[k]], c = pool[k % pool.length]; s.r = c.r; s.n = c.n; }
+  }
   audSeats.sort((a, b) => a.nf - b.nf);      // bake far → near so front cards overlap on top
   preloadCards(pool);
 }
@@ -2919,15 +2908,15 @@ function drawAudience() {
   // Goal eruption: for ~2.5s after a goal the whole crowd bobs harder AND leaps up in sync.
   const hype = clamp(1 - (performance.now() - crowdHypeT) / 2500, 0, 1);
   const amp = 1 + hype * 1.8, jump = hype * ws_(30) * Math.abs(Math.sin(t * 9));
-  // Layers are bucketed by WORLD-X (see buildAudienceSeats). Two motions combine:
-  //  1) ASYNC bob — each layer has its own frequency/phase (LAYERS[L]) so neighbouring
-  //     columns jump out of sync, reading as a chaotic individually-jumping crowd.
-  //  2) A travelling MEXICAN WAVE — a raised band that rolls left→right across the columns:
-  //     a phase term that steps with the layer index L, so the crest sweeps the stands.
-  const WAVE_SPEED = 2.2, WAVE_STEP = (Math.PI * 2) / audLayers.length * 1.5, WAVE_AMP = 26;
+  // Each layer L = one wave-column. Two motions combine:
+  //  1) ASYNC bob — per-column freq/phase (LAYERS[L]) so adjacent columns jump out of sync,
+  //     reading as individually-jumping fans, not one moving block.
+  //  2) A travelling MEXICAN WAVE — a sharp one-sided crest whose phase steps with the column,
+  //     so a raised band of standing fans rolls across the bowl left→right.
+  const WAVE_SPEED = 2.4, WAVE_STEP = (Math.PI * 2) / N_LAYERS, WAVE_AMP = 34;
   for (let L = 0; L < audLayers.length; L++) {
     const p = LAYERS[L];
-    const wave = Math.max(0, Math.sin(t * WAVE_SPEED - L * WAVE_STEP)) ** 2 * ws_(WAVE_AMP); // one-sided crest (fans stand then sit)
+    const wave = Math.max(0, Math.sin(t * WAVE_SPEED - L * WAVE_STEP)) ** 3 * ws_(WAVE_AMP); // sharp one-sided crest
     const dx = Math.sin(t * p.fx + p.phx) * ws_(p.ax) * (1 + hype * 0.6);
     const dy = Math.sin(t * p.fy + p.phy) * ws_(p.ay) * amp - jump - wave;
     ctx.drawImage(audLayers[L], ox + dx, oy + dy);
