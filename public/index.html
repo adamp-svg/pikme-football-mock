@@ -33,7 +33,7 @@
       <!-- top-left controls (each its own box) -->
       <!-- Exit (✕) removed: the phone/app shell provides its own back/close affordance. -->
       <button id="hub-settings" class="hub-icobtn" title="הגדרות" aria-label="הגדרות">⚙</button>
-      <span class="hub-season">עונה 2</span>
+      <span class="hub-season">עונה 1</span>
       <span class="hub-online"><i></i><span id="home-online">0</span> מחוברים</span>
 
       <!-- profile pic + player name as separate boxes -->
@@ -408,6 +408,39 @@
       <p id="lobby-hint" class="hint">בחרו קבוצה כדי להיות עם חבר, ואז <b>שחקו עכשיו</b> — המשחק מתחיל אחרי ספירה של 5 שניות; מקומות פנויים מתמלאים בבוטים.</p>
     </div>
     <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
+  </div>
+
+  <!-- Play With Friends · STEP 2: party roster (YOU centered big; party members smaller)
+       + game list. Opened after the party room is created; leave by tapping the empty
+       background (no back button, per the sub-page convention). renderParty() fills
+       #party-roster from the room's lobby members. Host picks a game → groups (#lobby). -->
+  <div id="party" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head"><h2>הקבוצה שלי</h2></div>
+      <div class="subpage-body">
+        <div id="party-roster" class="party-roster"></div>
+        <div class="party-games">
+          <div class="party-games-h">בחרו משחק</div>
+          <button class="modecard" data-party-game="2v2">
+            <span class="mc-ic">⚽</span>
+            <span class="mc-tx"><b>כדורגל · 2 נגד 2</b><small>הקלאסי · אצטדיון הבלוקים</small></span>
+            <span class="mc-go">‹</span>
+          </button>
+          <div class="modecard lock">
+            <span class="mc-ic">🏆</span>
+            <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים</small></span>
+            <span class="mc-go soon">בקרוב</span>
+          </div>
+          <div class="modecard lock">
+            <span class="mc-ic">🥅</span>
+            <span class="mc-tx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
+            <span class="mc-go soon">בקרוב</span>
+          </div>
+        </div>
+        <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
+      </div>
+    </div>
   </div>
 
   <!-- #14: joiner "waiting for host approval" overlay (top-level). Closes on cancel or a
