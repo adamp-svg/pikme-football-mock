@@ -371,6 +371,7 @@
       <div id="friends-panel">
         <div class="fr-tabs" role="tablist">
           <button class="fr-tab active" data-tab="list">החברים שלי</button>
+          <button class="fr-tab" data-tab="online">מחוברים<span id="fr-online-badge" class="fr-badge hidden">0</span></button>
           <button class="fr-tab" data-tab="requests">בקשות<span id="fr-req-badge" class="fr-badge hidden">0</span></button>
           <button class="fr-tab" data-tab="add">➕ הוסף</button>
         </div>
@@ -378,6 +379,7 @@
         <div class="fr-pane" data-pane="list">
           <div id="friend-list" class="friend-list"></div>
         </div>
+        <div class="fr-pane hidden" data-pane="online"><div id="friend-online" class="friend-list"></div></div>
         <div class="fr-pane hidden" data-pane="requests">
           <div id="friend-requests" class="friend-list"></div>
         </div>

@@ -1676,6 +1676,7 @@ function setFriendsTab(tab) {
   document.querySelectorAll('#friends .fr-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('#friends .fr-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== tab));
   if (tab === 'add') { const s = document.getElementById('friend-search'); if (s) setTimeout(() => s.focus(), 40); }
+  if (tab === 'online') renderOnlineFriends();
 }
 document.querySelectorAll('#friends .fr-tab').forEach((t) => t.addEventListener('click', () => { unlockAudio(); setFriendsTab(t.dataset.tab); }));
 
@@ -1961,6 +1962,17 @@ function renderFriends() {
     else { el.innerHTML = ''; FRIENDS.forEach((f) => el.appendChild(friendCardEl(f))); }
   }
   renderPartyInvite();
+}
+// Connected tab: only friends currently online (bots count as always-online, matching friendCardEl).
+function renderOnlineFriends() {
+  const el = document.getElementById('friend-online');
+  if (!el) return;
+  const online = FRIENDS.filter((f) => ONLINE.has(f.userId) || f.isBot);
+  const badge = document.getElementById('fr-online-badge');
+  if (badge) { badge.textContent = String(online.length); badge.classList.toggle('hidden', online.length === 0); }
+  if (!online.length) { listMsg('friend-online', 'אף חבר לא מחובר כרגע'); return; }
+  el.innerHTML = '';
+  online.forEach((f) => el.appendChild(friendCardEl(f)));
 }
 function renderSearch(items) { renderList('friend-search-results', items, { kind: 'search' }); }
 function renderRequests(items) {
@@ -2374,6 +2386,7 @@ function connect(name, avatar) {
     } else if (msg.type === 'friendsPresence') {
       ONLINE = new Set(msg.online || []);
       updateFriendsDot();
+      if (!document.getElementById('friends')?.classList.contains('hidden')) renderOnlineFriends();
       renderFriends();
       renderPartyInvite();                 // party lobby: refresh who's invitable
     } else if (msg.type === 'partyInvite') {
