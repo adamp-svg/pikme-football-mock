@@ -29,3 +29,15 @@ Sibling logs (other agents): `AGENT-REQUEST-LOG.md`, `REQUEST-LOG.md`.
 - **NOT verified on real touch:** WebView/device pointer + native scroll behavior — needs a sim/device pass (established path for this game). Watch: `touch-action:none` means a drag starting on a card no longer page-scrolls (fine, page fits); RTL scrollLeft direction kept same formula as old mouse path.
 - **Locks:** released client.js + style.css.
 - **Status:** DONE (pending real-device visual confirm).
+
+## R2 — 2026-07-23 — Cards page: news look + drag cards out of / between slots
+- **User:** (1) make the page look like the news page (background + opacity); (2) let the user pull a card out of a slot — dropped anywhere outside a slot it goes back to the relevant tier; (3) allow swiping cards from slots.
+- **DONE — commit `fa72828`.**
+- **What changed:**
+  - (1) style.css L941: added `.screen#cards` to the shared sub-screen rule → stadium `block-stadium.webp` bg + `.start-shade` overlay (markup already had `.subpage`/`.start-shade`). Now matches news/clubs/rank.
+  - (2/3) client.js: new `bindCardsSlotDrag()` IIFE (after `bindFanDrag`, ~L1197) delegated on `#cards-slots`, mirrors the hub `bindSlotDrag`. Drag a FILLED slot → onto another slot = `swapSlots`; dropped off every slot = `setSlotCard(src,null)` → card returns to its rarity tier (renderCardsPage re-adds it). Tap = `showSlotInfo`. Empty slot can't drag. Removed the old inline per-slot click handler in `renderCardsPage` (tap now handled in the drag `end`, avoids double-fire). style.css: `.cards-slots .pslot { touch-action:none }` so the drag isn't stolen by page scroll.
+- **Reuse note:** slot-swap/remove logic already existed for the HUB slots (`bindSlotDrag` on `#power-slots`); this just brings it to the cards page + refreshes the deck.
+- **Verify:** node --check OK; jsdom harnesses — slotdrag.test.mjs 8/8 (swap, drop-off unequip, tap-info, empty no-op), fandrag.test.mjs 8/8 regression; served 3013 → / /client.js /style.css /assets/block-stadium.webp all 200, edits live.
+- **NOT verified on real touch:** WebView pointer/drag on device — needs sim/device pass. 3013 server left running for local viewing.
+- **Locks:** released client.js + style.css.
+- **Status:** DONE (pending real-device visual confirm).
