@@ -82,13 +82,13 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   ok(s.builtWalls.length === 1, `build cooldown blocks instant re-build (${s.builtWalls.length})`);
 }
 
-// 7) Build charges reload one every BUILD_RELOAD seconds.
+// 7) Build charges TRICKLE back ONE every BUILD_RELOAD seconds (not both at once — avg 1/15s).
 {
   const s = fresh();
   const p = s.players.p1;
-  p.buildAmmo = 1; p.buildAmmoT = BUILD_RELOAD; // one tick will top it up
+  p.buildAmmo = 0; p.buildAmmoT = BUILD_RELOAD; // one tick tops up exactly ONE charge
   step(s, { p1: inp(), p2: inp() }, DT);
-  ok(p.buildAmmo === 2, `build charge regenerated after ${BUILD_RELOAD}s (${p.buildAmmo})`);
+  ok(p.buildAmmo === 1, `one charge regenerated after ${BUILD_RELOAD}s, not both (${p.buildAmmo})`);
 }
 
 // 8) A bomb blast destroys a built wall outright, even at full HP.

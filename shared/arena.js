@@ -210,12 +210,16 @@ export function hardWall(cx, cy, angle, hl, ht) {
   return { ...capsuleAABB(cx, cy, angle, hl, ht), cx, cy, angle, hl, ht };
 }
 // Build an arena object (walls + bushes) from a saved field layout. Hard walls become
-// indestructible capsule walls; bushes pass through as boxes. Dry walls are NOT here —
-// they are seeded into builtWalls at kickoff (see dryWallSeeds).
+// indestructible capsule walls; CRATES become indestructible AABB box walls (single cells,
+// same solid behaviour as a hard wall — just axis-aligned); bushes pass through as boxes.
+// Dry walls are NOT here — they are seeded into builtWalls at kickoff (see dryWallSeeds).
 export function buildArenaFromField(field) {
   const bushes = (field?.bushes || []).map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h }));
   const walls = (field?.hardWalls || []).map((w) => hardWall(w.cx, w.cy, w.angle, w.hl, w.ht));
-  return { walls, bushes, trampolines: [] };
+  // Crates are plain AABB boxes (no `angle`) → resolveCircleBox treats them as solid stone.
+  // `crate:true` lets the client render them as wooden crates instead of the stone slab.
+  const crates = (field?.crates || []).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h, crate: true }));
+  return { walls: walls.concat(crates), bushes, trampolines: [] };
 }
 // Dry-wall templates → builtWall entries (destructible capsules). Caller assigns ids.
 // `field:true` marks them so the MAX_BUILT_WALLS cap and per-kickoff reseed treat them

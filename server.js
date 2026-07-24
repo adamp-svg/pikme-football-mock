@@ -371,6 +371,8 @@ function sanitizeField(field) {
     bushes: arr(field.bushes).slice(0, 12).map((b) => ({ x: num(b && b.x, 0, FIELD.W, 0), y: num(b && b.y, 0, FIELD.H, 0), w: num(b && b.w, 40, 600, 200), h: num(b && b.h, 40, 600, 150) })),
     hardWalls: arr(field.hardWalls).slice(0, 20).map(cap),
     dryWalls: arr(field.dryWalls).slice(0, 20).map(cap),
+    // Crates: single-cell solid boxes (indestructible, like a hard wall). Clamp to a sane cell size.
+    crates: arr(field.crates).slice(0, 40).map((c) => ({ x: num(c && c.x, 0, FIELD.W, 0), y: num(c && c.y, 0, FIELD.H, 0), w: num(c && c.w, 30, 160, 50), h: num(c && c.h, 30, 160, 50) })),
   };
 }
 
@@ -654,7 +656,9 @@ function snapshot(room) {
       ? 1 - p.reloadLock / EMPTY_RELOAD
       : (p.ammo < MAG_SIZE ? p.ammoT / AMMO_REGEN : 0))) / 100,
     buildAmmo: p.buildAmmo,
-    buildFrac: Math.round(100 * (p.buildAmmo < BUILD_MAG ? p.buildAmmoT / BUILD_RELOAD : 0)) / 100,
+    // Ring progress uses the SAME effective reload the sim does (cdMul/cardUtil) so a full circle
+    // takes exactly as long as one charge actually reloads — the ring completes when the charge lands.
+    buildFrac: Math.round(100 * (p.buildAmmo < BUILD_MAG ? p.buildAmmoT / (BUILD_RELOAD * (p.cdMul || 1) * (p.cardUtil || 1)) : 0)) / 100,
     buildWindup: p.buildWindup, // winding flag (wire.js overloads buildFrac with this when > 0)
   }));
   return {
@@ -665,7 +669,7 @@ function snapshot(room) {
     players,
     projectiles: state.projectiles.map((p) => ({ id: p.id, x: r1(p.x), y: r1(p.y), team: p.team })),
     walls: state.builtWalls.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, hp: w.hp, maxHp: w.maxHp, team: w.team, fragile: w.fragile, angle: w.angle })),
-    bombs: state.bombs.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), team: b.team, fuse: Math.round(b.fuse * 100) / 100 })),
+    bombs: state.bombs.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), team: b.team, fuse: Math.round(b.fuse * 100) / 100, owner: b.owner })), // owner → client arcs the throw FROM the planter (else it teleports)
     blasts: state.blasts.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), radius: b.radius, life: b.life, maxLife: b.maxLife })),
     impacts: state.impacts.map((i) => ({ id: i.id, type: i.type, target: i.target, team: i.team, x: r1(i.x), y: r1(i.y), dx: i.dx, dy: i.dy, life: i.life, maxLife: i.maxLife })),
   };

@@ -150,7 +150,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   box-shadow: inset 0 -6px #6e3d17, 0 8px 20px rgba(0,0,0,.45);
   font-size: 28px; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  touch-action: none; z-index: 5; overflow: hidden;
+  touch-action: none; z-index: 5;
 }
 .build-btn:active { transform: scale(.94); }
 .build-btn.empty { filter: grayscale(.75) brightness(.55); }
@@ -158,7 +158,16 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .build-pips { position: absolute; top: 4px; left: 0; right: 0; display: flex; gap: 4px; justify-content: center; pointer-events: none; }
 .build-pips i { width: 13px; height: 5px; border-radius: 1px; background: rgba(0,0,0,.4); border: 1px solid rgba(0,0,0,.45); }
 .build-pips i.full { background: #ffd27a; border-color: #a86a1e; }
-.build-cd { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: #ffe49a; transform: scaleX(0); transform-origin: left; pointer-events: none; }
+/* Old linear reload bar retired in favour of the radial ring below (JS still sets it — harmless). */
+.build-cd { display: none; }
+/* Reload / cooldown RING around the wall (build) + bomb (special) buttons: a gold conic arc that
+   fills as the round reloads / the cooldown recharges. Driven by --cd (0 = empty … 1 = ready). */
+.build-btn::after, .special-btn::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none; z-index: 6;
+  background: conic-gradient(from -90deg, #ffe49a calc(var(--cd, 0) * 1turn), rgba(8,6,0,.32) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+}
 
 /* ---- Control-layout editor (training only, Brawl-Stars style) ---- */
 /* Semi-translucent trigger button — sits in the top toolbar RIGHT BESIDE the
@@ -1834,6 +1843,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .bel.bush { background: rgba(60,180,90,.55); border: 2px dashed rgba(220,255,220,.7); border-radius: 10px; }
 .bel.hard { background: linear-gradient(#8b93a1, #6b7280); border: 1px solid #43484f; border-radius: 3px; }
 .bel.dry { background: linear-gradient(#b98a4a, #8a5a2c); border: 1px solid #5a3a1c; border-radius: 3px; }
+/* Crate (single-cell wooden box): planks + X-brace, matches the in-game render. */
+.bel.crate { background: repeating-linear-gradient(90deg, #b07d42 0 8px, #9c6d38 8px 9px), #a9773f; border: 2px solid #5f3d1c; border-radius: 3px;
+  box-shadow: inset 2px 2px 0 rgba(255,240,200,.25), inset -2px -2px 0 rgba(0,0,0,.34); overflow: hidden; }
+.bel.crate::before, .bel.crate::after { content: ""; position: absolute; left: -8%; top: 44%; width: 116%; height: 13%; background: #7a5327; }
+.bel.crate::before { transform: rotate(42deg); }
+.bel.crate::after { transform: rotate(-42deg); }
 .bel.sel { outline: 3px solid #ffd54a; outline-offset: 2px; z-index: 5; }
 .builder-palette { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; justify-content: center; }
 .btool, .bact { border: none; border-radius: 9px; padding: 8px 12px; font-weight: 700; font-size: 13px; background: #2a3a30; color: #eaf2ec; }

@@ -79,6 +79,7 @@ let myLoadout = loadLoadout();            // null => auto-fill top-3; else a sav
 let cosmeticById = {};                    // playerId -> "hero:skin", from the roster control frame
 let holdingBall = false;     // am I currently carrying the ball?
 let mySuper = false;         // am I in SUPER (overcharge ready)? → local charge ring fills 2× faster
+let mySuperLatched = false;  // I began loading a shot while in super → keep the red aim + red ring until I fire (mirrors the sim's _superLatched)
 
 // Live-tunable settings (pause menu). Client keeps its own copy for prediction
 // + rendering and pushes changes to the authoritative server.
@@ -518,7 +519,11 @@ function processSnapshotSounds(snap) {
       if (pl) triggerAnim(pl.id, 'hit', { force: Math.hypot(pl.vx || 0, pl.vy || 0) > 300 ? 1 : 0, dir: [im.dx || -1, im.dy || 0] });
     }
     for (const b of snap.bombs || []) if (!knownBombs.has(b.id)) {            // planted a bomb
-      const pl = nearestPlayer(players, b.x, b.y, 70, b.team); if (pl) triggerAnim(pl.id, 'bomb');
+      // A LOB lands up to BOMB_LOB_RANGE (250) from the planter, so a proximity search near the
+      // landing spot misses the thrower and the arc collapses to a teleport. Resolve the planter
+      // by OWNER id (carried on the wire) and only fall back to proximity if they've left the view.
+      const pl = players.find((q) => q.id === b.owner) || nearestPlayer(players, b.x, b.y, 70, b.team);
+      if (pl) triggerAnim(pl.id, 'bomb');
       bombSpawnT.set(b.id, performance.now());                                // fly-in intro; ring/dust fire on impact (see drawBomb)
       bombSrc.set(b.id, pl ? { x: pl.x, y: pl.y } : { x: b.x, y: b.y });      // arc FROM the thrower to where it lands
     }
@@ -2956,7 +2961,7 @@ const MAX_LOB_DRAG_PX = 90;        // screen drag that maps to a full-range lob
 let buildHolding = false;  // build control currently HELD (windup ramps server-side)
 let buildStart = null;     // timestamp the build hold began — LOCAL windup estimate for the HUD
 const BUILD_MS = BUILD_WINDUP * 1000;
-function beginBuild() { if (!buildHolding) { buildHolding = true; buildStart = performance.now(); } }
+function beginBuild() { if (holdingBall) return; if (!buildHolding) { buildHolding = true; buildStart = performance.now(); } } // no building while carrying the ball
 function currentWindup() { return buildStart === null ? 0 : Math.min(1, (performance.now() - buildStart) / BUILD_MS); }
 function cancelBuild() { buildHolding = false; buildStart = null; buildHold = null; }
 
@@ -2991,7 +2996,7 @@ const keys = {};
 addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()] = true;
   if (e.key === ' ' && !e.repeat) beginCharge();     // hold space to charge
-  if (e.key.toLowerCase() === 'e') specialQueued = true;
+  if (e.key.toLowerCase() === 'e' && !holdingBall) specialQueued = true; // bomb locked while carrying
   if (e.key.toLowerCase() === 'q' && !e.repeat) beginBuild(); // hold Q to wind up a wall
 });
 addEventListener('keyup', (e) => {
@@ -3024,7 +3029,7 @@ function openAd(board) {
 canvas.addEventListener('mousedown', (e) => {
   if (usingTouch) return;                                                     // ignore synthesized-from-touch mouse events
   const ad = adBoardAt(e.clientX, e.clientY); if (ad) { openAd(ad); return; } // board tap, not a shot
-  if (e.button === 2) { specialQueued = true; specialAim = { x: 0, y: 0 }; }   // right-click = special, feet plant
+  if (e.button === 2) { if (!holdingBall) { specialQueued = true; specialAim = { x: 0, y: 0 }; } }   // right-click = special (locked while carrying)
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
 addEventListener('mouseup', (e) => { if (usingTouch) return; if (mouse.down && e.button !== 2) { if (aimPulled() || currentCharge() < QUICK_CHARGE) releaseShot(); else cancelCharge(); } mouse.down = false; }); // aimed OR quick tap fires; a long no-aim hold does nothing
@@ -3042,6 +3047,7 @@ const settingsPanel = document.getElementById('settings');
 if (specialBtn) {
   specialBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    if (holdingBall) return; // bomb is LOCKED while carrying — no drag, no press feedback, no exhaust
     try { specialBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
     bombDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0, aimed: false };
   });
@@ -3081,6 +3087,7 @@ let buildDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
 if (buildBtn) {
   buildBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    if (holdingBall) return; // fence is LOCKED while carrying — no drag, no windup, no exhaust
     try { buildBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
     buildDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0 };
     beginBuild();
@@ -3516,11 +3523,12 @@ function sampleInput() {
   // nearest enemy, with the snooker-angle impulse) and may IGNORE this vector. We deliberately
   // do NOT compute quick-shot aim here — leaving that to the sim agent (do not add it client-side).
   const fire = fireQueued; fireQueued = false;
-  const special = specialQueued; specialQueued = false;
+  // A ball CARRIER can't bomb or build (hands full) — drop those inputs (server enforces this too).
+  const special = specialQueued && !holdingBall; specialQueued = false;
   const sax = special ? specialAim.x : 0, say = special ? specialAim.y : 0;
-  if (special) specialAim = { x: 0, y: 0 };
-  const build = buildQueued; buildQueued = false;
-  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build, buildHold: buildHolding, sax, say };
+  if (specialQueued || special) specialAim = { x: 0, y: 0 };
+  const build = buildQueued && !holdingBall; buildQueued = false;
+  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build, buildHold: buildHolding && !holdingBall, sax, say };
 }
 
 // Send inputs + advance prediction at a fixed rate.
@@ -4188,7 +4196,7 @@ function drawPlayer(p) {
   const isMe = p.id === me.playerId;
   const x = wx(p.x), y = wy(p.y), r = ws_(ch.radius * settings.sizeMul);
   const team = teamColor(p.team);
-  if (p.power) { // OVERCHARGE available: a pulsing RED ring (matches the red aim line = overcharge)
+  if ((p.power || (isMe && mySuperLatched)) && !(isMe && bombDrag.active)) { // OVERCHARGE available OR a super shot is loaded (latched) — pulsing RED ring stays until fired (suppressed on the local hero while aiming a bomb)
     const t = performance.now() / 1000;
     const pulse = 0.55 + 0.45 * Math.sin(t * 6);
     ctx.save(); ctx.strokeStyle = `rgba(255,64,64,${pulse.toFixed(2)})`; ctx.lineWidth = Math.max(1, ws_(3.5)); ctx.setLineDash([ws_(7), ws_(6)]);
@@ -4407,7 +4415,7 @@ function drawProjectile(pr) {
 // Special = a TNT block: red body, white "TNT" band, wood-grain top, live fuse.
 function drawBomb(bomb) {
   const x = wx(bomb.x), y = wy(bomb.y), r = ws_(16);
-  // danger radius preview
+  // danger radius preview (the blast zone) — always shown for a planted bomb.
   ctx.beginPath(); ctx.arc(x, y, ws_(BOMB.radius), 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(239,68,68,.07)'; ctx.fill();
   ctx.setLineDash([ws_(6), ws_(6)]);
@@ -4424,14 +4432,39 @@ function drawBomb(bomb) {
     if (p < 1) {
       const ux = 1 - (1 - p) * (1 - p);              // ease-out toward the landing spot
       const hop = Math.sin(p * Math.PI);             // 0→1→0 arc height factor
+      const src = bombSrc.get(bomb.id);
+      const sx = src ? wx(src.x) : x, sy = src ? wy(src.y) : y;
+      // Body-centre SCREEN position at any progress q along this same arc (ease-out glide + sine hop).
+      const posAt = (q) => {
+        const uq = 1 - (1 - q) * (1 - q), hq = Math.sin(q * Math.PI);
+        return { x: x + (sx - x) * (1 - uq), y: y + (sy - y) * (1 - uq) - hq * r * 7 };
+      };
+      // FUSE TRAIL — smoke + sparks sampled back along the arc from the lit fuse tip. Sells the
+      // throw as an airborne, fuse-lit object. Drawn first (behind body/shadow), absolute coords.
+      const TRAIL_N = 14, TRAIL_STEP = 0.05, TIP_X = r * 0.5, TIP_Y = -r * 1.9; // fuse-tip offset in the sprite
+      for (let i = TRAIL_N; i >= 1; i--) {
+        const q = p - i * TRAIL_STEP; if (q <= 0) continue;
+        const bp = posAt(q), px = bp.x + TIP_X, py = bp.y + TIP_Y;
+        const life = 1 - i / TRAIL_N;                // ~0 oldest → ~1 nearest the bomb
+        ctx.globalAlpha = 0.30 * life;               // smoke puff: grows + fades as it ages
+        ctx.fillStyle = '#6b6257';
+        const ss = r * (0.35 + (1 - life) * 0.9);
+        ctx.fillRect(px - ss / 2, py - ss / 2, ss, ss);
+        if (i <= 6) {                                // hot spark near the head only
+          ctx.globalAlpha = life;
+          ctx.fillStyle = i % 2 ? '#ffe27a' : '#ff9b27';
+          const sk = r * 0.32 * life;
+          ctx.fillRect(px - sk / 2, py - sk / 2, sk, sk);
+        }
+      }
+      ctx.globalAlpha = 1;
       // A ground shadow at the LANDING spot that grows as the bomb drops — sells the throw.
       ctx.save();
       ctx.globalAlpha = 0.28 * (0.35 + 0.65 * p);
       ctx.fillStyle = '#000';
       ctx.beginPath(); ctx.ellipse(x, y + r * 0.5, r * (0.5 + 0.6 * p), r * (0.24 + 0.28 * p), 0, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
-      const src = bombSrc.get(bomb.id);
-      if (src) { const sx = wx(src.x), sy = wy(src.y); ctx.translate((sx - x) * (1 - ux), (sy - y) * (1 - ux)); }
+      if (src) ctx.translate((sx - x) * (1 - ux), (sy - y) * (1 - ux));
       ctx.translate(0, -hop * r * 7);   // higher arc hop — clearly a thrown bomb
     } else if (!bombLanded.has(bomb.id)) {                // arrival → shockwave
       bombLanded.add(bomb.id);
@@ -4550,6 +4583,8 @@ function updateBuildHud(p) {
   for (let i = 0; i < pips.length; i++) pips[i].classList.toggle('full', i < ammo);
   const cd = buildBtn.querySelector('.build-cd');
   if (cd) cd.style.transform = `scaleX(${ammo < BUILD_MAG ? (p.buildFrac || 0) : 0})`;
+  // Radial reload ring: full when the mag is topped up, else the trickling round's progress.
+  buildBtn.style.setProperty('--cd', ammo >= BUILD_MAG ? 1 : (p.buildFrac || 0));
   buildBtn.classList.toggle('empty', ammo <= 0);
 }
 
@@ -4637,7 +4672,28 @@ function drawBlockBox(box, pal, opts = {}) {
   if (opts.texture) opts.texture(ax, ay - lift, aw, ah);
 }
 
+const WOOD_PAL = { top: '#b07d42', face: '#7a5327', hi: 'rgba(255,240,200,.28)', shadow: '#4a2f16' };
+// A crate = a single-cell WOODEN box (mechanically a solid indestructible wall). Extruded like
+// the stone block, wood-toned, with plank seams + an X-brace + frame — the option-1 look.
+function drawCrateBox(w) {
+  drawBlockBox(w, WOOD_PAL, {
+    texture: (ax, ay, aw, ah) => {
+      ctx.fillStyle = 'rgba(0,0,0,.18)';                                     // vertical plank seams
+      const step = Math.max(3, Math.round(aw / 4));
+      for (let x = ax + step; x < ax + aw - 1; x += step) ctx.fillRect(Math.round(x), ay, 1, ah);
+      ctx.strokeStyle = 'rgba(74,47,22,.9)';
+      ctx.lineWidth = Math.max(2, ws_(4));                                   // X-brace
+      ctx.beginPath();
+      ctx.moveTo(ax + 2, ay + 2); ctx.lineTo(ax + aw - 2, ay + ah - 2);
+      ctx.moveTo(ax + aw - 2, ay + 2); ctx.lineTo(ax + 2, ay + ah - 2);
+      ctx.stroke();
+      ctx.lineWidth = Math.max(2, ws_(3));                                   // frame
+      ctx.strokeRect(ax + 1, ay + 1, aw - 2, ah - 2);
+    },
+  });
+}
 function drawWallBlock(w) {
+  if (w.crate) return drawCrateBox(w);                            // single-cell wooden crate
   if (w.angle != null && w.cx != null) return drawStoneSlab(w); // rotatable HARD wall (field builder)
   drawBlockBox(w, STONE_PAL, {
     texture: (ax, ay, aw, ah) => {           // stone courses on the top face
@@ -4797,7 +4853,7 @@ function drawObstacles() {
   for (const w of A.walls) drawWallBlock(w);
   if (latest && latest.walls) for (const w of latest.walls) drawBuiltWall(w);
   // Ghost preview while dragging the build button.
-  if (buildDrag.active && rendered) {
+  if (buildDrag.active && rendered && !holdingBall) {
     let dx = buildDrag.dx, dy = buildDrag.dy;
     if (flipView()) dx = -dx;
     const l = Math.hypot(dx, dy);
@@ -4819,27 +4875,29 @@ function drawObstacles() {
     // Wind-up read = a CHARGE RING around the player (same as the shoot meter), not a loading line.
     drawPlayerChargeRing(wind, 'rgba(255,166,54,0.9)', 'rgba(255,214,64,0.95)');
   }
-  // Ghost marker while aiming a bomb lob.
-  if (bombDrag.active && rendered) {
+  // Bomb-lob aim: a cursor-following ghost target circle at the projected landing spot (THIS is the
+  // aim). No charge-ring on the hero's own body — the user doesn't want a red circle on the hero.
+  if (bombDrag.active && rendered && !holdingBall) {
     const len = Math.hypot(bombDrag.dx, bombDrag.dy);
     if (len > AIM_DEADZONE_PX) {
       const frac = Math.min(1, len / MAX_LOB_DRAG_PX);
       let dx = bombDrag.dx / len, dy = bombDrag.dy / len;
-      if (flipView()) dx = -dx;
+      if (flipView()) dx = -dx; // screen -> true-world for team B's mirrored view
       const tx = rendered.x + dx * frac * BOMB_LOB_RANGE;
       const ty = rendered.y + dy * frac * BOMB_LOB_RANGE;
       ctx.save(); ctx.globalAlpha = 0.5;
       ctx.fillStyle = '#ff5a4d';
       ctx.beginPath(); ctx.arc(wx(tx), wy(ty), ws_(26), 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1; ctx.restore();
-      // Same charge-RING read as the shoot/wall — how far the lob will throw (red = bomb).
-      drawPlayerChargeRing(frac, 'rgba(255,90,77,0.9)', '#ff2f2f');
     }
   }
 }
 
 function renderFrame() {
   if (gameEl.classList.contains('hidden')) return; // in the lobby — nothing to draw
+  // Super-latch (visual): once I start charging while in super, keep the red aim + ring until I
+  // release (fire) — even if super expires mid-charge, matching the sim's persisted super shot.
+  if (holding) { if (mySuper) mySuperLatched = true; } else { mySuperLatched = false; }
   // Ease the drawn local player toward the prediction, then point the camera at it.
   if (predicted) {
     if (!rendered) rendered = { ...predicted };
@@ -4907,7 +4965,7 @@ function renderFrame() {
     const aim = currentAim();
     if (aim.aiming && rendered) {
       const meNow = view.players.find((pp) => pp.id === me.playerId);
-      drawAimIndicator(rendered.x, rendered.y, aim.ax, aim.ay, currentCharge(), !!(meNow && meNow.power));
+      drawAimIndicator(rendered.x, rendered.y, aim.ax, aim.ay, currentCharge(), !!(meNow && meNow.power) || mySuperLatched);
     }
     for (const p of view.players) {
       const isMe = p.id === me.playerId && rendered;
@@ -4933,6 +4991,9 @@ function renderFrame() {
   const specialCooling = performance.now() < specialCdUntil;
   specialBtn.classList.toggle('cooling', specialCooling);
   specialBtn.classList.toggle('ready', !specialCooling); // Brawl-style charged-Super pulse
+  // Radial cooldown ring: fills 0→1 as the bomb recharges; full when ready.
+  const specialCdMs = (CHARACTERS[me.char] || CHARACTERS.player).specialCooldown * 1000;
+  specialBtn.style.setProperty('--cd', specialCooling && specialCdMs > 0 ? 1 - (specialCdUntil - performance.now()) / specialCdMs : 1);
 
   // Charge power indicator: the right (aim) stick reddens as you hold.
   // (Cheap colour changes only — no per-frame box-shadow, which thrashes paint.)
@@ -4964,20 +5025,20 @@ const FB_WALL = { hl: 88, ht: 16 };   // default wall capsule half-dims (len 176
 const FB_BUSH = { w: 224, h: 160 };
 const FB_GRID = 50;                          // fine grid cell (40 x 22 cells) — snap + overlay
 const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;
-let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] };
-let fbTool = null;   // 'bush' | 'hard' | 'dry' | null (placement tool)
+let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
+let fbTool = null;   // 'bush' | 'hard' | 'dry' | 'crate' | null (placement tool)
 let fbSel = null;    // { type, i } selected element | null
 let fbDrag = null;   // active pointer drag
 const fbPit = () => document.getElementById('builder-pitch');
-const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.hardWalls : fbField.dryWalls);
-function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [] }; } catch (e) {} return { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; }
+const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.hardWalls : t === 'crate' ? fbField.crates : fbField.dryWalls);
+function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [], crates: j.crates || [] }; } catch (e) {} return { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] }; }
 function fbSave() { try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {} }
 // --- Undo / redo (snapshot stack) ---
 let fbHist = [], fbHistIdx = -1;
 function fbSnapshot() { return JSON.stringify(fbField); }
 function fbHistInit() { fbHist = [fbSnapshot()]; fbHistIdx = 0; }
 function fbPush() { fbHist = fbHist.slice(0, fbHistIdx + 1); fbHist.push(fbSnapshot()); if (fbHist.length > 60) fbHist.shift(); fbHistIdx = fbHist.length - 1; fbSave(); fbUpdateHistBtns(); }
-function fbRestore(json) { const j = JSON.parse(json); fbField = { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [] }; fbSel = null; fbSave(); fbRender(); fbUpdateHistBtns(); }
+function fbRestore(json) { const j = JSON.parse(json); fbField = { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [], crates: j.crates || [] }; fbSel = null; fbSave(); fbRender(); fbUpdateHistBtns(); }
 function fbUndo() { if (fbHistIdx > 0) { fbHistIdx--; fbRestore(fbHist[fbHistIdx]); } }
 function fbRedo() { if (fbHistIdx < fbHist.length - 1) { fbHistIdx++; fbRestore(fbHist[fbHistIdx]); } }
 function fbUpdateHistBtns() { const u = document.getElementById('b-undo'), r = document.getElementById('b-redo'); if (u) u.disabled = fbHistIdx <= 0; if (r) r.disabled = fbHistIdx >= fbHist.length - 1; }
@@ -4994,7 +5055,7 @@ function fbSegSegDist(ax, ay, bx, by, cx, cy, ex, ey) {
   return Math.hypot(wx + sc * ux - tc * vx, wy + sc * uy - tc * vy);
 }
 function fbFoot(el, type) {
-  if (type === 'bush') return { box: [el.x, el.y, el.x + el.w, el.y + el.h] };
+  if (type === 'bush' || type === 'crate') return { box: [el.x, el.y, el.x + el.w, el.y + el.h] };
   const [x0, y0, x1, y1] = [...fbEnds(el)].flatMap((p) => [p.x, p.y]); return { seg: [x0, y0, x1, y1], r: el.ht };
 }
 function fbSegRectDist(s, box) { // min distance segment<->AABB (0 if it enters the box)
@@ -5011,11 +5072,11 @@ function fbPairOverlap(fa, fb) {
   const seg = fa.seg || fb.seg, box = fa.box || fb.box, r = (fa.seg ? fa.r : fb.r);
   return fbSegRectDist(seg, box) < r - 1;
 }
-// Does `el` overlap another element in its OWN category? (walls vs walls, bushes vs bushes;
-// a wall over a bush is allowed — that's an intentional weak/hidden wall.)
+// Does `el` overlap another element in its OWN category? Solids (walls + crates) share a group
+// so none may overlap each other; bushes only clash with bushes (a solid over a bush is allowed).
 function fbOverlapsAny(el, type, skip) {
   const fa = fbFoot(el, type);
-  const group = type === 'bush' ? ['bush'] : ['hard', 'dry'];
+  const group = type === 'bush' ? ['bush'] : ['hard', 'dry', 'crate'];
   for (const t of group) { const arr = fbList(t); for (let i = 0; i < arr.length; i++) { if (t === type && i === skip) continue; if (fbPairOverlap(fa, fbFoot(arr[i], t))) return true; } }
   return false;
 }
@@ -5092,13 +5153,14 @@ function fbRender() {
   fbField.bushes.forEach((b, i) => mk('bush', i, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h, null));
   fbField.hardWalls.forEach((w, i) => mk('hard', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
   fbField.dryWalls.forEach((w, i) => mk('dry', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
+  fbField.crates.forEach((c, i) => mk('crate', i, c.x + c.w / 2, c.y + c.h / 2, c.w, c.h, null));
 }
 // Move a selected element to (wx,wy) — grid-snapped.
 function fbMoveSel(wx, wy) {
   if (!fbSel) return; const L = fbList(fbSel.type)[fbSel.i]; if (!L) return;
   // Bushes snap their TOP-LEFT CORNER to a grid line (matches how they're drawn) so a moved
   // bush stays cell-aligned; centre-snapping put even-width bushes half a cell off the grid.
-  if (fbSel.type === 'bush') { L.x = fbSnap(wx - L.w / 2); L.y = fbSnap(wy - L.h / 2); }
+  if (fbSel.type === 'bush' || fbSel.type === 'crate') { L.x = fbSnap(wx - L.w / 2); L.y = fbSnap(wy - L.h / 2); }
   else { L.cx = fbSnap(wx); L.cy = fbSnap(wy); }
   fbRender();
 }
@@ -5134,7 +5196,7 @@ function fbMirror(mode) {
     : mode === 'top' ? { ...b, y: my(b.y + b.h) }
     : { ...b, x: mx(b.x + b.w), y: my(b.y + b.h) };
   const addCopies = (type, fn) => { const orig = fbList(type).slice(); for (const e of orig) { const c = fn(e); if (!fbOverlapsAny(c, type, -1)) fbList(type).push(c); } };
-  addCopies('hard', wall); addCopies('dry', wall); addCopies('bush', bush);
+  addCopies('hard', wall); addCopies('dry', wall); addCopies('bush', bush); addCopies('crate', bush); // crates mirror like boxes
   fbSel = null; fbRender(); fbPush();
 }
 // Field zoom: scale the arena's layout HEIGHT (aspect keeps width in step) so the stage's
@@ -5154,7 +5216,7 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
   document.getElementById('field-builder-btn')?.addEventListener('click', () => { unlockAudio && unlockAudio(); showScreen('builder'); openBuilder(); });
   document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => fbSetTool(fbTool === btn.dataset.tool ? null : btn.dataset.tool)));
   document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbRender(); fbPush(); } });
-  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [] }; fbSel = null; fbRender(); fbPush(); });
+  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] }; fbSel = null; fbRender(); fbPush(); });
   document.querySelectorAll('#builder [data-mirror]').forEach((btn) => btn.addEventListener('click', () => fbMirror(btn.dataset.mirror)));
   document.getElementById('b-undo')?.addEventListener('click', fbUndo);
   document.getElementById('b-redo')?.addEventListener('click', fbRedo);
@@ -5195,6 +5257,15 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
       fbDraw = { type: 'bush', ax, ay, i: fbField.bushes.length - 1 }; fbSel = { type: 'bush', i: fbDraw.i };
       fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
     }
+    // CRATE — PLACE a single grid cell in the cell under the cursor. No resize; optional drag to
+    // reposition. Overlap is checked on release (a crate can't sit on another solid).
+    if (fbTool === 'crate') {
+      const pre = fbSnapshot();
+      const ax = Math.floor(w.x / FB_GRID) * FB_GRID, ay = Math.floor(w.y / FB_GRID) * FB_GRID;
+      fbField.crates.push({ x: ax, y: ay, w: FB_GRID, h: FB_GRID });
+      fbSel = { type: 'crate', i: fbField.crates.length - 1 };
+      fbDrag = { id: e.pointerId, move: true, pre }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
+    }
     // NO TOOL — select + drag-move an existing element.
     if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbDrag = { id: e.pointerId, move: true, pre: fbSnapshot() }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
     else { fbSel = null; fbRender(); }
@@ -5218,6 +5289,11 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
       }
     } else if (fbDrag.move && fbSel) {
       if (fbSel.type === 'bush') { fbSel.i = fbMergeBushesInto(fbSel.i); fbRender(); if (fbDrag.pre !== fbSnapshot()) fbPush(); }
+      else if (fbSel.type === 'crate') {
+        const L = fbList('crate')[fbSel.i];
+        if (L && fbOverlapsAny(L, 'crate', fbSel.i)) { fbRestore(fbDrag.pre); fbFlash('אי אפשר לחפוף ארגז'); }
+        else if (fbDrag.pre !== fbSnapshot()) fbPush();
+      }
       else {
         const res = fbResolveWall(fbSel.type, fbSel.i);
         if (!res.ok) { fbRestore(fbDrag.pre); fbFlash('אי אפשר להניח קיר כאן'); }

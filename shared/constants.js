@@ -163,6 +163,18 @@ export const SUPER_SHOT_MUL = 1.5;   // super mode boosts ALL shot power/speed b
 // quick KICK gets in super so it clears BALL_BUMP_SPEED and shoves a defender the same amount.
 export const SUPER_QUICK_KB = 220;
 export const SUPER_QUICK_KICK_SPEED = 440; // > BALL_BUMP_SPEED (300); bump = 440*BALL_BUMP_SCALE = 220 kv, matching the bullet
+// A SUPER quick shot can't FULL-strip a carrier, but it JOSTLES the ball loose: it detaches
+// and rolls ~half a ball length (BALL_RADIUS ≈ 16px) in the shot direction. Tuned to the
+// friction model (roll ≈ 0.468*(v-18) px) so 52 → ~16px = half a ball length.
+export const SUPER_QUICK_BALL_POP = 52;
+// SUPER body strength: a player in super is physically stronger on contact.
+// (1) SUPER_BODY_PUSH = the share of a body overlap the NON-super player absorbs when only one
+//     side is super (>0.5 → the super player holds their ground and shoves the other more).
+// (2) On body contact with an ENEMY BALL-CARRIER, a super player STRIPS the ball: the carrier is
+//     knocked back (SUPER_BODY_STRIP_KB) and the ball pops loose (SUPER_BODY_BALL_POP).
+export const SUPER_BODY_PUSH = 0.65;        // non-super player takes 65% of the separation (super only 35%)
+export const SUPER_BODY_STRIP_KB = 520;     // shove given to an enemy carrier body-checked by a super player
+export const SUPER_BODY_BALL_POP = 300;     // speed the stripped ball pops loose (away from the super player)
 export const BALL_WALL_POP_SPEED = 260; // carried ball popped loose when the holder walks it into a wall
 // MONOTONIC ball penetration when a kicked ball hits an enemy — harder kick = more roll-through:
 //   weak/medium = BLOCKED, rebounds off the defender (keeps this fraction, reversed)
@@ -237,7 +249,7 @@ export const BUILT_WALL = {
   ttl: 0,           // 0 = permanent until destroyed
 };
 export const BUILD_MAG = 2;       // wall charges a player can hold
-export const BUILD_RELOAD = 30;   // seconds to regenerate ONE wall charge
+export const BUILD_RELOAD = 15;   // seconds to regenerate ONE wall charge (trickle) — avg 1 per 15s, or 2 in 30s
 export const BUILD_COOLDOWN = 0.4;// min seconds between placements
 export const MAX_BUILT_WALLS = 8; // global safety cap (oldest removed past this)
 // Wall build is now a HOLD-TO-CONFIRM windup (mirrors the shot charge): you hold the
