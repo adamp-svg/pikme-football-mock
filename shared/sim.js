@@ -6,18 +6,19 @@ import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, BALL_TAP_SPEED, WALL_RESTITUTION,
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
   PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
-  OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
+  OVERCHARGE_TTL, SUPER_USES, OVERCHARGE_MUL, OVERCHARGE_ROLL, OVER_FIELD_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
   OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
   BOMB_CENTER_R, BOMB_ENEMY_MUL, BOMB_LAUNCH_TTL, BOMB_TACKLE_KB,
   BOMB_CENTER_LAUNCH_MUL, BOMB_CARRY_LAUNCH_MUL, BOMB_WALL_CANNON_MUL, BOMB_WALL_CANNON_STATIC, BOMB_WALL_CANNON_BUILT, BOMB_WALL_DIST, BOMB_WALL_COS,
   BOMB_COMBINE_RADIUS, BOMB_STACK_PER, BOMB_STACK_RADIUS, FLY_HIT_SPEED, FLY_HIT_SCALE, BOMB_LOB_RANGE,
   CHARACTERS, DEFAULT_CHAR, PROJECTILE, BOMB, KNOCKBACK_DECAY, KNOCKBACK_MIN, BOMB_LAUNCH_DECAY, BOMB_LAUNCH_GLIDE, MOVE_ACCEL,
-  QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, SLOW_TIME, SLOW_MUL,
+  QUICK_CHARGE, FULL_CHARGE, DETACH_SIDE, CARRIER_KNOCKBACK_MUL, CARRIER_STRIP_KB_MAX, SLOW_TIME, SLOW_MUL,
+  SLOW_PER_STACK, SLOW_STACK_MAX, SLOW_STACK_DECAY, PUSH_MIN_MUL, PUSH_EASE,
   SUPER_BODY_PUSH, SUPER_BODY_STRIP_KB, SUPER_BODY_BALL_POP,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
   WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
   BUILD_WINDUP, BUILD_WINDUP_SLOW, BUILD_INTERRUPT_KV,
-  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, SUPER_QUICK_KB, SUPER_QUICK_KICK_SPEED, SUPER_QUICK_BALL_POP, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, SUPER_KICK_MUL, SUPER_QUICK_KB, SUPER_QUICK_KICK_SPEED, SUPER_QUICK_BALL_POP, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds } from './arena.js';
@@ -26,6 +27,9 @@ import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, neare
 // steps over a half-turn (a wall is 180°-symmetric) so it round-trips the wire exactly.
 const WALL_ANGLE_STEPS = 16;
 const WALL_ANGLE_QUANT = Math.PI / WALL_ANGLE_STEPS;
+// A player-built wall is ONE piece, but its fragility is sampled at this many sections along
+// its length: fragile (weak) only if EVERY section is in a forbidden zone (see buildWall).
+const WALL_BLOCKS = 4;
 
 // Obstacle layout for this state — training rooms override it with a custom
 // arena (state.arena); everything else uses the global mirror-symmetric ARENA.
@@ -54,7 +58,7 @@ function inOwnPenalty(t) {
 // Reset a ball's "kick identity" — call wherever the ball becomes free via a NON-kick
 // event (pickup, kickoff, bullet-push, strip, bomb-pop). Otherwise a stale lastKicker
 // would earn overcharge off a fast ball they never actually kicked.
-function clearKick(b) { b.kickTier = 0; b.overSpent = false; b.lastKicker = null; }
+function clearKick(b) { b.kickTier = 0; b.overSpent = false; b.lastKicker = null; b.kickSuper = false; }
 
 // --- Walkable area: the pitch PLUS the two goal-net pockets ------------------
 // The pitch is [0,W]x[0,H]. Each goal adds a NET POCKET GOAL.depth deep behind its line,
@@ -156,7 +160,7 @@ function nearestVisibleEnemy(state, p) {
 function earnPower(p, amt) {
   if (!p || p.power) return;
   p.powerMeter = (p.powerMeter || 0) + amt;
-  if (p.powerMeter >= 1) { p.power = true; p.powerT = OVERCHARGE_TTL; p.powerMeter = 0; }
+  if (p.powerMeter >= 1) { p.power = true; p.powerT = OVERCHARGE_TTL; p.powerMeter = 0; p.powerUses = SUPER_USES; }
 }
 
 // Spawn spots — each team near its OWN goal (A defends left, B defends right).
@@ -226,17 +230,22 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     ammoT: 0,       // seconds accumulated toward the next trickle-regen round
     reloadLock: 0,  // >0 while a fully-emptied mag is reloading (can't fire)
     specialCd: 0, // bomb cooldown
-    slowTimer: 0, // seconds of quick-shot slow remaining
+    slowTimer: 0, // (legacy) seconds of flat quick-shot slow remaining
+    slowStacks: 0, // cumulative quick-shot slow stacks (0..SLOW_STACK_MAX)
+    slowDecay: 0,  // seconds until the next stack sheds (one at a time)
     bombLaunch: 0, // >0 => rocket-jumping off own bomb; can tackle an enemy
     launchGlide: 0, // >0 => recently bomb-launched; knockback decays gently (smooth arc)
     trampCd: 0, // >0 => recently launched by a trampoline (no re-launch)
     power: false, // OVERCHARGE READY: earned by filling the meter; enables ONE overcharge shot/kick
     powerT: 0,    // seconds the READY overcharge lasts if unused (decays)
     powerMeter: 0, // 0..1 progress toward overcharge (1 full hit or 2 partial hits fills it)
+    powerUses: 0,  // small super-actions left (super-quick / body strip); overcharge shot spends all
+
     buildAmmo: BUILD_MAG, // wall charges available
     buildAmmoT: 0,        // seconds accumulated toward the next wall charge
     buildCd: 0,           // min pacing between wall placements
     buildWindup: 0, // 0..1 hold-to-confirm progress for the current wall build
+    aimMag: 0,      // 0..1 aim-stick push fraction (further push = build wall further out)
     // DIFFICULTY multipliers (bots only): bot-ai rewrites chargeRate/cdMul from the skill preset
     // every tick; humans keep 1. CARD buffs live in the separate card* fields so they stack ON TOP
     // of difficulty for bots and apply cleanly for humans without bot-ai ever clobbering them.
@@ -249,7 +258,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     cardUtil: (buffs && buffs.cardUtil) || 1,
     firing: false, // fired/released this tick (flash)
     lastSeq: 0, // last input seq applied (for client reconciliation)
-    _fire: false, _special: false, _build: false, _charge: 0,
+    _fire: false, _aimed: false, _special: false, _build: false, _charge: 0,
     _superLatched: false, // super was active while loading THIS shot → its boost/overcharge persists even if super expires mid-charge
   };
   state.players[id] = p;
@@ -266,7 +275,7 @@ function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
     const s = spawnPos(p.team, p.slot);
-    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.launchGlide = 0; p.buildWindup = 0;
+    p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.powerUses = 0; p.launchGlide = 0; p.buildWindup = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
   state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
@@ -352,6 +361,7 @@ function resolveSuperBodyStrip(state) {
       b.vx = nx * SUPER_BODY_BALL_POP; b.vy = ny * SUPER_BODY_BALL_POP; // ball pops loose past the carrier
       carrier.kvx += nx * SUPER_BODY_STRIP_KB * knockMul(carrier);
       carrier.kvy += ny * SUPER_BODY_STRIP_KB;
+      useSuperCharge(p); // a body strip also costs ⅓ super (so it doesn't dominate the ranged super-quick)
       return; // one strip per tick
     }
   }
@@ -556,7 +566,13 @@ export function step(state, inputs, dt) {
     // Ease velocity toward the target (smoothing) instead of snapping.
     let spd = ch.speed * state.settings.speedMul * (p.speedBuff || 1); // Speed-slot card buff (human), 1 otherwise
     if (state.ball.owner === p.id) spd *= state.settings.carrySpeedMul; // slower while carrying
-    if (p.slowTimer > 0) { spd *= SLOW_MUL; p.slowTimer -= dt; } // hit by a quick shot
+    // Cumulative quick-shot slow: speed × (1−12%)^stacks; one stack sheds per SLOW_STACK_DECAY sec
+    // (drops one at a time so it lapses gracefully once you stop being hit — no perma-lock).
+    if (p.slowStacks > 0) {
+      spd *= Math.pow(1 - SLOW_PER_STACK, p.slowStacks);
+      p.slowDecay -= dt;
+      if (p.slowDecay <= 0) { p.slowStacks -= 1; p.slowDecay = SLOW_STACK_DECAY; }
+    }
     if (inp.buildHold && p.buildAmmo >= 1 && p.buildCd <= 0 && state.ball.owner !== p.id) spd *= BUILD_WINDUP_SLOW; // slowed while winding up a wall (can't build while carrying)
     if (p.bombLaunch > 0) p.bombLaunch -= dt; // rocket-jump tackle window
     const tvx = mx * spd, tvy = my * spd;
@@ -619,9 +635,13 @@ export function step(state, inputs, dt) {
     }
     p.firing = false;
     p._fire = !!inp.fire;
+    p._aimed = !!inp.aimed; // this shot was AIMED (aim pulled) vs a bare quick tap
     p._special = !!inp.special;
     p._sax = inp.sax || 0; p._say = inp.say || 0; // special-aim offset, consumed by useSpecial below
     p._build = !!inp.build;
+    // Aim-push distance: client sends 0..1 (how far the build button was dragged); a harder
+    // push builds the wall up to one wall thickness further out (see buildWall).
+    p.aimMag = clamp(inp.buildDist || 0, 0, 1);
     // Wall-build windup: ramp while buildHold is held and a charge is available; a real
     // hit (knockback above BUILD_INTERRUPT_KV) cancels it; releasing without a commit
     // (no build edge, windup not full) resets it. Charge is spent only at commit.
@@ -640,7 +660,7 @@ export function step(state, inputs, dt) {
       p._charge = Math.min(1, p._charge + dt / SHOOT_CHARGE_TIME * (p.chargeRate || 1) * (p.cardShot || 1) * (p.power ? SUPER_CHARGE_RATE : 1)); // SUPER halves the wind-up
       if (p.power) p._superLatched = true; // loading a shot while SUPER → the super boost sticks to this shot even if super expires before release
     } else if (!p._fire) { p._charge = 0; p._superLatched = false; } // cancelled (let go without firing) → drop the latch
-    if (p.powerT > 0) { p.powerT -= dt; if (p.powerT <= 0) { p.powerT = 0; p.power = false; } }
+    if (p.powerT > 0) { p.powerT -= dt; if (p.powerT <= 0) spendSuper(p); } // TTL lapsed → drop super + uses
     p.lastSeq = inp.seq != null ? inp.seq : p.lastSeq;
   }
 
@@ -664,7 +684,7 @@ export function step(state, inputs, dt) {
       // Super counts if it's live now OR was live while this shot was being loaded (latched):
       // a shot LOADED in super keeps its +50% (and overcharge) even if super expired before release.
       const inSuper = !!(p.power || p._superLatched);
-      const superMul = inSuper ? SUPER_SHOT_MUL : 1;
+      const superMul = inSuper ? SUPER_KICK_MUL : 1;   // carrier KICK super boost (bullets use SUPER_SHOT_MUL directly, below)
       const isOver = isFull && inSuper;    // OVERCHARGE = full + super (the ceiling, on top of superMul); persists via the latch
       if (b.owner === p.id) {
         const isTap = eff < QUICK_CHARGE; // a SINGLE QUICK PRESS = a light dribble touch...
@@ -682,6 +702,7 @@ export function step(state, inputs, dt) {
         b.lastTouch = p.team;
         b.lastKicker = p.id; // who launched it — refills power if this kick bumps an enemy
         b.kickTier = isOver ? 2 : isFull ? 1 : 0; // how it behaves hitting an enemy (see the bump handler)
+        b.kickSuper = inSuper; // a below-full kick in super BOUNCES off a defender (too fast to catch) instead of attaching
         b.overSpent = isOver; // an overcharge kick's ball can't re-farm the meter (any later bump)
         // Outside super a tap is a fixed low dribble touch (~2 ball-lengths). In super a quick
         // kick is launched fast enough to clear BALL_BUMP_SPEED and shove a defender ~1.5 lengths.
@@ -694,7 +715,7 @@ export function step(state, inputs, dt) {
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
         // NOTE: firing does NOT fill the super meter — only HITTING an enemy does (see bump/hit handlers).
-        if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; } // an OVERCHARGE kick spends the meter
+        if (isOver) spendSuper(p); // an OVERCHARGE kick spends the whole meter
       } else if (p.shootCd <= 0 && p.reloadLock <= 0 && p.ammo >= 1) {
         // A FULL bullet strips a carrier; an OVERCHARGE bullet (isOver) strips AND pushes
         // harder — and spends the meter, same as an overcharge kick.
@@ -704,14 +725,17 @@ export function step(state, inputs, dt) {
         // A QUICK shot (below QUICK_CHARGE) stays a quick shot; a medium/full shot in super
         // gets the +50% proportional boost. A quick shot fired IN super is tagged so it gives
         // the enemy a small ~½-ball-length nudge instead of the usual "slow only, no push".
-        const isQuick = eff < QUICK_CHARGE;
+        // QUICK shot = NO aim pulled (bare tap): never pushes, slows instead. AIM shot = aim pulled:
+        // pushes proportionally at any charge and (at full) strips a carrier. Super boosts aim shots.
+        const isQuick = !p._aimed;
         const shotCharge = (inSuper && !isQuick) ? Math.min(1, eff * SUPER_SHOT_MUL) : eff;
         const superQuick = inSuper && isQuick;
-        fireBullet(state, p, ch, shotCharge, isOver, ax, ay, superQuick, inSuper);
+        const over = isOver && !isQuick; // an OVERCHARGE bullet must be an AIM shot (never a quick tap)
+        fireBullet(state, p, ch, shotCharge, over, ax, ay, superQuick, inSuper, p._aimed);
         // NOTE: firing does NOT fill the super meter — only a bullet HITTING an enemy does (see applyBulletHit).
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
-        if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; }
+        if (over) spendSuper(p); // an OVERCHARGE bullet spends the whole meter
       }
       p._charge = 0; // consume the wind-up on release
       p._superLatched = false; // shot fired — clear the latch for the next one
@@ -790,54 +814,52 @@ export function step(state, inputs, dt) {
       // A bomb-flung / stripped / wall-popped ball (clearKick -> lastKicker null) falls
       // through to the pickup below, so TOUCHING it attaches it (reliable pickup).
       if (bspeed > BALL_BUMP_SPEED && enemyOfBall && b.lastKicker) {
-        // MONOTONIC penetration — harder kick = more roll-through:
-        //   0 (weak/medium): BLOCKED — rebounds back off the defender
-        //   1 (FULL): DRIVES THROUGH with good pace
-        //   2 (OVERCHARGE): breaks through HARDEST
-        // A keeper in their OWN box makes the SAVE — catches a weak/full kick dead; only an
-        // OVERCHARGE kick still gets through them (reduced).
-        // SNOOKER model (SAME as a bullet hit, see hitEnemy): shove the enemy along the line of
-        // centres, angled by WHERE the ball struck but CAPPED to MAX_DEFLECT so an edge hit can't
-        // spin them off sideways. The ball itself keeps its tangential glance; only its normal
-        // component is reflected/absorbed per tier below.
+        const tier = b.kickTier || 0;
+        // BELOW FULL + NOT super, on a FIELD defender: the defender CATCHES the kick — ball ATTACHES.
+        // (A below-full kick fired IN super is too fast to catch → it BOUNCES off instead, below.)
+        if (tier === 0 && !b.kickSuper && !inOwnPenalty(p)) {
+          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; clearKick(b);
+          break; // caught
+        }
+        // Otherwise the ball bumps: SNOOKER — shove the enemy along the line of centres (capped);
+        // the ball keeps its tangential glance, its normal component reflected/kept per tier:
+        //   tier 0 in super : NO push — the ball just BOUNCES off (too fast to catch, not full power).
+        //   FULL            : enemy pushed ~½ a ball (SUPER_QUICK_KB) + ball BOUNCES back.
+        //   OVERCHARGE      : enemy pushed ~a quarter-aim shot; vs a FIELD defender the ball only rolls a
+        //                     LITTLE forward and stays in front (OVER_FIELD_ROLL); vs a keeper it breaks through.
         let cnx = p.x - b.x, cny = p.y - b.y;
         const cd = Math.hypot(cnx, cny) || 1;
         cnx /= cd; cny /= cd;
         const vn = b.vx * cnx + b.vy * cny;                 // speed along the line of centres (>0 = into the player)
         const vtx = b.vx - vn * cnx, vty = b.vy - vn * cny; // tangential glance the ball keeps
-        const tier = b.kickTier || 0;
-        const mul = tier === 2 ? OVERCHARGE_MUL : tier === 1 ? FULL_BUMP_MUL : 1; // push: weak < full < overcharge
         const push = snookerPush(b.x, b.y, b.vx / bspeed, b.vy / bspeed, p.x, p.y, radiusOf(p, state) + ballR);
-        const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p) * push.mul;
-        p.kvx += push.ux * kb; p.kvy += push.uy * kb;
-        // Ball's normal component after contact (+ = keeps driving through, - = rebounds off).
+        const pushKv = (tier === 2 ? state.settings.bulletKnockback * pushCurve(QUICK_CHARGE) : tier === 1 ? SUPER_QUICK_KB : 0) * knockMul(p) * push.mul;
+        p.kvx += push.ux * pushKv; p.kvy += push.uy * pushKv;
+        // Ball's normal component after contact (+ = keeps rolling forward, - = rebounds off).
         let f;
         if (inOwnPenalty(p) && tier < 2) {
-          b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD; f = null; // keeper catches it (a real save)
+          b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD; f = null; // keeper catches a weak/full kick (a real save)
         } else if (tier === 2) {
-          f = inOwnPenalty(p) ? KEEPER_BREAK_ROLL : OVERCHARGE_ROLL;   // overcharge beats a keeper, reduced
+          f = inOwnPenalty(p) ? KEEPER_BREAK_ROLL : OVER_FIELD_ROLL;    // keeper: break through; field: only a LITTLE roll forward (stays in front)
           b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
-        } else if (tier === 1) {
-          f = FULL_DRIVE_ROLL;                                          // drives through with pace
         } else {
-          f = -KICK_BLOCK_REBOUND;                                      // weak kick rebounds off the defender
+          f = -KICK_BLOCK_REBOUND;                                      // FULL (tier 1) & below-full-in-super (tier 0): BOUNCE back off the defender
           b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
         }
         if (f != null) {
           let ovx = vtx + f * vn * cnx, ovy = vty + f * vn * cny;  // snooker glance (tangential kept, normal per tier)
-          // A drive-through (f>0) only NUDGES off course — cap the carom to MAX_DEFLECT so the ball
-          // deflects by the impact angle but keeps heading downfield. A weak kick (f<0) still fully
-          // rebounds off the defender (that's its block mechanic), so it's left uncapped.
           if (f > 0) { const c = capDeflect(b.vx / bspeed, b.vy / bspeed, ovx, ovy, MAX_DEFLECT); ovx = c.x; ovy = c.y; }
           b.vx = ovx; b.vy = ovy;
         }
-        b.kickTier = 0; // consumed — never re-bumps a second enemy on the same tier
-        // Any kick that bumps an enemy earns overcharge: a FULL/OVERCHARGE kick fills it now,
-        // a quick kick fills 1/3 (three hits). An overcharge kick's ball can't self-refill (b.overSpent).
+        // A FULL/OVERCHARGE kick that bumps an enemy earns overcharge; a below-full super BOUNCE (tier 0)
+        // only earns a partial (it's a weak kick). An overcharge kick's ball can't self-refill.
         if (!b.overSpent && b.lastKicker && state.players[b.lastKicker]) {
           earnPower(state.players[b.lastKicker], tier >= 1 ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
         }
-        // keep lastTouch as the shooter's (goal credit unchanged)
+        // The ball is now a LOOSE rebound/breakthrough ball — clear its kick tag (keeps lastTouch for
+        // goal credit) so on the NEXT tick, while it's still overlapping this defender, it doesn't
+        // re-enter as a tier-0 kick and get ATTACHED (which would cancel the breakthrough/rebound).
+        clearKick(b);
         continue; // keep checking other players
       }
       if (b.pickupCd <= 0) { b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; clearKick(b); break; }
@@ -860,7 +882,7 @@ export function step(state, inputs, dt) {
 
 // PRIMARY attack — fire a bullet along `aimX,aimY` (defaults to the player's aim; a quick
 // shot passes an auto-aim direction toward the nearest enemy, see #6), scaled by charge.
-function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY, superQuick = false, sup = false) {
+function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY, superQuick = false, sup = false, aimed = false) {
   p.shootCd = ch.shootCooldown;
   p.firing = true;
   const cm = chargeMul(charge); // caller already folded any SUPER boost into `charge` (one proportion)
@@ -873,8 +895,9 @@ function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.
     dist: 0,            // travelled distance -> proximity knockback
     charge: charge || 0, // 0..1 (a full charge ignores the point-blank rule)
     over: !!over,       // OVERCHARGE bullet — strips/pushes harder (see hitEnemy)
-    superQuick: !!superQuick, // a quick shot fired in SUPER — gives a small ½-ball-length nudge (see hitEnemy)
-    super: !!sup,       // fired while IN super — ANY charge detaches a carrier's ball (see bulletStripCarrier)
+    superQuick: !!superQuick, // a quick shot fired in SUPER — strips + gives a small ½-ball nudge (see hitEnemy)
+    aimed: !!aimed,     // AIM shot (aim pulled) → pushes proportionally; a quick (no-aim) shot only slows
+    super: !!sup,       // fired while IN super — used for the super-quick strip path
     cmul: cm,           // power multiplier
   });
 }
@@ -945,28 +968,47 @@ function buildWall(state, p) {
   // fragile-zone test, and the in-field clamp).
   const ca = Math.abs(Math.cos(angle)), sa = Math.abs(Math.sin(angle));
   const halfW = ca * hl + sa * ht, halfH = sa * hl + ca * ht;
-  let cx = clamp(p.x + ax * BUILT_WALL.offset, halfW + 2, FIELD.W - halfW - 2);
-  let cy = clamp(p.y + ay * BUILT_WALL.offset, halfH + 2, FIELD.H - halfH - 2);
+  // Push the aim stick harder to place the wall further out — base offset up to one wall
+  // thickness beyond it. Light push (or movement-based aim) keeps the old close placement.
+  const dist = BUILT_WALL.offset + (p.aimMag || 0) * BUILT_WALL.thick;
+  let cx = clamp(p.x + ax * dist, halfW + 2, FIELD.W - halfW - 2);
+  let cy = clamp(p.y + ay * dist, halfH + 2, FIELD.H - halfH - 2);
   const w = Math.round(halfW * 2), h = Math.round(halfH * 2);
   const x = cx - w / 2, y = cy - h / 2;
-  // Building inside a bush or penalty area is allowed, but the wall is FRAGILE (hp 1):
-  // any bullet breaks it and a power kick smashes through (see the ball/bullet handling).
-  const fragile = wallInBush(state, cx, cy, angle, hl, ht) || wallInPenalty(cx, cy, angle, hl, ht);
-  const hp = fragile ? FRAGILE_HP : BUILT_WALL.hp;
+  // A built wall is ONE piece with a SINGLE shared HP. Sample WALL_BLOCKS sections along its
+  // length: it's FRAGILE (weak — hp1, a power kick / bomb smashes the whole thing) ONLY if
+  // EVERY section sits in a forbidden zone (bush/penalty). If any part is on legal ground the
+  // whole wall is SOLID (hp3). So a wall entirely in the box = 1 HP; half in a bush = 3 HP.
+  const nSample = WALL_BLOCKS;
+  const sampleHl = hl / nSample;
+  const dirx = Math.cos(angle), diry = Math.sin(angle); // wall's long axis (perp to aim)
+  let allFragile = true;
+  for (let i = 0; i < nSample; i++) {
+    const off = (i - (nSample - 1) / 2) * sampleHl * 2;
+    const sx = cx + dirx * off, sy = cy + diry * off;
+    if (!(wallInBush(state, sx, sy, angle, sampleHl, ht) || wallInPenalty(sx, sy, angle, sampleHl, ht))) { allFragile = false; break; }
+  }
+  const hp = allFragile ? FRAGILE_HP : BUILT_WALL.hp;
   state.builtWalls.push({
-    id: state._nid++, x, y, w, h, hp, maxHp: hp, fragile,
+    id: state._nid++, x, y, w, h, hp, maxHp: hp, fragile: allFragile,
     cx, cy, angle, hl, ht, // capsule (thick segment) — the authoritative collision shape
     team: p.team, ttl: BUILT_WALL.ttl,
   });
   // Cap PLAYER-built walls only (field dry walls are fixed geometry — never evicted).
-  const playerWalls = state.builtWalls.filter((w) => !w.field);
+  const playerWalls = state.builtWalls.filter((q) => !q.field);
   if (playerWalls.length > MAX_BUILT_WALLS) {
     const oldest = playerWalls[0];
-    state.builtWalls = state.builtWalls.filter((w) => w !== oldest);
+    state.builtWalls = state.builtWalls.filter((q) => q !== oldest);
   }
   p.buildAmmo -= 1;
   p.buildCd = BUILD_COOLDOWN * (p.cdMul || 1) * (p.cardUtil || 1);
   p.firing = true;
+}
+
+// Chip a built wall's HP. A wall is ONE piece (one capsule, one shared HP), so any hit on it
+// drains the whole wall's HP and it falls as a unit. Caller filters out hp<=0 walls afterwards.
+function damageWall(state, w, dmg) {
+  w.hp -= dmg;
 }
 
 // Chip a built wall's HP; drop it if destroyed. Returns true if a wall absorbed the hit.
@@ -1023,8 +1065,8 @@ function updateProjectiles(state, dt) {
       const absorb = Math.round(bw.hp); // remaining HP tiers this wall soaks up
       const hpTier = Math.max(1, Math.min(3, Math.round(bw.hp))); // wall HP BEFORE this hit (1..3), for R4
       const wallDmg = pr.charge >= FULL_CHARGE ? BUILT_WALL.hp : pr.charge >= QUICK_CHARGE ? BUILT_WALL.hp / 2 : 1;
-      bw.hp -= wallDmg;
-      if (bw.hp <= 0) state.builtWalls = state.builtWalls.filter((q) => q.hp > 0);
+      damageWall(state, bw, wallDmg);
+      if (state.builtWalls.some((q) => q.hp <= 0)) state.builtWalls = state.builtWalls.filter((q) => q.hp > 0);
       addImpact(state, pr, 'wall', pr.x, pr.y);
       if (pr.over) {
         // R4: a SUPER (overcharge) shot PUNCHES THROUGH a built wall, but the wall cuts its
@@ -1114,27 +1156,47 @@ function addImpact(state, pr, type, x, y, target = null) {
 // pops it ~½ a ball-length (+ a small shove), while medium/full/overcharge strip it fully
 // (carrier shoved along pushX,pushY; ball kicked loose sideways). A quick/medium shot outside
 // super is ABSORBED (carrier protected) but still earns. Returns true if the ball detached.
+// Aimed-shot pushback multiplier from charge: a floor (PUSH_MIN_MUL) so even a light aimed shot
+// visibly shoves, easing up (PUSH_EASE) so a full hold lands harder. Quick (no-aim) shots never
+// call this — they only slow.
+function pushCurve(charge) { return PUSH_MIN_MUL + (1 - PUSH_MIN_MUL) * Math.pow(clamp(charge, 0, 1), PUSH_EASE); }
+// Add one cumulative quick-shot slow stack. The shed clock (slowDecay) is armed only on the FIRST
+// stack — later hits do NOT refresh it — so it keeps ticking and the debuff lapses once the shooter
+// stops sustaining ~1.7 hits/s (escape valve). The move loop sheds one stack per SLOW_STACK_DECAY.
+function addSlowStack(t) { if ((t.slowStacks || 0) === 0) t.slowDecay = SLOW_STACK_DECAY; t.slowStacks = Math.min(SLOW_STACK_MAX, (t.slowStacks || 0) + 1); }
+// Spend a READY overcharge (super) meter — when a super shot lands its powerful effect.
+function spendSuper(p) { if (p) { p.power = false; p.powerT = 0; p.powerMeter = 0; p.powerUses = 0; } } // full spend (overcharge shot/kick, TTL lapse)
+// Consume ONE small super-action (super-quick strip / body strip). The super survives until its
+// uses run out (SUPER_USES), then it's fully spent — a small effect costs ⅓, not the whole meter.
+function useSuperCharge(p) { if (!p || !p.power) return; p.powerUses = (p.powerUses || 0) - 1; if (p.powerUses <= 0) spendSuper(p); }
+
 function bulletStripCarrier(state, carrier, pr, nx, ny, pushX, pushY, angMul = 1) {
   const shooter = state.players[pr.owner];
-  if (!pr.over) earnPower(shooter, pr.charge >= FULL_CHARGE ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
-  if (!(pr.charge >= FULL_CHARGE || pr.super)) return false; // protected: absorbed (but earned)
   const b = state.ball;
-  b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team; clearKick(b); // a strip, not a kick
-  if (pr.charge < QUICK_CHARGE) {
-    // super QUICK: gentle ½-ball-length pop + a small shove so possession actually transfers
+  // QUICK SHOT (no aim): a normal quick shot is ABSORBED by a carrier — just slows them (earns 1/3).
+  // A SUPER quick shot strips with a gentle ½-ball pop + shove, and SPENDS the super (caps the loop).
+  if (!pr.aimed) {
+    if (!pr.superQuick) { addSlowStack(carrier); if (!pr.over) earnPower(shooter, OVERCHARGE_PARTIAL_GAIN); return false; }
+    b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team; clearKick(b);
     b.vx = nx * SUPER_QUICK_BALL_POP; b.vy = ny * SUPER_QUICK_BALL_POP;
     carrier.kvx += pushX * SUPER_QUICK_KB * angMul;
     carrier.kvy += pushY * SUPER_QUICK_KB * angMul;
-  } else {
-    // medium / full / overcharge: full knockback strip, ball kicked loose sideways
-    const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1;
-    const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * overMul * knockMul(carrier) * (pr.coverMul ?? 1);
-    carrier.kvx += pushX * kb * angMul;
-    carrier.kvy += pushY * kb * angMul;
-    const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
-    b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
-    b.vy = ny * PROJECTILE.ballPush + (nx) * side;
+    useSuperCharge(shooter); // costs ⅓ of the super (3 uses), not the whole meter
+    return true;
   }
+  // AIM SHOT: earn; a carrier is only STRIPPED at full charge (super inflates charge to reach it).
+  if (!pr.over) earnPower(shooter, pr.charge >= FULL_CHARGE ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
+  if (pr.charge < FULL_CHARGE) return false; // aim shot below full → carrier protected (no strip)
+  b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team; clearKick(b);
+  const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1;
+  // Capped so an overcharge strip (1500×1×1.7×1.4=3570) can't fling the carrier ~¾ of the pitch.
+  const kb = Math.min(CARRIER_STRIP_KB_MAX, state.settings.bulletKnockback * pushCurve(pr.charge) * CARRIER_KNOCKBACK_MUL * overMul) * knockMul(carrier) * (pr.coverMul ?? 1);
+  carrier.kvx += pushX * kb * angMul;
+  carrier.kvy += pushY * kb * angMul;
+  const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
+  b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
+  b.vy = ny * PROJECTILE.ballPush + (nx) * side;
+  if (pr.over) spendSuper(shooter); // an overcharge strip spends the meter
   return true;
 }
 
@@ -1142,35 +1204,30 @@ function hitEnemy(state, t, pr) {
   const l = Math.hypot(pr.vx, pr.vy) || 1;
   const nx = pr.vx / l, ny = pr.vy / l;
   const shooter = state.players[pr.owner];
-  const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1; // OVERCHARGE bullet pushes/strips harder
+  const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1; // OVERCHARGE bullet pushes harder
 
-  // SNOOKER knockback: push the enemy along the line of centres (impact point -> their centre),
-  // angled by WHERE the shot lands but CAPPED to MAX_DEFLECT so an edge hit can't spin them off
-  // near-sideways. snookerPush is shared with the kicked-ball bump so both behave identically.
+  // SNOOKER knockback direction: push the enemy along the line of centres (impact -> their centre),
+  // capped so an edge hit can't spin them near-sideways. Shared with the kicked-ball bump.
   const push = snookerPush(pr.x, pr.y, nx, ny, t.x, t.y, PROJECTILE.radius + radiusOf(t, state));
   const bnx = push.ux, bny = push.uy, angMul = push.mul;
 
-  // A ball-carrier: earn + (full/super) detach — see bulletStripCarrier. Carrier shoved along
-  // the snooker line of centres (bnx,bny); ball popped along the shot line (nx,ny).
-  if (state.ball.owner === t.id) {
-    bulletStripCarrier(state, t, pr, nx, ny, bnx, bny, angMul);
+  // A ball-carrier routes through the strip handler (covers quick vs aim vs super internally).
+  if (state.ball.owner === t.id) { bulletStripCarrier(state, t, pr, nx, ny, bnx, bny, angMul); return; }
+
+  // QUICK SHOT (no aim): NO push — CUMULATIVE slow instead. A super quick shot also nudges the
+  // enemy ~½ a ball-length (but only SPENDS super when it actually strips a carrier, above).
+  if (!pr.aimed) {
+    if (pr.superQuick) { t.kvx += bnx * SUPER_QUICK_KB * angMul; t.kvy += bny * SUPER_QUICK_KB * angMul; }
+    else addSlowStack(t);
+    if (!pr.over) earnPower(shooter, OVERCHARGE_PARTIAL_GAIN); // a quick hit fills 1/3
     return;
   }
 
-  if (pr.charge < QUICK_CHARGE) {
-    t.slowTimer = SLOW_TIME; // quick shot: slow...
-    if (pr.superQuick) { // ...but a quick shot fired IN super also nudges the enemy ~½ a ball-length
-      t.kvx += bnx * SUPER_QUICK_KB * angMul;
-      t.kvy += bny * SUPER_QUICK_KB * angMul;
-    }
-    if (!pr.over) earnPower(shooter, OVERCHARGE_PARTIAL_GAIN); // a quick hit fills 1/3 (three quick hits = one super)
-    return;
-  }
-  // medium & full: shove the enemy along the LINE OF CENTRES (snooker), OVERCHARGE = more
-  const kb = state.settings.bulletKnockback * pr.charge * overMul * knockMul(t) * (pr.coverMul ?? 1);
+  // AIM SHOT: shove along the snooker line, proportional to the charge curve (floored + eased);
+  // OVERCHARGE pushes more. Push scales at ANY charge — even a brief aimed shot moves the enemy.
+  const kb = state.settings.bulletKnockback * pushCurve(pr.charge) * overMul * knockMul(t) * (pr.coverMul ?? 1);
   t.kvx += bnx * kb * angMul;
   t.kvy += bny * kb * angMul;
-  // A forceful body hit earns overcharge: a full hit fills it, a medium fills half.
   if (!pr.over) earnPower(shooter, pr.charge >= FULL_CHARGE ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
 }
 
@@ -1288,10 +1345,12 @@ function explode(state, bomb, stack = 1) {
     }
   }
 
-  // A bomb blast destroys any built wall it reaches outright.
-  for (const w of state.builtWalls) {
+  // A bomb blast destroys any built wall it reaches outright. Snapshot the list first: a
+  // solid block in range takes its whole wall's solid section with it (damageWall), so the
+  // rest doesn't linger as floating blocks.
+  for (const w of state.builtWalls.slice()) {
     const np = nearestOnWall(w, bomb.x, bomb.y);
-    if (Math.hypot(bomb.x - np.x, bomb.y - np.y) < radius + np.rad) w.hp = 0;
+    if (Math.hypot(bomb.x - np.x, bomb.y - np.y) < radius + np.rad) damageWall(state, w, Infinity);
   }
   state.builtWalls = state.builtWalls.filter((w) => w.hp > 0);
 

@@ -102,7 +102,7 @@ function superShotKnock(hp) {
   const t = s.players.p2; t.x = to.x; t.y = to.y;
   if (hp != null) s.builtWalls = [builtWall(1, 1000, 550, Math.PI / 2, hp)];
   const dx = to.x - from.x, dy = to.y - from.y, l = Math.hypot(dx, dy);
-  s.projectiles.push({ id: s._nid++, owner: 'p1', team: 'A', x: from.x + (dx / l) * 30, y: from.y, vx: (dx / l) * 720, vy: (dy / l) * 720, dist: 0, charge: 1, over: true, cmul: 1 });
+  s.projectiles.push({ id: s._nid++, owner: 'p1', team: 'A', x: from.x + (dx / l) * 30, y: from.y, vx: (dx / l) * 720, vy: (dy / l) * 720, dist: 0, charge: 1, over: true, aimed: true, cmul: 1 });
   let maxKv = 0;
   for (let i = 0; i < 45; i++) { step(s, { p1: inp(), p2: inp() }, DT); maxKv = Math.max(maxKv, Math.hypot(t.kvx, t.kvy)); }
   return maxKv;

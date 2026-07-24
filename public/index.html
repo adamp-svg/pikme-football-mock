@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <title>PikMe כדורגל בלוקים</title>
+  <title>סולטיז כדורגל בלוקים</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%9A%BD%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/style.css" />
 </head>
@@ -135,8 +135,14 @@
   <div id="builder" class="screen hidden">
     <div class="builder-top">
       <button data-home-back class="builder-btn builder-back">‹ חזרה</button>
-      <span class="builder-title">🏗️ בונה מגרש</span>
-      <button id="builder-play" class="builder-btn builder-play">▶ שחק</button>
+      <div class="builder-titlewrap">
+        <span class="builder-title">🏗️ בונה מגרש</span>
+        <span id="builder-fieldname" class="builder-fieldname"></span>
+      </div>
+      <div class="builder-top-right">
+        <button id="builder-fields" class="builder-btn builder-clone">⧉ מגרשים</button>
+        <button id="builder-play" class="builder-btn builder-play">▶ שחק</button>
+      </div>
     </div>
     <!-- Body: actions rail (LEFT) · maximized field (CENTER, zoomable) · materials rail (RIGHT).
          dir=ltr fixes the left/right order regardless of the page's RTL. All button ids/data-
@@ -149,6 +155,8 @@
         <button class="bact" data-mirror="sides">⇆ צד</button>
         <button class="bact" data-mirror="top">⇅ עליון</button>
         <button class="bact" data-mirror="diag">⤢ אלכסון</button>
+        <span class="builder-sep"></span>
+        <button id="b-joint" class="bact" title="סגנון פינה">⬛ פינה</button>
       </div>
       <div class="builder-stage">
         <div class="builder-arena">
@@ -173,6 +181,7 @@
         <button class="btool" data-tool="dry">🟫 חלש</button>
         <button class="btool" data-tool="bush">🌳 שיח</button>
         <button class="btool" data-tool="crate">📦 ארגז</button>
+        <button class="btool" data-tool="move">✋ הזז</button>
         <button class="btool" data-tool="eraser">🩹 מחק</button>
       </div>
     </div>
@@ -181,6 +190,41 @@
       <button id="b-clear" class="builder-btn builder-clear">✕ נקה הכל</button>
       <span class="builder-hint">קיר: גרור לצייר קו (בכל זווית) · שיח: גרור מלבן · 🩹 מחק בגרירה · שיקוף: צד / עליון / אלכסון</span>
       <button id="b-save" class="builder-btn builder-save">💾 שמור</button>
+    </div>
+  </div>
+
+  <!-- Floating FIELD PICKER (mirrors the friends subpage look): clone an in-game preset OR a
+       saved field into the builder. Top-level overlay so it floats above the builder screen. -->
+  <div id="field-picker" class="field-modal hidden">
+    <div class="start-shade" data-fp-close></div>
+    <div class="subpage fp-sheet" dir="rtl">
+      <div class="subpage-head"><h2>בחר מגרש</h2><button class="fp-x" data-fp-close aria-label="סגור">✕</button></div>
+      <div class="subpage-body">
+        <div class="fr-tabs" role="tablist">
+          <button class="fr-tab active" data-fptab="ingame">מגרשים במשחק</button>
+          <button class="fr-tab" data-fptab="saved">מגרשים שמורים</button>
+        </div>
+        <div class="fr-pane" data-fppane="ingame"><div id="fp-ingame" class="friend-list"></div></div>
+        <div class="fr-pane hidden" data-fppane="saved">
+          <button id="fp-save-current" class="builder-btn fp-save-btn">💾 שמור עותק מהמגרש הנוכחי</button>
+          <div id="fp-saved" class="friend-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-sheet NAME input (save / rename) — replaces window.prompt, which is a no-op in the RN WebView. -->
+  <div id="field-name-modal" class="field-modal hidden">
+    <div class="start-shade" data-fpname-cancel></div>
+    <div class="subpage fp-sheet fp-name-sheet" dir="rtl">
+      <div class="subpage-head"><h2 id="field-name-title">שם המגרש</h2></div>
+      <div class="subpage-body">
+        <input id="field-name-input" class="friend-input" maxlength="40" placeholder="שם המגרש…" />
+        <div class="fp-name-actions">
+          <button id="field-name-ok" class="builder-btn builder-play">אישור</button>
+          <button class="builder-btn builder-back" data-fpname-cancel>ביטול</button>
+        </div>
+      </div>
     </div>
   </div>
 

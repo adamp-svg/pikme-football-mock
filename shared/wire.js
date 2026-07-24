@@ -2,9 +2,11 @@
 // snapshot with a compact little-endian binary frame (~100 B), fully lossless vs the
 // current wire: positions are already rounded to 0.1 on the JSON wire so i16 tenths is
 // bit-identical; aim already 0.01 -> i8; fracs/fuse already 0.01 -> u8. Constant-per-
-// match fields (player name/char/team, wall maxHp, blast radius/maxLife, impact
+// match fields (player name/char/team, blast radius/maxLife, impact
 // maxLife) and dead fields (tick, lastSeq, impact target/team) are NOT sent — team is
 // carried once in the `roster` message; the rest are reconstructed on decode.
+// (wall maxHp IS sent — a per-wall byte — so dry field walls (maxHp 2) aren't
+// mistaken for built walls (maxHp 3) and rendered pre-cracked at full HP.)
 //
 // See docs/specs — synthesized from the snapshot-egress-optimization workflow.
 import { BOMB, BUILT_WALL, FRAGILE_HP } from './constants.js';
@@ -60,7 +62,9 @@ export function encodeKeyframe(s, slotIds, rv) {
   sec(s.projectiles, (p) => { u16(p.id); P(p.x); P(p.y); u8(teamBit(p.team)); });
   // Built walls can be ANGLED — the orientation (16 steps over a half-turn) rides in the
   // FREE upper nibble of the flags byte (bits 4-7), so no extra bytes on the wire.
-  sec(s.walls, (w) => { const ai = ((Math.round((w.angle || 0) / (Math.PI / 16)) % 16) + 16) % 16; u16(w.id); P(w.x); P(w.y); u8(w.w); u8(w.h); u8(teamBit(w.team) | ((Math.min(w.hp, 3)) << 1) | (w.fragile ? 8 : 0) | (ai << 4)); });
+  // maxHp rides in its own byte: dry field walls (maxHp 2) must not be mistaken for
+  // built walls (maxHp 3), or they render pre-cracked at full HP.
+  sec(s.walls, (w) => { const ai = ((Math.round((w.angle || 0) / (Math.PI / 16)) % 16) + 16) % 16; u16(w.id); P(w.x); P(w.y); u8(w.w); u8(w.h); u8(teamBit(w.team) | ((Math.min(w.hp, 3)) << 1) | (w.fragile ? 8 : 0) | (ai << 4)); u8(Math.min(w.maxHp || BUILT_WALL.hp, 3)); u8(Math.min(255, Math.round(w.hl != null ? w.hl : BUILT_WALL.len / 2))); u8(Math.min(255, Math.round(w.ht != null ? w.ht : BUILT_WALL.thick / 2))); });
   sec(s.bombs, (b) => { u16(b.id); P(b.x); P(b.y); u8(teamBit(b.team)); u8(Math.round(b.fuse * 100)); const os = b.owner == null ? 0xff : slotIds.indexOf(b.owner); u8(os < 0 ? 0xff : os); }); // owner slot → client arcs the throw FROM the planter
   sec(s.blasts, (b) => { u16(b.id); P(b.x); P(b.y); u8(fadeProg(b)); });
   sec(s.impacts, (i) => { u16(i.id); u8(IMP_IDX[i.type] ?? 2); P(i.x); P(i.y); i8(Math.round(i.dx * 100)); i8(Math.round(i.dy * 100)); u8(fadeProg(i)); });
@@ -106,7 +110,7 @@ export function decodeSnapshot(dv, slotId, slotTeam, rosterVersion) {
   ball.owner = ownerSlot === 0xff ? null : slotId[ownerSlot];
   const rd = (fn) => { const c = u8(); const a = []; for (let i = 0; i < c; i++) a.push(fn()); return a; };
   const projectiles = rd(() => ({ id: u16(), x: P(), y: P(), team: u8() ? 'B' : 'A' }));
-  const walls = rd(() => { const id = u16(), x = P(), y = P(), w = u8(), h = u8(), f = u8(); const fragile = !!(f & 8); const angle = ((f >> 4) & 15) * (Math.PI / 16); return { id, x, y, w, h, team: (f & 1) ? 'B' : 'A', hp: (f >> 1) & 3, fragile, maxHp: fragile ? FRAGILE_HP : BUILT_WALL.hp, angle, cx: x + w / 2, cy: y + h / 2, hl: BUILT_WALL.len / 2, ht: BUILT_WALL.thick / 2 }; });
+  const walls = rd(() => { const id = u16(), x = P(), y = P(), w = u8(), h = u8(), f = u8(), mh = u8(), hl = u8(), ht = u8(); const fragile = !!(f & 8); const angle = ((f >> 4) & 15) * (Math.PI / 16); return { id, x, y, w, h, team: (f & 1) ? 'B' : 'A', hp: (f >> 1) & 3, fragile, maxHp: fragile ? FRAGILE_HP : (mh || BUILT_WALL.hp), angle, cx: x + w / 2, cy: y + h / 2, hl: hl || BUILT_WALL.len / 2, ht: ht || BUILT_WALL.thick / 2 }; });
   const bombs = rd(() => { const id = u16(), x = P(), y = P(), team = u8() ? 'B' : 'A', fuse = u8() / 100, os = u8(); return { id, x, y, team, fuse, owner: os === 0xff ? null : slotId[os] }; });
   const blasts = rd(() => { const id = u16(), x = P(), y = P(), lp = u8(); return { id, x, y, radius: BOMB.radius, maxLife: 1, life: 1 - lp / 100 }; });
   const impacts = rd(() => { const id = u16(), t = u8(), x = P(), y = P(), dx = i8() / 100, dy = i8() / 100, lp = u8(); return { id, type: IMP[t] || 'wall', x, y, dx, dy, maxLife: 1, life: 1 - lp / 100 }; });

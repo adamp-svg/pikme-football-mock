@@ -119,7 +119,7 @@ export function defaultSettings() {
     sizeMul: 1.25,
     carrySpeedMul: 0.9,    // speed multiplier while carrying the ball
     ballSizeMul: 2,
-    shotPower: 1850,       // full-power ball shot reaches ~80% of half-court (scales with charge)
+    shotPower: 1400,       // full kick ≈ 647px (~65% of half-court) — was 1850 (over-long); scales with charge
     bulletSpeed: 720,      // full-charge bullet ~5.7x move speed (Colt is 5.5x)
     bulletKnockback: 1500, // full-power bullet knockback (quick shot = 0 push + slow)
     bombPower: 2000,       // base bomb launch — kept modest on purpose; a wall behind and/or STACKING bombs amplify it (see explode)
@@ -131,11 +131,22 @@ export function defaultSettings() {
 //   >= FULL_CHARGE  -> full power: full knockback + can knock the ball loose
 //   in between      -> medium: knockback (scaled), cannot detach the ball
 export const QUICK_CHARGE = 0.25;
-export const FULL_CHARGE = 0.85;
+export const FULL_CHARGE = 0.70; // aim-shot charge at/above which a carrier is stripped (0.85→0.80→0.70: reachable in ~1.4s / 0.7s super)
 export const DETACH_SIDE = 170; // random sideways ball speed when knocked off a carrier
 export const CARRIER_KNOCKBACK_MUL = 1.7; // full-power hit shoves a ball-carrier this much harder
-export const SLOW_TIME = 1.5;   // seconds a quick-shot slow lasts
-export const SLOW_MUL = 0.9;    // speed multiplier while slowed
+export const SLOW_TIME = 1.5;   // (legacy) seconds a flat quick-shot slow lasted — replaced by stacks below
+export const SLOW_MUL = 0.9;    // (legacy) flat slow multiplier — replaced by stacks below
+// Cumulative quick-shot slow: each no-aim (quick) hit adds a stack; stacks decay one per second.
+// Speed × (1 - SLOW_PER_STACK)^stacks. Caps the debuff so it can't perma-lock a target.
+export const SLOW_PER_STACK = 0.12;   // −12% speed per stack
+export const SLOW_STACK_MAX = 3;      // cap 3 stacks (≈ −33%)
+export const SLOW_STACK_DECAY = 0.6;  // seconds to shed one stack. The shed clock runs CONTINUOUSLY (a
+// new hit does NOT refresh it — see addSlowStack) so the debuff lapses once fire drops below ~1.7 hits/s.
+// Aimed-shot pushback curve: kb = bulletKnockback × (PUSH_MIN_MUL + (1-PUSH_MIN_MUL)·charge^PUSH_EASE).
+// The floor guarantees even a light aimed shot visibly shoves (~1.5 ball-lengths); ease-in makes a
+// full hold land harder. Quick (no-aim) shots ignore this — they never push (slow only).
+export const PUSH_MIN_MUL = 0.20;
+export const PUSH_EASE = 1.2;
 
 // A fast free ball shoves the opponent it runs into (power shots plow through).
 export const BALL_BUMP_SPEED = 300; // ball speed above which it bumps an opponent
@@ -145,6 +156,8 @@ export const BALL_BUMP_SCALE = 0.5; // knockback = ball speed * this (a bit of a
 // DRIVES THROUGH, an OVERCHARGE kick breaks through HARDEST (a keeper in their own box
 // catches everything except an overcharge kick). OVERCHARGE is earned by forceful hits.
 export const OVERCHARGE_TTL = 4;     // seconds the overcharge (once READY) lasts if unused
+export const SUPER_USES = 3;         // small super-actions (super-quick strip, body strip) per READY super
+// before it's spent; an overcharge bullet/kick spends the whole thing at once. (3 = the # of quick hits that earned it.)
 // Overcharge is a CONSUMABLE meter (0..1) earned ONLY by hitting enemies (never by merely
 // firing): a FULL-power hit fills it immediately, a QUICK hit fills 1/3 (THREE quick hits =
 // one super). Spent on ONE overcharge shot/kick. See earnPower() in sim.js.
@@ -152,11 +165,15 @@ export const OVERCHARGE_FULL_GAIN = 1.0;         // a full-power ENEMY HIT / str
 export const OVERCHARGE_PARTIAL_GAIN = 1 / 3;    // a QUICK enemy hit / bump — THREE of these fill it
 export const OVERCHARGE_MUL = 2.0;   // overcharge KICK shoves the enemy this much harder (vs a full kick)
 export const FULL_BUMP_MUL = 1.3;    // a FULL kick shoves a little harder than a quick/medium kick
-export const OVERCHARGE_BULLET_MUL = 1.6; // an overcharge BULLET pushes/strips this much harder than a full bullet
+export const OVERCHARGE_BULLET_MUL = 1.4; // an overcharge BULLET pushes/strips harder than full (was 1.6 — trims the cross-court one-shot swing)
+export const CARRIER_STRIP_KB_MAX = 3000;  // cap the knockback a stripped carrier takes (~688px) so an overcharge strip can't fling them ~¾ of the pitch
 // While a player is in SUPER (p.power ready), EVERY shot they take — quick tap, full, kick or
 // bullet — flies this much harder/faster. A quick-in-super then feels ~like today's full shot,
 // and the big overcharge kick (OVERCHARGE_MUL) stays the ceiling on top of this.
-export const SUPER_SHOT_MUL = 1.5;   // super mode boosts ALL shot power/speed by this much
+export const SUPER_SHOT_MUL = 1.5;   // super mode boosts a BULLET's charge by this much
+export const SUPER_KICK_MUL = 1.25;  // super boosts a carrier KICK's speed by this (lower than the bullet mult so a
+// super full kick ≈ 811px is a reach bonus, not the old 1290px cross-pitch cannon). Kept separate so tuning the
+// kick never weakens super bullets (they still use SUPER_SHOT_MUL).
 // A QUICK shot fired while in super still isn't a full charged shot — but instead of the usual
 // "slow only, no push", it gives the enemy a small, VISIBLE shove (~1.5 ball-lengths).
 // SUPER_QUICK_KB is the bullet's knockback velocity; SUPER_QUICK_KICK_SPEED is the ball speed a
@@ -182,7 +199,8 @@ export const BALL_WALL_POP_SPEED = 260; // carried ball popped loose when the ho
 //   OVERCHARGE  = breaks through HARDEST
 export const KICK_BLOCK_REBOUND = 0.40; // weak kick bounces back off a defender (fraction, reversed)
 export const FULL_DRIVE_ROLL = 0.50;    // full kick keeps this fraction going forward through the defender
-export const OVERCHARGE_ROLL = 0.75;    // overcharge kick keeps the most (breakthrough)
+export const OVERCHARGE_ROLL = 0.75;    // overcharge kick keeps the most (breakthrough) — used vs a keeper only
+export const OVER_FIELD_ROLL = 0.10;    // overcharge kick vs a FIELD defender: ball only rolls a LITTLE forward and stays in front (not a breakthrough)
 export const KEEPER_BREAK_ROLL = 0.45;  // an overcharge kick still gets through a keeper, but reduced
 // Bomb mechanics: a planter standing this close to their own bomb gets launched
 // (full-shot strength) in their AIM direction ("rocket jump") instead of being

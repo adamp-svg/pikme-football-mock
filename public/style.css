@@ -1829,6 +1829,32 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .builder-btn { border: none; border-radius: 10px; padding: 8px 14px; font-weight: 800; font-size: 14px; color: #fff; flex: none; }
 .builder-back { background: #33413a; }
 .builder-play { background: #2fbf5e; }
+.builder-titlewrap { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.builder-fieldname { font-weight: 700; font-size: 13px; color: #ffd27a; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+.builder-top-right { display: flex; align-items: center; gap: 8px; }
+.builder-clone { background: #3a6ea5; } /* opens the field picker */
+
+/* Floating FIELD PICKER — a fixed overlay above the builder, reusing the friends .subpage look.
+   NOTE: uses .field-modal (NOT .fp-modal — that prefix belongs to the friend-profile modal). */
+.field-modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(3,6,4,.72); }
+.field-modal.hidden { display: none; }
+.field-modal .start-shade { position: absolute; inset: 0; }
+#field-name-modal { z-index: 56; } /* name input sits above the picker */
+.fp-sheet { position: relative; z-index: 1; width: min(560px, 92vw); max-height: 84vh; display: flex; flex-direction: column; }
+.fp-name-sheet { width: min(380px, 90vw); }
+.fp-name-actions { display: flex; gap: 8px; margin-top: 12px; }
+.fp-name-actions .builder-btn { flex: 1; }
+.fp-sheet .subpage-head { display: flex; align-items: center; justify-content: space-between; }
+.fp-x { border: none; background: #33413a; color: #fff; font-weight: 800; border-radius: 10px; padding: 6px 12px; font-size: 16px; }
+.fp-save-btn { background: #2fbf5e; width: 100%; margin-bottom: 10px; }
+/* Field rows reuse .friend-row; the load/rename/delete actions sit on the left (row is rtl). */
+.field-row-actions { display: flex; gap: 8px; margin-inline-start: auto; }
+.field-load-btn { border: none; background: #3a6ea5; color: #fff; font-weight: 800; border-radius: 8px; padding: 8px 14px; }
+.field-ren-btn { border: none; background: #4a5a4c; color: #fff; font-weight: 800; border-radius: 8px; padding: 8px 11px; }
+.field-del-btn { border: none; background: #7a2b2b; color: #fff; font-weight: 800; border-radius: 8px; padding: 8px 11px; }
+.field-row-name { font-weight: 800; }
+.field-row-sub { font-size: 12px; opacity: .7; margin-inline-start: 8px; font-weight: 600; }
+.field-row-active { border-color: #7ea862; box-shadow: 0 4px 0 #070b08, inset 0 0 0 2px #7ea862; } /* the loaded slot */
 /* Stage scrolls (pan) when the field is zoomed past its fit size; block flow + margin:auto on
    the arena centres it when it fits and scrolls cleanly from the origin when it overflows. */
 .builder-stage { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 6px; }

@@ -1,8 +1,8 @@
 // Training ground — pure logic for the solo practice mode's penned "roaming
 // target" dummy. Kept separate from server.js so it's unit-testable and shared
 // with the client (the pen outline uses the same PEN box).
-import { FIELD, VISION_RANGE, BUSH_REVEAL_DIST } from './constants.js';
-import { segBlockedByWall } from './arena.js';
+import { FIELD, VISION_RANGE, BUSH_REVEAL_DIST, PENALTY, GOAL } from './constants.js';
+import { segBlockedByWall, buildArenaFromField } from './arena.js';
 
 // The box the dummy is confined to: in front of team B's (right) goal.
 export const PEN = {
@@ -19,16 +19,37 @@ export const SENTRY_LEASH = 240; // it can be nudged this far from CENTER, no fu
 // the opposite (bottom-right) corner. Used ONLY in training — real matches keep the
 // global mirror-symmetric ARENA. The server sets state.arena = TRAIN_ARENA; the
 // client swaps to it whenever the `training` flag is on. Neither is sent over the wire.
-export const TRAIN_BUSHES = [{ x: 160, y: 120, w: 400, h: 260 }];  // top-left cover
-// Steel wall: an L-shape ("half square") of two arms in the bottom-half CENTRE,
-// below the midfield sentry — a long top arm that blocks its fire from above plus
-// a side arm going down, forming a corner you tuck into for cover.
-const WALL_T = 36; // arm thickness
-export const TRAIN_WALLS = [
-  { x: 740, y: 800, w: 520, h: WALL_T },      // top arm (long) — shields from the sentry above
-  { x: 740, y: 800, w: WALL_T, h: 250 },      // side arm (down) — the other half of the square
+// Custom training field (from the builder): bushes + steel walls. The CRATES the player drew are
+// NOT obstacles here — each becomes an ENEMY (see TRAIN_ENEMIES), so crates:[] in the arena.
+export const TRAIN_FIELD = {
+  version: 1,
+  bushes: [
+    { x: 250, y: 150, w: 350, h: 250 }, { x: 0, y: 850, w: 350, h: 250 },
+    { x: 400, y: 950, w: 50, h: 50 }, { x: 400, y: 900, w: 50, h: 50 },
+    { x: 450, y: 900, w: 50, h: 200 }, { x: 400, y: 1000, w: 50, h: 50 },
+    { x: 400, y: 1050, w: 50, h: 50 }, { x: 350, y: 900, w: 50, h: 200 },
+  ],
+  hardWalls: [
+    { cx: 175, cy: 275, angle: 0, hl: 175, ht: 16 },
+    { cx: 175, cy: 825, angle: 0, hl: 175, ht: 16 },
+    { cx: 525, cy: 950, angle: -1.5707963267948966, hl: 150, ht: 16 },
+    { cx: 625, cy: 825, angle: 0, hl: 125, ht: 16 },
+  ],
+  dryWalls: [], crates: [],
+};
+export const TRAIN_ARENA = buildArenaFromField(TRAIN_FIELD);
+
+// The 4 crates the player drew → 4 enemies (team B), each with its home spot + role:
+//   sentry = stationary, aims + shoots, walks back home if knocked
+//   still  = stationary, never shoots, walks back home if knocked
+//   keeper = patrols the penalty box to block the goal, never shoots
+export const TRAIN_ENEMIES = [
+  { key: 'sentry', role: 'sentry', x: 75, y: 125 },    // top-left: shoots
+  { key: 'stillB', role: 'still', x: 175, y: 975 },    // bottom-left: idle target
+  { key: 'stillM', role: 'still', x: 975, y: 525 },    // middle: idle target
+  { key: 'keeper', role: 'keeper', x: 1925, y: 525 },  // far goal: goalie
 ];
-export const TRAIN_ARENA = { walls: TRAIN_WALLS, bushes: TRAIN_BUSHES, trampolines: [] };
+export const TRAIN_HOME_LEASH = 170; // how far a stationary enemy can be knocked before it's pinned
 
 const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -136,16 +157,48 @@ function segHitsBox(x0, y0, x1, y1, b) {
 
 // Leash the sentry to a midfield circle so knockback can't punt it away — it
 // stays put in the middle ("doesn't move"). Call each tick AFTER step().
-export function leashSentry(state, sentryId) {
+export function leashSentry(state, sentryId, home = CENTER, leash = SENTRY_LEASH) {
   const p = state.players[sentryId];
   if (!p) return;
-  const dx = p.x - CENTER.x, dy = p.y - CENTER.y;
+  const dx = p.x - home.x, dy = p.y - home.y;
   const d = Math.hypot(dx, dy);
-  if (d > SENTRY_LEASH) {
-    p.x = CENTER.x + (dx / d) * SENTRY_LEASH;
-    p.y = CENTER.y + (dy / d) * SENTRY_LEASH;
+  if (d > leash) {
+    p.x = home.x + (dx / d) * leash;
+    p.y = home.y + (dy / d) * leash;
     p.kvx = 0; p.kvy = 0; p.vx = 0; p.vy = 0; // kill the fling at the leash edge
   }
+}
+
+// STILL enemy: never moves on its own, never shoots — just walks back to its home spot if knocked.
+export function trainingStillInput(state, id, home) {
+  const p = state.players[id]; if (!p) return null;
+  const dx = home.x - p.x, dy = home.y - p.y, d = Math.hypot(dx, dy), dead = 12;
+  return { seq: 0, moveX: d > dead ? dx / d : 0, moveY: d > dead ? dy / d : 0, aimX: 1, aimY: 0, hold: false, fire: false, special: false, build: false };
+}
+
+// KEEPER: patrols in front of the RIGHT goal, moving to sit on the ball→goal line so it blocks
+// shots. Confined to the penalty box (keeperClamp), never shoots.
+export function trainingKeeperInput(state, id) {
+  const p = state.players[id]; if (!p) return null;
+  const b = state.ball;
+  const gx = FIELD.W, gy = FIELD.H / 2;                 // right-goal centre
+  const keeperX = FIELD.W - 90;                          // hold a little off the line
+  let ty = gy;
+  const dx = gx - b.x;
+  if (dx > 1) ty = b.y + (gy - b.y) * ((keeperX - b.x) / dx); // where the ball→goal line crosses keeperX
+  ty = clampN(ty, (FIELD.H - GOAL.width) / 2 - 20, (FIELD.H + GOAL.width) / 2 + 20); // stay across the mouth
+  const mvx = keeperX - p.x, mvy = ty - p.y, m = Math.hypot(mvx, mvy), dead = 10;
+  const ax = b.x - p.x, ay = b.y - p.y, al = Math.hypot(ax, ay) || 1;
+  return { seq: 0, moveX: m > dead ? mvx / m : 0, moveY: m > dead ? mvy / m : 0, aimX: ax / al, aimY: ay / al, hold: false, fire: false, special: false, build: false };
+}
+
+// Keep the keeper inside the RIGHT penalty box after physics (knockback can't punt it out).
+export function keeperClamp(state, id) {
+  const p = state.players[id]; if (!p) return;
+  const x0 = FIELD.W - PENALTY.depth, x1 = FIELD.W - 18;
+  const y0 = (FIELD.H - PENALTY.width) / 2, y1 = (FIELD.H + PENALTY.width) / 2;
+  if (p.x < x0 || p.x > x1) { p.x = clampN(p.x, x0, x1); p.vx = 0; p.kvx = 0; }
+  if (p.y < y0 || p.y > y1) { p.y = clampN(p.y, y0, y1); p.vy = 0; p.kvy = 0; }
 }
 
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
@@ -170,12 +223,12 @@ function sentrySees(sentry, target, state) {
 // Center "sentry" enemy: holds midfield (returns to CENTER if shoved), leads its
 // aim at the player, and alternates quick-shot bursts with CHARGED power shots —
 // all scaled by difficulty (`skill`). Never plants, builds, or carries.
-export function trainingSentryInput(state, sentryId, mem, dt, skill = 'normal') {
+export function trainingSentryInput(state, sentryId, mem, dt, skill = 'normal', home = CENTER) {
   const p = state.players[sentryId];
   if (!p) return null;
   const S = SENTRY_SKILL[skill] || SENTRY_SKILL.normal;
   const target = Object.values(state.players).find((q) => q.team !== p.team);
-  const tx = target ? target.x : CENTER.x, ty = target ? target.y : CENTER.y;
+  const tx = target ? target.x : home.x, ty = target ? target.y : home.y;
   const bulletSpeed = (state.settings && state.settings.bulletSpeed) || 700;
   const canSee = sentrySees(p, target, state); // FOG: only track/fire when we actually see them
 
@@ -197,7 +250,7 @@ export function trainingSentryInput(state, sentryId, mem, dt, skill = 'normal') 
   const aimX = mem.aimX / am, aimY = mem.aimY / am;
 
   // Steer back to the middle; hold still once basically there.
-  const hx = CENTER.x - p.x, hy = CENTER.y - p.y, hl = Math.hypot(hx, hy);
+  const hx = home.x - p.x, hy = home.y - p.y, hl = Math.hypot(hx, hy);
   const dead = 12;
   const moveX = hl > dead ? hx / hl : 0;
   const moveY = hl > dead ? hy / hl : 0;

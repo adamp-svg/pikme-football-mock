@@ -27,10 +27,11 @@ function setup(inSuper) {
   return s;
 }
 // Fire a shot of target `charge` from A at B, then run the bullet out.
-function shootAt(s, charge, keepB = true) {
+// aimed defaults to a real AIM shot; pass aimed=false for a bare QUICK tap (no-aim).
+function shootAt(s, charge, aimed = true, keepB = true) {
   const n = Math.max(0, Math.round(charge * SHOOT_CHARGE_TIME * 60));
   for (let i = 0; i < n; i++) step(s, { A: inp({ hold: true }), B: inp() }, DT);
-  step(s, { A: inp({ fire: true }), B: inp() }, DT);
+  step(s, { A: inp({ fire: true, aimed }), B: inp() }, DT);
   const B = s.players.B;
   for (let t = 0; t < 20; t++) {
     if (keepB && s.ball.owner === 'B') { B.x = 1000; B.vx = 0; s.ball.x = 1010; s.ball.y = 550; }
@@ -40,42 +41,44 @@ function shootAt(s, charge, keepB = true) {
   return { detached: false, pop: 0 };
 }
 
-// 1) OUTSIDE super, a QUICK shot at the carrier EARNS super (refills the meter), ball NOT stripped.
+// 1) OUTSIDE super, a QUICK (no-aim) shot EARNS super (refills the meter), ball NOT stripped.
 {
   const s = setup(false); const A = s.players.A;
   const before = A.powerMeter;
-  const r = shootAt(s, 0.1); // quick
+  const r = shootAt(s, 0.1, false); // quick tap (no aim)
   ok(!r.detached, 'outside super: a quick shot does NOT strip the carrier (protected)');
   ok(A.powerMeter > before + 0.2, `quick shot REFILLS super (meter ${before}->${A.powerMeter.toFixed(2)})`);
 }
-// 2) IN super, a QUICK shot detaches + pushes ~½ a ball-length.
+// 2) IN super, a QUICK (no-aim) shot detaches + pushes ~½ a ball-length.
+let quickPop;
 {
   const s = setup(true);
-  const r = shootAt(s, 0.1);
+  const r = shootAt(s, 0.1, false);
   ok(r.detached, 'in super: a quick shot detaches the ball');
+  quickPop = r.pop;
   const roll = rollDist(r.pop);
   ok(roll > BALL_RADIUS * 0.4 && roll < BALL_RADIUS * 1.8, `quick pushes ~½ a ball-length (roll≈${roll.toFixed(0)}px)`);
 }
-// 3) IN super, a MEDIUM shot detaches (full strip, bigger pop).
+// 3) A FULL AIM shot strips HARDER than the quick jostle (medium no longer strips — needs full).
 {
-  const s = setup(true);
-  const r = shootAt(s, 0.4); // medium (>=QUICK, <FULL)
-  ok(r.detached, 'in super: a medium shot also detaches the ball');
-  ok(rollDist(r.pop) > BALL_RADIUS * 1.8, 'medium strips harder than the quick jostle');
+  const s = setup(false);
+  const r = shootAt(s, 1, true); // full aim (no super needed)
+  ok(r.detached, 'full aim strips, and');
+  ok(r.pop > quickPop, `full-aim strip is harder than the quick jostle (pop ${r.pop.toFixed(0)} > ${quickPop.toFixed(0)})`);
 }
-// 4) OUTSIDE super, a MEDIUM shot is absorbed (protected) but earns.
+// 4) A MEDIUM AIM shot (below full) is absorbed by a carrier (protected) but earns.
 {
   const s = setup(false); const A = s.players.A;
   const before = A.powerMeter;
-  const r = shootAt(s, 0.4);
-  ok(!r.detached, 'outside super: a medium shot does NOT strip the carrier');
+  const r = shootAt(s, 0.4, true); // medium aim (>=QUICK, <FULL)
+  ok(!r.detached, 'medium aim shot does NOT strip the carrier (protected below full)');
   ok(A.powerMeter > before + 0.2, 'medium shot also refills super');
 }
-// 5) UNGATED full shot still strips outside super.
+// 5) UNGATED full AIM shot strips outside super.
 {
   const s = setup(false);
-  const r = shootAt(s, 1);
-  ok(r.detached, 'a FULL shot strips the carrier even without super (ungated)');
+  const r = shootAt(s, 1, true);
+  ok(r.detached, 'a FULL aim shot strips the carrier even without super (ungated)');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');

@@ -18,13 +18,14 @@ import {
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
+import { MAIN_FIELD } from './shared/main-field.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
 const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
-import { PEN, CENTER, TRAIN_ARENA, penDummy, trainingDummyInput, createSentryMem, trainingSentryInput, leashSentry } from './shared/training.js';
+import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3010;
@@ -235,15 +236,17 @@ function applyTeamSkill(room) {
   room.botMem.teamSkill = { A: human.A ? lvl.partner : lvl.enemy, B: human.B ? lvl.partner : lvl.enemy };
 }
 
-// Training ground: drive the penned dummy from the shared, testable controller.
+// Training ground: drive each role-based enemy from the shared, testable controllers.
 function updateTrainingDummy(room) {
-  const dummy = trainingDummyInput(room.state, room.dummyId);
-  if (dummy) room.inputs.set(room.dummyId, dummy);
-  // Training sentry is the "enemy": map the level's ENEMY scalar to the sentry's easy/normal/hard tier.
-  const et = levelAt(room.diffLevel).enemy;
+  const et = levelAt(room.diffLevel).enemy;                       // sentry difficulty from the enemy scalar
   const sentryTier = et < 0.18 ? 'easy' : et < 0.66 ? 'normal' : 'hard';
-  const sentry = trainingSentryInput(room.state, room.sentryId, room.sentryMem, DT, sentryTier);
-  if (sentry) room.inputs.set(room.sentryId, sentry);
+  for (const e of room.trainEnemies || []) {
+    let inp = null;
+    if (e.role === 'sentry') inp = trainingSentryInput(room.state, e.id, e.mem, DT, sentryTier, e.home);
+    else if (e.role === 'keeper') inp = trainingKeeperInput(room.state, e.id);
+    else inp = trainingStillInput(room.state, e.id, e.home);      // 'still'
+    if (inp) room.inputs.set(e.id, inp);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -327,23 +330,16 @@ function startTraining(member) {
   room.inputs.set(member.id, emptyInput());
   member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
 
-  // One penned dummy on team B, in front of the right goal.
-  const dummyId = `dummy-${room.id}`;
-  addPlayer(room.state, dummyId, { name: 'Target', char: DEFAULT_CHAR, team: 'B', slot: 0, isBot: true, cosmetic: randomBotCosmetic() });
-  room.inputs.set(dummyId, emptyInput());
-  room.dummyId = dummyId;
-  const d = room.state.players[dummyId];
-  d.x = (PEN.x0 + PEN.x1) / 2; d.y = FIELD.H / 2; // start centred in the pen
-
-  // One "sentry" enemy at midfield: holds the centre, always aims at you, fires
-  // in random bursts. Not penned — it just steers back to CENTER if shoved.
-  const sentryId = `sentry-${room.id}`;
-  addPlayer(room.state, sentryId, { name: 'Sentry', char: DEFAULT_CHAR, team: 'B', slot: 1, isBot: true, cosmetic: randomBotCosmetic() });
-  room.inputs.set(sentryId, emptyInput());
-  room.sentryId = sentryId;
-  room.sentryMem = createSentryMem();
-  const sen = room.state.players[sentryId];
-  sen.x = CENTER.x; sen.y = CENTER.y;
+  // Team-B enemies, one per builder crate: a top-left SENTRY (shoots), two STILL targets
+  // (bottom-left + middle), and a KEEPER at the far goal. Each holds/returns to its home spot.
+  room.trainEnemies = [];
+  TRAIN_ENEMIES.forEach((e, i) => {
+    const id = `${e.key}-${room.id}`;
+    addPlayer(room.state, id, { name: e.role, char: DEFAULT_CHAR, team: 'B', slot: i, isBot: true, cosmetic: randomBotCosmetic() });
+    room.inputs.set(id, emptyInput());
+    const p = room.state.players[id]; p.x = e.x; p.y = e.y;
+    room.trainEnemies.push({ id, role: e.role, home: { x: e.x, y: e.y }, mem: e.role === 'sentry' ? createSentryMem() : null });
+  });
 
   const matchId = `${room.id}-${++matchSeq}`;
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [] }];
@@ -368,13 +364,17 @@ function sanitizeField(field) {
   const arr = (a) => (Array.isArray(a) ? a : []);
   return {
     version: 1,
-    bushes: arr(field.bushes).slice(0, 12).map((b) => ({ x: num(b && b.x, 0, FIELD.W, 0), y: num(b && b.y, 0, FIELD.H, 0), w: num(b && b.w, 40, 600, 200), h: num(b && b.h, 40, 600, 150) })),
+    bushes: arr(field.bushes).slice(0, 20).map((b) => ({ x: num(b && b.x, 0, FIELD.W, 0), y: num(b && b.y, 0, FIELD.H, 0), w: num(b && b.w, 40, 600, 200), h: num(b && b.h, 40, 600, 150) })),
     hardWalls: arr(field.hardWalls).slice(0, 20).map(cap),
     dryWalls: arr(field.dryWalls).slice(0, 20).map(cap),
     // Crates: single-cell solid boxes (indestructible, like a hard wall). Clamp to a sane cell size.
     crates: arr(field.crates).slice(0, 40).map((c) => ({ x: num(c && c.x, 0, FIELD.W, 0), y: num(c && c.y, 0, FIELD.H, 0), w: num(c && c.w, 30, 160, 50), h: num(c && c.h, 30, 160, 50) })),
   };
 }
+
+// The main arena, sanitized once — applied to normal (2v2) + bot-game matches via setField,
+// and sent to the client in matchStart (arena:...) so it renders + collides identically.
+const MAIN_FIELD_CLEAN = sanitizeField(MAIN_FIELD);
 
 // Solo "play my field vs bots": instant, endless, custom field + backfilled bots (2v2).
 function startBuilderMatch(member, field) {
@@ -410,6 +410,7 @@ function startBotGame(member, diffLevel) {
   rooms.set(room.id, room);
   addToRoom(member, room);
   room.state = createState();
+  setField(room.state, MAIN_FIELD_CLEAN); // play on the main arena (custom field)
   if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
   room.inputs.clear();
   room.botCounter = 0;
@@ -423,7 +424,7 @@ function startBotGame(member, diffLevel) {
   attachBall(room.state, 'A');
   room.endHoldT = 0;
   send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'botgame', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+  send(member.ws, { type: 'matchStart', mode: 'botgame', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN });
   room.rosterVersion++; broadcastRoster(room);
 }
 
@@ -517,6 +518,7 @@ function startMatch(room) {
 
   room.lobbyBots = []; // reservation consumed — fillBots creates the real match bots
   room.state = createState();
+  setField(room.state, MAIN_FIELD_CLEAN); // play on the main arena (custom field)
   room.botMem = createBotMemory();
   room.inputs.clear();
   room.botCounter = 0;
@@ -554,7 +556,7 @@ function startMatch(room) {
   room.botLoadoutParams = botLoadoutParamsFromHumans(assigned);
   fillBots(room, roster);
   for (const [m, team] of assigned) {
-    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs });
+    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: MAIN_FIELD_CLEAN });
   }
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0;
@@ -608,7 +610,7 @@ function tickRoom(room) {
   if (room.phase !== 'match') return;
   if (room.introT > 0) {                    // pre-kickoff promo: freeze the sim so the clock + play wait for the cinematic
     room.introT -= DT;
-    for (const inp of room.inputs.values()) { inp.fire = false; inp.special = false; inp.build = false; }
+    for (const inp of room.inputs.values()) { inp.fire = false; inp.aimed = false; inp.special = false; inp.build = false; }
     return;                                 // snapshots keep broadcasting the frozen kickoff state
   }
   if (room.mode === 'training') {
@@ -621,10 +623,12 @@ function tickRoom(room) {
   for (const [id, inp] of room.inputs) inputMap[id] = inp;
   step(room.state, inputMap, DT);
   if (room.mode === 'training') {
-    penDummy(room.state, room.dummyId);    // keep the dummy inside its pen after physics
-    leashSentry(room.state, room.sentryId); // keep the sentry anchored to midfield
+    for (const e of room.trainEnemies || []) {
+      if (e.role === 'keeper') keeperClamp(room.state, e.id);               // pin the keeper to the box
+      else leashSentry(room.state, e.id, e.home, TRAIN_HOME_LEASH);         // sentry + still: return-home leash
+    }
   }
-  for (const inp of room.inputs.values()) { inp.fire = false; inp.special = false; inp.build = false; } // consume edges; hold persists as a level
+  for (const inp of room.inputs.values()) { inp.fire = false; inp.aimed = false; inp.special = false; inp.build = false; } // consume edges; hold persists as a level
   if (room.state.phase === 'ended') {
     room.endHoldT += DT;
     if (room.endHoldT >= ENDED_HOLD) endRoom(room);
@@ -668,7 +672,7 @@ function snapshot(room) {
     ball: { x: r1(state.ball.x), y: r1(state.ball.y), owner: state.ball.owner },
     players,
     projectiles: state.projectiles.map((p) => ({ id: p.id, x: r1(p.x), y: r1(p.y), team: p.team })),
-    walls: state.builtWalls.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, hp: w.hp, maxHp: w.maxHp, team: w.team, fragile: w.fragile, angle: w.angle })),
+    walls: state.builtWalls.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, hp: w.hp, maxHp: w.maxHp, team: w.team, fragile: w.fragile, angle: w.angle, hl: w.hl, ht: w.ht })),
     bombs: state.bombs.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), team: b.team, fuse: Math.round(b.fuse * 100) / 100, owner: b.owner })), // owner → client arcs the throw FROM the planter (else it teleports)
     blasts: state.blasts.map((b) => ({ id: b.id, x: r1(b.x), y: r1(b.y), radius: b.radius, life: b.life, maxLife: b.maxLife })),
     impacts: state.impacts.map((i) => ({ id: i.id, type: i.type, target: i.target, team: i.team, x: r1(i.x), y: r1(i.y), dx: i.dx, dy: i.dy, life: i.life, maxLife: i.maxLife })),
@@ -1191,6 +1195,9 @@ wss.on('connection', (ws, req) => {
           // hold = a level signal (charging now); fire = an EDGE (release), latched
           // sticky until the next tick consumes it so a fire between ticks isn't lost.
           hold: !!msg.hold, fire: prev.fire || !!msg.fire,
+          // aimed rides WITH the fire edge — latch it sticky too, else it's lost when fire is
+          // coalesced across ticks and every human shot degrades to a no-push quick shot.
+          aimed: prev.aimed || !!msg.aimed,
           special: prev.special || !!msg.special, build: prev.build || !!msg.build,
           buildHold: !!msg.buildHold, sax: msg.sax || 0, say: msg.say || 0,
         });

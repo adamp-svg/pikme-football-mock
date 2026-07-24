@@ -20,7 +20,7 @@ function shoot(off) {
   a.x = 800; a.y = 550; a.aimX = 1; a.aimY = 0;
   b.x = 1000; b.y = 550 + off;
   for (let i = 0; i < 100; i++) step(s, { p1: inp({ hold: true, aimX: 1, aimY: 0 }), p2: inp() }, DT); // charge to FULL
-  step(s, { p1: inp({ fire: true, aimX: 1, aimY: 0 }), p2: inp() }, DT);
+  step(s, { p1: inp({ fire: true, aimed: true, aimX: 1, aimY: 0 }), p2: inp() }, DT); // aimed shot (push requires aim)
   for (let i = 0; i < 30; i++) {
     b.x = 1000; b.y = 550 + off; b.kvx = 0; b.kvy = 0; // pin B so we read one clean impulse
     step(s, { p1: inp(), p2: inp() }, DT);

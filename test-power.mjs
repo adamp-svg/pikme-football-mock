@@ -27,7 +27,8 @@ function duel() {
 function shoot(s, id, charge, aim = [1, 0], others = {}) {
   const n = Math.max(0, Math.round(charge * SHOOT_CHARGE_TIME * 60));
   for (let i = 0; i < n; i++) step(s, { [id]: inp({ hold: true, aimX: aim[0], aimY: aim[1] }), ...others }, DT);
-  step(s, { [id]: inp({ fire: true, aimX: aim[0], aimY: aim[1] }), ...others }, DT);
+  // aimed:true — these tests fire deliberate AIMED charged shots (push/strip/earn require aim now).
+  step(s, { [id]: inp({ fire: true, aimed: true, aimX: aim[0], aimY: aim[1] }), ...others }, DT);
 }
 
 // 1) FULL is UNGATED: a full bullet strips a carrier with NO meter, and landing the hit
@@ -73,24 +74,25 @@ function shoot(s, id, charge, aim = [1, 0], others = {}) {
   ok(A.power === false, 'overcharge decays to empty after its TTL');
 }
 
-// 4) a FULL kick into an enemy STOPS the ball (no attach); an OVERCHARGE kick ROLLS it
-//    through AND spends the meter.
-function kickInto(tier) { // 'weak' | 'full' | 'over' — MONOTONIC: weak rebounds, full drives through, over hardest
+// 4) kicked ball into an enemy (redesign): BELOW FULL attaches (defender catches it, no push);
+//    FULL shoves ~½ a ball + the ball REBOUNDS; OVERCHARGE shoves ~a quarter-aim + the ball
+//    CONTINUES forward (breakthrough) AND spends the meter.
+function kickInto(tier) { // 'weak' | 'full' | 'over'
   const s = duel(); const A = s.players.A, B = s.players.B;
   A.x = 1000; A.y = 550; A.aimX = 1; A.aimY = 0;
-  if (tier === 'over') { A.power = true; A.powerT = OVERCHARGE_TTL; }
+  if (tier === 'over') { A.power = true; A.powerT = OVERCHARGE_TTL; A.powerUses = 3; }
   s.ball.owner = 'A'; s.ball.x = 1030; s.ball.y = 550; s.ball.lastTouch = 'A';
   B.x = 1160; B.y = 550; // open field (B's box is x>1640), so no keeper save
   shoot(s, 'A', tier === 'weak' ? 0.4 : 1, [1, 0], { B: inp() });
-  let vxAtBump = null;
-  for (let t = 0; t < 40; t++) { step(s, { A: inp(), B: inp() }, DT); if (s.players.B.kvx > 30 && vxAtBump === null) vxAtBump = s.ball.vx; }
-  return { vx: vxAtBump == null ? s.ball.vx : vxAtBump, spent: !s.players.A.power };
+  let vxAtBump = null, peakKv = 0;
+  for (let t = 0; t < 40; t++) { step(s, { A: inp(), B: inp() }, DT); peakKv = Math.max(peakKv, s.players.B.kvx); if (s.players.B.kvx > 30 && vxAtBump === null) vxAtBump = s.ball.vx; }
+  return { attached: s.ball.owner === 'B', vx: vxAtBump == null ? s.ball.vx : vxAtBump, kvx: Math.round(peakKv), spent: !s.players.A.power };
 }
 {
   const weak = kickInto('weak'), full = kickInto('full'), over = kickInto('over');
-  ok(weak.vx < full.vx && full.vx < over.vx, `MONOTONIC roll-through: weak(${weak.vx.toFixed(0)}) < full(${full.vx.toFixed(0)}) < over(${over.vx.toFixed(0)})`);
-  ok(weak.vx < 0, `a WEAK kick REBOUNDS off the defender (fwd vx ${weak.vx.toFixed(0)} < 0)`);
-  ok(full.vx > 0, `a FULL kick DRIVES THROUGH the defender (fwd vx ${full.vx.toFixed(0)} > 0)`);
+  ok(weak.attached && weak.kvx < 5, `a WEAK (below-full) kick ATTACHES to the defender, no push (attached=${weak.attached}, kv=${weak.kvx})`);
+  ok(!full.attached && full.kvx > 120 && full.vx < 0, `a FULL kick shoves ~½ ball (${full.kvx}) + the ball REBOUNDS (vx ${full.vx.toFixed(0)} < 0)`);
+  ok(!over.attached && over.kvx > full.kvx && over.vx > 0, `an OVERCHARGE kick shoves harder (${over.kvx}) + the ball CONTINUES forward (vx ${over.vx.toFixed(0)} > 0)`);
   ok(over.spent, 'an overcharge kick SPENDS the meter');
 }
 // keeper in their OWN box catches a full kick (a real save); overcharge still breaks through

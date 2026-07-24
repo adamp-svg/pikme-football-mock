@@ -8,6 +8,8 @@ import {
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
+import { MAIN_FIELD } from '/shared/main-field.js';
+import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
@@ -456,6 +458,7 @@ function processSnapshotSounds(snap) {
       playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
       haptic(ourGoal ? 'goal' : 'concede'); // melodic buzz when we score
       confettiBurst(ourGoal ? 90 : 45);      // the stands erupt on a goal
+      triggerCelebration(ourGoal ? 'goal-us' : 'goal-them'); // comic Hebrew word overlay
       crowdHypeT = performance.now();          // crowd leaps up, then settles over ~2.5s
     }
     if (previousBallOwner === null && snap.ball.owner !== null) {
@@ -1703,7 +1706,7 @@ document.getElementById('friends-btn').addEventListener('click', () => {
 document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); document.getElementById('train-choose')?.classList.remove('hidden'); });
 document.getElementById('tc-cancel')?.addEventListener('click', () => document.getElementById('train-choose')?.classList.add('hidden'));
 document.getElementById('tc-ground')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); sendMsg({ type: 'training' }); });
-document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); syncLoadout(); sendMsg({ type: 'botGame', diffLevel: xpDiffLevel() }); });
+document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); syncLoadout(); sendMsg({ type: 'botGame', diffLevel }); }); // play-with-bots uses the manual difficulty picker (change it live in settings)
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Pick-best loadout (restored): null loadout => effectiveLoadout() auto-fills the album's
 // top-3 into the slots; persist, re-render the home slots, and tell the server live.
@@ -2525,10 +2528,10 @@ function enterMatch(msg) {
   me = { playerId: msg.playerId, team: msg.team, char: chosenChar };
   clearRoomRequests(); hideRoomWait();   // #14: drop any host/joiner room UI as the match starts
   if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
-  // apply this room's bot difficulty LEVEL. vs-bots + quick-match derive it from player XP;
-  // training / private / builder keep the manual slider value. (training isn't set until below,
-  // so read msg.mode here.)
-  const xpModes = msg.mode === 'quick' || msg.mode === 'botgame';
+  // apply this room's bot difficulty LEVEL. ONLY quick-match derives it from player XP (fair
+  // matchmaking); play-with-bots / training / private / builder keep the manual picker value.
+  // (training isn't set until below, so read msg.mode here.)
+  const xpModes = msg.mode === 'quick';
   const lvlToSend = xpModes ? xpDiffLevel() : diffLevel;
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', diffLevel: lvlToSend }));
   // Reset all interpolation / prediction / sound state for the fresh match.
@@ -2539,6 +2542,7 @@ function enterMatch(msg) {
   matchRoster = Array.isArray(msg.players) ? msg.players : [];
   matchId = msg.matchId || null; // stable id for this match's app-bound result
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
+  celeb = null;                  // clear any lingering goal/win/lose celebration overlay
   audienceReady = false; // rebuild seat assignment for this match's roster
   training = msg.mode === 'training';
   if (msg.mode) roomMode = msg.mode; // keep the room tier (training/botgame/builder/private/quick) for settings gating
@@ -2947,12 +2951,16 @@ function reconcile(snap) {
 // --------------------------------------------------------------------------
 let holding = false;       // fire trigger currently HELD (charge builds server-side)
 let fireQueued = false;    // a real fire (pulled-out release) this frame
+let aimedShot = false;     // was THIS queued shot AIMED (aim pulled) vs a bare quick tap? → sent as inp.aimed
 let specialQueued = false; // special skill
 let buildQueued = false;   // a wall build was released this frame
 let buildHold = null;      // aim captured at build-button release (drag-to-aim)
 let aimHold = null;        // aim captured at right-stick release (fire direction)
 let chargeStart = null;    // timestamp the hold began — LOCAL charge estimate for the HUD only
 const AIM_DEADZONE_PX = 12; // stick/cursor pull past this = a real shot; inside it = cancel
+const BUILD_DIST_DRAG_PX = 70; // build-button drag past the deadzone maps 0..1 -> place the wall further out
+// How far past the base offset the wall builds (0 at a light drag, 1 at a full drag).
+function buildPushFrac(dx, dy) { return clamp((Math.hypot(dx, dy) - AIM_DEADZONE_PX) / (BUILD_DIST_DRAG_PX - AIM_DEADZONE_PX), 0, 1); }
 
 let specialAim = { x: 0, y: 0 };   // captured lob offset (0..1 of BOMB_LOB_RANGE, true-world dir) for the next special edge
 let bombDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0, aimed: false };
@@ -2966,7 +2974,7 @@ function currentWindup() { return buildStart === null ? 0 : Math.min(1, (perform
 function cancelBuild() { buildHolding = false; buildStart = null; buildHold = null; }
 
 // Build a wall — like a shot, you can drag to aim (pull-to-build) then release.
-function releaseBuild(aim) { buildQueued = true; if (aim) buildHold = aim; playSound('ui', 0.5, 0.86); }
+function releaseBuild(aim) { buildQueued = true; if (aim) { buildHold = aim; buildHold.frac = buildPushFrac(aim.x, aim.y); } playSound('ui', 0.5, 0.86); }
 
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
 function beginCharge() { if (!me.playerId) return; if (!holding) { holding = true; chargeStart = performance.now(); } } // no firing/charge (or shot sound) outside a live match — tapping the menu is silent
@@ -2976,6 +2984,9 @@ function currentCharge() { return chargeStart === null ? 0 : Math.min(1, (perfor
 function releaseShot(aim) {
   if (!holding) return; // charge already consumed — a second trigger source must not re-fire
   if (aim) aimHold = aim;
+  // AIMED = the touch aim-stick was pulled (aim arg present), or on desktop the mouse aim is
+  // pulled out of the deadzone. A bare tap with no pull = a QUICK shot (no push, slow only).
+  aimedShot = aim ? true : (!usingTouch && aimPulled());
   fireQueued = true;
   const c = currentCharge();
   if (holdingBall) playSound('kick', 0.85, 0.92 + c * 0.16);        // kicking the held ball
@@ -3225,7 +3236,7 @@ function openSettings() {
   const inGame = !gameEl.classList.contains('hidden');
   const trainingGround = inGame && training;
   // vs-bots + quick-match derive difficulty from XP (no manual picker); training/private/builder keep it.
-  const diffAllowed = inGame && (training || roomMode === 'private' || roomMode === 'builder');
+  const diffAllowed = inGame && (training || roomMode === 'botgame' || roomMode === 'private' || roomMode === 'builder');
   document.getElementById('setting-controls')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-mechanics')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-difficulty')?.classList.toggle('hidden', !diffAllowed);
@@ -3517,18 +3528,22 @@ function sampleInput() {
   // A right-stick release captured its aim direction — use it for this shot.
   if (aimHold) { aimX = flip ? -aimHold.x : aimHold.x; aimY = aimHold.y; aimHold = null; }
   // A build-button drag aims the wall the same way; overrides aim for this frame.
-  if (buildHold) { aimX = flip ? -buildHold.x : buildHold.x; aimY = buildHold.y; buildHold = null; }
+  // buildDist (0..1) = how far the button was dragged -> the sim builds the wall that much
+  // further out (up to one wall thickness). Live during a drag, latched on release.
+  let buildDist = buildHolding && buildDrag.active ? buildPushFrac(buildDrag.dx, buildDrag.dy) : 0;
+  if (buildHold) { aimX = flip ? -buildHold.x : buildHold.x; aimY = buildHold.y; buildDist = buildHold.frac || 0; buildHold = null; }
   // #6/#11: the client sends its aim vector (needed for CHARGED shots + the aim line + wall
   // build). For a QUICK shot the SIM decides the aim server-side (goal if carrying, else the
   // nearest enemy, with the snooker-angle impulse) and may IGNORE this vector. We deliberately
   // do NOT compute quick-shot aim here — leaving that to the sim agent (do not add it client-side).
   const fire = fireQueued; fireQueued = false;
+  const aimed = fire ? aimedShot : false; aimedShot = false; // aimed shot vs quick tap (see releaseShot)
   // A ball CARRIER can't bomb or build (hands full) — drop those inputs (server enforces this too).
   const special = specialQueued && !holdingBall; specialQueued = false;
   const sax = special ? specialAim.x : 0, say = special ? specialAim.y : 0;
   if (specialQueued || special) specialAim = { x: 0, y: 0 };
   const build = buildQueued && !holdingBall; buildQueued = false;
-  return { moveX, moveY, aimX, aimY, hold: holding, fire, special, build, buildHold: buildHolding && !holdingBall, sax, say };
+  return { moveX, moveY, aimX, aimY, hold: holding, fire, aimed, special, build, buildHold: buildHolding && !holdingBall, buildDist, sax, say };
 }
 
 // Send inputs + advance prediction at a fixed rate.
@@ -3949,17 +3964,99 @@ function stadiumAds() {
   const cfg = (typeof window !== 'undefined' && window.PIKME_STADIUM) || null;
   if (cfg && Array.isArray(cfg.ads) && cfg.ads.length) return cfg.ads;
   return [
-    { text: 'PIKME', bg: '#1b2a4a', fg: '#ffd27a' },
-    { text: 'COLLECT · PLAY · WIN', bg: '#3a1b4a', fg: '#ffffff' },
-    { text: 'YOUR AD HERE', bg: '#123a2a', fg: '#7ee08a' },
+    { kind: 'logo', logo: '/assets/saltiz-icon.png', text: 'סולטיז', bg: '#0d1636', fg: '#ffd54a' },
+    { kind: 'youtube', text: 'YouTube', bg: '#ffffff', fg: '#ff0000' },
+    { kind: 'name', text: 'שובל', bg: '#2a0d4a', fg: '#ff8ae6' },
+    { kind: 'name', text: 'נווה', bg: '#0d3a2a', fg: '#8affa0' },
+    { kind: 'marquee', text: 'ארז האבא הווינר של דן, טומי ודניאל', bg: '#160d36', fg: '#ffd54a' },
+    { kind: 'name', text: 'אורי', bg: '#3a220d', fg: '#ffbf5a' },
+    { kind: 'name', text: 'פז', bg: '#0d2438', fg: '#5ad6ff' },
+    { kind: 'saltiz', text: 'סולטיז TV', bg: '#160d36', fg: '#ff5ad0' },
+    { kind: 'name', text: 'שובל · נווה · אורי · פז', bg: '#0d2a1c', fg: '#8affa0' },
   ];
 }
 let _adBoardRects = [];            // {x,y,w,h,link} SCREEN px — for tap hit-testing
 const BOARD_H = 44;                // world-units thickness of the LED perimeter boards (must stay < LANE)
+// Path a rounded rect (native roundRect when available, manual arcTo fallback for old webviews).
+function roundRectPath(x, y, w, h, r) {
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+// The following three draw an ad board's CONTENT centred on the current (already
+// translated/rotated) origin. Lpx = board length, Tpx = board thickness (both screen px).
+// YouTube: red rounded plate + white play triangle + dark wordmark (bg is white).
+function drawYouTubeContent(Lpx, Tpx) {
+  const h = Tpx * 0.66, w = h * 1.4, r = h * 0.28, fs = Tpx * 0.5;
+  ctx.font = `900 ${fs}px system-ui, sans-serif`;
+  const label = 'YouTube', tw = ctx.measureText(label).width, gap = h * 0.32;
+  const x0 = -(w + gap + tw) / 2, y0 = -h / 2;
+  ctx.fillStyle = '#ff0000'; roundRectPath(x0, y0, w, h, r); ctx.fill();
+  ctx.fillStyle = '#fff'; const tx = x0 + w * 0.42, ts = h * 0.3;
+  ctx.beginPath(); ctx.moveTo(tx - ts * 0.7, -ts); ctx.lineTo(tx - ts * 0.7, ts); ctx.lineTo(tx + ts, 0); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#282828'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x0 + w + gap, 0); ctx.textAlign = 'center';
+}
+// Saltiz wordmark: bold gradient fill with a pulsing neon glow.
+function drawSaltizContent(Lpx, Tpx, text, fg, t) {
+  const fs = Tpx * 0.5, pulse = 0.5 + 0.5 * Math.sin(t * 3);
+  ctx.font = `900 ${fs}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const grad = ctx.createLinearGradient(-Lpx / 2, 0, Lpx / 2, 0);
+  grad.addColorStop(0, '#ffe9a3'); grad.addColorStop(0.5, fg); grad.addColorStop(1, '#ff8ae6');
+  ctx.shadowColor = fg; ctx.shadowBlur = 4 + 10 * pulse;
+  ctx.fillStyle = grad; ctx.fillText(text, 0, 0, Lpx * 0.94); ctx.shadowBlur = 0;
+}
+// Plain sponsor/name text with a softer pulsing glow.
+function drawBoardText(Lpx, Tpx, text, fg, t) {
+  const fs = Tpx * 0.46, pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+  ctx.font = `800 ${fs}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = fg; ctx.shadowBlur = 3 + 6 * pulse;
+  ctx.fillStyle = fg; ctx.fillText(text, 0, 0, Lpx * 0.94); ctx.shadowBlur = 0;
+}
+// Build (once) a LOW-RES copy of a logo so it draws as chunky pixels (matches the block art).
+const _pixLogos = new Map();
+function pixelatedLogo(url, cells) {
+  const key = url + '@' + cells;
+  const cached = _pixLogos.get(key);
+  if (cached) return cached;
+  const im = adImage(url);
+  if (!im.ready) return null;
+  const aspect = (im.naturalWidth / im.naturalHeight) || 1;
+  const cw = Math.max(1, Math.round(cells * aspect)), ch = cells;
+  const pc = document.createElement('canvas'); pc.width = cw; pc.height = ch;
+  const pctx = pc.getContext('2d'); pctx.imageSmoothingEnabled = true; pctx.drawImage(im, 0, 0, cw, ch);
+  _pixLogos.set(key, pc); return pc;
+}
+// Pixelated app logo + wordmark, centred on the (already translated/rotated) origin.
+function drawLogoContent(Lpx, Tpx, url, label, fg, t) {
+  const pc = pixelatedLogo(url, 34);
+  const h = Tpx * 0.86, w = pc ? h * (pc.width / pc.height) : h;
+  const fs = Tpx * 0.5; ctx.font = `900 ${fs}px system-ui, sans-serif`;
+  const tw = label ? ctx.measureText(label).width : 0, gap = label ? h * 0.3 : 0;
+  const x0 = -(w + gap + tw) / 2;
+  if (pc) { const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = false; ctx.drawImage(pc, x0, -h / 2, w, h); ctx.imageSmoothingEnabled = sm; }
+  if (label) {
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+    ctx.shadowColor = fg; ctx.shadowBlur = 4 + 8 * pulse; ctx.fillStyle = fg;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(label, x0 + w + gap, 0);
+    ctx.shadowBlur = 0; ctx.textAlign = 'center';
+  }
+}
+// Marquee: text scrolls continuously LEFT -> RIGHT along the board length, wrapping around.
+function drawMarqueeContent(Lpx, Tpx, text, fg, t) {
+  const fs = Tpx * 0.5; ctx.font = `800 ${fs}px system-ui, sans-serif`;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(text).width, span = Lpx + tw;
+  const x = -Lpx / 2 - tw + ((t * (span / 6)) % span); // full pass every ~6s, moving rightward
+  const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+  ctx.shadowColor = fg; ctx.shadowBlur = 3 + 6 * pulse; ctx.fillStyle = fg;
+  ctx.fillText(text, x, 0); ctx.shadowBlur = 0; ctx.textAlign = 'center';
+}
 function drawAdBoards() {
   const ads = stadiumAds(); if (!ads.length) return;
   _adBoardRects = [];
-  const idxBase = Math.floor(performance.now() / 5000); // rotate the boards every 5s
+  const t = performance.now() / 1000;
+  const idxBase = Math.floor(t / 3.5); // rotate the boards every 3.5s (snappier)
   // Boards hug the pitch just OUTSIDE the boundary, in the lane held clear of the crowd.
   // Goal-line boards are split ABOVE and BELOW the goal mouth so they never cross the net.
   const sides = [
@@ -3971,16 +4068,28 @@ function drawAdBoards() {
   for (const [x0, y0, x1, y1, oi, vertical] of sides) {
     const ad = ads[(idxBase + oi) % ads.length];
     const sx = Math.round(wx(x0)), sy = Math.round(wy(y0)), sw = Math.round(ws_(x1 - x0)), sh = Math.round(ws_(y1 - y0));
+    if (sw <= 0 || sh <= 0) continue;
     ctx.fillStyle = '#0b0f14'; ctx.fillRect(sx, sy, sw, sh);                    // frame
     ctx.fillStyle = ad.bg || '#16233c'; ctx.fillRect(sx + 1, sy + 1, sw - 2, sh - 2);
-    if (ad.img) { const im = adImage(ad.img); if (im.ready) { ctx.save(); ctx.beginPath(); ctx.rect(sx, sy, sw, sh); ctx.clip(); ctx.drawImage(im, sx, sy, sw, sh); ctx.restore(); } }
+    ctx.save(); ctx.beginPath(); ctx.rect(sx, sy, sw, sh); ctx.clip();          // keep all content on the board
+    if (ad.img) { const im = adImage(ad.img); if (im.ready) ctx.drawImage(im, sx, sy, sw, sh); }
     else {
+      const Lpx = vertical ? sh : sw, Tpx = Math.max(9, vertical ? sw : sh);
       ctx.save(); ctx.translate(sx + sw / 2, sy + sh / 2); if (vertical) ctx.rotate(-Math.PI / 2);
-      const fs = Math.max(7, ws_((vertical ? (x1 - x0) : (y1 - y0)) * 0.46));
-      ctx.fillStyle = ad.fg || '#fff'; ctx.font = `800 ${fs}px system-ui, sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(ad.text || 'PIKME', 0, 0); ctx.restore();
+      if (ad.kind === 'youtube') drawYouTubeContent(Lpx, Tpx);
+      else if (ad.kind === 'saltiz') drawSaltizContent(Lpx, Tpx, ad.text || 'סולטיז', ad.fg || '#ffd54a', t);
+      else if (ad.kind === 'logo') drawLogoContent(Lpx, Tpx, ad.logo, ad.text, ad.fg || '#ffd54a', t);
+      else if (ad.kind === 'marquee') drawMarqueeContent(Lpx, Tpx, ad.text || '', ad.fg || '#fff', t);
+      else drawBoardText(Lpx, Tpx, ad.text || 'סולטיז', ad.fg || '#fff', t);
+      ctx.restore();
+      // Excitement: a bright gloss band sweeping across the board.
+      const sweep = ((t * 0.5 + oi * 0.17) % 1);
+      const bw = Math.max(sh, sw * 0.10);
+      ctx.globalAlpha = 0.10; ctx.fillStyle = '#ffffff';
+      ctx.fillRect(sx - bw + sweep * (sw + bw * 2), sy, bw, sh);
+      ctx.globalAlpha = 1;
     }
+    ctx.restore();                                                             // end board clip
     ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(sx, sy, sw, Math.max(1, ws_(2.5))); // top gloss
     if (ad.link) _adBoardRects.push({ x0, y0, x1, y1, link: ad.link }); // WORLD rect for tap hit-test
   }
@@ -4067,6 +4176,75 @@ function drawConfetti() {
     ctx.restore();
   }
   ctx.globalAlpha = 1;
+}
+
+// ---- Comic celebration overlay (goal / win / lose), Hebrew, screen-space -------------------
+// Replaces the flat DOM banner text with a kinetic comic word on a starburst: overshoot pop,
+// speed lines, halftone ring, thick outline. Drawn on the display canvas after the HUD.
+let celeb = null; // { kind, text, c1, c2, muted, speed, ease, dur, start }
+const CELEB_FONT = '"Arial Black","Arial Hebrew","Helvetica Neue",system-ui,sans-serif';
+const celBack = (x) => { const c1 = 2.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const celCubic = (x) => 1 - Math.pow(1 - x, 3);
+const celElastic = (x) => { if (x <= 0 || x >= 1) return clamp(x, 0, 1); const c4 = (2 * Math.PI) / 3; return Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1; };
+function triggerCelebration(kind) {
+  const P = {
+    'goal-us':   { text: 'גול!',   c1: '#ffe14a', c2: '#ff8f1f', ease: 'back',    speed: true,  dur: 2.3 },
+    'goal-them': { text: 'ספגנו',  c1: '#c3d2ea', c2: '#8fa6c8', ease: 'cubic',   speed: false, dur: 1.7, muted: true },
+    'win':       { text: 'ניצחון!', c1: '#8bffb0', c2: '#ffcf1f', ease: 'elastic', speed: true,  dur: 0 },
+    'lose':      { text: 'כמעט!',  c1: '#cfe0ff', c2: '#8fa6c8', ease: 'cubic',   speed: false, dur: 0, muted: true },
+    'draw':      { text: 'תיקו',   c1: '#ffe14a', c2: '#ff8f1f', ease: 'back',    speed: true,  dur: 0 },
+  }[kind];
+  if (!P) return;
+  celeb = { ...P, kind, start: performance.now() };
+  shake(P.muted ? 5 : 11, P.muted ? 260 : 360);
+  if (kind === 'win') confettiBurst(150);
+}
+function drawCelebration() {
+  if (!celeb) return;
+  const g = mainCtx, W = canvas.width, H = canvas.height;
+  const el = (performance.now() - celeb.start) / 1000;
+  let alpha = 1;
+  if (celeb.dur > 0) { if (el > celeb.dur) alpha = 1 - (el - celeb.dur) / 0.4; if (alpha <= 0) { celeb = null; return; } }
+  const cx = W / 2, cy = H * 0.40, S = Math.min(W, H);
+  g.save();
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  // impact flash on the first frames
+  if (el < 0.16) { g.globalAlpha = (1 - el / 0.16) * (celeb.muted ? 0.35 : 0.6); g.fillStyle = celeb.muted ? '#22355c' : '#ffffff'; g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
+  // comic speed lines radiating from the centre
+  if (celeb.speed) {
+    const sp = Math.min(1, el / 0.5);
+    g.save(); g.translate(cx, cy); g.globalAlpha = alpha * 0.5 * sp; g.strokeStyle = 'rgba(255,255,255,0.18)';
+    for (let i = 0; i < 28; i++) { const a = i / 28 * Math.PI * 2 + el * 0.25, r0 = S * 0.30, r1 = S * 0.66; g.lineWidth = (i % 2 ? 1 : 3) * (S / 360); g.beginPath(); g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); g.stroke(); }
+    g.restore();
+  }
+  // starburst behind the word (scales in with overshoot, slow spin)
+  const bs = Math.max(0, celBack(Math.min(1, el / 0.4)));
+  g.save(); g.translate(cx, cy); g.rotate(el * 0.3); g.scale(bs, bs); g.globalAlpha = alpha;
+  const spikes = 18, rO = S * 0.30, rI = S * 0.205;
+  g.fillStyle = celeb.muted ? '#2a3550' : '#ff2e40'; g.beginPath();
+  for (let i = 0; i < spikes * 2; i++) { const a = i / (spikes * 2) * Math.PI * 2, r = i % 2 ? rO : rI; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.fill();
+  g.fillStyle = celeb.muted ? '#1b2338' : '#ffd21f'; g.beginPath();
+  for (let i = 0; i < spikes * 2; i++) { const a = i / (spikes * 2) * Math.PI * 2 + 0.12, r = (i % 2 ? rO : rI) * 0.72; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.fill();
+  g.restore();
+  // halftone dot ring
+  g.save(); g.translate(cx, cy); g.globalAlpha = alpha * 0.45; g.fillStyle = celeb.muted ? 'rgba(255,255,255,.5)' : 'rgba(0,0,0,.5)';
+  for (let i = 0; i < 56; i++) { const a = i / 56 * Math.PI * 2, r = S * 0.345 + Math.sin(i * 3 + el * 4) * (S * 0.008); g.beginPath(); g.arc(Math.cos(a) * r, Math.sin(a) * r, (i % 3 ? 1.6 : 2.6) * (S / 360), 0, 7); g.fill(); }
+  g.restore();
+  // the word — whole-string overshoot (RTL-safe), thick outline, gradient fill
+  let fontPx = S * (celeb.text.length <= 3 ? 0.22 : celeb.text.length <= 5 ? 0.16 : 0.13);
+  g.font = '900 ' + fontPx + 'px ' + CELEB_FONT;
+  const tw = g.measureText(celeb.text).width; if (tw > W * 0.9) { fontPx *= (W * 0.9) / tw; g.font = '900 ' + fontPx + 'px ' + CELEB_FONT; }
+  const easeFn = celeb.ease === 'elastic' ? celElastic : celeb.ease === 'cubic' ? celCubic : celBack;
+  const s = Math.max(0.01, easeFn(Math.min(1, el / 0.5)));
+  const bounce = el > 0.5 ? 1 + Math.sin((el - 0.5) * 8) * Math.exp(-(el - 0.5) * 4) * 0.05 : 1;
+  g.save(); g.globalAlpha = alpha; g.translate(cx, celeb.muted ? cy + S * 0.02 : cy); g.scale(s * bounce, s * bounce);
+  g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = fontPx * 0.12; g.shadowOffsetY = fontPx * 0.06;
+  g.lineWidth = fontPx * 0.16; g.lineJoin = 'round'; g.strokeStyle = celeb.muted ? '#141a26' : '#111'; g.strokeText(celeb.text, 0, 0);
+  g.shadowColor = 'transparent';
+  const grad = g.createLinearGradient(0, -fontPx / 2, 0, fontPx / 2); grad.addColorStop(0, celeb.c1); grad.addColorStop(1, celeb.c2);
+  g.fillStyle = grad; g.fillText(celeb.text, 0, 0);
+  g.restore();
+  g.restore();
 }
 
 // Quartz-white line palette for all pitch markings.
@@ -4619,23 +4797,22 @@ function drawHUD() {
   const banner = document.getElementById('banner');
   if (promoActive) { banner.classList.add('hidden'); banner.classList.remove('count'); }
   else if (latest.phase === 'ended') {
-    const txt = myScore === opScore ? 'תיקו' : (myScore > opScore ? 'הכחולים ניצחו' : 'האדומים ניצחו');
-    banner.textContent = txt;
-    banner.style.color = myScore > opScore ? TEAM.A.color : (opScore > myScore ? TEAM.B.color : '#fff');
-    banner.classList.remove('count'); banner.classList.remove('hidden');
+    // Win/lose is the canvas comic overlay (drawCelebration) — keep the DOM banner hidden.
+    banner.classList.add('hidden'); banner.classList.remove('count');
     // Report the final result to the app exactly once (PII-free, one-way bridge).
     if (!matchResultSent) {
       matchResultSent = true;
       postMatchResult(myT, opT, myScore, opScore);
       stopMusic();                                                    // clear the pitch for the sting
       if (myScore !== opScore) playSound(myScore > opScore ? 'win' : 'loss', 0.9);
+      triggerCelebration(myScore > opScore ? 'win' : (myScore < opScore ? 'lose' : 'draw'));
     }
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
-    // "GOAL!" during the freeze that shows the scoring positions, then 3-2-1.
+    // GOAL! is the canvas comic overlay (fired on the goal event). Hide the DOM banner during
+    // the freeze; once it ticks 3-2-1 the DOM shows the countdown number.
     const showing = latest.resetTimer > GOAL_RESET - GOAL_FREEZE_HOLD;
-    if (showing) { banner.textContent = 'גול!'; banner.style.color = teamColor(latest.lastGoal); banner.classList.remove('count'); }
-    else { banner.textContent = String(Math.ceil(latest.resetTimer)); banner.style.color = ''; banner.classList.add('count'); } // main-menu countdown look
-    banner.classList.remove('hidden');
+    if (showing) { banner.classList.add('hidden'); banner.classList.remove('count'); }
+    else { banner.textContent = String(Math.ceil(latest.resetTimer)); banner.style.color = ''; banner.classList.add('count'); banner.classList.remove('hidden'); } // main-menu countdown look
   } else if (latest.resetTimer > 0) {
     banner.textContent = Math.ceil(latest.resetTimer).toString();
     banner.style.color = ''; banner.classList.add('count');
@@ -4742,8 +4919,16 @@ function drawFragileWall(w) {
   ctx.strokeStyle = 'rgba(219,238,247,.85)'; ctx.strokeRect(-s.L / 2, -s.T / 2, s.L, s.T); ctx.setLineDash([]);
   ctx.restore();
 }
+// One HP indicator per wall: maxHp pips above the centre, the first `hp` filled. A wall is
+// one piece, so this reads as the single health of the whole wall (fragile walls show 1).
+function drawWallPips(w) {
+  const s = wallSlab(w);
+  const pipY = s.cy - s.T / 2 - Math.max(2, ws_(9));
+  const px0 = s.cx - ((w.maxHp || 1) * Math.max(3, ws_(11))) / 2;
+  for (let i = 0; i < (w.maxHp || 1); i++) pxi(px0 + i * Math.max(3, ws_(11)), pipY, Math.max(2, ws_(8)), Math.max(2, ws_(5)), i < w.hp ? '#ffd27a' : 'rgba(0,0,0,.4)');
+}
 function drawBuiltWall(w) {
-  if (w.fragile) return drawFragileWall(w);
+  if (w.fragile) { drawFragileWall(w); drawWallPips(w); return; }
   const f = (w.hp || 1) / (w.maxHp || 1);
   const g = Math.round(60 + 46 * f);
   const top = `rgb(190,${g + 26},72)`, face = `rgb(120,${Math.round(52 * f) + 26},36)`, hi = 'rgba(255,224,170,.35)';
@@ -4764,10 +4949,7 @@ function drawBuiltWall(w) {
   if (f < 0.99) { ctx.strokeStyle = 'rgba(20,8,0,.7)'; ctx.lineWidth = Math.max(1, ws_(2)); const n = f < 0.34 ? 4 : 2; for (let i = 0; i < n; i++) { const a = i * 2.2 + w.id; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * s.L * 0.35, Math.sin(a) * s.T * 0.5); ctx.stroke(); } }
   if (flash > 0) { ctx.fillStyle = `rgba(255,240,200,${(flash * 0.6).toFixed(3)})`; ctx.fillRect(-s.L / 2, -s.T / 2, s.L, s.T); } // build-in flash
   ctx.restore();
-  // HP pips: screen-space above the centre (unrotated, easy to read).
-  const pipY = s.cy - s.T / 2 - Math.max(2, ws_(9));
-  const px0 = s.cx - ((w.maxHp || 1) * Math.max(3, ws_(11))) / 2;
-  for (let i = 0; i < (w.maxHp || 1); i++) pxi(px0 + i * Math.max(3, ws_(11)), pipY, Math.max(2, ws_(8)), Math.max(2, ws_(5)), i < w.hp ? '#ffd27a' : 'rgba(0,0,0,.4)');
+  drawWallPips(w); // one HP indicator for the whole (one-piece) wall
 }
 
 function drawBush(g, t) {
@@ -4812,16 +4994,46 @@ function drawTramp(tr, t) {
 // a bush is hidden unless close, carrying the ball, or they FIRED from inside the
 // bush (which reveals them for BUSH_FIRE_REVEAL).
 const BUSH_FIRE_REVEAL = 1000; // ms an enemy stays visible after shooting from a bush
+const REVEAL_FULL_DIST = BUSH_REVEAL_DIST * 0.5; // fully opaque by this range; fades out to BUSH_REVEAL_DIST
 const firedReveal = {};
-function canSeePlayer(p) {
-  if (p.team === me.team) return true;
+const spotHidden = {};  // enemy id -> was it fully hidden last frame (for the reveal edge)
+const spotStart = {};   // enemy id -> perf.now() when it was first spotted out of a bush
+// Brawl-Stars-style proximity reveal: how visible is enemy `p` to the LOCAL player, 0..1.
+// A bushed enemy is hidden far away and FADES IN as you close (over BUSH_REVEAL_DIST -> half),
+// so it never hard-pops. Open enemies / teammates / a fresh fire-from-bush are fully visible.
+// It reads `rendered` (my own position), so the reveal is naturally per-player.
+function bushRevealAlpha(p) {
+  if (p.team === me.team) return 1;
   const inBush = inBushAt(p.x, p.y);
   if (p.firing && inBush) firedReveal[p.id] = performance.now();
-  if (!inBush) return true;
-  // Carrying the ball does NOT reveal a bushed enemy — you must get close or catch them firing.
-  if (performance.now() - (firedReveal[p.id] || -1e9) < BUSH_FIRE_REVEAL) return true;
-  if (rendered && Math.hypot(rendered.x - p.x, rendered.y - p.y) < BUSH_REVEAL_DIST) return true;
-  return false;
+  if (!inBush) return 1;
+  if (performance.now() - (firedReveal[p.id] || -1e9) < BUSH_FIRE_REVEAL) return 1; // just fired -> spotted
+  if (!rendered) return 0;
+  const d = Math.hypot(rendered.x - p.x, rendered.y - p.y);
+  if (d >= BUSH_REVEAL_DIST) return 0;            // too far -> hidden
+  if (d <= REVEAL_FULL_DIST) return 1;            // right on top of them -> solid
+  const t = (BUSH_REVEAL_DIST - d) / (BUSH_REVEAL_DIST - REVEAL_FULL_DIST);
+  return t * t * (3 - 2 * t);                     // smoothstep fade-in
+}
+// Boolean form for non-render callers (auto-aim etc.): visible at all?
+function canSeePlayer(p) { return bushRevealAlpha(p) > 0.02; }
+// A brief "spotted!" pop above an enemy the instant they're revealed out of a bush — an
+// expanding ring + a comic "!" that pops (overshoot) and fades over ~0.6s. World-space (wbCtx).
+function drawSpottedCue(worldX, worldY, el) {
+  const u = Math.min(1, el / 0.6);
+  const a = u < 0.6 ? 1 : Math.max(0, 1 - (u - 0.6) / 0.4);
+  const s = Math.max(0, celBack(Math.min(1, el / 0.18)));
+  const x = wx(worldX), y = wy(worldY) - ws_(34);
+  ctx.save();
+  ctx.globalAlpha = a;
+  const rr = ws_(6) + celCubic(u) * ws_(16);
+  ctx.strokeStyle = '#ffd21f'; ctx.lineWidth = Math.max(1, ws_(2));
+  ctx.beginPath(); ctx.arc(x, y, rr, 0, 7); ctx.stroke();
+  ctx.translate(x, y); ctx.scale(s, s);
+  const bw = Math.max(2, ws_(4)), bh = Math.max(4, ws_(13));
+  ctx.fillStyle = '#111'; ctx.fillRect(-bw / 2 - 1, -bh / 2 - 1, bw + 2, bh * 0.62 + 2); ctx.fillRect(-bw / 2 - 1, bh * 0.30 - 1, bw + 2, bw + 2);
+  ctx.fillStyle = '#ffd21f'; ctx.fillRect(-bw / 2, -bh / 2, bw, bh * 0.62); ctx.fillRect(-bw / 2, bh * 0.30, bw, bw);
+  ctx.restore();
 }
 
 // Active obstacle layout: training swaps in its custom asymmetric field.
@@ -4851,6 +5063,13 @@ function drawObstacles() {
   for (const g of A.bushes) drawBush(g, t);
   for (const tr of A.trampolines) drawTramp(tr, t);
   for (const w of A.walls) drawWallBlock(w);
+  // Steel-wall corner joints — smooth L/T/X at any angle (square mitre or round disc; no gap/"+").
+  for (const j of wallJoints(A.walls)) {
+    ctx.save(); ctx.fillStyle = '#6b7280';
+    if (fbJointStyle === 'round') { ctx.beginPath(); ctx.arc(wx(j.cx), wy(j.cy), ws_(j.r), 0, 7); ctx.fill(); }
+    else { ctx.beginPath(); ctx.moveTo(wx(j.poly[0].x), wy(j.poly[0].y)); for (let k = 1; k < j.poly.length; k++) ctx.lineTo(wx(j.poly[k].x), wy(j.poly[k].y)); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle = 'rgba(255,255,255,.10)'; ctx.fill(); ctx.restore(); // faint sheen → reads as one piece with the slabs
+  }
   if (latest && latest.walls) for (const w of latest.walls) drawBuiltWall(w);
   // Ghost preview while dragging the build button.
   if (buildDrag.active && rendered && !holdingBall) {
@@ -4863,7 +5082,9 @@ function drawObstacles() {
     // Ghost at the exact angle it'll build: perpendicular to aim, quantized like the sim.
     let ang = Math.atan2(ay, ax) + Math.PI / 2;
     ang = Math.round(ang / (Math.PI / 16)) * (Math.PI / 16);
-    const cx = rendered.x + ax * BUILT_WALL.offset, cy = rendered.y + ay * BUILT_WALL.offset;
+    // Match the sim: a harder drag places the wall up to one thickness further out.
+    const dist = BUILT_WALL.offset + buildPushFrac(dx, dy) * BUILT_WALL.thick;
+    const cx = rendered.x + ax * dist, cy = rendered.y + ay * dist;
     const L = ws_(BUILT_WALL.len), T = ws_(BUILT_WALL.thick);
     ctx.save();
     const wind = currentWindup(); // 0..1 local estimate
@@ -4955,9 +5176,8 @@ function renderFrame() {
       const off = ownRadius() + BALL_RADIUS * settings.ballSizeMul;
       ballDraw = { x: rendered.x + (ax / al) * off, y: rendered.y + (ay / al) * off };
     }
-    // Don't draw the ball if a HIDDEN enemy is carrying it — the ball would betray their spot.
-    const bCarrier = bOwner && bOwner !== me.playerId ? view.players.find((pp) => pp.id === bOwner) : null;
-    const ballHidden = bCarrier && bCarrier.team !== me.team && !canSeePlayer(bCarrier);
+    // The ball is ALWAYS visible so you can track it even into a bush — the bushed enemy
+    // CARRIER stays hidden (see the player loop below), but the ball itself never disappears.
     // (ball is drawn AFTER the players below, so a body standing over it never hides it)
 
     // Aim-to-shoot indicator for the local player: infinite line, grey normally,
@@ -4970,13 +5190,27 @@ function renderFrame() {
     for (const p of view.players) {
       const isMe = p.id === me.playerId && rendered;
       const dp = isMe ? { ...p, x: rendered.x, y: rendered.y, vx: predVel.x, vy: predVel.y } : p;
-      if (!isMe && !canSeePlayer(p)) continue; // hidden enemy — fully concealed (no position tell)
-      // You + teammates hidden in a bush render translucent, so you can tell you're concealed.
-      if (dp.team === me.team && inBushAt(dp.x, dp.y)) {
-        ctx.save(); ctx.globalAlpha = 0.5; drawPlayer(dp); ctx.restore();
-      } else drawPlayer(dp);
+      // Bushed enemies FADE IN as the local player approaches (Brawl-Stars proximity reveal),
+      // rather than hard-popping. alpha 0 => fully concealed; skip drawing (no position tell).
+      let alpha = 1;
+      if (!isMe && dp.team !== me.team) {
+        alpha = bushRevealAlpha(p);
+        const hiddenNow = alpha <= 0.02;
+        if (!hiddenNow && spotHidden[p.id]) spotStart[p.id] = performance.now(); // hidden -> spotted edge
+        spotHidden[p.id] = hiddenNow;
+        if (hiddenNow) continue;
+      } else if (dp.team === me.team && inBushAt(dp.x, dp.y)) {
+        alpha = 0.5; // you + teammates in a bush render translucent, so you know you're concealed
+      }
+      if (alpha < 1) { ctx.save(); ctx.globalAlpha = alpha; drawPlayer(dp); ctx.restore(); }
+      else drawPlayer(dp);
+      // "spotted!" pop when a bushed enemy is first revealed to me
+      if (!isMe && dp.team !== me.team && spotStart[p.id]) {
+        const el = (performance.now() - spotStart[p.id]) / 1000;
+        if (el <= 0.6) drawSpottedCue(dp.x, dp.y, el); else delete spotStart[p.id];
+      }
     }
-    if (!ballHidden) drawBall(ballDraw); // ball ON TOP of the bodies — always visible when on-screen
+    drawBall(ballDraw); // ball ON TOP of the bodies — always visible, even in a bush
     for (const pr of view.projectiles) drawProjectile(pr);
     for (const impact of view.impacts) drawImpact(impact);
     drawOffscreenBallArrow(view.ball);
@@ -4988,6 +5222,7 @@ function renderFrame() {
   mainCtx.imageSmoothingEnabled = false;
   mainCtx.drawImage(worldBuf, 0, 0, wbW, wbH, 0, 0, canvas.width, canvas.height);
   drawHUD(); // HUD/overlays draw crisp, in full-res screen space
+  drawCelebration(); // comic goal/win/lose word, on top of everything
   const specialCooling = performance.now() < specialCdUntil;
   specialBtn.classList.toggle('cooling', specialCooling);
   specialBtn.classList.toggle('ready', !specialCooling); // Brawl-style charged-Super pulse
@@ -5021,10 +5256,14 @@ requestAnimationFrame(frame);
 // then "Play" launches a vs-bots match on that field (server type:'builderMatch').
 const FB_KEY = 'pikme-field-v1';
 const FB_W = 2000, FB_H = 1100;
-const FB_WALL = { hl: 88, ht: 16 };   // default wall capsule half-dims (len 176 / thick 32)
+const FB_WALL = { hl: 88, ht: 16 };   // half-thickness 16 → thin wall (thick 32), same as before. Literal (not FB_GRID/2) to avoid a TDZ if declaration order shifts.
+// Steel-wall corner joint style: 'square' = filled mitre corner, 'round' = disc. Both gapless/no-"+".
+// Literal-returning IIFE (references no later const) so it can't hit a TDZ wherever it lands.
+let fbJointStyle = (() => { try { return localStorage.getItem('pikme-joint-style') || 'square'; } catch (e) { return 'square'; } })();
 const FB_BUSH = { w: 224, h: 160 };
 const FB_GRID = 50;                          // fine grid cell (40 x 22 cells) — snap + overlay
-const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;
+const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;            // snaps to grid JUNCTIONS (cell corners)
+const fbSnapCell = (v) => Math.floor(v / FB_GRID) * FB_GRID + FB_GRID / 2; // snaps to CELL CENTRES (the box grid) — used for walls so they line up with crates
 let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
 let fbTool = null;   // 'bush' | 'hard' | 'dry' | 'crate' | null (placement tool)
 let fbSel = null;    // { type, i } selected element | null
@@ -5081,6 +5320,104 @@ function fbOverlapsAny(el, type, skip) {
   return false;
 }
 function fbFlash(msg) { const h = document.querySelector('#builder .builder-hint'); if (!h) return; const prev = h.textContent; h.textContent = msg; h.style.color = '#ff8a8a'; setTimeout(() => { h.textContent = prev; h.style.color = ''; }, 1200); }
+
+// ---- Field picker: clone an in-game preset OR a saved field into the builder --------------
+const FP_SAVES_KEY = 'pikme-fields';
+const FB_NAME_KEY = 'pikme-field-name';
+const FP_MAX_SLOTS = 30;
+let fbFieldName = ''; // the builder's active field name (shown by the title, persisted)
+function fpNewId() { return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function fpCloneArr(a) { return Array.isArray(a) ? a.map((o) => ({ ...o })) : []; }
+function fpNormField(f) { return { version: 1, bushes: fpCloneArr(f && f.bushes), hardWalls: fpCloneArr(f && f.hardWalls), dryWalls: fpCloneArr(f && f.dryWalls), crates: fpCloneArr(f && f.crates) }; }
+// Saved slots: validated + id-stamped + deep-copied. Corrupt/non-object entries are skipped so a
+// bad row can't crash the list; every entry gets a stable id for identity-safe delete/rename.
+function fpLoadSaves() {
+  try {
+    const a = JSON.parse(localStorage.getItem(FP_SAVES_KEY));
+    if (!Array.isArray(a)) return [];
+    return a.filter((s) => s && typeof s === 'object' && s.field && typeof s.field === 'object')
+      .map((s) => ({ id: typeof s.id === 'string' ? s.id : fpNewId(), name: typeof s.name === 'string' ? s.name : '', field: fpNormField(s.field) }));
+  } catch { return []; }
+}
+function fpWriteSaves(a) { try { localStorage.setItem(FP_SAVES_KEY, JSON.stringify(a)); return true; } catch { return false; } }
+function fpCount(f) { const n = fpNormField(f); return n.bushes.length + n.hardWalls.length + n.dryWalls.length + n.crates.length; }
+// Next unused "מגרש N" default (max existing N + 1) so deletes never produce a colliding default.
+function fpNextDefault() { let max = 0; for (const s of fpLoadSaves()) { const m = /^מגרש (\d+)$/.exec(s.name || ''); if (m) max = Math.max(max, +m[1]); } return `מגרש ${max + 1}`; }
+
+// Active field name — shown by the builder title AND persisted so it survives reopen/reload.
+function fbSetName(name) { fbFieldName = name || ''; const el = document.getElementById('builder-fieldname'); if (el) el.textContent = fbFieldName ? `· ${fbFieldName}` : ''; try { localStorage.setItem(FB_NAME_KEY, fbFieldName); } catch { /* private mode */ } }
+function fbLoadName() { try { return localStorage.getItem(FB_NAME_KEY) || 'טיוטה'; } catch { return 'טיוטה'; } }
+
+// In-sheet NAME input — works inside the RN WebView (window.prompt is a no-op there). Promise
+// resolves to the entered string, or null if cancelled. Wired in the builder init block below.
+let _fpNameResolve = null;
+function fpAskName(title, def = '') {
+  return new Promise((resolve) => {
+    _fpNameResolve = resolve;
+    const t = document.getElementById('field-name-title'); if (t) t.textContent = title;
+    const inp = document.getElementById('field-name-input'); if (inp) inp.value = def;
+    document.getElementById('field-name-modal')?.classList.remove('hidden');
+    setTimeout(() => { try { inp.focus(); inp.select(); } catch { /* */ } }, 40);
+  });
+}
+function fpNameDone(commit) {
+  const inp = document.getElementById('field-name-input');
+  document.getElementById('field-name-modal')?.classList.add('hidden');
+  const r = _fpNameResolve; _fpNameResolve = null;
+  if (r) r(commit ? (inp ? inp.value : '') : null); // null == cancelled
+}
+
+// Load a field into the builder: deep-copy (never mutate the preset/saved source), drop to SELECT
+// mode (fbSetTool null) so the first tap edits rather than draws, and it's undoable (fbPush).
+function fpLoadInto(field, name) { fbField = JSON.parse(JSON.stringify(fpNormField(field))); fbSel = null; fbSetTool(null); fbRender(); fbPush(); fbSetName(name || ''); fbFlash('נטען ✓'); closeFieldPicker(); }
+function fpRow(name, sub, active, onLoad, onDel, onRename) {
+  const row = document.createElement('div'); row.className = 'friend-row' + (active ? ' field-row-active' : '');
+  const nm = document.createElement('span'); nm.className = 'field-row-name'; nm.textContent = name; row.appendChild(nm);
+  if (sub) { const s = document.createElement('span'); s.className = 'field-row-sub'; s.textContent = sub; row.appendChild(s); }
+  const acts = document.createElement('div'); acts.className = 'field-row-actions';
+  const load = document.createElement('button'); load.className = 'field-load-btn'; load.textContent = 'טען'; load.setAttribute('aria-label', 'טען מגרש'); load.onclick = onLoad; acts.appendChild(load);
+  if (onRename) { const r = document.createElement('button'); r.className = 'field-ren-btn'; r.textContent = '✎'; r.setAttribute('aria-label', 'שנה שם'); r.onclick = onRename; acts.appendChild(r); }
+  if (onDel) { const d = document.createElement('button'); d.className = 'field-del-btn'; d.textContent = '🗑'; d.setAttribute('aria-label', 'מחק מגרש'); d.onclick = onDel; acts.appendChild(d); }
+  row.appendChild(acts); return row;
+}
+function renderFpIngame() {
+  const el = document.getElementById('fp-ingame'); if (!el) return; el.innerHTML = '';
+  for (const p of FIELD_PRESETS) el.appendChild(fpRow(p.name, `${fpCount(p.field)} פריטים`, fbFieldName === p.name, () => fpLoadInto(p.field, p.name)));
+}
+function renderFpSaved() {
+  const el = document.getElementById('fp-saved'); if (!el) return; el.innerHTML = '';
+  const saves = fpLoadSaves();
+  if (!saves.length) { const m = document.createElement('div'); m.className = 'field-row-sub'; m.textContent = 'אין מגרשים שמורים — שמור עותק'; el.appendChild(m); return; }
+  saves.forEach((s) => el.appendChild(fpRow(s.name || 'מגרש', `${fpCount(s.field)} פריטים`, fbFieldName === s.name,
+    () => fpLoadInto(s.field, s.name || 'מגרש'),
+    () => { fpWriteSaves(fpLoadSaves().filter((x) => x.id !== s.id)); renderFpSaved(); }, // delete BY ID (stale-index safe)
+    async () => {
+      const raw = await fpAskName('שנה שם', s.name || ''); if (raw === null) return;
+      const nn = raw.trim().slice(0, 40); if (!nn) return;
+      const a = fpLoadSaves(); const idx = a.findIndex((x) => x.id === s.id); if (idx < 0) return;
+      a[idx].name = nn; if (!fpWriteSaves(a)) { fbFlash('שמירה נכשלה'); return; }
+      if (fbFieldName === s.name) fbSetName(nn); renderFpSaved();
+    })));
+}
+// Save the current builder field as a named slot: name via the in-sheet input; same-name = OVERWRITE
+// (no silent duplicates); cap at FP_MAX_SLOTS; report a failed write instead of a false success.
+async function fpSaveCurrent() {
+  const raw = await fpAskName('שמור מגרש', fpNextDefault()); if (raw === null) return; // cancelled → nothing saved
+  const name = raw.trim().slice(0, 40) || fpNextDefault();
+  const saves = fpLoadSaves();
+  const idx = saves.findIndex((s) => s.name === name);
+  const entry = { id: idx >= 0 ? saves[idx].id : fpNewId(), name, field: fpNormField(fbField) };
+  if (idx >= 0) saves[idx] = entry;
+  else { if (saves.length >= FP_MAX_SLOTS) { fbFlash(`מקסימום ${FP_MAX_SLOTS} מגרשים`); return; } saves.push(entry); }
+  if (!fpWriteSaves(saves)) { fbFlash('שמירה נכשלה — אחסון מלא?'); return; }
+  fbSetName(name); renderFpSaved(); fbFlash(idx >= 0 ? 'עודכן ✓' : 'נשמר ✓');
+}
+function setFpTab(tab) {
+  document.querySelectorAll('#field-picker .fr-tab').forEach((t) => t.classList.toggle('active', t.dataset.fptab === tab));
+  document.querySelectorAll('#field-picker .fr-pane').forEach((p) => p.classList.toggle('hidden', p.dataset.fppane !== tab));
+}
+function openFieldPicker() { const el = document.getElementById('field-picker'); if (!el) return; renderFpIngame(); renderFpSaved(); setFpTab('ingame'); el.classList.remove('hidden'); }
+function closeFieldPicker() { document.getElementById('field-picker')?.classList.add('hidden'); }
 function fbToWorld(cx, cy) { const r = fbPit().getBoundingClientRect(); return { x: Math.max(0, Math.min(FB_W, (cx - r.left) / r.width * FB_W)), y: Math.max(0, Math.min(FB_H, (cy - r.top) / r.height * FB_H)) }; }
 // Capsule end points (along `angle`) — matches segBlockedByWall's c0/c1.
 function fbEnds(w) { const ca = Math.cos(w.angle), sa = Math.sin(w.angle); return [{ x: w.cx - ca * w.hl, y: w.cy - sa * w.hl }, { x: w.cx + ca * w.hl, y: w.cy + sa * w.hl }]; }
@@ -5138,6 +5475,80 @@ function fbResolveWall(type, idx) {
   }
   return { ok: true, idx };
 }
+// STEEL-WALL CORNER JOINTS — smooth at ANY angle, never a gap and never a stub "+".
+// Because walls are cell-snapped with full-cell coverage they OVERSHOOT the junction, so a plain
+// disc can't hide the stubs and can't reach an acute miter apex. Instead, per junction we build a
+// convex hull from features LOCAL to the corner: (a) the walls' cross-section anchors at J (hull
+// stays flush to every wall → no gap), (b) the cap-corner tips of any short "stub" end (swallows
+// the overshoot → no "+"), and (c) the outer miter apex of each arm pair (keeps acute corners
+// sharp). Returns per junction { cx, cy, r, poly }: `poly` = the filled SQUARE joint; `r` = the
+// bounding radius of that hull = the ROUND joint disc. Render-only (collision already blocks).
+function convexHull(pts) { // Andrew monotone chain
+  const P = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  if (P.length < 3) return P;
+  const cr = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lo = []; for (const p of P) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  const hi = []; for (let i = P.length - 1; i >= 0; i--) { const p = P[i]; while (hi.length >= 2 && cr(hi[hi.length - 2], hi[hi.length - 1], p) <= 0) hi.pop(); hi.push(p); }
+  lo.pop(); hi.pop(); return lo.concat(hi);
+}
+function jointPolygon(walls, J) {
+  const ARM_MIN = 30;   // > overshoot(25): an overshoot end is a STUB, a real body is an ARM
+  const MITER = 3.0;    // miter limit — bevel corners sharper than ~asin(1/3) half-angle
+  const pts = [], arms = []; let anyStub = false;
+  for (const w of walls) {
+    const u = { x: Math.cos(w.angle), y: Math.sin(w.angle) }, n = { x: -Math.sin(w.angle), y: Math.cos(w.angle) };
+    const ht = w.ht, hl = w.hl;
+    const s = (J.x - w.cx) * u.x + (J.y - w.cy) * u.y;      // signed pos of J along the centre-line
+    const Jc = { x: w.cx + u.x * s, y: w.cy + u.y * s };    // J projected onto the wall
+    pts.push({ x: Jc.x + n.x * ht, y: Jc.y + n.y * ht }, { x: Jc.x - n.x * ht, y: Jc.y - n.y * ht }); // anchors → no gap
+    const side = (dir, ext) => {
+      if (ext > ARM_MIN) arms.push({ g: { x: u.x * dir, y: u.y * dir }, ht });
+      else { anyStub = true; const tx = Jc.x + u.x * dir * ext, ty = Jc.y + u.y * dir * ext; pts.push({ x: tx + n.x * ht, y: ty + n.y * ht }, { x: tx - n.x * ht, y: ty - n.y * ht }); }
+    };
+    side(1, hl - s); side(-1, hl + s);
+  }
+  if (!anyStub) return null; // pure mid-span crossing = an intended "+"; leave it
+  for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
+    const a = arms[i], b = arms[j];
+    const dot = Math.max(-1, Math.min(1, a.g.x * b.g.x + a.g.y * b.g.y)), th = Math.acos(dot);
+    if (th < 0.15 || Math.PI - th < 0.15) continue;
+    const sh = Math.sin(th / 2); if (1 / sh > MITER) continue;
+    let bx = -(a.g.x + b.g.x), by = -(a.g.y + b.g.y); const bl = Math.hypot(bx, by) || 1; bx /= bl; by /= bl;
+    const m = Math.max(a.ht, b.ht) / sh; pts.push({ x: J.x + bx * m, y: J.y + by * m });
+  }
+  return convexHull(pts);
+}
+function wallJoints(walls) {
+  const hw = (walls || []).filter((w) => w && w.angle != null && w.cx != null);
+  const raw = [];
+  for (let i = 0; i < hw.length; i++) for (let j = i + 1; j < hw.length; j++) {
+    const A = hw[i], B = hw[j];
+    const dax = Math.cos(A.angle), day = Math.sin(A.angle), dbx = Math.cos(B.angle), dby = Math.sin(B.angle);
+    const den = dax * dby - day * dbx;
+    if (Math.abs(den) < 1e-4) continue; // parallel/collinear → merged elsewhere, no corner
+    const t = ((B.cx - A.cx) * dby - (B.cy - A.cy) * dbx) / den;
+    const ix = A.cx + dax * t, iy = A.cy + day * t;
+    const tol = Math.max(A.ht, B.ht) + 2;
+    const ta = Math.abs((ix - A.cx) * dax + (iy - A.cy) * day), tb = Math.abs((ix - B.cx) * dbx + (iy - B.cy) * dby);
+    if (ta <= A.hl + tol && tb <= B.hl + tol) raw.push({ x: ix, y: iy, i, j });
+  }
+  const rad = hw.reduce((m, w) => Math.max(m, w.ht), 0) * 1.5 + 4;
+  const clusters = []; // merge coincident corners (T / X / 3+ walls at one point)
+  for (const p of raw) {
+    let c = clusters.find((c) => Math.hypot(c.x - p.x, c.y - p.y) <= rad);
+    if (!c) { c = { x: p.x, y: p.y, set: new Set() }; clusters.push(c); }
+    c.set.add(p.i); c.set.add(p.j);
+  }
+  const out = [];
+  for (const c of clusters) {
+    const poly = jointPolygon([...c.set].map((i) => hw[i]), { x: c.x, y: c.y });
+    if (poly && poly.length >= 3) {
+      let r = 0; for (const p of poly) r = Math.max(r, Math.hypot(p.x - c.x, p.y - c.y)); // bounding disc = round joint
+      out.push({ cx: c.x, cy: c.y, r, poly });
+    }
+  }
+  return out;
+}
 function fbRender() {
   const pit = fbPit(); if (!pit) return;
   pit.querySelectorAll('.bel,.bhandle').forEach((e) => e.remove());
@@ -5152,6 +5563,19 @@ function fbRender() {
   };
   fbField.bushes.forEach((b, i) => mk('bush', i, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h, null));
   fbField.hardWalls.forEach((w, i) => mk('hard', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
+  // Steel-wall corner joints → an SVG overlay (world coords) so a mitre POLYGON is drawable in the
+  // DOM and matches the in-game canvas exactly. Persistent (survives the .bel/.bhandle cleanup above).
+  const NS = 'http://www.w3.org/2000/svg';
+  let svg = pit.querySelector('svg.bjoints');
+  if (!svg) { svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'bjoints'); svg.setAttribute('viewBox', '0 0 ' + FB_W + ' ' + FB_H); svg.setAttribute('preserveAspectRatio', 'none'); svg.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2'; pit.appendChild(svg); }
+  svg.innerHTML = '';
+  for (const j of wallJoints(fbField.hardWalls)) {
+    let el;
+    if (fbJointStyle === 'round') { el = document.createElementNS(NS, 'circle'); el.setAttribute('cx', j.cx); el.setAttribute('cy', j.cy); el.setAttribute('r', j.r); }
+    else { el = document.createElementNS(NS, 'polygon'); el.setAttribute('points', j.poly.map((p) => p.x + ',' + p.y).join(' ')); }
+    el.setAttribute('fill', '#7b828d'); el.setAttribute('stroke', '#43484f'); el.setAttribute('stroke-width', '1');
+    svg.appendChild(el);
+  }
   fbField.dryWalls.forEach((w, i) => mk('dry', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
   fbField.crates.forEach((c, i) => mk('crate', i, c.x + c.w / 2, c.y + c.h / 2, c.w, c.h, null));
 }
@@ -5161,25 +5585,30 @@ function fbMoveSel(wx, wy) {
   // Bushes snap their TOP-LEFT CORNER to a grid line (matches how they're drawn) so a moved
   // bush stays cell-aligned; centre-snapping put even-width bushes half a cell off the grid.
   if (fbSel.type === 'bush' || fbSel.type === 'crate') { L.x = fbSnap(wx - L.w / 2); L.y = fbSnap(wy - L.h / 2); }
-  else { L.cx = fbSnap(wx); L.cy = fbSnap(wy); }
+  else { L.cx = fbSnapCell(wx); L.cy = fbSnapCell(wy); } // walls snap to the box grid (cell centres)
   fbRender();
 }
 let fbDraw = null; // { type, ax, ay, i } while DRAWING a new wall/bush from a fixed anchor
 // Update the element being drawn: a wall becomes a LINE anchor->cursor (free angle =>
 // rotation is built in); a bush becomes the rectangle anchor->cursor. Grid-snapped.
 function fbDrawUpdate(wx, wy) {
-  if (!fbDraw) return; const bx = fbSnap(wx), by = fbSnap(wy);
+  if (!fbDraw) return;
   if (fbDraw.type === 'bush') {
+    const bx = fbSnap(wx), by = fbSnap(wy); // bushes snap their corner to junctions
     const b = fbField.bushes[fbDraw.i]; if (!b) return;
     b.x = Math.min(fbDraw.ax, bx); b.y = Math.min(fbDraw.ay, by);
     b.w = Math.max(FB_GRID, Math.abs(bx - fbDraw.ax)); b.h = Math.max(FB_GRID, Math.abs(by - fbDraw.ay));
   } else {
+    const bx = fbSnapCell(wx), by = fbSnapCell(wy); // walls snap endpoints to the box grid (cell centres)
     const L = fbList(fbDraw.type)[fbDraw.i]; if (!L) return;
     const dx = bx - fbDraw.ax, dy = by - fbDraw.ay;
-    const len = Math.max(L.ht * 2, Math.hypot(dx, dy)); // >= a single cube
-    L.angle = Math.atan2(dy, dx); L.hl = Math.round(len / 2);
-    L.cx = Math.round(fbDraw.ax + Math.cos(L.angle) * L.hl);
-    L.cy = Math.round(fbDraw.ay + Math.sin(L.angle) * L.hl);
+    const dist = Math.hypot(dx, dy);
+    // Endpoints are cell CENTRES, so extend the span by ONE full cell (½ each end) so the first and
+    // last boxes are covered edge-to-edge — segments tile with no gaps and connect into L-shapes.
+    L.angle = dist > 0.5 ? Math.atan2(dy, dx) : 0;
+    L.hl = Math.round((dist + FB_GRID) / 2);
+    L.cx = Math.round((fbDraw.ax + bx) / 2);
+    L.cy = Math.round((fbDraw.ay + by) / 2);
   }
   fbRender();
 }
@@ -5209,18 +5638,37 @@ function fbSetZoom(z) {
 }
 let fbTwoFinger = false; // true while a 2-finger pinch/pan gesture is active (suppresses draw)
 function fbCancelDraw() { if (fbDraw) { const arr = fbList(fbDraw.type); if (fbDraw.i >= 0 && fbDraw.i < arr.length) arr.splice(fbDraw.i, 1); fbDraw = null; fbRender(); } fbDrag = null; }
-function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); }
+function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); fbSetName(fbLoadName()); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
   document.getElementById('field-builder-btn')?.addEventListener('click', () => { unlockAudio && unlockAudio(); showScreen('builder'); openBuilder(); });
   document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => fbSetTool(fbTool === btn.dataset.tool ? null : btn.dataset.tool)));
   document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbRender(); fbPush(); } });
-  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] }; fbSel = null; fbRender(); fbPush(); });
+  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] }; fbSel = null; fbRender(); fbPush(); fbSetName('טיוטה'); });
   document.querySelectorAll('#builder [data-mirror]').forEach((btn) => btn.addEventListener('click', () => fbMirror(btn.dataset.mirror)));
   document.getElementById('b-undo')?.addEventListener('click', fbUndo);
   document.getElementById('b-redo')?.addEventListener('click', fbRedo);
   document.getElementById('b-save')?.addEventListener('click', () => { fbSave(); const h = document.querySelector('#builder .builder-hint'); if (h) { const p = h.textContent; h.textContent = 'נשמר ✓'; h.style.color = '#7CFC7C'; setTimeout(() => { h.textContent = p; h.style.color = ''; }, 1200); } });
+  // Field picker: open the floating panel to clone an in-game preset or a saved field.
+  // Joint-style toggle (square mitre ⬛ ↔ round ⬤). Both are gapless/no-"+"; render-only.
+  { const bj = document.getElementById('b-joint');
+    if (bj) { bj.textContent = fbJointStyle === 'round' ? '⬤ פינה' : '⬛ פינה';
+      bj.addEventListener('click', () => { fbJointStyle = fbJointStyle === 'round' ? 'square' : 'round'; bj.textContent = fbJointStyle === 'round' ? '⬤ פינה' : '⬛ פינה'; try { localStorage.setItem('pikme-joint-style', fbJointStyle); } catch (e) {} fbRender(); }); } }
+  document.getElementById('builder-fields')?.addEventListener('click', () => { unlockAudio && unlockAudio(); openFieldPicker(); });
+  document.querySelectorAll('#field-picker .fr-tab').forEach((t) => t.addEventListener('click', () => setFpTab(t.dataset.fptab)));
+  document.querySelectorAll('#field-picker [data-fp-close]').forEach((el) => el.addEventListener('click', closeFieldPicker));
+  document.getElementById('fp-save-current')?.addEventListener('click', fpSaveCurrent);
+  // In-sheet name modal (save/rename) — OK/Cancel + Enter/Escape.
+  document.getElementById('field-name-ok')?.addEventListener('click', () => fpNameDone(true));
+  document.querySelectorAll('#field-name-modal [data-fpname-cancel]').forEach((el) => el.addEventListener('click', () => fpNameDone(false)));
+  document.getElementById('field-name-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fpNameDone(true); } else if (e.key === 'Escape') { e.preventDefault(); fpNameDone(false); } });
+  // Escape closes the name modal first, else the picker.
+  addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('field-name-modal')?.classList.contains('hidden')) fpNameDone(false);
+    else if (!document.getElementById('field-picker')?.classList.contains('hidden')) closeFieldPicker();
+  });
   document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
   document.getElementById('b-zoom-in')?.addEventListener('click', () => fbSetZoom(fbZoom + 0.25));
   document.getElementById('b-zoom-out')?.addEventListener('click', () => fbSetZoom(fbZoom - 0.25));
@@ -5243,10 +5691,16 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
     const el = e.target.closest('.bel');
     // ERASER — remove what you touch/drag over.
     if (fbTool === 'eraser') { fbDrag = { id: e.pointerId, erase: true, pre: fbSnapshot() }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbDeleteEl(el); return; }
+    // MOVE — grab an element and drag it (no placement, no resize).
+    if (fbTool === 'move') {
+      if (el) { fbSel = { type: el.dataset.type, i: +el.dataset.i }; fbDrag = { id: e.pointerId, move: true, pre: fbSnapshot() }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); }
+      else { fbSel = null; fbRender(); }
+      return;
+    }
     // WALL tools — DRAW a line from a fixed anchor (grid-snapped, any angle).
     if (fbTool === 'hard' || fbTool === 'dry') {
-      const ax = fbSnap(w.x), ay = fbSnap(w.y);
-      fbList(fbTool).push({ cx: ax, cy: ay, angle: 0, hl: FB_WALL.ht, ht: FB_WALL.ht });
+      const ax = fbSnapCell(w.x), ay = fbSnapCell(w.y); // anchor on the box grid (cell centre)
+      fbList(fbTool).push({ cx: ax, cy: ay, angle: 0, hl: FB_GRID / 2, ht: FB_WALL.ht }); // a tap = one FULL cell long (50), thin (32)
       fbDraw = { type: fbTool, ax, ay, i: fbList(fbTool).length - 1 }; fbSel = { type: fbTool, i: fbDraw.i };
       fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
     }

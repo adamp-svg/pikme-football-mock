@@ -18,7 +18,7 @@
 
 import {
   FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
-  BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, BUILD_WINDUP,
+  BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, SUPER_USES, BUILD_WINDUP,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
 import { ARENA, pointInBox, pointInBush } from './arena.js';
@@ -509,7 +509,7 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
       p.cdMul = sk.cdMul != null ? sk.cdMul : 1;
       // EXTREME cheat: keep overcharge topped up so it can break a keeper / blast a lane at
       // will (a steady cheat — the STOCHASTIC part is its aim + charge, not this).
-      if (sk.cheat && !p.power) { p.power = true; p.powerT = OVERCHARGE_TTL; }
+      if (sk.cheat && !p.power) { p.power = true; p.powerT = OVERCHARGE_TTL; p.powerUses = SUPER_USES; } // grant uses too, else a body-strip decrements 0→-1 and flickers super off
       out[p.id] = decideBot(p, role, state, mem, sk, dt);
     }
   }
@@ -1165,7 +1165,9 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   return {
     seq: (bm.seq = (bm.seq || 0) + 1),
     moveX: mvx, moveY: mvy, aimX: ax, aimY: ay,
-    hold, fire, special, build, buildHold,
+    // Bots always shoot deliberately AT a target (goal/enemy/mate), so a bot shot is an AIMED
+    // shot — it must push/strip. Without this, every bot bullet degrades to a no-push quick shot.
+    hold, fire, aimed: fire, special, build, buildHold,
     sax, say,
   };
 }
