@@ -433,6 +433,26 @@ function rollBallIntoNet(state, dt) {
   if (Math.hypot(b.vx, b.vy) < BALL_MIN_SPEED) { b.vx = 0; b.vy = 0; }
 }
 
+// Max snooker deflection: how far off straight a fully edge-on hit shoves an enemy. Below the
+// cap the angle follows the natural line of centres; at/beyond a graze it's clamped here so a
+// glance never spins them off at 80-90°. Tune this to taste (~degrees).
+const MAX_DEFLECT = 28 * Math.PI / 180;
+
+// Shared snooker push: a mover (ball/bullet) travelling (dx,dy) from (sx,sy) strikes a body
+// centred at (px,py); `maxOff` = sum of the two radii (contact distance). Returns the UNIT push
+// direction along the line of centres — angled by the impact offset but CAPPED to MAX_DEFLECT —
+// plus `mul`, a magnitude floor (1 dead-on … ~0.94 at the cap) so a glance still shoves. The
+// impact offset is the target's perpendicular distance from the flight line, which is constant
+// along that line, so it's exact even for a bullet that doesn't sub-step.
+function snookerPush(sx, sy, dx, dy, px, py, maxOff) {
+  const cap = maxOff * Math.sin(MAX_DEFLECT);
+  const perp = clamp((px - sx) * (-dy) + (py - sy) * dx, -cap, cap); // signed offset, capped to the max angle
+  const along = Math.sqrt(Math.max(0, maxOff * maxOff - perp * perp)); // forward term (never backward)
+  let ux = dx * along - dy * perp, uy = dy * along + dx * perp;        // rotate travel toward the contact normal
+  const ul = Math.hypot(ux, uy) || 1;
+  return { ux: ux / ul, uy: uy / ul, mul: 0.5 + 0.5 * (along / maxOff) };
+}
+
 // One authoritative step. `inputs` is a map: playerId -> input.
 // input = { seq, moveX, moveY, aimX, aimY, kick }
 export function step(state, inputs, dt) {
@@ -696,10 +716,10 @@ export function step(state, inputs, dt) {
         //   2 (OVERCHARGE): breaks through HARDEST
         // A keeper in their OWN box makes the SAVE — catches a weak/full kick dead; only an
         // OVERCHARGE kick still gets through them (reduced).
-        // SNOOKER model: the shove goes along the LINE OF CENTRES (ball -> player), so WHERE the
-        // ball strikes the player sets the deflection angle — a centred hit shoves them straight
-        // back, a glancing edge hit shoves them off to the side. The ball keeps its tangential
-        // (glancing) component and only its normal component is reflected/absorbed per tier.
+        // SNOOKER model (SAME as a bullet hit, see hitEnemy): shove the enemy along the line of
+        // centres, angled by WHERE the ball struck but CAPPED to MAX_DEFLECT so an edge hit can't
+        // spin them off sideways. The ball itself keeps its tangential glance; only its normal
+        // component is reflected/absorbed per tier below.
         let cnx = p.x - b.x, cny = p.y - b.y;
         const cd = Math.hypot(cnx, cny) || 1;
         cnx /= cd; cny /= cd;
@@ -707,13 +727,9 @@ export function step(state, inputs, dt) {
         const vtx = b.vx - vn * cnx, vty = b.vy - vn * cny; // tangential glance the ball keeps
         const tier = b.kickTier || 0;
         const mul = tier === 2 ? OVERCHARGE_MUL : tier === 1 ? FULL_BUMP_MUL : 1; // push: weak < full < overcharge
-        // Push always goes ALONG the line of centres (so an off-centre hit visibly squirts the
-        // enemy off at an angle). Magnitude keeps most of its punch even on a glance: a square hit
-        // (cos=1) shoves full force, a hard graze (cos->0) still shoves ~half — floored so the
-        // angled knock is always felt, never a no-op like a strict cos(theta) transfer would be.
-        const headOn = Math.max(0, vn) / bspeed;            // cos(theta): 1 = dead-on, 0 = pure graze
-        const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p) * (0.5 + 0.5 * headOn);
-        p.kvx += cnx * kb; p.kvy += cny * kb;
+        const push = snookerPush(b.x, b.y, b.vx / bspeed, b.vy / bspeed, p.x, p.y, radiusOf(p, state) + ballR);
+        const kb = bspeed * BALL_BUMP_SCALE * mul * knockMul(p) * push.mul;
+        p.kvx += push.ux * kb; p.kvy += push.uy * kb;
         // Ball's normal component after contact (+ = keeps driving through, - = rebounds off).
         let f;
         if (inOwnPenalty(p) && tier < 2) {
@@ -1008,19 +1024,11 @@ function hitEnemy(state, t, pr) {
   const shooter = state.players[pr.owner];
   const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1; // OVERCHARGE bullet pushes/strips harder
 
-  // SNOOKER knockback: push the enemy along the LINE OF CENTRES (impact point -> their centre),
-  // so WHERE the shot lands sets the angle — a centred hit shoves them straight back, an off-centre
-  // hit squirts them off to the side. Reconstructed from the impact parameter (perpendicular
-  // distance of the target from the bullet's flight line — constant along the line, so it's exact
-  // even though bullets don't sub-step) plus a forward along-axis term, so the push is NEVER
-  // backward. angMul floors the magnitude (0.5 + 0.5*cos) so a glance still shoves perceptibly.
-  const rad = radiusOf(t, state);
-  const maxOff = PROJECTILE.radius + rad;
-  const perp = clamp((t.x - pr.x) * (-ny) + (t.y - pr.y) * nx, -maxOff, maxOff); // signed impact offset
-  const along = Math.sqrt(Math.max(0, maxOff * maxOff - perp * perp));            // forward component (>=0)
-  let bnx = nx * along - ny * perp, bny = ny * along + nx * perp;                 // contact normal, forward-biased
-  const bl = Math.hypot(bnx, bny) || 1; bnx /= bl; bny /= bl;
-  const angMul = 0.5 + 0.5 * (along / maxOff);                                    // 1 = dead-on, 0.5 = hard graze
+  // SNOOKER knockback: push the enemy along the line of centres (impact point -> their centre),
+  // angled by WHERE the shot lands but CAPPED to MAX_DEFLECT so an edge hit can't spin them off
+  // near-sideways. snookerPush is shared with the kicked-ball bump so both behave identically.
+  const push = snookerPush(pr.x, pr.y, nx, ny, t.x, t.y, PROJECTILE.radius + radiusOf(t, state));
+  const bnx = push.ux, bny = push.uy, angMul = push.mul;
 
   // A ball-carrier is protected: only a FULL-power shot (or a bomb, elsewhere) can
   // affect them. Both FULL and OVERCHARGE strip the ball; OVERCHARGE pushes more.
@@ -1089,7 +1097,7 @@ function wallCannonMul(state, bx, by, dx, dy) {
       if (m > mul) mul = m;
     }
   };
-  for (const w of arenaOf(state).walls) consider(w, BOMB_WALL_CANNON_STATIC);
+  for (const w of arenaOf(state).walls) if (w.skin !== 'trees') consider(w, BOMB_WALL_CANNON_STATIC); // bombs sail over trees — no cannon
   for (const w of (state.builtWalls || [])) consider(w, 1 + (BOMB_WALL_CANNON_BUILT - 1) * (w.hp / w.maxHp));
   return mul;
 }
@@ -1146,7 +1154,7 @@ function explode(state, bomb, stack = 1) {
       // COVER: a STATIC wall between the blast and this player blocks the push entirely;
       // a BUILT wall softens it by its remaining HP (strong wall = minor push, weak =
       // most of the push). Behind an indestructible wall you feel nothing.
-      if (arenaOf(state).walls.some((w) => segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD))) continue;
+      if (arenaOf(state).walls.some((w) => w.skin !== 'trees' && segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD))) continue; // trees don't shield a blast — it goes over the canopy
       let coverPass = 1;
       for (const w of state.builtWalls) {
         if (segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD)) {

@@ -38,7 +38,8 @@ const CENTRE_MAG = mag(centre);
   ok(!r.missed, 'above-centre hit connected');
   ok(r.kvy > 5, `enemy shoved DOWN when hit from above (kvy=${r.kvy.toFixed(0)})`);
   ok(r.kvx > 5, `enemy still driven forward (kvx=${r.kvx.toFixed(0)})`);
-  ok(Math.abs(r.kvy) > 0.35 * r.kvx, `PERCEPTIBLE angle, not near-straight (push ${ang(r)}°)`);
+  ok(Math.abs(r.kvy) > 0.2 * r.kvx, `PERCEPTIBLE angle, not near-straight (push ${ang(r)}°)`);
+  ok(Math.abs(ang(r)) <= 30, `angle TONED DOWN, not sideways (${ang(r)}° <= 30°)`);
   ok(mag(r) > 0.6 * CENTRE_MAG, `off-centre push keeps real punch (${mag(r).toFixed(0)} vs centre ${CENTRE_MAG.toFixed(0)})`);
   ok(r.bvy < -5, `ball glances UP off the top of the enemy (bvy=${r.bvy.toFixed(0)})`);
 }
@@ -46,7 +47,8 @@ const CENTRE_MAG = mag(centre);
   const r = strike(24); // ball below enemy (larger y)
   ok(!r.missed, 'below-centre hit connected');
   ok(r.kvy < -5, `enemy shoved UP when hit from below (kvy=${r.kvy.toFixed(0)})`);
-  ok(Math.abs(r.kvy) > 0.35 * r.kvx, `PERCEPTIBLE angle, not near-straight (push ${ang(r)}°)`);
+  ok(Math.abs(r.kvy) > 0.2 * r.kvx, `PERCEPTIBLE angle, not near-straight (push ${ang(r)}°)`);
+  ok(Math.abs(ang(r)) <= 30, `angle TONED DOWN, not sideways (${ang(r)}° <= 30°)`);
   ok(mag(r) > 0.6 * CENTRE_MAG, `off-centre push keeps real punch (${mag(r).toFixed(0)} vs centre ${CENTRE_MAG.toFixed(0)})`);
   ok(r.bvy > 5, `ball glances DOWN off the bottom of the enemy (bvy=${r.bvy.toFixed(0)})`);
 }

@@ -35,13 +35,21 @@ const ang = (r) => Math.round(Math.atan2(r.kvy, r.kvx) * 180 / Math.PI);
   ok(!r.missed, 'below-line shot connected');
   ok(r.kvx > 5, `enemy driven forward (kvx=${r.kvx.toFixed(0)})`);
   ok(r.kvy > 5, `enemy squirts DOWN off a below-centre hit (kvy=${r.kvy.toFixed(0)})`);
-  ok(Math.abs(r.kvy) > 0.3 * r.kvx, `PERCEPTIBLE angle (${ang(r)}°)`);
+  ok(Math.abs(r.kvy) > 0.2 * r.kvx, `PERCEPTIBLE angle (${ang(r)}°)`);
+  ok(Math.abs(ang(r)) <= 30, `angle TONED DOWN, not sideways (${ang(r)}° <= 30°)`);
+}
+{
+  const r = shoot(27); // near-edge graze — must be CAPPED, not spun off at ~70-80°
+  ok(!r.missed, 'edge-graze shot connected');
+  ok(Math.abs(ang(r)) <= 30 && Math.abs(ang(r)) > 8, `edge graze capped to a modest angle (${ang(r)}°, not 80°)`);
+  ok(r.kvx > 5, `edge graze still drives the enemy forward (kvx=${r.kvx.toFixed(0)})`);
 }
 {
   const r = shoot(-15); // enemy ABOVE the line -> shoved up-forward
   ok(!r.missed, 'above-line shot connected');
   ok(r.kvy < -5, `enemy squirts UP off an above-centre hit (kvy=${r.kvy.toFixed(0)})`);
-  ok(Math.abs(r.kvy) > 0.3 * r.kvx, `PERCEPTIBLE angle (${ang(r)}°)`);
+  ok(Math.abs(r.kvy) > 0.2 * r.kvx, `PERCEPTIBLE angle (${ang(r)}°)`);
+  ok(Math.abs(ang(r)) <= 30, `angle TONED DOWN, not sideways (${ang(r)}° <= 30°)`);
 }
 {
   const r = shoot(0); // dead centre
