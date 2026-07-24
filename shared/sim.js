@@ -1008,13 +1008,27 @@ function hitEnemy(state, t, pr) {
   const shooter = state.players[pr.owner];
   const overMul = pr.over ? OVERCHARGE_BULLET_MUL : 1; // OVERCHARGE bullet pushes/strips harder
 
+  // SNOOKER knockback: push the enemy along the LINE OF CENTRES (impact point -> their centre),
+  // so WHERE the shot lands sets the angle — a centred hit shoves them straight back, an off-centre
+  // hit squirts them off to the side. Reconstructed from the impact parameter (perpendicular
+  // distance of the target from the bullet's flight line — constant along the line, so it's exact
+  // even though bullets don't sub-step) plus a forward along-axis term, so the push is NEVER
+  // backward. angMul floors the magnitude (0.5 + 0.5*cos) so a glance still shoves perceptibly.
+  const rad = radiusOf(t, state);
+  const maxOff = PROJECTILE.radius + rad;
+  const perp = clamp((t.x - pr.x) * (-ny) + (t.y - pr.y) * nx, -maxOff, maxOff); // signed impact offset
+  const along = Math.sqrt(Math.max(0, maxOff * maxOff - perp * perp));            // forward component (>=0)
+  let bnx = nx * along - ny * perp, bny = ny * along + nx * perp;                 // contact normal, forward-biased
+  const bl = Math.hypot(bnx, bny) || 1; bnx /= bl; bny /= bl;
+  const angMul = 0.5 + 0.5 * (along / maxOff);                                    // 1 = dead-on, 0.5 = hard graze
+
   // A ball-carrier is protected: only a FULL-power shot (or a bomb, elsewhere) can
   // affect them. Both FULL and OVERCHARGE strip the ball; OVERCHARGE pushes more.
   if (state.ball.owner === t.id) {
     if (pr.charge < FULL_CHARGE) return; // medium/quick absorbed — no effect, no earn
     const kb = state.settings.bulletKnockback * pr.charge * CARRIER_KNOCKBACK_MUL * overMul * knockMul(t) * (pr.coverMul ?? 1);
-    t.kvx += nx * kb;
-    t.kvy += ny * kb;
+    t.kvx += bnx * kb * angMul;
+    t.kvy += bny * kb * angMul;
     // knock the ball loose off this carrier, with a sideways kick
     const b = state.ball;
     b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = pr.team; clearKick(b); // a strip, not a kick
@@ -1030,10 +1044,10 @@ function hitEnemy(state, t, pr) {
     if (!pr.over) earnPower(shooter, OVERCHARGE_PARTIAL_GAIN); // a quick hit fills 1/3 (three quick hits = one super)
     return;
   }
-  // medium & full: push the enemy along the bullet's travel direction (OVERCHARGE = more)
+  // medium & full: shove the enemy along the LINE OF CENTRES (snooker), OVERCHARGE = more
   const kb = state.settings.bulletKnockback * pr.charge * overMul * knockMul(t) * (pr.coverMul ?? 1);
-  t.kvx += nx * kb;
-  t.kvy += ny * kb;
+  t.kvx += bnx * kb * angMul;
+  t.kvy += bny * kb * angMul;
   // A forceful body hit earns overcharge: a full hit fills it, a medium fills half.
   if (!pr.over) earnPower(shooter, pr.charge >= FULL_CHARGE ? OVERCHARGE_FULL_GAIN : OVERCHARGE_PARTIAL_GAIN);
 }
