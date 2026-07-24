@@ -16,7 +16,7 @@ import {
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
   WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
   BUILD_WINDUP, BUILD_WINDUP_SLOW, BUILD_INTERRUPT_KV,
-  SHOOT_CHARGE_TIME, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds } from './arena.js';
@@ -433,10 +433,24 @@ function rollBallIntoNet(state, dt) {
   if (Math.hypot(b.vx, b.vy) < BALL_MIN_SPEED) { b.vx = 0; b.vy = 0; }
 }
 
-// Max snooker deflection: how far off straight a fully edge-on hit shoves an enemy. Below the
-// cap the angle follows the natural line of centres; at/beyond a graze it's clamped here so a
-// glance never spins them off at 80-90°. Tune this to taste (~degrees).
-const MAX_DEFLECT = 28 * Math.PI / 180;
+// Max impact-angle deflection, applied to EVERYTHING that gets hit (enemy shoved by a bullet or
+// a kicked ball, AND the ball itself deflected by a bullet / caromed off a defender). Below the
+// cap the angle follows the natural line of centres; at/beyond a graze it's clamped so nothing
+// ever spins off near-sideways. Kept deliberately small — the impact angle matters but its
+// effect is subtle. One knob for the whole feel; tune to taste (~degrees).
+const MAX_DEFLECT = 18 * Math.PI / 180;
+
+// Cap the deflection of an outgoing vector (ovx,ovy) to at most `maxAng` off the incoming unit
+// direction (inx,iny), preserving the outgoing speed. Returns the (possibly rotated) vector.
+function capDeflect(inx, iny, ovx, ovy, maxAng) {
+  const sp = Math.hypot(ovx, ovy);
+  if (sp < 1) return { x: ovx, y: ovy };
+  const ang = Math.acos(clamp((ovx * inx + ovy * iny) / sp, -1, 1));
+  if (ang <= maxAng) return { x: ovx, y: ovy };
+  const s = (inx * ovy - iny * ovx) >= 0 ? 1 : -1;                 // which side it deflected
+  const ca = Math.cos(maxAng * s), sa = Math.sin(maxAng * s);
+  return { x: (inx * ca - iny * sa) * sp, y: (inx * sa + iny * ca) * sp };
+}
 
 // Shared snooker push: a mover (ball/bullet) travelling (dx,dy) from (sx,sy) strikes a body
 // centred at (px,py); `maxOff` = sum of the two radii (contact distance). Returns the UNIT push
@@ -580,7 +594,7 @@ export function step(state, inputs, dt) {
     // pay the same ~1s wind-up as humans (chargeRate lets harder bots reach full
     // sooner). A release (fire) consumes it; letting go WITHOUT firing (cancel)
     // resets it. Overcharge meter decays if unused.
-    if (inp.hold) p._charge = Math.min(1, p._charge + dt / SHOOT_CHARGE_TIME * (p.chargeRate || 1) * (p.cardShot || 1));
+    if (inp.hold) p._charge = Math.min(1, p._charge + dt / SHOOT_CHARGE_TIME * (p.chargeRate || 1) * (p.cardShot || 1) * (p.power ? SUPER_CHARGE_RATE : 1)); // SUPER halves the wind-up
     else if (!p._fire) p._charge = 0;
     if (p.powerT > 0) { p.powerT -= dt; if (p.powerT <= 0) { p.powerT = 0; p.power = false; } }
     p.lastSeq = inp.seq != null ? inp.seq : p.lastSeq;
@@ -602,7 +616,9 @@ export function step(state, inputs, dt) {
     if (p._fire) {
       const eff = p._charge;            // sim-accumulated hold power (0..1)
       const isFull = eff >= FULL_CHARGE;   // hold-based full — anyone can reach it
-      const isOver = isFull && p.power;    // OVERCHARGE = full + earned meter
+      const inSuper = !!p.power;           // in SUPER mode: EVERY shot (even a quick tap) flies harder
+      const superMul = inSuper ? SUPER_SHOT_MUL : 1;
+      const isOver = isFull && p.power;    // OVERCHARGE = full + earned meter (the ceiling, on top of superMul)
       if (b.owner === p.id) {
         const cm = chargeMul(eff); // charged shot = further/faster
         // #11 SNOOKER STRIKE + #6 AUTO-AIM: pick a target, then strike the ball cleanly ALONG
@@ -618,8 +634,8 @@ export function step(state, inputs, dt) {
         b.lastKicker = p.id; // who launched it — refills power if this kick bumps an enemy
         b.kickTier = isOver ? 2 : isFull ? 1 : 0; // how it behaves hitting an enemy (see the bump handler)
         b.overSpent = isOver; // an overcharge kick's ball can't re-farm the meter (any later bump)
-        b.vx = dx * state.settings.shotPower * cm;
-        b.vy = dy * state.settings.shotPower * cm;
+        b.vx = dx * state.settings.shotPower * cm * superMul;
+        b.vy = dy * state.settings.shotPower * cm * superMul;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
         // NOTE: firing does NOT fill the super meter — only HITTING an enemy does (see bump/hit handlers).
@@ -630,7 +646,7 @@ export function step(state, inputs, dt) {
         // Auto-aim REMOVED (per request): quick bullets honour manual aim too — no
         // snapping to the nearest enemy. You point where you shoot.
         const ax = p.aimX, ay = p.aimY;
-        fireBullet(state, p, ch, eff, isOver, ax, ay);
+        fireBullet(state, p, ch, eff, isOver, ax, ay, superMul);
         // NOTE: firing does NOT fill the super meter — only a bullet HITTING an enemy does (see applyBulletHit).
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
@@ -743,7 +759,14 @@ export function step(state, inputs, dt) {
           f = -KICK_BLOCK_REBOUND;                                      // weak kick rebounds off the defender
           b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
         }
-        if (f != null) { b.vx = vtx + f * vn * cnx; b.vy = vty + f * vn * cny; } // glance kept, normal per tier
+        if (f != null) {
+          let ovx = vtx + f * vn * cnx, ovy = vty + f * vn * cny;  // snooker glance (tangential kept, normal per tier)
+          // A drive-through (f>0) only NUDGES off course — cap the carom to MAX_DEFLECT so the ball
+          // deflects by the impact angle but keeps heading downfield. A weak kick (f<0) still fully
+          // rebounds off the defender (that's its block mechanic), so it's left uncapped.
+          if (f > 0) { const c = capDeflect(b.vx / bspeed, b.vy / bspeed, ovx, ovy, MAX_DEFLECT); ovx = c.x; ovy = c.y; }
+          b.vx = ovx; b.vy = ovy;
+        }
         b.kickTier = 0; // consumed — never re-bumps a second enemy on the same tier
         // Any kick that bumps an enemy earns overcharge: a FULL/OVERCHARGE kick fills it now,
         // a quick kick fills 1/3 (three hits). An overcharge kick's ball can't self-refill (b.overSpent).
@@ -773,10 +796,10 @@ export function step(state, inputs, dt) {
 
 // PRIMARY attack — fire a bullet along `aimX,aimY` (defaults to the player's aim; a quick
 // shot passes an auto-aim direction toward the nearest enemy, see #6), scaled by charge.
-function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY) {
+function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY, superMul = 1) {
   p.shootCd = ch.shootCooldown;
   p.firing = true;
-  const cm = chargeMul(charge);
+  const cm = chargeMul(charge) * superMul; // SUPER boosts every bullet — even a quick one
   const off = radiusOf(p, state) + PROJECTILE.radius + 2;
   const spd = state.settings.bulletSpeed * cm;
   state.projectiles.push({
@@ -952,14 +975,17 @@ function updateProjectiles(state, dt) {
       }
     }
 
-    // A LOOSE ball is nudged by any bullet.
+    // A LOOSE ball is nudged by any bullet — SNOOKER: it flies off along the line of centres
+    // (impact point -> ball centre), so shooting the ball off-centre sends it off at an angle
+    // (capped to MAX_DEFLECT — a reduced effect, not a full 90° cut).
     if (!b.owner) {
       const bdx = b.x - pr.x, bdy = b.y - pr.y;
       if (Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
         const l = Math.hypot(pr.vx, pr.vy) || 1;
         b.lastTouch = pr.team; b.pickupCd = RELEASE_PICKUP_CD; clearKick(b); // bullet-pushed, not a kick
-        b.vx = (pr.vx / l) * PROJECTILE.ballPush * pr.cmul;
-        b.vy = (pr.vy / l) * PROJECTILE.ballPush * pr.cmul;
+        const push = snookerPush(pr.x, pr.y, pr.vx / l, pr.vy / l, b.x, b.y, PROJECTILE.radius + ballR);
+        const sp = PROJECTILE.ballPush * pr.cmul;
+        b.vx = push.ux * sp; b.vy = push.uy * sp;
         addImpact(state, pr, 'ball', b.x, b.y);
         continue; // consume the bullet
       }
@@ -1097,7 +1123,7 @@ function wallCannonMul(state, bx, by, dx, dy) {
       if (m > mul) mul = m;
     }
   };
-  for (const w of arenaOf(state).walls) if (w.skin !== 'trees') consider(w, BOMB_WALL_CANNON_STATIC); // bombs sail over trees — no cannon
+  for (const w of arenaOf(state).walls) consider(w, BOMB_WALL_CANNON_STATIC);
   for (const w of (state.builtWalls || [])) consider(w, 1 + (BOMB_WALL_CANNON_BUILT - 1) * (w.hp / w.maxHp));
   return mul;
 }
@@ -1154,7 +1180,7 @@ function explode(state, bomb, stack = 1) {
       // COVER: a STATIC wall between the blast and this player blocks the push entirely;
       // a BUILT wall softens it by its remaining HP (strong wall = minor push, weak =
       // most of the push). Behind an indestructible wall you feel nothing.
-      if (arenaOf(state).walls.some((w) => w.skin !== 'trees' && segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD))) continue; // trees don't shield a blast — it goes over the canopy
+      if (arenaOf(state).walls.some((w) => segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD))) continue;
       let coverPass = 1;
       for (const w of state.builtWalls) {
         if (segBlockedByWall(w, bomb.x, bomb.y, t.x, t.y, COVER_PAD)) {
