@@ -30,22 +30,23 @@ function shootBall(off) {
 }
 
 {
-  const r = shootBall(12); // ball below the line -> deflects down-forward
+  const r = shootBall(8); // modest below-centre hit -> should VISIBLY veer down-forward
   ok(!r.missed, 'below-line ball shot connected');
   ok(r.vx > 5, `ball still travels forward (vx=${r.vx.toFixed(0)})`);
   ok(r.vy > 3, `ball deflects DOWN off a below-centre shot (vy=${r.vy.toFixed(0)}, ${ang(r.vx, r.vy)}°)`);
-  ok(Math.abs(ang(r.vx, r.vy)) <= 22, `deflection is a REDUCED effect, not sideways (${ang(r.vx, r.vy)}° <= 22°)`);
+  ok(Math.abs(ang(r.vx, r.vy)) >= 20, `deflection is CLEARLY visible now (${ang(r.vx, r.vy)}° >= 20°)`);
+  ok(Math.abs(ang(r.vx, r.vy)) <= 45, `still capped, not spun sideways (${ang(r.vx, r.vy)}° <= 45°)`);
 }
 {
-  const r = shootBall(-12); // ball above the line -> deflects up-forward
+  const r = shootBall(-8); // modest above-centre hit -> veers up-forward
   ok(!r.missed, 'above-line ball shot connected');
   ok(r.vy < -3, `ball deflects UP off an above-centre shot (vy=${r.vy.toFixed(0)}, ${ang(r.vx, r.vy)}°)`);
-  ok(Math.abs(ang(r.vx, r.vy)) <= 22, `reduced effect, not sideways (${ang(r.vx, r.vy)}°)`);
+  ok(Math.abs(ang(r.vx, r.vy)) >= 20 && Math.abs(ang(r.vx, r.vy)) <= 45, `clearly visible, still capped (${ang(r.vx, r.vy)}°)`);
 }
 {
-  const r = shootBall(22); // near-edge graze — capped, never ~70-80°
-  ok(!r.missed, 'edge-graze ball shot connected');
-  ok(Math.abs(ang(r.vx, r.vy)) <= 22 && Math.abs(ang(r.vx, r.vy)) > 5, `edge graze capped, still forward (${ang(r.vx, r.vy)}°)`);
+  const r = shootBall(4); // even a SMALL offset should now deflect noticeably (gain)
+  ok(!r.missed, 'small-offset ball shot connected');
+  ok(Math.abs(ang(r.vx, r.vy)) >= 12, `small offset still veers thanks to gain (${ang(r.vx, r.vy)}° >= 12°)`);
 }
 {
   const r = shootBall(0); // dead centre -> straight

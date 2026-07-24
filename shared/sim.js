@@ -3,7 +3,7 @@
 // prediction of the player's own movement. Same rules everywhere = no desync.
 
 import {
-  FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, WALL_RESTITUTION,
+  FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, BALL_TAP_SPEED, WALL_RESTITUTION,
   RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
   PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
   OVERCHARGE_TTL, OVERCHARGE_MUL, OVERCHARGE_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
@@ -16,7 +16,7 @@ import {
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
   WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
   BUILD_WINDUP, BUILD_WINDUP_SLOW, BUILD_INTERRUPT_KV,
-  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, SUPER_QUICK_KB, SUPER_QUICK_KICK_SPEED, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds } from './arena.js';
@@ -249,6 +249,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     firing: false, // fired/released this tick (flash)
     lastSeq: 0, // last input seq applied (for client reconciliation)
     _fire: false, _special: false, _build: false, _charge: 0,
+    _superLatched: false, // super was active while loading THIS shot → its boost/overcharge persists even if super expires mid-charge
   };
   state.players[id] = p;
   return p;
@@ -440,6 +441,13 @@ function rollBallIntoNet(state, dt) {
 // effect is subtle. One knob for the whole feel; tune to taste (~degrees).
 const MAX_DEFLECT = 18 * Math.PI / 180;
 
+// The BALL reacts far more than a body: a shot to the ball should visibly veer it. Bigger cap +
+// a gain that amplifies the impact offset, so even a near-centre shot deflects noticeably (a body
+// stays subtle at MAX_DEFLECT). Tune BALL_SHOT_DEFLECT for the max angle, BALL_SHOT_GAIN for how
+// easily an off-centre shot reaches it.
+const BALL_SHOT_DEFLECT = 45 * Math.PI / 180;
+const BALL_SHOT_GAIN = 3.4;
+
 // Cap the deflection of an outgoing vector (ovx,ovy) to at most `maxAng` off the incoming unit
 // direction (inx,iny), preserving the outgoing speed. Returns the (possibly rotated) vector.
 function capDeflect(inx, iny, ovx, ovy, maxAng) {
@@ -458,9 +466,10 @@ function capDeflect(inx, iny, ovx, ovy, maxAng) {
 // plus `mul`, a magnitude floor (1 dead-on … ~0.94 at the cap) so a glance still shoves. The
 // impact offset is the target's perpendicular distance from the flight line, which is constant
 // along that line, so it's exact even for a bullet that doesn't sub-step.
-function snookerPush(sx, sy, dx, dy, px, py, maxOff) {
-  const cap = maxOff * Math.sin(MAX_DEFLECT);
-  const perp = clamp((px - sx) * (-dy) + (py - sy) * dx, -cap, cap); // signed offset, capped to the max angle
+function snookerPush(sx, sy, dx, dy, px, py, maxOff, maxAng = MAX_DEFLECT, gain = 1) {
+  const cap = maxOff * Math.sin(maxAng);
+  const raw = ((px - sx) * (-dy) + (py - sy) * dx) * gain;             // impact offset, amplified by gain
+  const perp = clamp(raw, -cap, cap);                                 // capped to the max angle
   const along = Math.sqrt(Math.max(0, maxOff * maxOff - perp * perp)); // forward term (never backward)
   let ux = dx * along - dy * perp, uy = dy * along + dx * perp;        // rotate travel toward the contact normal
   const ul = Math.hypot(ux, uy) || 1;
@@ -594,8 +603,10 @@ export function step(state, inputs, dt) {
     // pay the same ~1s wind-up as humans (chargeRate lets harder bots reach full
     // sooner). A release (fire) consumes it; letting go WITHOUT firing (cancel)
     // resets it. Overcharge meter decays if unused.
-    if (inp.hold) p._charge = Math.min(1, p._charge + dt / SHOOT_CHARGE_TIME * (p.chargeRate || 1) * (p.cardShot || 1) * (p.power ? SUPER_CHARGE_RATE : 1)); // SUPER halves the wind-up
-    else if (!p._fire) p._charge = 0;
+    if (inp.hold) {
+      p._charge = Math.min(1, p._charge + dt / SHOOT_CHARGE_TIME * (p.chargeRate || 1) * (p.cardShot || 1) * (p.power ? SUPER_CHARGE_RATE : 1)); // SUPER halves the wind-up
+      if (p.power) p._superLatched = true; // loading a shot while SUPER → the super boost sticks to this shot even if super expires before release
+    } else if (!p._fire) { p._charge = 0; p._superLatched = false; } // cancelled (let go without firing) → drop the latch
     if (p.powerT > 0) { p.powerT -= dt; if (p.powerT <= 0) { p.powerT = 0; p.power = false; } }
     p.lastSeq = inp.seq != null ? inp.seq : p.lastSeq;
   }
@@ -616,10 +627,14 @@ export function step(state, inputs, dt) {
     if (p._fire) {
       const eff = p._charge;            // sim-accumulated hold power (0..1)
       const isFull = eff >= FULL_CHARGE;   // hold-based full — anyone can reach it
-      const inSuper = !!p.power;           // in SUPER mode: EVERY shot (even a quick tap) flies harder
+      // Super counts if it's live now OR was live while this shot was being loaded (latched):
+      // a shot LOADED in super keeps its +50% (and overcharge) even if super expired before release.
+      const inSuper = !!(p.power || p._superLatched);
       const superMul = inSuper ? SUPER_SHOT_MUL : 1;
-      const isOver = isFull && p.power;    // OVERCHARGE = full + earned meter (the ceiling, on top of superMul)
+      const isOver = isFull && inSuper;    // OVERCHARGE = full + super (the ceiling, on top of superMul); persists via the latch
       if (b.owner === p.id) {
+        const isTap = eff < QUICK_CHARGE; // a SINGLE QUICK PRESS = a light dribble touch...
+        const superQuickKick = inSuper && isTap; // ...but IN super a quick kick is a real shove (see kickSpeed)
         const cm = chargeMul(eff); // charged shot = further/faster
         // #11 SNOOKER STRIKE + #6 AUTO-AIM: pick a target, then strike the ball cleanly ALONG
         // the vector from the BALL's centre to it — no offset/tangential skew, so the ball's
@@ -634,8 +649,14 @@ export function step(state, inputs, dt) {
         b.lastKicker = p.id; // who launched it — refills power if this kick bumps an enemy
         b.kickTier = isOver ? 2 : isFull ? 1 : 0; // how it behaves hitting an enemy (see the bump handler)
         b.overSpent = isOver; // an overcharge kick's ball can't re-farm the meter (any later bump)
-        b.vx = dx * state.settings.shotPower * cm * superMul;
-        b.vy = dy * state.settings.shotPower * cm * superMul;
+        // Outside super a tap is a fixed low dribble touch (~2 ball-lengths). In super a quick
+        // kick is launched fast enough to clear BALL_BUMP_SPEED and shove a defender ~1.5 lengths.
+        // Any real charge (>= QUICK_CHARGE) is a proper shot (chargeMul, +50% in super).
+        const kickSpeed = superQuickKick ? SUPER_QUICK_KICK_SPEED
+                        : isTap ? BALL_TAP_SPEED
+                        : state.settings.shotPower * cm * superMul;
+        b.vx = dx * kickSpeed;
+        b.vy = dy * kickSpeed;
         b.pickupCd = RELEASE_PICKUP_CD;
         p.firing = true;
         // NOTE: firing does NOT fill the super meter — only HITTING an enemy does (see bump/hit handlers).
@@ -646,13 +667,20 @@ export function step(state, inputs, dt) {
         // Auto-aim REMOVED (per request): quick bullets honour manual aim too — no
         // snapping to the nearest enemy. You point where you shoot.
         const ax = p.aimX, ay = p.aimY;
-        fireBullet(state, p, ch, eff, isOver, ax, ay, superMul);
+        // A QUICK shot (below QUICK_CHARGE) stays a quick shot; a medium/full shot in super
+        // gets the +50% proportional boost. A quick shot fired IN super is tagged so it gives
+        // the enemy a small ~½-ball-length nudge instead of the usual "slow only, no push".
+        const isQuick = eff < QUICK_CHARGE;
+        const shotCharge = (inSuper && !isQuick) ? Math.min(1, eff * SUPER_SHOT_MUL) : eff;
+        const superQuick = inSuper && isQuick;
+        fireBullet(state, p, ch, shotCharge, isOver, ax, ay, superQuick);
         // NOTE: firing does NOT fill the super meter — only a bullet HITTING an enemy does (see applyBulletHit).
         p.ammo -= 1;
         if (p.ammo <= 0) { p.ammo = 0; p.reloadLock = EMPTY_RELOAD; p.ammoT = 0; }
         if (isOver) { p.power = false; p.powerT = 0; p.powerMeter = 0; }
       }
       p._charge = 0; // consume the wind-up on release
+      p._superLatched = false; // shot fired — clear the latch for the next one
     }
     if (p._special && p.specialCd <= 0) useSpecial(state, p, ch, p._sax || 0, p._say || 0);
     // Commit at >= 0.9, not exactly 1: a HUMAN releases the build edge at their LOCAL windup=1,
@@ -796,10 +824,10 @@ export function step(state, inputs, dt) {
 
 // PRIMARY attack — fire a bullet along `aimX,aimY` (defaults to the player's aim; a quick
 // shot passes an auto-aim direction toward the nearest enemy, see #6), scaled by charge.
-function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY, superMul = 1) {
+function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY, superQuick = false) {
   p.shootCd = ch.shootCooldown;
   p.firing = true;
-  const cm = chargeMul(charge) * superMul; // SUPER boosts every bullet — even a quick one
+  const cm = chargeMul(charge); // caller already folded any SUPER boost into `charge` (one proportion)
   const off = radiusOf(p, state) + PROJECTILE.radius + 2;
   const spd = state.settings.bulletSpeed * cm;
   state.projectiles.push({
@@ -809,6 +837,7 @@ function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.
     dist: 0,            // travelled distance -> proximity knockback
     charge: charge || 0, // 0..1 (a full charge ignores the point-blank rule)
     over: !!over,       // OVERCHARGE bullet — strips/pushes harder (see hitEnemy)
+    superQuick: !!superQuick, // a quick shot fired in SUPER — gives a small ½-ball-length nudge (see hitEnemy)
     cmul: cm,           // power multiplier
   });
 }
@@ -976,14 +1005,15 @@ function updateProjectiles(state, dt) {
     }
 
     // A LOOSE ball is nudged by any bullet — SNOOKER: it flies off along the line of centres
-    // (impact point -> ball centre), so shooting the ball off-centre sends it off at an angle
-    // (capped to MAX_DEFLECT — a reduced effect, not a full 90° cut).
+    // (impact point -> ball centre), so shooting the ball off-centre sends it visibly off at an
+    // angle. Uses the BALL's own larger cap + gain (BALL_SHOT_*) so it clearly veers, not the
+    // subtle body deflection.
     if (!b.owner) {
       const bdx = b.x - pr.x, bdy = b.y - pr.y;
       if (Math.hypot(bdx, bdy) < PROJECTILE.radius + ballR) {
         const l = Math.hypot(pr.vx, pr.vy) || 1;
         b.lastTouch = pr.team; b.pickupCd = RELEASE_PICKUP_CD; clearKick(b); // bullet-pushed, not a kick
-        const push = snookerPush(pr.x, pr.y, pr.vx / l, pr.vy / l, b.x, b.y, PROJECTILE.radius + ballR);
+        const push = snookerPush(pr.x, pr.y, pr.vx / l, pr.vy / l, b.x, b.y, PROJECTILE.radius + ballR, BALL_SHOT_DEFLECT, BALL_SHOT_GAIN);
         const sp = PROJECTILE.ballPush * pr.cmul;
         b.vx = push.ux * sp; b.vy = push.uy * sp;
         addImpact(state, pr, 'ball', b.x, b.y);
@@ -1074,7 +1104,11 @@ function hitEnemy(state, t, pr) {
   }
 
   if (pr.charge < QUICK_CHARGE) {
-    t.slowTimer = SLOW_TIME; // quick shot: slow, don't push
+    t.slowTimer = SLOW_TIME; // quick shot: slow...
+    if (pr.superQuick) { // ...but a quick shot fired IN super also nudges the enemy ~½ a ball-length
+      t.kvx += bnx * SUPER_QUICK_KB * angMul;
+      t.kvy += bny * SUPER_QUICK_KB * angMul;
+    }
     if (!pr.over) earnPower(shooter, OVERCHARGE_PARTIAL_GAIN); // a quick hit fills 1/3 (three quick hits = one super)
     return;
   }

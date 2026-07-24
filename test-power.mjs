@@ -7,7 +7,7 @@
 //     enemy. A quick poke never earns it, and an overcharge kick can't self-farm it.
 // Run: node test-power.mjs
 import { createState, addPlayer, step } from './shared/sim.js';
-import { DT, FULL_CHARGE, OVERCHARGE_TTL, BOMB } from './shared/constants.js';
+import { DT, FULL_CHARGE, OVERCHARGE_TTL, BOMB, SHOOT_CHARGE_TIME } from './shared/constants.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
@@ -21,9 +21,11 @@ function duel() {
   s.players.A.ammo = 3;
   return s;
 }
-// HOLD to build charge (~1s = full), then release (fire). `others` = co-players' idle inputs.
+// HOLD to build charge, then release (fire). `charge` is the TARGET charge FRACTION (0..1,
+// 1 = full) — we hold charge*SHOOT_CHARGE_TIME seconds so tests stay correct if the base
+// wind-up time changes. `others` = co-players' idle inputs.
 function shoot(s, id, charge, aim = [1, 0], others = {}) {
-  const n = Math.max(0, Math.round(charge * 60));
+  const n = Math.max(0, Math.round(charge * SHOOT_CHARGE_TIME * 60));
   for (let i = 0; i < n; i++) step(s, { [id]: inp({ hold: true, aimX: aim[0], aimY: aim[1] }), ...others }, DT);
   step(s, { [id]: inp({ fire: true, aimX: aim[0], aimY: aim[1] }), ...others }, DT);
 }

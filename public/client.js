@@ -3,7 +3,7 @@
 
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
-  SHOOT_CHARGE_TIME, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB } from '/shared/arena.js';
@@ -78,6 +78,7 @@ function saveLoadout(a) { try { localStorage.setItem('pikme-loadout', JSON.strin
 let myLoadout = loadLoadout();            // null => auto-fill top-3; else a saved [{r,n}|null] x3
 let cosmeticById = {};                    // playerId -> "hero:skin", from the roster control frame
 let holdingBall = false;     // am I currently carrying the ball?
+let mySuper = false;         // am I in SUPER (overcharge ready)? → local charge ring fills 2× faster
 
 // Live-tunable settings (pause menu). Client keeps its own copy for prediction
 // + rendering and pushes changes to the authoritative server.
@@ -1056,9 +1057,17 @@ function renderPowerSlots() {
 // Tap a slot to select it, then tap a deck card to equip it there (reuses setSlotCard, so
 // it persists + tells the server, exactly like the home carousel drag-to-equip).
 let cardsSelSlot = 0;
-const FAN_CARD_W = 66;  // card width in the album fan (MUST match .fan-card CSS width)
-const FAN_GAP = 8;      // breathing gap between cards while the sleeve still has room
-const FAN_PEEK = 26;    // visible sliver per overlapped card (so ~50 fit as a scrollable spread)
+// Album = a 2×2 grid of tier DECKS; tapping one expands it INLINE into a coverflow carousel.
+let cardsOpenTier = null;                                          // null = deck grid; else the open rarity
+const cardsCarIdx = { legendary: 0, epic: 0, rare: 0, common: 0 }; // centred card index per tier carousel
+const TIER_ORDER = ['legendary', 'epic', 'rare', 'common'];
+// The unequipped album cards of one tier, best-worth first — the contents of that tier's deck.
+function albumGroup(rar) {
+  const eff = effectiveLoadout();
+  const isEq = (c) => eff.some((s) => s && s.r === c.r && +s.n === +c.n);
+  return myCards().filter((c) => c.r === rar && !isEq(c)).sort((a, b) => (b.w || 0) - (a.w || 0));
+}
+const albumCardAt = (rar, i) => albumGroup(rar)[i] || null;
 // One-shot "landed in a slot" pop — called AFTER renderCardsPage() rebuilds the node.
 function popCardsSlot(i) {
   const el = document.querySelector('#cards-slots .pslot[data-slot="' + i + '"]');
@@ -1094,135 +1103,146 @@ function renderCardsPage() {
     item.appendChild(el); item.appendChild(info);
     slotsEl.appendChild(item);
   });
+  // ---- Album: a 2×2 grid of tier DECKS; tap one to open its coverflow carousel inline. ----
+  if (cardsOpenTier && !albumGroup(cardsOpenTier).length) cardsOpenTier = null;   // opened deck ran dry
+  deckEl.className = 'cards-deck ' + (cardsOpenTier ? 'cards-album-open' : 'cards-album-grid');
   deckEl.innerHTML = '';
-  deckEl.classList.add('cards-deck-fan');
-  const all = myCards();
-  if (!all.length) { deckEl.innerHTML = '<div class="subpage-note"><b>אין קלפים עדיין</b><span>הקלפים שלך יופיעו כאן</span></div>'; return; }
-  // Album as an overlapping "cards spread on a table" per tier: highest tier first, best worth
-  // first within a tier. Each tier is a horizontally-scrollable fan where every card shows only
-  // a peeking edge (handles ~50/tier). Tap a card to reveal it; drag a card onto a slot to equip
-  // (gestures handled by bindFanDrag() below). FAN_PEEK = visible sliver width per card.
-  const TIER_ORDER = ['legendary', 'epic', 'rare', 'common'];
-  const byWorth = (a, b) => (b.w || 0) - (a.w || 0);
-  const isEquipped = (c) => eff.some((s) => s && s.r === c.r && +s.n === +c.n);
+  if (cardsOpenTier) renderAlbumCarousel(deckEl); else renderAlbumGrid(deckEl);
+}
+
+// The 4 tier decks (legendary→common). EVERY tier keeps its square — an empty one shows ×0.
+function renderAlbumGrid(deckEl) {
+  const grid = document.createElement('div'); grid.className = 'tdeck-grid';
   TIER_ORDER.forEach((rar) => {
-    // Equipped cards leave the album (they now live in a slot); removing one puts it back.
-    const group = all.filter((c) => c.r === rar && !isEquipped(c)).sort(byWorth);
-    // Each tier is its OWN enclosed box (rarity-colored border) so cards can never read as
-    // belonging to a neighbouring tier's header. ALL tiers show, even when empty.
-    const sec = document.createElement('div'); sec.className = 'cards-tier rarity-' + rar;
-    const head = document.createElement('div');
-    head.className = 'cards-tier-head rarity-' + rar;
-    head.innerHTML = '<span class="cards-tier-name">' + (HEB_RAR[rar] || rar) + '</span><span class="cards-tier-count">' + group.length + '</span>';
-    sec.appendChild(head);
-    if (!group.length) { const e = document.createElement('div'); e.className = 'cards-tier-empty'; e.textContent = 'ריק'; sec.appendChild(e); deckEl.appendChild(sec); return; }
-    const fan = document.createElement('div'); fan.className = 'cards-fan';
-    const track = document.createElement('div'); track.className = 'fan-track';
-    track.style.width = '100%'; // shelf is a CONSTANT width; cards pack from the right across it
-    const n = group.length;
-    // Pack from the RIGHT (RTL: best first) at a fixed pitch (card + gap) while the sleeve has
-    // room; once it's dense the pitch compresses so all n still fit the full-width shelf — that's
-    // when the cards start to overlap. No horizontal scroll: the row always fits the sleeve.
-    //   pitch = min(card+gap, (100% - card) / (n-1)) ; each card offset from the right by pitch*idx.
-    const pitch = 'min(' + (FAN_CARD_W + FAN_GAP) + 'px, (100% - ' + FAN_CARD_W + 'px) / ' + Math.max(1, n - 1) + ')';
-    group.forEach((c, idx) => {
-      const el = document.createElement('div');
-      el.className = 'fan-card rarity-' + c.r;
-      // Anchor from the right so the fan opens right→left; rightmost (best) sits on top.
-      el.style.left = 'auto';
-      el.style.right = n > 1 ? 'calc(' + pitch + ' * ' + idx + ')' : '0px';
-      el.style.zIndex = n - idx;
-      el.dataset.r = c.r; el.dataset.n = c.n;
-      el.appendChild(slotCardEl(c, 'fan-card-art', FAN_CARD_W, 88));
-      if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
-      const tag = document.createElement('span'); tag.className = 'fan-card-tag'; tag.textContent = '#' + c.n; el.appendChild(tag);
-      track.appendChild(el);
-    });
-    fan.appendChild(track);
-    sec.appendChild(fan);
-    deckEl.appendChild(sec);
+    const list = albumGroup(rar);
+    const d = document.createElement('div');
+    d.className = 'tdeck rarity-' + rar + (list.length ? '' : ' tdeck-empty');
+    d.dataset.tier = rar;
+    const count = document.createElement('span'); count.className = 'tdeck-count'; count.textContent = '×' + list.length; d.appendChild(count);
+    const pile = document.createElement('div'); pile.className = 'tdeck-pile';
+    if (list.length) {
+      const e1 = document.createElement('div'); e1.className = 'tdeck-edge tdeck-e1';
+      const e2 = document.createElement('div'); e2.className = 'tdeck-edge tdeck-e2';
+      const top = document.createElement('div'); top.className = 'tdeck-top rarity-' + rar;
+      top.appendChild(slotCardEl(list[0], 'tdeck-art', 60, 84));   // best card faces up on the pile
+      pile.appendChild(e1); pile.appendChild(e2); pile.appendChild(top);
+    } else {
+      pile.classList.add('tdeck-pile-empty');
+    }
+    d.appendChild(pile);
+    grid.appendChild(d);
+  });
+  deckEl.appendChild(grid);
+}
+
+// One tier opened: coverflow carousel (swipe to browse; drag the centre card onto a slot to equip).
+function renderAlbumCarousel(deckEl) {
+  const rar = cardsOpenTier; const list = albumGroup(rar);
+  const wrap = document.createElement('div'); wrap.className = 'tcar';
+  const top = document.createElement('div'); top.className = 'tcar-top';
+  const back = document.createElement('button'); back.type = 'button'; back.className = 'tcar-back'; back.dataset.tcarBack = '1'; back.textContent = '‹ חפיסות';
+  const tabs = document.createElement('div'); tabs.className = 'tcar-tabs';
+  TIER_ORDER.forEach((r) => {
+    const g = albumGroup(r);
+    const t = document.createElement('button'); t.type = 'button';
+    t.className = 'tcar-tab rarity-' + r + (r === rar ? ' on' : '');
+    t.dataset.tcarTab = r; t.textContent = g.length; if (!g.length) t.disabled = true;
+    tabs.appendChild(t);
+  });
+  top.appendChild(back); top.appendChild(tabs); wrap.appendChild(top);
+  const stage = document.createElement('div'); stage.className = 'tcar-stage';
+  list.forEach((c, i) => {
+    const el = document.createElement('div'); el.className = 'tcar-card rarity-' + c.r;
+    el.dataset.i = i; el.dataset.r = c.r; el.dataset.n = c.n;
+    el.appendChild(slotCardEl(c, 'tcar-art', 96, 130));
+    const tag = document.createElement('span'); tag.className = 'tcar-tag'; tag.textContent = '#' + c.n; el.appendChild(tag);
+    if (c.w) { const w = document.createElement('span'); w.className = 'tcar-worth'; w.textContent = c.w; el.appendChild(w); }
+    if (c.c > 1) { const b = document.createElement('span'); b.className = 'cf-badge'; b.textContent = '×' + c.c; el.appendChild(b); }
+    stage.appendChild(el);
+  });
+  wrap.appendChild(stage);
+  const hint = document.createElement('div'); hint.className = 'tcar-hint'; hint.innerHTML = '‹ החליקו לדפדוף · <b>גררו את הקלף המרכזי אל חריץ</b> ›';
+  wrap.appendChild(hint);
+  deckEl.appendChild(wrap);
+  layoutAlbumCarousel();
+}
+
+// Coverflow placement: centred card big, neighbours peel back on both sides.
+function layoutAlbumCarousel() {
+  const rar = cardsOpenTier; if (!rar) return;
+  const stage = document.querySelector('#cards-deck .tcar-stage'); if (!stage) return;
+  const cards = stage.querySelectorAll('.tcar-card'); if (!cards.length) return;
+  const i0 = Math.max(0, Math.min(cardsCarIdx[rar], cards.length - 1)); cardsCarIdx[rar] = i0;
+  cards.forEach((el) => {
+    const i = +el.dataset.i, off = i - i0, a = Math.abs(off);
+    el.style.transform = 'translateX(' + (off * 58) + 'px) scale(' + Math.max(0.6, 1 - a * 0.16) + ')';
+    el.style.opacity = a > 2 ? 0 : 1 - a * 0.18;
+    el.style.zIndex = 100 - a;
+    el.style.pointerEvents = a > 2 ? 'none' : 'auto';
+    el.classList.toggle('tcar-center', off === 0);
   });
 }
-// ---- Album fan gestures (delegated on #cards-deck) -------------------------------------
-// The deck is a set of overlapping "spread on a table" fans (one per tier). On a fan card:
-//   TAP           -> reveal it (enlarged; only one revealed at a time).
-//   SWIPE SIDEWAYS-> browse the fan; the card under the finger POPS UP (.peek) so you can see
-//                    which one you're on (at rest each card shows only a ~26px sliver). Scroll
-//                    is driven in JS (the fan is touch-action:none) so the peek tracks the finger.
-//   PULL UP       -> lift the card into a ghost; drop it on a slot (#cards-slots) to equip.
-//                    You can pull up mid-browse — it grabs whichever card is under the finger.
-// A revealed card can be dragged in any direction to equip. Dropping off a slot is a no-op.
-(function bindFanDrag() {
+// ---- Album gestures (delegated on #cards-deck; survive re-renders) ----------------------
+// GRID:      tap a deck -> open its carousel.
+// CAROUSEL:  ‹back -> grid · tab -> switch tier · tap a side card -> centre it ·
+//            swipe left/right -> browse · drag the CENTRE card up onto a slot -> equip.
+(function bindAlbumDeck() {
   const deck = document.getElementById('cards-deck');
   if (!deck) return;
-  let sx = null, sy = null, mode = null, card = null, cardEl = null, ghost = null, scroller = null, startScroll = 0, pid = null, peekEl = null;
+  // clicks: open a deck, go back, switch tier (buttons/decks sit outside the swipe surface).
+  deck.addEventListener('click', (e) => {
+    const back = e.target && e.target.closest ? e.target.closest('[data-tcar-back]') : null;
+    if (back) { cardsOpenTier = null; renderCardsPage(); return; }
+    const tab = e.target && e.target.closest ? e.target.closest('.tcar-tab') : null;
+    if (tab) { if (!tab.disabled) { cardsOpenTier = tab.dataset.tcarTab; renderCardsPage(); } return; }
+    const td = e.target && e.target.closest ? e.target.closest('.tdeck') : null;
+    if (td && !td.classList.contains('tdeck-empty')) { cardsOpenTier = td.dataset.tier; renderCardsPage(); }
+  });
+  // pointer: carousel swipe + drag-the-centre-card-to-a-slot (mirrors the lobby lift-to-equip).
+  let sx = null, sy = null, mode = null, onCenter = false, cardEl = null, ghost = null, pid = null;
   const TH = 8;
   const slotUnder = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('.pslot') : null; };
-  // Topmost RESTING fan-card under the point. We drop the current peek first so its scaled-up
-  // box can't shadow the neighbour the finger has actually moved onto.
-  const cardUnder = (x, y) => {
-    const prev = peekEl; if (prev) prev.classList.remove('peek');
-    const el = document.elementFromPoint(x, y);
-    const fc = el && el.closest ? el.closest('.fan-card') : null;
-    if (prev && prev !== fc) { /* stays un-peeked */ } else if (prev) prev.classList.add('peek');
-    return fc;
-  };
-  const setPeek = (fc) => { if (fc === peekEl) return; if (peekEl) peekEl.classList.remove('peek'); peekEl = fc || null; if (peekEl) peekEl.classList.add('peek'); };
-  const clearPeek = () => { if (peekEl) { peekEl.classList.remove('peek'); peekEl = null; } };
-  const grab = (fc) => { cardEl = fc; card = { r: fc.dataset.r, n: +fc.dataset.n }; };
-  const clear = () => {
-    if (ghost) { ghost.remove(); ghost = null; }
-    clearPeek();
-    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
-  };
-  const reset = () => { clear(); sx = sy = null; mode = null; card = null; cardEl = null; scroller = null; pid = null; };
+  const clearOver = () => document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
+  const reset = () => { if (ghost) { ghost.remove(); ghost = null; } clearOver(); sx = sy = null; mode = null; onCenter = false; cardEl = null; pid = null; };
   deck.addEventListener('pointerdown', (e) => {
-    const fc = e.target && e.target.closest ? e.target.closest('.fan-card') : null;
-    if (!fc) { sx = null; return; }
-    grab(fc);
-    scroller = fc.closest('.cards-fan'); startScroll = scroller ? scroller.scrollLeft : 0;
-    sx = e.clientX; sy = e.clientY; mode = null; pid = e.pointerId;
-    setPeek(fc);   // the pressed card lifts immediately
+    const c = e.target && e.target.closest ? e.target.closest('.tcar-card') : null;
+    if (!c) { sx = null; return; }
+    cardEl = c; sx = e.clientX; sy = e.clientY; mode = null; pid = e.pointerId;
+    onCenter = c.classList.contains('tcar-center');
+    try { deck.setPointerCapture(pid); } catch { /* older webviews */ }
   });
   deck.addEventListener('pointermove', (e) => {
     if (sx == null) return;
     const dx = e.clientX - sx, dy = e.clientY - sy;
     if (!mode) {
-      const revealed = cardEl && cardEl.classList.contains('revealed');
-      // Pull-up wins even when a bit diagonal (natural "pull it out" motion); a revealed card
-      // lifts in any direction; otherwise a clear sideways move browses the fan.
-      if ((dy < -TH && Math.abs(dy) >= Math.abs(dx) * 0.7) || (revealed && Math.hypot(dx, dy) > TH)) {
-        mode = 'lift'; try { deck.setPointerCapture(pid); } catch { /* older webviews */ }
-      } else if (Math.abs(dx) > TH || Math.abs(dy) > TH) { mode = 'scroll'; } else return;
+      if (onCenter && dy < -TH && Math.abs(dy) >= Math.abs(dx) * 0.7) mode = 'lift'; // pull the centre card up
+      else if (Math.abs(dx) > TH || Math.abs(dy) > TH) mode = 'swipe';
+      else return;
     }
-    if (mode === 'scroll') {
-      if (scroller) scroller.scrollLeft = startScroll - dx;      // JS-driven for touch + mouse
-      const fc = cardUnder(e.clientX, e.clientY); setPeek(fc);   // peek follows the finger
-      if (dy < -TH * 1.8 && fc) {                                // pulled up mid-browse -> grab THIS card
-        grab(fc); mode = 'lift'; try { deck.setPointerCapture(pid); } catch { /* older webviews */ }
-      } else return;
+    if (mode === 'lift') {
+      const card = albumCardAt(cardsOpenTier, cardsCarIdx[cardsOpenTier]); if (!card) return;
+      if (!ghost) {
+        ghost = document.createElement('div'); ghost.className = 'pslot-ghost rarity-' + card.r;
+        const gi = document.createElement('img'); gi.alt = ''; gi.src = `${CARD_ART_BASE}/${card.r}/${card.n}.webp`;
+        ghost.appendChild(gi); document.body.appendChild(ghost);
+      }
+      ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
+      clearOver(); const s = slotUnder(e.clientX, e.clientY); if (s) s.classList.add('pslot-over');
     }
-    // lift
-    clearPeek();
-    if (!ghost) {
-      ghost = document.createElement('div'); ghost.className = 'pslot-ghost rarity-' + card.r;
-      const gi = document.createElement('img'); gi.alt = ''; gi.src = `${CARD_ART_BASE}/${card.r}/${card.n}.webp`;
-      ghost.appendChild(gi); document.body.appendChild(ghost);
-    }
-    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px';
-    const slot = slotUnder(e.clientX, e.clientY);
-    document.querySelectorAll('.pslot.pslot-over').forEach((s) => s.classList.remove('pslot-over'));
-    if (slot) slot.classList.add('pslot-over');
   });
   const end = (e) => {
     if (sx == null) { reset(); return; }
     if (mode === 'lift') {
-      const slot = slotUnder(e.clientX, e.clientY);
-      if (slot && slot.dataset.slot != null) { setSlotCard(+slot.dataset.slot, { r: card.r, n: +card.n }); renderCardsPage(); popCardsSlot(+slot.dataset.slot); }
-    } else if (mode == null && cardEl) {
-      const was = cardEl.classList.contains('revealed');   // tap toggles reveal (one at a time)
-      deck.querySelectorAll('.fan-card.revealed').forEach((el) => el.classList.remove('revealed'));
-      if (!was) cardEl.classList.add('revealed');
+      const s = slotUnder(e.clientX, e.clientY);
+      const card = albumCardAt(cardsOpenTier, cardsCarIdx[cardsOpenTier]);
+      if (s && s.dataset.slot != null && card) { setSlotCard(+s.dataset.slot, { r: card.r, n: +card.n }); renderCardsPage(); popCardsSlot(+s.dataset.slot); }
+    } else if (mode === 'swipe') {
+      const rar = cardsOpenTier, list = albumGroup(rar), dx = e.clientX - sx;   // drag right→left = next card
+      if (dx < -30) cardsCarIdx[rar] = Math.min(list.length - 1, cardsCarIdx[rar] + 1);
+      else if (dx > 30) cardsCarIdx[rar] = Math.max(0, cardsCarIdx[rar] - 1);
+      layoutAlbumCarousel();
+    } else if (cardEl && !cardEl.classList.contains('tcar-center')) {
+      cardsCarIdx[cardsOpenTier] = +cardEl.dataset.i; layoutAlbumCarousel();     // tap a side card -> centre it
     }
     reset();
   };
@@ -1627,7 +1647,7 @@ function isDismissBackdrop(t, screenEl) {
   if (t === screenEl) return true;                                    // stadium around a panel / outer page margin
   if (t.closest('.home-wrap')) return false;                          // inside the friends panel = main area → keep open
   // Interactive controls always keep the page open (buttons/links/inputs + non-button widgets).
-  if (t.closest('button, a, input, textarea, select, label, [role="button"], [contenteditable], .pslot, .pslot-item, .fan-card, .cards-fan, .friend-row, .fr-tab')) return false;
+  if (t.closest('button, a, input, textarea, select, label, [role="button"], [contenteditable], .pslot, .pslot-item, .tdeck, .tcar, .friend-row, .fr-tab')) return false;
   // Dismiss only on the page's own EMPTY structural whitespace — outer padding of the sub-page,
   // the body's gaps/side-margins, the header whitespace, or a bare heading. Visible content tiles
   // (shop items, news/club cards, mode cards, …) are the "main area" and are left alone, so the
@@ -2397,6 +2417,7 @@ function connect(name, avatar) {
       latest = snap;
       snapCount++;
       holdingBall = snap.ball.owner === me.playerId;
+      { const meP = snap.players && snap.players.find((p) => p.id === me.playerId); mySuper = !!(meP && meP.power); } // SUPER ready → charge fills 2× (mirrors sim)
       snaps.push({ tRecv: performance.now(), snap });
       if (snaps.length > 60) snaps.shift();
       reconcile(snap);
@@ -2944,7 +2965,7 @@ function releaseBuild(aim) { buildQueued = true; if (aim) buildHold = aim; playS
 
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
 function beginCharge() { if (!me.playerId) return; if (!holding) { holding = true; chargeStart = performance.now(); } } // no firing/charge (or shot sound) outside a live match — tapping the menu is silent
-function currentCharge() { return chargeStart === null ? 0 : Math.min(1, (performance.now() - chargeStart) / CHARGE_MS); }
+function currentCharge() { return chargeStart === null ? 0 : Math.min(1, (performance.now() - chargeStart) / CHARGE_MS * (mySuper ? SUPER_CHARGE_RATE : 1)); } // SUPER fills 2× faster (mirrors sim)
 // Commit a shot: fire in the pulled-out direction. The SERVER owns the actual
 // charge (accumulated from the held trigger); we just flag the release.
 function releaseShot(aim) {
@@ -4395,16 +4416,23 @@ function drawBomb(bomb) {
   // FLY-IN intro (lob arc): the bomb ARCS in from the thrower to where it lands over FLY_MS —
   // ease-out horizontally toward the landing spot + a sine hop for the throw. On arrival it kicks
   // a ground shock ring + dust + a small screen shake (once). Transforms the BODY only.
-  const FLY_MS = 340;
+  const FLY_MS = 460;
   const lt0 = bombSpawnT.get(bomb.id);
   ctx.save();
   if (lt0 != null) {
     const p = clamp((performance.now() - lt0) / FLY_MS, 0, 1);
     if (p < 1) {
       const ux = 1 - (1 - p) * (1 - p);              // ease-out toward the landing spot
+      const hop = Math.sin(p * Math.PI);             // 0→1→0 arc height factor
+      // A ground shadow at the LANDING spot that grows as the bomb drops — sells the throw.
+      ctx.save();
+      ctx.globalAlpha = 0.28 * (0.35 + 0.65 * p);
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.ellipse(x, y + r * 0.5, r * (0.5 + 0.6 * p), r * (0.24 + 0.28 * p), 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
       const src = bombSrc.get(bomb.id);
       if (src) { const sx = wx(src.x), sy = wy(src.y); ctx.translate((sx - x) * (1 - ux), (sy - y) * (1 - ux)); }
-      ctx.translate(0, -Math.sin(p * Math.PI) * r * 4);   // arc hop
+      ctx.translate(0, -hop * r * 7);   // higher arc hop — clearly a thrown bomb
     } else if (!bombLanded.has(bomb.id)) {                // arrival → shockwave
       bombLanded.add(bomb.id);
       spawnRing(bomb.x, bomb.y, 12, 58);
@@ -4749,6 +4777,18 @@ function inBushAt(x, y) {
   return false;
 }
 
+// A charge ring around the LOCAL player — same look as the shoot charge meter (drawPlayer).
+// Reused for the wall wind-up and the bomb-throw wind-up so all three read identically.
+function drawPlayerChargeRing(frac, col, fullCol) {
+  if (!rendered || frac <= 0.02) return;
+  const x = wx(rendered.x), y = wy(rendered.y), r = ws_(ownRadius());
+  ctx.save();
+  ctx.strokeStyle = frac >= 1 ? (fullCol || col) : col;
+  ctx.lineWidth = Math.max(2, ws_(4)); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x, y, r + ws_(11), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, frac)); ctx.stroke();
+  ctx.restore();
+}
+
 function drawObstacles() {
   const t = performance.now() / 1000;
   const A = fieldArena();
@@ -4775,9 +4815,9 @@ function drawObstacles() {
     ctx.translate(wx(cx), wy(cy)); ctx.rotate(ang);
     ctx.fillStyle = wind >= 1 ? '#ffd27a' : '#ffb347';
     ctx.fillRect(-L / 2, -T / 2, L, T);
-    // a thin progress bar under the ghost so the 0.5s read is unambiguous
-    if (wind < 1) { ctx.globalAlpha = 0.9; ctx.fillStyle = '#fff'; ctx.fillRect(-L / 2, T / 2 + 3, L * wind, 3); }
     ctx.globalAlpha = 1; ctx.restore();
+    // Wind-up read = a CHARGE RING around the player (same as the shoot meter), not a loading line.
+    drawPlayerChargeRing(wind, 'rgba(255,166,54,0.9)', 'rgba(255,214,64,0.95)');
   }
   // Ghost marker while aiming a bomb lob.
   if (bombDrag.active && rendered) {
@@ -4792,6 +4832,8 @@ function drawObstacles() {
       ctx.fillStyle = '#ff5a4d';
       ctx.beginPath(); ctx.arc(wx(tx), wy(ty), ws_(26), 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1; ctx.restore();
+      // Same charge-RING read as the shoot/wall — how far the lob will throw (red = bomb).
+      drawPlayerChargeRing(frac, 'rgba(255,90,77,0.9)', '#ff2f2f');
     }
   }
 }

@@ -1,7 +1,7 @@
 // Sim unit tests for the arena mechanics (walls, bushes, trampolines, build).
 // Run: node test-mechanics.mjs   (exits non-zero on any failure)
 import { createState, addPlayer, attachBall, step } from './shared/sim.js';
-import { DT, BUILD_MAG, BUILD_RELOAD, BUILD_WINDUP, BUILT_WALL, FIELD } from './shared/constants.js';
+import { DT, BUILD_MAG, BUILD_RELOAD, BUILD_WINDUP, BUILT_WALL, FIELD, SHOOT_CHARGE_TIME } from './shared/constants.js';
 import { ARENA, pointInBush } from './shared/arena.js';
 
 let fails = 0;
@@ -23,10 +23,12 @@ function holdBuild(s, id, other, aim = [1, 0]) {
   for (let i = 0; i < n; i++) step(s, { [id]: inp({ buildHold: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
   step(s, { [id]: inp({ buildHold: false, build: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
 }
-// Sim-owned charge ramp: HOLD the trigger to build charge (~1s = full), then release
-// (fire) to shoot at that charge. `other` carries co-players' idle inputs each tick.
+// Sim-owned charge ramp: HOLD the trigger to build charge, then release (fire) to shoot at
+// that charge. `charge` = TARGET charge FRACTION (0..1, 1 = full); we hold
+// charge*SHOOT_CHARGE_TIME s so the test survives changes to the base wind-up time.
+// `other` carries co-players' idle inputs each tick.
 function shoot(s, id, charge, aim = [1, 0], other = {}) {
-  const n = Math.max(0, Math.round(charge * 60));
+  const n = Math.max(0, Math.round(charge * SHOOT_CHARGE_TIME * 60));
   for (let i = 0; i < n; i++) step(s, { [id]: inp({ hold: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
   step(s, { [id]: inp({ fire: true, aimX: aim[0], aimY: aim[1] }), ...other }, DT);
 }

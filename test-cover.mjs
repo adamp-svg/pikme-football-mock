@@ -6,7 +6,7 @@
 //  R4) super-shot behind a BUILT wall: full-HP(3)=10%, hp2=30%, hp1=50%; static blocks.
 // Run: node test-cover.mjs   (exits non-zero on any failure)
 import { createState, addPlayer, step } from './shared/sim.js';
-import { DT, FIELD, BOMB, BUILT_WALL } from './shared/constants.js';
+import { DT, FIELD, BOMB, BUILT_WALL, BOMB_WALL_CANNON_STATIC } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
 
 let fails = 0;
@@ -90,7 +90,7 @@ function bombKnock(bomb, tx, ty, walls) {
   const open = selfJump(null, 1000);   // no wall behind
   const cannon = selfJump(MOCK, 955);  // wall at x900-940 is just BEHIND a right-launch
   ok(cannon > open, `R3: static wall behind the launch cannons harder (${cannon.toFixed(0)} > open ${open.toFixed(0)})`);
-  ok(cannon <= open * 1.25, `R3: static cannon capped ~+20% (+${(cannon / open * 100 - 100).toFixed(0)}%)`);
+  ok(cannon <= open * BOMB_WALL_CANNON_STATIC * 1.02, `R3: static cannon capped ~+${((BOMB_WALL_CANNON_STATIC - 1) * 100).toFixed(0)}% (+${(cannon / open * 100 - 100).toFixed(0)}%)`);
 }
 
 // R4: super (overcharge) shot behind a BUILT wall — 10% / 30% / 50% by HP.

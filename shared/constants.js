@@ -33,10 +33,16 @@ export const WALL_RESTITUTION = 0.72;
 export const RELEASE_PICKUP_CD = 0.35; // seconds a just-released ball can't be re-grabbed
 
 // Charged shot: hold the aim to build power. Tap = weak/slow, ≥ CHARGE_TIME = full.
-// Full power is 3× a tap (ratio 3:1). A fully-charged bullet also ignores the
-// point-blank rule and pushes even up close.
-export const SHOOT_CHARGE_TIME = 1.0; // seconds of hold to reach full power
-export const CHARGE_MIN_MUL = 1 / 3;  // tap power as a fraction of full (=> 3:1)
+// A fully-charged bullet also ignores the point-blank rule and pushes even up close.
+// A player holding SUPER (overcharge ready) charges TWICE as fast (SUPER_CHARGE_RATE)
+// — so their full wind-up is back to the ~1s it was before we doubled the base time.
+export const SHOOT_CHARGE_TIME = 2.0; // seconds of hold to reach full power (doubled; super halves it back to ~1s)
+export const CHARGE_MIN_MUL = 1 / 4;  // tap power as a fraction of full — used by BULLETS (a quick shot); the ball carrier's tap uses BALL_TAP_SPEED
+export const SUPER_CHARGE_RATE = 2;   // super (p.power) fills the charge this much faster (halves the wind-up)
+// A carrier's SINGLE QUICK PRESS (charge < QUICK_CHARGE) is a light DRIBBLE TOUCH, not a shot:
+// the ball rolls out ~2 ball-lengths (~64px) — fast at first, then friction slows it to a stop.
+// Tuned against BALL_FRICTION/BALL_MIN_SPEED (roll ≈ 0.468*(v-18) px); 155 → ~64px.
+export const BALL_TAP_SPEED = 155;
 export function chargeMul(frac) {
   const f = frac < 0 ? 0 : frac > 1 ? 1 : frac;
   return CHARGE_MIN_MUL + (1 - CHARGE_MIN_MUL) * f;
@@ -147,6 +153,16 @@ export const OVERCHARGE_PARTIAL_GAIN = 1 / 3;    // a QUICK enemy hit / bump —
 export const OVERCHARGE_MUL = 2.0;   // overcharge KICK shoves the enemy this much harder (vs a full kick)
 export const FULL_BUMP_MUL = 1.3;    // a FULL kick shoves a little harder than a quick/medium kick
 export const OVERCHARGE_BULLET_MUL = 1.6; // an overcharge BULLET pushes/strips this much harder than a full bullet
+// While a player is in SUPER (p.power ready), EVERY shot they take — quick tap, full, kick or
+// bullet — flies this much harder/faster. A quick-in-super then feels ~like today's full shot,
+// and the big overcharge kick (OVERCHARGE_MUL) stays the ceiling on top of this.
+export const SUPER_SHOT_MUL = 1.5;   // super mode boosts ALL shot power/speed by this much
+// A QUICK shot fired while in super still isn't a full charged shot — but instead of the usual
+// "slow only, no push", it gives the enemy a small, VISIBLE shove (~1.5 ball-lengths).
+// SUPER_QUICK_KB is the bullet's knockback velocity; SUPER_QUICK_KICK_SPEED is the ball speed a
+// quick KICK gets in super so it clears BALL_BUMP_SPEED and shoves a defender the same amount.
+export const SUPER_QUICK_KB = 220;
+export const SUPER_QUICK_KICK_SPEED = 440; // > BALL_BUMP_SPEED (300); bump = 440*BALL_BUMP_SCALE = 220 kv, matching the bullet
 export const BALL_WALL_POP_SPEED = 260; // carried ball popped loose when the holder walks it into a wall
 // MONOTONIC ball penetration when a kicked ball hits an enemy — harder kick = more roll-through:
 //   weak/medium = BLOCKED, rebounds off the defender (keeps this fraction, reversed)
@@ -168,21 +184,21 @@ export const FLY_HIT_SPEED = 460;   // knockback speed above which a flying body
 export const FLY_HIT_SCALE = 0.55;  // enemy knockback = flyer speed * this (a plain fling; a bomb tackle uses BOMB_TACKLE_KB)
 // Rocket-jump scaling: on-centre you fly FURTHER; reduced if you're carrying the ball.
 export const BOMB_CENTER_LAUNCH_MUL = 0.80; // on-centre self-launch (kept modest — it was flinging half the pitch)
-export const BOMB_LAUNCH_MAX = 3000;        // hard cap on the on-centre launch after wall/stack multipliers
+export const BOMB_LAUNCH_MAX = 5200;        // hard cap on the launch — raised so the ULTIMATE combo (2 stacked bombs + steel wall behind + on top) can fling a player across the pitch; single bombs stay well under it
 export const BOMB_CARRY_LAUNCH_MUL = 0.6;   // ...but reduced this much if the bomber owns the ball
 // Wall cannon: a wall collinear BEHIND the bomb (player -> bomb -> wall) boosts the
 // launch in that direction, SCALED BY PROXIMITY (closer wall = more). Any wall qualifies.
 export const BOMB_WALL_CANNON_MUL = 2.0; // (legacy) MAX launch multiplier at point-blank; superseded by the split below
 // R3: a wall behind the bomb boosts the push. Indestructible +20% at point-blank; a BUILT
 // wall +15% at FULL HP, fading toward +0% as it loses HP. Both still scale by proximity.
-export const BOMB_WALL_CANNON_STATIC = 1.20;
+export const BOMB_WALL_CANNON_STATIC = 1.55; // steel (indestructible) wall behind = a strong cannon at point-blank — the key ingredient of the cross-field combo
 export const BOMB_WALL_CANNON_BUILT = 1.15;
 export const BOMB_WALL_DIST = 150;       // wall must be within this of the bomb to back it
 export const BOMB_WALL_COS = 0.82;       // collinearity: cos(~35°) cone opposite the launch dir
 // Multi-bomb: bombs detonating close together COMBINE into one bigger blast — the launch
 // (and blast radius) scales with how many stacked. Two players bombing the same spot = big.
 export const BOMB_COMBINE_RADIUS = 210;  // bombs within this of the first-to-blow detonate together
-export const BOMB_STACK_PER = 0.6;       // each EXTRA bomb adds this to the power multiplier (sublinear — 2 bombs = x1.6)
+export const BOMB_STACK_PER = 0.9;       // each EXTRA bomb adds this to the power multiplier (2 bombs = x1.9) — stacking is a real ingredient of the cross-field combo
 export const BOMB_STACK_MAX = 2;         // at most this many bombs combine into one blast
 export const BOMB_STACK_RADIUS = 0.30;   // each extra bomb grows the blast radius by this fraction
 // Bomb can be LOBBED: a tap plants at your feet (rocket-jump preserved), a drag aims a
