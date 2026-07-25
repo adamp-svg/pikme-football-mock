@@ -183,3 +183,44 @@ removal, Fortnite Arena→Ranked) was about a silent swap that felt like erasure
 `01-brawl-stars.md` · `02-other-games.md` (Fortnite, Rocket League, Roblox, Clash Royale, eFootball/FC Mobile)
 · `03-skill-progression.md` · `04-economy-bots-math.md` (Elo/Glicko-2/TrueSkill, bot-anchor, farm exploits)
 · `05-psychology-migration-fit.md` (loss aversion, ranked anxiety, migration cases, RTL UX)
+
+---
+
+## 8. ⚠️ TERMINOLOGY CHANGED + PROGRESSION REVISED (2026-07-25, after the first build)
+
+**The two names swapped.** The user's call, and the code now matches:
+
+| Player-facing | Internal | Behaviour | Where it shows |
+|---|---|---|---|
+| **גביעים** (trophies) | `xp` / `level` | MONOTONIC — never drops, pays every match | the top-row bar, with a pixel trophy |
+| **דרגה** (rank) | `rankPoints` / `rankTier` | LOSABLE — bot ceiling, human-only at the top | the badge OVER THE HERO, meter inside |
+
+Everything in §1–§7 above still describes the *mechanics* correctly — just read "trophies" in
+§2–§3 (the bands, the bot ceiling, the sticky floor) as **RANK**, and note that the word
+"trophies" now belongs to the xp track. Files: `pikme-server/data/football-rank.js`,
+`football-mock/shared/rank.js`, `public/hub-rank.js`, `public/rank.css`, `window.SALTIZ_RANK`.
+
+**The revision, from measuring the real curves:**
+
+- **TROPHIES REWARD VOLUME · RANK REWARDS SKILL.** That's the line the two tracks are split on now,
+  and it resolved a genuine duplication — both tracks had been paying a streak bonus.
+- **Bot floor 0.2 → 0.5** (`TROPHY_BOT_FLOOR` in football-xp.js). The old rate punished the majority
+  path twice: rank's bot ceiling already blocks bot farming, so trophies didn't need to as well.
+  It took **275 bot matches** to reach level 12 — the level that unlocks the top bot ceiling. Now **110**.
+  A bot win pays 60 vs a human win's 120. *This is the single biggest tuning lever; the user said
+  "do whatever you think, we'll optimise it later", so 0.5 is a starting point, not a considered final.*
+- **Streak bonus removed from trophies** — it lives on rank only.
+- **First-win-of-day now pays on a bot win** (was human-only, so it barely fired for most players).
+  A loss still never gets it.
+- **Rank's curve left AS IS** by explicit choice: wins per tier are bronze 7 · silver 11 · gold 16 ·
+  platinum 25 · diamond 54 · champion 84 (≈197 to legend). The top two tiers are deliberately
+  near-mythical at this playerbase. Revisit if anyone actually approaches diamond.
+
+**The tracks interlock, and that's worth preserving:** your trophy LEVEL sets bot difficulty
+(`botLevelFromXp`), and bot difficulty sets your rank CEILING (`60 + 80*L`). So collecting trophies
+raises the roof on rank without ever handing rank out for free.
+
+### Still open
+- The 6 technique effects are defined and tested (`shared/techniques.js`) but **not wired into the sim** —
+  no ability does anything in a match yet. Drills should also pay trophies; that isn't wired either.
+- Rank's numbers have never been played, only simulated. Expect to retune after real play.
