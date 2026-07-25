@@ -18,33 +18,42 @@ Cross-repo feature spanning **football-mock** (game), **pikmeTV-saltiz** (RN app
   `/football/stats` returns them; app injects `window.SALTIZ_COSMETIC`/`SALTIZ_LOADOUT`; game prefers
   them over localStorage and posts `{t:'prefs'}` on change. Commit `0c5de79` (game), `5df8f94`,`7022af9`.
 
-Live commits: game `0c5de79`, backend `5df8f94`, app `7022af9` (needs a new TestFlight build to ship the app side).
+- **Slice D — stat depth** (2026-07-25): the ball carries a two-deep TOUCH CHAIN (`lastPlayer`/`prevPlayer`),
+  so `goal()` credits the last kicker and falls back to the last holder — **dribble-in goals are now
+  credited** — and the previous team-mate holder gets an **assist**. Added `assists`, `touches`,
+  `possSec`, `distPx` to `player.stat`; match-end rounds them (`possSec`, `distM = px/100`). Backend
+  `$inc`s `assists`/`touches`/`possSeconds`/`distanceM`. Covered by `test-match-stats.mjs` (12/12).
+- **Slice E — ALL prefs follow the account** (2026-07-25): `PREF_KEYS` bag (audio, difficulty, touch-control
+  layout, aim feel, builder style + saved fields) restores from app-injected `window.SALTIZ_PREFS` at boot
+  (before any module reads those keys); a single `localStorage.setItem` hook (installed after the restore →
+  no echo loop) schedules a debounced `{t:'prefs'}` push. Backend stores it as an opaque `prefs` bag on
+  `footballstats` (string values, ≤40 keys, ~300KB).
+- **Slice F — mid-session prefs**: `window.__pikmeApplyPrefs(p)` — the app can push prefs any time after
+  load; hero + loadout apply LIVE, the extras bag lands in storage.
 
-## ▢ TODO — remaining / deferred work
+Live commits: game `75b7c1c`, backend `0d131ce`, app `d1b411a` (needs a new TestFlight build for the app side).
 
-- [ ] **New TestFlight build** from `feat/football-store` (`7022af9`) — app side (stats-forward, XP inject,
-      prefs inject/save) only ships in a fresh build. Game + backend already live.
+## ▢ TODO — remaining work
+
+- [ ] **New TestFlight build** from `feat/football-store` (`d1b411a`) — the app side (stats-forward, XP
+      inject, prefs inject/save) only ships in a fresh build. Game + backend are already live on Render.
 - [ ] **Set `FOOTBALL_TOKEN_SECRET`** identical on BOTH Render services (pikme-football + pikmeTV-server)
       — required for Friends/Challenges only (NOT for stats/XP/prefs, which use the app's main auth token).
 - [ ] **Decide `DEV_UNLOCK_ALL`** in `public/client.js` (currently `true` → all heroes unlocked). Flip to
-      `false` for real 7-cards-per-hero gating; Slice A's hero-demote is a no-op until then.
-- [ ] **Stat depth — attribution gaps**:
-      - Goals credit `ball.lastKicker` only (`shared/sim.js` `goal()`); a **dribble-in goal** (ball detaches,
-        `lastKicker` nulled) is uncredited. Add a `lastScorer` at the dribble-in detach if you want it counted.
-      - **Assists** not tracked — `ball.lastTouch` is single-slot; needs a prior-touch history.
-      - **Possession time / distance / touches** not tracked (player `vx/vy` exist; no accumulator).
-      - To log any of these: add counters to `player.stat` (init at `addPlayer`), increment at the hook,
-        extend `matchResult.stats` (client), the app forward (`services/saltizFootball.js recordMatch`),
-        and the backend schema + `record-match` `$inc` (`pikme-server data/footballstats.js` + `routes-pikme/user.js`).
-- [ ] **Prefs mid-session edge case**: prefs apply at game LOAD (WebView mount is gated on the stats fetch,
-      so normally present). A prefs change pushed by the app AFTER load is not re-applied — would need a
-      `window.__applyPrefs()` hook + late injection, or a relaunch. Low priority (prefs rarely change mid-session).
-- [ ] **Other local-only prefs still not server-persisted** (lost on reinstall/new device): control layout
-      (`fbControls`), audio/difficulty (`pikme-sound`/`pikme-music`/`pikme-musicvol`/`pikme-soundvol`/`pikme-diff-level`),
-      builder fields (`pikme-field-v1`/`pikme-fields`/`pikme-field-name`), `pikme-joint-style`. Same pattern as
-      Slice C (extend `/football/prefs` + inject + read) if you want them to follow the account.
+      `false` for real 7-cards-per-hero gating; the hero-demote reconcile is a no-op until then.
+- [ ] **App: call `__pikmeApplyPrefs` when prefs change mid-session** — the game hook exists and is live,
+      but nothing calls it yet. In `football.jsx`, on a prefs/stats query change after mount, do
+      `webRef.current?.injectJavaScript('window.__pikmeApplyPrefs(' + JSON.stringify(payload) + '); true;')`.
+      Low priority (prefs rarely change while the game is open).
+- [ ] **Surface the stats in the app** — nothing renders the new career fields yet
+      (`careerGoals`, `assists`, `strips`, `saves`, `shotsFired`, `bombsPlanted`, `wallsBuilt`, `touches`,
+      `possSeconds`, `distanceM`). They're returned by `GET /handle-user/football/stats`. A player
+      profile / post-match summary screen is the obvious next feature.
+- [ ] **Optional stat polish**: an assist only counts the immediately-previous holder (a two-pass move
+      credits just the last passer); own goals aren't attributed; keeper `saves` counts a catch in the
+      own box only. Extend the chain in `shared/sim.js` (`touchBall`) if you want deeper attribution.
 
 ## Key files (for whoever picks this up)
-- Game: `public/client.js` (`renderHubXp`/`playXpReveal`, `reconcileOnCardChange`, `postPrefs`, `loadCosmetic`/`loadLoadout`, `postMatchResult`, `myMatchStats`); `server.js` (`setCards` handler, match-end `matchStats` broadcast); `shared/sim.js` (`player.stat` + counters).
+- Game: `public/client.js` (`renderHubXp`/`playXpReveal`, `reconcileOnCardChange`, `PREF_KEYS`/`readExtraPrefs`/`applyExtraPrefs`/`postPrefs`/`__pikmeApplyPrefs`, `loadCosmetic`/`loadLoadout`, `postMatchResult`, `myMatchStats`); `server.js` (`setCards` handler, match-end `matchStats` broadcast); `shared/sim.js` (`player.stat` + counters, `touchBall`, `goal()` credit). Tests: `test-match-stats.mjs`.
 - App: `app/pages/football.jsx` (inject `SALTIZ_XP`/`SALTIZ_COSMETIC`/`SALTIZ_LOADOUT`, `onMessage` for `matchResult`/`prefs`); `services/saltizFootball.js` (`recordMatch`, `saveFootballPrefs`, `getFootballStats`).
 - Backend: `data/footballstats.js` (schema); `data/football-xp.js` (`computeMatchXp`); `routes-pikme/user.js` (`/football/record-match`, `/football/stats`, `/football/prefs`).
