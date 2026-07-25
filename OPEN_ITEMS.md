@@ -12,13 +12,11 @@
 
 ## 🔴 P0 — do first
 
-### 1. Wall build-position fix — MISSING FROM HEAD (possibly lost)
-- Agent `wall-place` logged the bug as **IN PROGRESS** with a hand-traced root cause, but **the fix is not in the code**.
-- Verified: `server.js:1259-1269` still has `takeAim = !!msg.fire || !prev.fire` and `buildDist: msg.buildDist || 0` — **no build edge latch**.
-- The tree is clean, so the fix was never committed → it is in a dead agent's head or was stomped.
-- The bug (user-reported): "sometimes the wall builds in the wrong position." Coalescer merges the release packet P1 `{build, drag aim, buildDist}` with the next packet P2 `{no build, buildDist 0, stick aim}` → wall builds with **P2's direction and distance 0**.
-- **Fix shape** (same class as the shipped aim-latch fix, which only covered fire/special): latch `aimX/aimY/buildDist` to the **BUILD edge** exactly like `sax/say` latch to the special edge.
-- Owner files: `server.js` (input coalescer), `public/client.js` (build drag/ghost).
+### 1. ~~Wall build-position fix — MISSING FROM HEAD~~ ✅ DONE (`2710141`)
+- Not lost — it was still in flight when this board was written. Landed as commit `2710141`, **not pushed**.
+- Build edge now latches its aim + `buildDist` in `shared/input-merge.js`; the ghost and the sim share one `wallPlacement()` in `shared/arena.js`; covered by `test-wall-place.mjs`.
+- Measured E2E: **143.6px + 45° wrong → 2.4px, 0°**. Details in the `wall-place` entry in [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md).
+- **Left open from it (P2):** (a) make `sim.js buildWall()` call the shared `wallPlacement()` once `shared/sim.js` is free — the test already asserts they agree; (b) the ~0.35s "full ring, no wall" window inside `buildCd` (client ring is wall-clock, sim pins windup to 0) — gate the ring on the server's `buildCd`/ammo.
 
 ### 2. `FOOTBALL_TOKEN_SECRET` must MATCH on both Render services
 - pikme-football + pikmeTV-server. If they differ, **every player silently becomes a guest** → friends, challenges and party invites all break with no error.
