@@ -8,7 +8,10 @@
 //
 // Design doc: docs/superpowers/specs/2026-07-25-connection-quality-warnings-design.md
 
-import { createNetMonitor, rttJitter } from '/net-quality.js';
+// Relative, not '/net-quality.js': resolves the same in the browser (both files live in
+// public/) and ALSO resolves under node, which is what lets test-net-hud.mjs drive this
+// file through jsdom.
+import { createNetMonitor, rttJitter } from './net-quality.js';
 
 const qs = new URLSearchParams(location.search);
 export const NET_DEBUG = qs.get('debug') === 'net';   // show the raw numbers
@@ -17,7 +20,9 @@ const NET_SIM = qs.get('netsim') || null;             // force a level for visua
 const monitor = createNetMonitor();
 let rttSamples = [];   // last 8 round trips -> jitter
 let lastRtt = 0;
-let lastSnapAt = 0;    // performance.now() of the newest snapshot -> freeze detection
+let lastSnapAt = null; // performance.now() of the newest snapshot; null = none seen yet.
+                       // Must be null, NOT 0: 0 is falsy, so a gap measured from t=0 would
+                       // silently read as 'no snapshot yet' and miss a real stall.
 let els = null;
 let toastArmed = true; // one toast per bad episode, not a repeating nag
 let toastT = null;
@@ -90,26 +95,27 @@ export function onPong(rtt) {
   if (rttSamples.length > 8) rttSamples.shift();
 }
 
-export function onSnapshot() { lastSnapAt = performance.now(); }
+// `now` is injectable so the jsdom test can drive time; the game always uses the default.
+export function onSnapshot(now = performance.now()) { lastSnapAt = now; }
 
 // A fresh socket must not inherit the dead one's samples.
-export function resetNetHud() { monitor.reset(); rttSamples = []; lastSnapAt = 0; lastRtt = 0; toastArmed = true; }
+export function resetNetHud() { monitor.reset(); rttSamples = []; lastSnapAt = null; lastRtt = 0; toastArmed = true; }
 
 // Call once per HUD frame. `snapRate` is snapshots/sec, `unacked` the pending-input
 // backlog (a growing backlog means our INPUT is not landing, which RTT alone can miss).
-export function renderNetHud({ snapRate, unacked, wsOpen }) {
+export function renderNetHud({ snapRate, unacked, wsOpen, now = performance.now() }) {
   const e = mount();
   const sample = {
     rtt: lastRtt,
     jitter: rttJitter(rttSamples),
-    snapGapMs: lastSnapAt ? performance.now() - lastSnapAt : 0,
-    snapRate: lastSnapAt ? snapRate : null,   // null until the first snapshot: no lobby false alarm
+    snapGapMs: lastSnapAt == null ? 0 : now - lastSnapAt,
+    snapRate: lastSnapAt == null ? null : snapRate, // null until the first snapshot: no lobby false alarm
     unacked: unacked || 0,
     wsOpen: !!wsOpen,
   };
   const st = NET_SIM
     ? { level: NET_SIM, reason: 'sim', raw: { level: NET_SIM, reason: 'sim' } }
-    : monitor.update(sample, performance.now());
+    : monitor.update(sample, now);
 
   const level = st.level;
   const bad = level !== 'good';
@@ -126,8 +132,12 @@ export function renderNetHud({ snapRate, unacked, wsOpen }) {
     e.toast.classList.add('nq-on');
     if (toastT) clearTimeout(toastT);
     toastT = setTimeout(() => e.toast.classList.remove('nq-on'), 3000);
-  } else if (level === 'good' && !toastArmed) {
-    toastArmed = true;
+  } else if (!wantToast) {
+    // Improved before the 3s timer ran out — drop the warning now rather than leaving a
+    // stale "unstable" message on screen over a connection that has already recovered.
+    e.toast.classList.remove('nq-on');
+    if (toastT) { clearTimeout(toastT); toastT = null; }
+    if (level === 'good') toastArmed = true;   // re-arm only after a FULL recovery
   }
 
   if (e.dbg) {
