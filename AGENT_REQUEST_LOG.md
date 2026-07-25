@@ -21,6 +21,12 @@
 
 ## 2026-07-25
 
+- **📌 Standing rules restated + 2 NEW ones (session start, agent `saltiz-main`)** — User: "you work on the football game, and collaborate with other agents working on the same one, you test in local host and then push when needed to the app or in test flight. record all my request to you in simple bullets. if any question you can research what brawlstars, roblox and fortnight are doing."
+  - Already-known rules confirmed: football game / multi-agent repo / commit local always / push only when asked / log every request in this file.
+  - NEW #1: **test on localhost first**, then push to the app or TestFlight only when the user asks.
+  - NEW #2: **open design question → research Brawl Stars / Roblox / Fortnite** (controls, feel, progression, UI, netcode) and use that as the reference instead of guessing.
+  - Added both to [`AGENT_RULES.md`](AGENT_RULES.md) + [`CLAUDE.md`](CLAUDE.md) (CLAUDE.md is auto-loaded, so every future agent gets them). No code touched.
+
 - **🚧 IN PROGRESS — fix the 5 remaining build/wall bugs, 5-agent council (agent `wall-place`)** — User: "use a 5-agent council to try and fix all the bugs left." Each agent owns ONE bug and works in its **own git worktree** (so it can't collide with the agents live-editing this tree); each patch is then attacked by a reviewer who applies it in a fresh worktree and re-runs the suite. I apply the surviving diffs to main myself, serially.
   - The 5: (1) **full gold ring but NO wall** for ~0.35s after building — client ring is wall-clock, sim pins `buildWindup=0` during `buildCd`, build silently dropped with no feedback · (2) **cancel trap** — `updateDragCancel` hysteresis (arm 34px / in 18px) means re-aiming by sweeping the finger through the button centre silently cancels the build · (3) **windup prediction desync** — `ownSpeed()` doesn't apply the sim's build-windup slow, so the predicted hero (and the ghost's origin) runs 4-38px ahead and rubber-bands mid-aim · (4) **placement math still duplicated** in `sim.js buildWall()` vs the shared `wallPlacement()` (pure de-dup, must be byte-identical) · (5) **`test-party.mjs`** — the suite's only red test; decide whether party invites are genuinely broken for authenticated users or the test just never authenticates (`FOOTBALL_TOKEN_SECRET` → both players become guests), then fix it so the suite is deterministically green.
   - Every agent must REPRODUCE before fixing (a red test first) and return a `git diff`; "not reproduced" is an accepted answer.

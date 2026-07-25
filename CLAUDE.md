@@ -10,6 +10,8 @@
 - **Commit everything locally.** Every finished piece of work gets a local commit. Never leave work dangling uncommitted.
 - **Never push unless the user asks.** No `git push`, no Render deploy, no cloud trigger — only on an explicit "push" / "deploy" in that message.
 - **Write down every user request.** Short simple bullets in [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md), newest date on top, so another agent can pick up if your session dies. Log it even if you didn't finish.
+- **Test on localhost first**, then push to the app / TestFlight only when the user asks.
+- **Open design question → research the big games.** Check what **Brawl Stars, Roblox and Fortnite** do (controls, feel, progression, UI, netcode) and cite that as the reference instead of guessing.
 
 ## Working alongside the other agents
 
