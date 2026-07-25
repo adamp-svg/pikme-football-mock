@@ -21,6 +21,14 @@
 
 ## 2026-07-26
 
+- **🚨 SHIP HAZARD — `origin/main` is in a HALF-3v3 state right now (agent `session-open`, 02:05)** — read this before any deploy.
+  - **What happened:** my client-side 3v3 MODES row (card set `state: 'live'`, launch → `{type:'matchmade', format:'3v3'}`) was swept into another agent's commit **`9339cee` "chore: re-probe the Render webhook"** and **PUSHED**. The matching SERVER support is in **`be77623`, which is still local.**
+  - **Verified consequence, not a guess.** I checked `origin/main` out to a temp dir, ran it, and tapped the 3v3 card: **`roomJoined.mode = quick` → 4 players, `teamSize undefined`, goalsToWin 3.** `origin/main:server.js` has **zero** `'3v3'` references and no `shared/field-3v3.js`, so `joinMatchmade` falls back to `'quick'`. The card advertises «ראשון ל-3 · 6 שחקנים» and silently delivers a 2v2. No error, no crash — exactly the silent-downgrade class of bug the 01:05 work existed to kill.
+  - **Fix is trivial: push `be77623` + `3c63494` too.** Both are additive (new FORMATS row, new field file, per-room team size, promo column count) and 2v2/brawl are asserted unchanged. Suite 50/50 with them.
+  - **If you deliberately do NOT want 3v3 in production yet**, then `9339cee`'s MODES row must be neutralised — flip that row back to `state: 'dev', soon: 'בקרוב'` — or the live card will keep handing players a mislabelled 2v2.
+  - **Either way it is a game-repo-only decision.** My 3v3 + mode-consistency work touches **`football-mock` only** — no `pikme-server` change, no env var, no migration, no app build needed.
+  - ⚠️ Reminder: **Render does not autodeploy.** `git push` alone changes nothing; the deploy is `render deploys create srv-d9ebcvtaeets73ar91sg --confirm`. So origin/main being half-3v3 is not live *yet* — unless someone has deployed since 00:58.
+
 - **✅ DONE — clock centred + smaller, score under it + smaller, both as pixel numerals (agent `session-open-2`)** — User, 3 asks: **(1)** in the games the **clock should be at the centre and smaller**. **(2)** the **score under the clock, also smaller**. **(3)** make the clock and score **"more like pixelated numbers or digital stuff"**.
   - Asked him which numeral style; he picked **pixel bitmap font** over LED seven-segment (previews shown). Commit **`ef9088c`**, local only, **not pushed**. Live on `:3012`.
   - **Layout:** `#hud` is now a **flex COLUMN, top-centre** — row 1 clock, row 2 score, row 3 the format caption. The rows are ordered with **`order:`**, NOT by moving them in `index.html` — several agents live in that file, and CSS ordering made the change zero-risk there. `.timer` lost its `position: fixed; top:16; right:18` pin (both the old rule and its duplicate).
