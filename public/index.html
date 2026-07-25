@@ -251,11 +251,12 @@
           <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים ופרסים</small></span>
           <span class="mc-go soon">בקרוב</span>
         </div>
-        <div class="modecard lock">
+        <!-- LIVE (goalBrawl() has its own public pool) — was wrongly marked בקרוב here. -->
+        <button id="arena-brawl-btn" class="modecard">
           <span class="mc-ic">🥅</span>
-          <span class="mc-tx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
-          <span class="mc-go soon">בקרוב</span>
-        </div>
+          <span class="mc-tx"><b>קרב על השער</b><small>2 נגד 2 · 2 דקות · הכי הרבה גולים</small></span>
+          <span class="mc-go">‹</span>
+        </button>
       </div>
     </div>
   </div>
@@ -509,11 +510,11 @@
             <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים</small></span>
             <span class="mc-go soon">בקרוב</span>
           </div>
-          <div class="modecard lock">
+          <button class="modecard" data-party-game="brawl">
             <span class="mc-ic">🥅</span>
-            <span class="mc-tx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
-            <span class="mc-go soon">בקרוב</span>
-          </div>
+            <span class="mc-tx"><b>קרב על השער</b><small>2 דקות · הכי הרבה גולים</small></span>
+            <span class="mc-go">‹</span>
+          </button>
         </div>
         <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
       </div>
@@ -573,11 +574,11 @@
         <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים</small></span>
         <span class="mc-go soon">בקרוב</span>
       </div>
-      <div class="modecard lock">
+      <button class="modecard" data-game="brawl">
         <span class="mc-ic">🥅</span>
-        <span class="mc-tx"><b>קרב על השער</b><small>הכי הרבה גולים</small></span>
-        <span class="mc-go soon">בקרוב</span>
-      </div>
+        <span class="mc-tx"><b>קרב על השער</b><small>2 דקות · הכי הרבה גולים</small></span>
+        <span class="mc-go">‹</span>
+      </button>
     </div>
   </div>
 
@@ -612,6 +613,9 @@
         <span class="dash">–</span>
         <span class="team-b" id="scoreB">0</span>
       </div>
+      <!-- Match FORMAT caption: first-to-N vs timed. Driven by matchStart.goalsToWin;
+           flips to a match-point cue when either team is one goal from winning. -->
+      <div class="score-fmt" id="score-fmt"></div>
       <div class="timer" id="timer">2:00</div>
       <!-- Card powers: read-only equipped-cards HUD next to the timer during play. -->
       <div class="match-powers" id="match-powers"></div>

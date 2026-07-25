@@ -44,6 +44,7 @@ const GOAL_BOTTOM = (FIELD.H + GOAL.width) / 2;
 let ws = null;
 let me = { playerId: null, team: null, char: 'striker' };
 let matchId = null;            // stable per-match id from matchStart (app-bound matchResult key)
+let matchGoalsToWin = 0;       // first-to-N from matchStart; 0 = timed (most goals wins)
 let training = false;          // true in the training ground (no clock, penned dummy, reset-ball)
 let matchResultSent = false;   // one-shot guard: matchResult is posted to the app exactly once per match
 let myMatchStats = null;       // per-player tallies for THIS match (goals/strips/saves/…), sent by the server at match end
@@ -1965,8 +1966,11 @@ for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends'])
 // Push my live equipped loadout to the server right before entering a match, so the countdown/reveal
 // other players see (and my own server-side record) match my slots even if join raced card-loading.
 function syncLoadout() { sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); }
-document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch' }); });
+// diffLevel matters: without it the server can't XP-scale the bots, so this path
+// used to serve different (unscaled) opponents than the gold Quick Match button.
+document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }); });
 document.getElementById('goal-brawl-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }); }); // 2v2 timed (most goals), its own public pool
+document.getElementById('arena-brawl-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }); }); // same mode from the arena picker
 
 // Hub top-left: settings opens the shared settings/pause panel; exit asks the RN app host.
 document.getElementById('hub-settings')?.addEventListener('click', () => { unlockAudio(); openSettings(); });
@@ -2070,7 +2074,7 @@ joinBtn.B.addEventListener('click', () => sendMsg({ type: 'setTeam', team: 'B' }
 playNowBtn.addEventListener('click', () => {
   unlockAudio();
   syncLoadout();
-  sendMsg({ type: 'ready' });
+  sendMsg({ type: 'ready', game: selectedGame }); // party picks land here via #party / #game-select
   playNowBtn.classList.add('armed');
   const sp = playNowBtn.querySelector('span'); if (sp) sp.textContent = 'מתחיל…';
 });
@@ -2556,7 +2560,7 @@ function openGameSelect(mode) { gameSelectMode = mode || 'lobby'; if (gameSelect
 function closeGameSelect() { if (gameSelectEl) gameSelectEl.classList.add('hidden'); }
 document.getElementById('pick-game-btn')?.addEventListener('click', () => {
   unlockAudio();
-  if (selectedGame) { syncLoadout(); sendMsg({ type: 'ready' }); toast('מתחילים…'); } // game already chosen in setup → start
+  if (selectedGame) { syncLoadout(); sendMsg({ type: 'ready', game: selectedGame }); toast('מתחילים…'); } // game already chosen in setup → start
   else openGameSelect('lobby');
 });
 document.getElementById('game-select-close')?.addEventListener('click', closeGameSelect);
@@ -2567,7 +2571,7 @@ gameSelectEl?.addEventListener('click', (e) => {
   selectedGame = card.dataset.game || '2v2';
   closeGameSelect();
   if (gameSelectMode === 'setup') { pendingPartyApply = true; sendMsg({ type: 'createRoom' }); } // → roomJoined applies picks
-  else { sendMsg({ type: 'ready' }); toast('מתחילים…'); }
+  else { sendMsg({ type: 'ready', game: selectedGame }); toast('מתחילים…'); }
 });
 // Once the fresh party room is created (host), apply the picks: bots via addBot, real friends
 // via inviteFriend. Called from the roomJoined handler.
@@ -2842,6 +2846,9 @@ function enterMatch(msg) {
   // (the wire only ever carries compact position/state data — never art). Images cache in
   // _cardImgs for the session and in the browser/WebView HTTP cache across sessions.
   preloadCards(myCards()); matchRoster.forEach((p) => preloadCards(p.cards));
+  // Match FORMAT: first-to-N goals, or 0 = timed (most goals). Sent by the server since the
+  // format is a per-room property (a private room can pick brawl); the client can't infer it.
+  matchGoalsToWin = msg.goalsToWin | 0;
   matchId = msg.matchId || null; // stable id for this match's app-bound result
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
   myMatchStats = null; _pendingPost = null; // clear last match's per-player tallies + any pending post
@@ -5214,6 +5221,23 @@ function drawHUD() {
   const myScore = latest.score[myT], opScore = latest.score[opT];
   document.getElementById('scoreA').textContent = myScore;
   document.getElementById('scoreB').textContent = opScore;
+  // Format caption + match point. Without this, first-to-3 rendered as bare digits and
+  // you could win (or lose) the match with no warning that the next goal decided it.
+  const fmtEl = document.getElementById('score-fmt');
+  if (fmtEl) {
+    if (training) { fmtEl.textContent = ''; fmtEl.classList.remove('match-point'); }
+    else if (matchGoalsToWin > 0) {
+      const N = matchGoalsToWin;
+      const onPoint = myScore === N - 1 || opScore === N - 1;
+      fmtEl.textContent = onPoint
+        ? (myScore === opScore ? 'הגול הבא מנצח' : myScore > opScore ? 'נקודת ניצחון' : 'נקודת הפסד')
+        : `ראשון ל-${N}`;
+      fmtEl.classList.toggle('match-point', onPoint && latest.phase !== 'ended');
+    } else {
+      fmtEl.textContent = 'הכי הרבה גולים';
+      fmtEl.classList.remove('match-point');
+    }
+  }
   // Match clock counts DOWN to 0:00, then the match ends. Training has no clock.
   const timerEl = document.getElementById('timer');
   if (training) {

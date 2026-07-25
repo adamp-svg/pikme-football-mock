@@ -453,7 +453,7 @@ function startBotGame(member, diffLevel) {
   attachBall(room.state, 'A');
   room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'botgame', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN });
+  send(member.ws, { type: 'matchStart', mode: 'botgame', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0 });
   room.rosterVersion++; broadcastRoster(room);
 }
 
@@ -587,7 +587,9 @@ function startMatch(room) {
   room.botLoadoutParams = botLoadoutParamsFromHumans(assigned);
   fillBots(room, roster);
   for (const [m, team] of assigned) {
-    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: MAIN_FIELD_CLEAN });
+    // goalsToWin tells the client the match FORMAT (first-to-N, or 0 = timed/most-goals).
+    // Without it the HUD renders bare digits with no target and no match-point cue.
+    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0 });
   }
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0; room.statsSent = false;
@@ -1229,6 +1231,10 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'ready') { // "Play Now" in a private room
         if (!room || member.inMatch) return;
+        // The party / game-select pickers set `game`; until now it was client-only state,
+        // so a private room ALWAYS played first-to-3 no matter which card was tapped.
+        // 'brawl' = timed, most goals (goalsToWin 0); anything else = the normal first-to-N.
+        if (msg.game) room.goalsToWin = msg.game === 'brawl' ? 0 : GOALS_TO_WIN;
         if (room.phase === 'lobby') startCountdown(room);
         return;
       }
