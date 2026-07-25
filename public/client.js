@@ -32,9 +32,9 @@ try {
 const PENALTY_TOP = (FIELD.H - PENALTY.width) / 2;
 const PENALTY_BOTTOM = (FIELD.H + PENALTY.width) / 2;
 
-const INPUT_RATE = 60;         // inputs sent per second (matches server tick)
+const INPUT_RATE = 60;         // inputs sent per second (matches the server tick). 120Hz pending: needs the tick-counting tests re-tuned to DT first (see summery/REACTIVITY_ROADMAP.md).
 const INPUT_DT = 1 / INPUT_RATE;
-const INTERP_DELAY = 100;      // ms we render remote entities in the past
+const INTERP_DELAY = 55;       // ms we render remote entities in the past (~3 snapshots at 60Hz; was 100 = too laggy)
 const GOAL_TOP = (FIELD.H - GOAL.width) / 2;
 const GOAL_BOTTOM = (FIELD.H + GOAL.width) / 2;
 
@@ -52,6 +52,11 @@ let predicted = null;          // {x, y} predicted own position
 let rendered = null;           // {x, y} smoothed own position actually drawn
 let predVel = { x: 0, y: 0 };  // predicted own velocity (eased — matches the sim)
 let seq = 0;
+// Client-side prediction reconciliation: keep the movement inputs the server hasn't acked yet
+// ({seq,moveX,moveY,dt}); on each snapshot, snap to the authoritative own pos and REPLAY these
+// so the prediction stays drift-free instead of lerp-lagging. Flag lets us fall back instantly.
+const USE_REPLAY = true;
+let pendingInputs = [];
 let ping = 0;
 let snapCount = 0;   // snapshots received since last sample
 let snapRate = 0;    // snapshots/sec (on-screen diagnostic)
@@ -462,7 +467,8 @@ function processSnapshotSounds(snap) {
       crowdHypeT = performance.now();          // crowd leaps up, then settles over ~2.5s
     }
     if (previousBallOwner === null && snap.ball.owner !== null) {
-      playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28, snap.ball.owner === me.playerId ? 1.08 : 0.96);
+      // My own pickup = full (it's at me); an OTHER player's is distance-attenuated like every positional SFX.
+      playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28 * proximity(snap.ball.x, snap.ball.y), snap.ball.owner === me.playerId ? 1.08 : 0.96);
     }
     const newBlasts = (snap.blasts || []).filter((b) => !knownBlasts.has(b.id));
     for (const blast of newBlasts) {
@@ -697,6 +703,9 @@ function cardImage(r, n) {
     img.onload = () => { img.ready = true; audNeedsRebake = true; };
     img.onerror = () => { img.failed = true; };
     img.src = `${CARD_ART_BASE}/${r}/${n}.webp`;
+    // Decode OFF the main thread so a card finishing doesn't hitch the 120Hz loop; marks
+    // ready when fully decoded (preload at matchStart warms the whole crowd before kickoff).
+    if (img.decode) img.decode().then(() => { img.ready = true; audNeedsRebake = true; }).catch(() => {});
     _cardImgs.set(key, img);
   }
   return img;
@@ -782,10 +791,16 @@ function renderHubStats() {
 // it into the WebView like SALTIZ_CARDS); I own the bar's render here. level/next
 // follow their spec: level = floor((1+sqrt(1+xp/12.5))/2), xp-to-next = 100*level.
 function levelFromXp(xp) { return Math.max(1, Math.floor((1 + Math.sqrt(1 + Math.max(0, xp) / 12.5)) / 2)); }
+// ---- XP reward reveal state (post-match) — see the reveal module below renderHubXp ----
+let _xpShown = null;        // xp value currently reflected on the hub bar
+let _xpRevealing = false;   // while true the reveal animation OWNS the bar (the 700ms poll must not snap it)
+let _awaitXpReveal = false; // a match just ended -> the NEXT xp increase should celebrate (not silently snap)
+const XP_REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 function renderHubXp() {
   const el = document.getElementById('hub-xp'); if (!el) return;
   const src = window.SALTIZ_XP;
   const xp = src && Number.isFinite(+src.xp) ? +src.xp : (DEV_LOCAL ? 1240 : 0); // honest level-1 default until the app injects XP
+  if (!_xpRevealing) _xpShown = xp;   // keep the tracker synced with what's shown (unless a reveal is animating)
   const level = src && +src.level ? +src.level : levelFromXp(xp);
   const base = 50 * level * (level - 1), span = 100 * level;
   const into = Math.max(0, xp - base), pct = span ? Math.max(0, Math.min(1, into / span)) : 0;
@@ -793,6 +808,153 @@ function renderHubXp() {
     + '<span class="hub-xp-amt">' + fmtCompact(into) + ' / ' + fmtCompact(span) + ' XP</span></div>'
     + '<div class="hub-xp-bar"><b style="width:' + (pct * 100).toFixed(1) + '%"></b></div>';
   el.classList.remove('hidden');
+}
+
+// ============================================================================
+// XP REWARD REVEAL — when you land back on the hub after a match:
+//   (1) a big "+N XP" number pops in the CENTRE of the screen and METEORS down
+//       onto the XP bar, (2) the bar fills with a shower of confetti, and
+//   (3) on a level-up the new "רמה N" drops in from the centre, then the bar
+//       resets and keeps filling. Data-driven: it animates from the xp last
+//       shown to the new window.SALTIZ_XP the app injects on return (on
+//       localhost there's no app, so we simulate the gain — see below).
+// ============================================================================
+function currentXpRaw() {
+  const s = window.SALTIZ_XP;
+  return s && Number.isFinite(+s.xp) ? +s.xp : (DEV_LOCAL ? 1240 : 0);
+}
+// Update the EXISTING hub bar DOM in place (no innerHTML rebuild) to a given xp.
+function setXpBar(xp) {
+  const el = document.getElementById('hub-xp'); if (!el) return;
+  let bar = el.querySelector('.hub-xp-bar > b'), lvlB = el.querySelector('.hub-xp-lvl b'), amt = el.querySelector('.hub-xp-amt');
+  if (!bar || !lvlB || !amt) { renderHubXp(); bar = el.querySelector('.hub-xp-bar > b'); lvlB = el.querySelector('.hub-xp-lvl b'); amt = el.querySelector('.hub-xp-amt'); if (!bar) return; }
+  const level = levelFromXp(xp), base = 50 * level * (level - 1), span = 100 * level;
+  const into = Math.max(0, xp - base), pct = span ? Math.max(0, Math.min(1, into / span)) : 0;
+  lvlB.textContent = level; amt.textContent = fmtCompact(into) + ' / ' + fmtCompact(span) + ' XP';
+  bar.style.width = (pct * 100).toFixed(1) + '%';
+}
+function _xpEase(p) { return 1 - Math.pow(1 - p, 3); }
+function _xpTween(dur, upd, done) {
+  if (XP_REDUCE) { upd(1, 1); done && done(); return; }
+  const t0 = performance.now();
+  (function fr(now) { let p = Math.min(1, (now - t0) / dur); upd(_xpEase(p), p); if (p < 1) requestAnimationFrame(fr); else done && done(); })(performance.now());
+}
+// --- full-screen confetti + big-number overlay (its own layer; the game's
+//     confettiBurst is world-space on the match canvas, unusable on the hub) ---
+let _xpFxCv = null, _xpFxCtx = null, _xpBig = null, _xpFxParts = [], _xpFxRAF = null, _xpFxLast = 0;
+function xpFxEnsure() {
+  if (_xpFxCv) return;
+  const root = document.createElement('div'); root.id = 'xp-reveal';
+  _xpFxCv = document.createElement('canvas'); _xpFxCv.id = 'xp-confetti';
+  _xpBig = document.createElement('div'); _xpBig.id = 'xp-bignum';
+  root.appendChild(_xpFxCv); root.appendChild(_xpBig); document.body.appendChild(root);
+  _xpFxCtx = _xpFxCv.getContext('2d');
+  _xpFxCv.width = innerWidth * devicePixelRatio; _xpFxCv.height = innerHeight * devicePixelRatio;
+  _xpFxCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+function xpConfetti(n) {
+  xpFxEnsure();
+  for (let i = 0; i < n; i++) _xpFxParts.push({
+    x: Math.random() * innerWidth, y: -10 - Math.random() * 50,
+    vx: (Math.random() * 2 - 1) * 90, vy: 120 + Math.random() * 200,
+    rot: Math.random() * 6.28, vr: (Math.random() * 2 - 1) * 11,
+    col: CONFETTI_COLS[(Math.random() * CONFETTI_COLS.length) | 0],
+    life: 1.7 + Math.random() * 1.3, sz: 7 + Math.random() * 8,
+  });
+  if (!_xpFxRAF) { _xpFxLast = performance.now(); _xpFxRAF = requestAnimationFrame(xpFxLoop); }
+}
+function xpFxLoop(now) {
+  const dt = Math.min(0.05, (now - _xpFxLast) / 1000); _xpFxLast = now;
+  const c = _xpFxCtx;
+  if (_xpFxCv.width !== innerWidth * devicePixelRatio || _xpFxCv.height !== innerHeight * devicePixelRatio) {
+    _xpFxCv.width = innerWidth * devicePixelRatio; _xpFxCv.height = innerHeight * devicePixelRatio;
+    c.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+  c.clearRect(0, 0, innerWidth, innerHeight);
+  for (let i = _xpFxParts.length - 1; i >= 0; i--) {
+    const p = _xpFxParts[i]; p.vy += 320 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt; p.life -= dt;
+    if (p.life <= 0 || p.y > innerHeight + 24) { _xpFxParts.splice(i, 1); continue; }
+    c.save(); c.globalAlpha = Math.min(1, p.life); c.translate(p.x, p.y); c.rotate(p.rot);
+    c.fillStyle = p.col; c.fillRect(-p.sz / 2, -p.sz / 2, p.sz, p.sz * 1.5); c.restore();
+  }
+  if (_xpFxParts.length) _xpFxRAF = requestAnimationFrame(xpFxLoop);
+  else { _xpFxRAF = null; c.clearRect(0, 0, innerWidth, innerHeight); }
+}
+// Pop a big number in the centre, hold, then meteor it down to `rectGetter()`.
+function xpBigNum(text, color, isLevel, rectGetter, onLanded) {
+  xpFxEnsure();
+  const w = _xpBig; w.textContent = text; w.style.color = color; w.style.direction = isLevel ? 'rtl' : 'ltr'; w.style.display = 'block';
+  const cx = innerWidth / 2, cy = innerHeight / 2;
+  const r = rectGetter && rectGetter();
+  const tx = r ? (r.left + r.width / 2 - cx) : 0;
+  const ty = r ? (r.top + r.height / 2 - cy) : -cy * 0.55;
+  const frames = [
+    { transform: 'translate(-50%,-50%) scale(.2)', opacity: 0, offset: 0 },
+    { transform: 'translate(-50%,-50%) scale(1.16)', opacity: 1, offset: .17, easing: 'cubic-bezier(.2,1.7,.4,1)' },
+    { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: .36 },
+    { transform: `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(.34)`, opacity: .95, offset: .9, easing: 'cubic-bezier(.5,0,.9,1)' },
+    { transform: `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(.18)`, opacity: 0, offset: 1 },
+  ];
+  if (!w.animate) { w.style.display = 'none'; onLanded && onLanded(); return; }
+  const a = w.animate(frames, { duration: XP_REDUCE ? 280 : 1150, fill: 'forwards' });
+  a.onfinish = () => { w.style.display = 'none'; onLanded && onLanded(); };
+}
+const _hubXpRect = () => { const el = document.getElementById('hub-xp'); return el ? el.getBoundingClientRect() : null; };
+// Fill fromXp -> toXp, splitting at each level boundary so a level-up can drop its number.
+function fillWithLevels(fromXp, toXp, done) {
+  const segs = []; let cur = fromXp, L = levelFromXp(fromXp);
+  while (levelFromXp(toXp) > L) { const boundary = 50 * (L + 1) * L; segs.push({ from: cur, to: boundary, up: L + 1 }); cur = boundary; L++; }
+  segs.push({ from: cur, to: toXp, up: null });
+  const totalGain = Math.max(1, toXp - fromXp); let i = 0;
+  (function runSeg() {
+    if (i >= segs.length) { done && done(); return; }
+    const s = segs[i++]; const dur = Math.max(480, 1500 * (s.to - s.from) / totalGain); let lastBurst = 0;
+    _xpTween(dur, (e) => {
+      setXpBar(s.from + (s.to - s.from) * e);
+      const t = performance.now(); if (t - lastBurst > 85) { lastBurst = t; xpConfetti(3); }
+    }, () => {
+      if (s.up != null) {                                   // crossed a level
+        try { if (typeof playSound === 'function') playSound('win', 0.75); } catch (e) {}
+        xpConfetti(60);
+        xpBigNum('רמה ' + s.up, '#7bd0ff', true, _hubXpRect, () => runSeg());
+      } else runSeg();
+    });
+  })();
+}
+// Public entry: play the whole reveal from `fromXp` to `toXp`.
+function playXpReveal(fromXp, toXp) {
+  if (_xpRevealing || toXp <= fromXp) return;
+  _xpRevealing = true; _awaitXpReveal = false;
+  xpFxEnsure(); setXpBar(fromXp);
+  const gain = Math.round(toXp - fromXp);
+  try { if (typeof playSound === 'function') playSound('goalHappy', 0.6); } catch (e) {}
+  xpBigNum('+' + fmtCompact(gain) + ' XP', '#ffcb43', false, _hubXpRect, () => {
+    xpConfetti(24);
+    fillWithLevels(fromXp, toXp, () => { _xpShown = toXp; _xpRevealing = false; renderHomeCharacter(); });
+  });
+}
+// LOCALHOST ONLY: no native app to inject post-match XP, so fake the bump so the
+// reveal is testable on :3012. Alternates a within-level gain and a level-up gain
+// so both cases can be seen across successive matches. Never runs on device/Render.
+let _devXpN = 0;
+function simulateXpGainForDemo() {
+  if (!DEV_LOCAL) return;
+  const from = currentXpRaw(), L = levelFromXp(from), base = 50 * L * (L - 1), span = 100 * L, into = from - base;
+  const levelUp = (_devXpN++ % 2 === 1);
+  const gain = levelUp ? (span - into) + Math.round(span * 0.4) : Math.max(30, Math.round((span - into) * 0.6));
+  setTimeout(() => { window.SALTIZ_XP = { xp: from + gain }; }, 900); // the 700ms hub poll picks it up -> playXpReveal
+}
+// LOCALHOST preview: tap the XP bar to play the reveal instantly (alternating a
+// normal gain and a level-up) — a match is 120s, too long to test the real flow.
+if (DEV_LOCAL) {
+  const _xb = document.querySelector('.hub-xpbar') || document.getElementById('hub-xp');
+  if (_xb) _xb.addEventListener('click', () => {
+    if (_xpRevealing) return;
+    const from = currentXpRaw(), L = levelFromXp(from), span = 100 * L, into = from - 50 * L * (L - 1);
+    const up = (_devXpN++ % 2 === 1);
+    const gain = up ? (span - into) + Math.round(span * 0.4) : Math.max(30, Math.round((span - into) * 0.6));
+    window.SALTIZ_XP = { xp: from + gain }; _xpShown = from; playXpReveal(from, from + gain);
+  });
 }
 
 // --- Competitive rank ladder: 7 tiers × 4 sub-ranks (28 divisions), driven by the
@@ -1483,7 +1645,15 @@ function startHomeDance() {
       drawDancer(homeCharCtx, homeCharCanvas.width, homeCharCanvas.height, now);
       if (now - lastCardCheck > 700) {            // late album injection (cold cache) -> refresh the hub
         lastCardCheck = now;
-        if (cardsSig() !== _cardsSig) renderHomeCharacter();
+        const sig = cardsSig();
+        if (sig !== _cardsSig) {
+          const newXp = currentXpRaw();
+          // A match just ended and the app injected MORE xp -> celebrate the gain instead of snapping.
+          if (_awaitXpReveal && !_xpRevealing && _xpShown != null && newXp > _xpShown + 0.5) {
+            _cardsSig = sig;                       // consume the signature so we don't also snap-render
+            playXpReveal(_xpShown, newXp);
+          } else renderHomeCharacter();
+        }
       }
     }
     homeDanceRAF = requestAnimationFrame(loop);
@@ -2414,7 +2584,7 @@ function connect(name, avatar) {
     if (!startEl.classList.contains('hidden')) return; // still on the title screen
     showScreen('home');
     resetPlayNow();
-    if (!reconnectT) reconnectT = setTimeout(() => { reconnectT = null; connect(name, avatar); }, 1500);
+    if (!reconnectT) reconnectT = setTimeout(() => { reconnectT = null; connect(name, avatar); }, 900 + Math.floor(Math.random() * 900)); // jitter: avoid a synchronized reconnect storm on a deploy/flap
   };
   ws.onmessage = (e) => {
     if (typeof e.data !== 'string') { // compact binary snapshot
@@ -2458,6 +2628,10 @@ function connect(name, avatar) {
       partyFlow = false; lastLobby = null; partyStage = 'invite'; invitedSet.clear();
       clearRoomRequests(); hideRoomWait();   // #14: no stale host/joiner room UI back home
       quickVs = false; hideVs(); showScreen('home');
+      if (matchResultSent) {                 // a real match just finished -> celebrate the XP the app injects on return
+        _awaitXpReveal = true;
+        simulateXpGainForDemo();             // localhost only (no native app to inject xp); no-op on device/Render
+      }
     } else if (msg.type === 'roomError') {
       quickVs = false; hideVs(); hideRoomWait(); partyFlow = false;
       showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
@@ -2540,6 +2714,10 @@ function enterMatch(msg) {
   knownBlasts = new Set(); knownImpacts = new Set(); knownWalls = new Map(); knownBombs = new Set(); soundEventsReady = false;
   specialBtn.textContent = specialIcon(me.char);
   matchRoster = Array.isArray(msg.players) ? msg.players : [];
+  // Pull the WHOLE crowd's card art onto the device at kickoff so it never pops in mid-match
+  // (the wire only ever carries compact position/state data — never art). Images cache in
+  // _cardImgs for the session and in the browser/WebView HTTP cache across sessions.
+  preloadCards(myCards()); matchRoster.forEach((p) => preloadCards(p.cards));
   matchId = msg.matchId || null; // stable id for this match's app-bound result
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
   celeb = null;                  // clear any lingering goal/win/lose celebration overlay
@@ -2933,17 +3111,28 @@ function stepPrediction(moveX, moveY, dt) {
   predicted.x = e.x; predicted.y = e.y; predVel.x = e.vx; predVel.y = e.vy;
 }
 
-// Gently pull the prediction toward the authoritative position (no hard replay
-// — keeps motion smooth on a low-latency LAN).
+// Reconcile the prediction against the authoritative snapshot. With USE_REPLAY: hard-set to
+// the server's own-player pos/vel, drop inputs the server already applied (seq <= lastSeq),
+// then re-apply the still-unacked ones — so own motion is drift-free even on real RTT instead
+// of the old lerp-lag/rubber-band. (Movement is deterministic vs the server; a hit's knockback
+// inside the unacked window is a small bounded error, corrected on the next snapshot.)
 function reconcile(snap) {
   const server = snap.players.find((p) => p.id === me.playerId);
   if (!server) return;
-  if (!predicted) { predicted = { x: server.x, y: server.y }; rendered = { ...predicted }; return; }
+  if (!predicted) { predicted = { x: server.x, y: server.y }; rendered = { ...predicted }; predVel = { x: 0, y: 0 }; pendingInputs = []; return; }
   if (snap.resetTimer > 0) { // kickoff freeze: sit exactly where the server puts us
-    predicted.x = server.x; predicted.y = server.y; predVel.x = 0; predVel.y = 0; return;
+    predicted.x = server.x; predicted.y = server.y; predVel.x = 0; predVel.y = 0; pendingInputs = []; return;
   }
-  predicted.x += (server.x - predicted.x) * 0.2;
-  predicted.y += (server.y - predicted.y) * 0.2;
+  if (!USE_REPLAY) {
+    predicted.x += (server.x - predicted.x) * 0.2;
+    predicted.y += (server.y - predicted.y) * 0.2;
+    return;
+  }
+  const ack = server.lastSeq || 0;
+  predicted.x = server.x; predicted.y = server.y;
+  predVel.x = server.vx || 0; predVel.y = server.vy || 0;
+  while (pendingInputs.length && pendingInputs[0].seq <= ack) pendingInputs.shift();
+  for (const p of pendingInputs) stepPrediction(p.moveX, p.moveY, p.dt);
 }
 
 // --------------------------------------------------------------------------
@@ -2974,7 +3163,7 @@ function currentWindup() { return buildStart === null ? 0 : Math.min(1, (perform
 function cancelBuild() { buildHolding = false; buildStart = null; buildHold = null; }
 
 // Build a wall — like a shot, you can drag to aim (pull-to-build) then release.
-function releaseBuild(aim) { buildQueued = true; if (aim) { buildHold = aim; buildHold.frac = buildPushFrac(aim.x, aim.y); } playSound('ui', 0.5, 0.86); }
+function releaseBuild(aim) { buildQueued = true; if (aim) { buildHold = aim; buildHold.frac = buildPushFrac(aim.x, aim.y); } playSound('ui', 0.5, 0.86); flushInput(); }
 
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
 function beginCharge() { if (!me.playerId) return; if (!holding) { holding = true; chargeStart = performance.now(); } } // no firing/charge (or shot sound) outside a live match — tapping the menu is silent
@@ -2988,11 +3177,24 @@ function releaseShot(aim) {
   // pulled out of the deadzone. A bare tap with no pull = a QUICK shot (no push, slow only).
   aimedShot = aim ? true : (!usingTouch && aimPulled());
   fireQueued = true;
+  // Instant local shot feedback: a muzzle flash at the barrel + a short shake + a 1-frame
+  // recoil, so the release READS immediately (the authoritative bullet/ball follows a tick
+  // later). Purely cosmetic — predVel is re-eased to the stick every step, so it can't desync.
+  if (rendered) {
+    let ax, ay;
+    if (aim) { const l = Math.hypot(aim.x, aim.y) || 1; ax = (flipView() ? -aim.x : aim.x) / l; ay = aim.y / l; }
+    else { const mv = latest && latest.players && latest.players.find((p) => p.id === me.playerId); ax = mv ? mv.aimX : 1; ay = mv ? mv.aimY : 0; }
+    const off = ownRadius() + BALL_RADIUS;
+    spawnFlash(rendered.x + ax * off, rendered.y + ay * off, ownRadius() * 0.9);
+    shake(holdingBall ? 5 : 3.5, 90);
+    if (predVel) { predVel.x -= ax * 60; predVel.y -= ay * 60; }
+  }
   const c = currentCharge();
   if (holdingBall) playSound('kick', 0.85, 0.92 + c * 0.16);        // kicking the held ball
   else if (c >= FULL_CHARGE) playSound('powerShot', 0.7);           // fully-charged bullet — the "power shoot" cue
   else playSound('shot', 0.38, 0.92 + c * 0.16);                    // a normal bullet (gun blop / shoot)
   holding = false; chargeStart = null;
+  flushInput(); // send the shot edge (with its aim) immediately — don't wait for the send tick
 }
 // Cancel a charge: trigger returned to centre — no shot, no sound.
 function cancelCharge() { if (!holding) return; holding = false; chargeStart = null; aimHold = null; }
@@ -3086,6 +3288,7 @@ if (specialBtn) {
       specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
     }
     bombDrag.active = false; bombDrag.id = null; bombDrag.dx = 0; bombDrag.dy = 0; bombDrag.aimed = false;
+    flushInput(); // send the special edge (with its lob aim) immediately
   };
   specialBtn.addEventListener('pointerup', endBombDrag);
   specialBtn.addEventListener('pointercancel', endBombDrag);
@@ -3547,14 +3750,23 @@ function sampleInput() {
 }
 
 // Send inputs + advance prediction at a fixed rate.
+// Sample + send one input packet NOW (no prediction step). Called every tick by the loop
+// below AND synchronously on action EDGES (shoot/build/special) so a trigger never waits up
+// to a full send-interval — that removes ~0-16ms of input latency on the actions that matter.
+function flushInput() {
+  if (!ws || ws.readyState !== ws.OPEN || !me.playerId) return null;
+  try { const inp = sampleInput(); seq++; ws.send(JSON.stringify({ type: 'input', seq, ...inp })); return { seq, ...inp }; }
+  catch (e) { showFatal('input: ' + e.message); return null; }
+}
 setInterval(() => {
-  if (!ws || ws.readyState !== ws.OPEN || !me.playerId) return;
-  try {
-    const inp = sampleInput();
-    seq++;
-    ws.send(JSON.stringify({ type: 'input', seq, ...inp }));
-    if (predicted && !(latest && latest.resetTimer > 0)) stepPrediction(inp.moveX, inp.moveY, INPUT_DT);
-  } catch (e) { showFatal('input: ' + e.message); }
+  const sent = flushInput();
+  if (sent && predicted && !(latest && latest.resetTimer > 0)) {
+    stepPrediction(sent.moveX, sent.moveY, INPUT_DT);
+    // Record this timestep's movement so a later snapshot can replay it from the server base.
+    // (Edge flushes — shot/build/special — deliberately DON'T record: they carry the same
+    // movement but don't advance a timestep, so replaying them would double-count motion.)
+    if (USE_REPLAY) { pendingInputs.push({ seq: sent.seq, moveX: sent.moveX, moveY: sent.moveY, dt: INPUT_DT }); if (pendingInputs.length > 256) pendingInputs.shift(); }
+  }
 }, 1000 / INPUT_RATE);
 
 // --------------------------------------------------------------------------
@@ -3569,12 +3781,12 @@ const mainCtx = canvas.getContext('2d');
 const ART_PX = 3.25;                 // device px per art-pixel (bigger = chunkier)
 const CAM_ZOOM = 1.65;               // #7: world-view zoom (ART px/world, before ART_PX). Lower = wider view so the goal NET is framed when near a goal. Was 1.85.
 const worldBuf = document.createElement('canvas');
-const wbCtx = worldBuf.getContext('2d');
+const wbCtx = worldBuf.getContext('2d', { alpha: false }); // fully painted each frame -> skip per-pixel blending
 let wbW = 1, wbH = 1;                 // world-buffer dims (art px)
 // Offscreen canvas caches the STATIC field (grass, lines, goals, stands) for the
 // whole world incl. the behind-goal net areas; blitted at the camera offset.
 const bgCanvas = document.createElement('canvas');
-const bgCtx = bgCanvas.getContext('2d');
+const bgCtx = bgCanvas.getContext('2d'); // keep alpha: renderBackground clearRects to transparent (bowl corners show the worldBuf backdrop)
 let ctx = wbCtx;            // active draw target (world draws target the low-res buffer)
 let scale = 1, dpr = 1;     // scale = ART pixels per world unit
 let camX = 0, camY = 0;     // camera offset in ART px (subtracted in wx/wy)
@@ -3642,7 +3854,7 @@ function updateCamera() {
   const fieldHpx = FIELD.H * scale, worldHpx = (FIELD.H + 2 * CAM_BAND) * scale;
   const minY = -CAM_BAND * scale, maxY = (FIELD.H + CAM_BAND) * scale - wbH;
   const tY = worldHpx <= wbH ? (fieldHpx - wbH) / 2 : clamp(cy * scale - wbH / 2, minY, Math.max(minY, maxY)); // whole bowl fits -> centre
-  const EASE = 0.22;
+  const EASE = 0.30;  // was 0.22 — tighter camera follow so the view doesn't drag behind you
   if (Math.abs(tX - camX) > wbW * 0.6 || Math.abs(tY - camY) > wbH * 0.6) { camX = tX; camY = tY; }
   else { camX += (tX - camX) * EASE; camY += (tY - camY) * EASE; }
 }
@@ -5122,8 +5334,8 @@ function renderFrame() {
   // Ease the drawn local player toward the prediction, then point the camera at it.
   if (predicted) {
     if (!rendered) rendered = { ...predicted };
-    rendered.x += (predicted.x - rendered.x) * 0.35;
-    rendered.y += (predicted.y - rendered.y) * 0.35;
+    rendered.x += (predicted.x - rendered.x) * 0.55; // was 0.35 — tighter follow of the (instant) prediction = sharper
+    rendered.y += (predicted.y - rendered.y) * 0.55;
     const now = performance.now();
     if (!lastStepPos) lastStepPos = { ...rendered };
     const moved = Math.hypot(rendered.x - lastStepPos.x, rendered.y - lastStepPos.y);
@@ -5518,7 +5730,10 @@ function jointPolygon(walls, J) {
   }
   return convexHull(pts);
 }
+let _wjRef = null, _wjOut = null; // memoize the GAME path — arena walls are a stable ref; the editor's fbField.hardWalls mutates in place, so it's never cached
 function wallJoints(walls) {
+  const cacheable = walls === fieldArena().walls;
+  if (cacheable && walls === _wjRef && _wjOut) return _wjOut; // static arena joints — recomputed only on arena swap, not every frame
   const hw = (walls || []).filter((w) => w && w.angle != null && w.cx != null);
   const raw = [];
   for (let i = 0; i < hw.length; i++) for (let j = i + 1; j < hw.length; j++) {
@@ -5547,6 +5762,7 @@ function wallJoints(walls) {
       out.push({ cx: c.x, cy: c.y, r, poly });
     }
   }
+  if (cacheable) { _wjRef = walls; _wjOut = out; }
   return out;
 }
 function fbRender() {

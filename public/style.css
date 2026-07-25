@@ -2083,3 +2083,18 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .fp-div { font: 900 12px "Arial Black", sans-serif; color: #b9c7ab; margin-top: 2px; }
 .fp-slots { justify-content: center; margin: 12px 0; }
 .fp-stats { font: 900 11px "Arial Black", sans-serif; color: #9fb0a2; }
+
+/* ============================================================================
+   XP REWARD REVEAL — post-match hub overlay: full-screen confetti + a big
+   centre number that meteors onto the #hub-xp bar (see playXpReveal in client.js).
+   ============================================================================ */
+#xp-reveal { position: fixed; inset: 0; z-index: 150; pointer-events: none; }
+#xp-confetti { position: absolute; inset: 0; width: 100%; height: 100%; }
+#xp-bignum {
+  position: absolute; left: 50%; top: 50%; display: none; will-change: transform, opacity;
+  font: 900 clamp(46px, 13vw, 118px)/1 "Arial Black", "Arial Hebrew", Impact, sans-serif;
+  color: #ffcb43; letter-spacing: .01em; white-space: nowrap;
+  unicode-bidi: isolate; font-variant-numeric: tabular-nums;
+  text-shadow: 0 4px 0 #a56a16, 0 8px 0 #2a1c06, 0 12px 26px rgba(0,0,0,.6);
+}
+@media (prefers-reduced-motion: reduce) { #xp-confetti { display: none; } }

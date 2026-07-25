@@ -32,6 +32,7 @@ export function encodeKeyframe(s, slotIds, rv) {
   const u8 = (v) => { EDV.setUint8(o, v & 255); o += 1; };
   const i8 = (v) => { EDV.setInt8(o, v < -128 ? -128 : v > 127 ? 127 : v); o += 1; };
   const u16 = (v) => { EDV.setUint16(o, v & 0xffff, true); o += 2; };
+  const u32 = (v) => { EDV.setUint32(o, v >>> 0, true); o += 4; };
   const i16 = (v) => { EDV.setInt16(o, clampI16(v), true); o += 2; };
   const P = (v) => i16(Math.round(v * 10));
 
@@ -47,7 +48,7 @@ export function encodeKeyframe(s, slotIds, rv) {
 
   const byId = new Map(s.players.map((p) => [p.id, p]));
   let mask = 0; const present = [];
-  for (let k = 0; k < 4; k++) { const p = byId.get(slotIds[k]); if (p) { mask |= 1 << k; present.push(p); } }
+  for (let k = 0; k < 8; k++) { const p = byId.get(slotIds[k]); if (p) { mask |= 1 << k; present.push(p); } } // up to 8 slots (mask is a u8) — training runs 5 players (you + 4 enemies)
   u8(mask);
   for (const p of present) {
     P(p.x); P(p.y); i16(Math.round(p.vx * 10)); i16(Math.round(p.vy * 10));
@@ -57,6 +58,7 @@ export function encodeKeyframe(s, slotIds, rv) {
     // buildFrac byte is overloaded: WINDUP progress when winding (flag bit 7), else the
     // usual next-charge reload fraction. The client picks meaning off the winding flag.
     u8(Math.round((p.buildWindup > 0 ? p.buildWindup : p.buildFrac) * 100));
+    u32(p.lastSeq || 0); // last input seq the server applied for this player — client replays inputs AFTER it
   }
   const sec = (arr, fn) => { u8(arr.length & 255); for (const e of arr) fn(e); };
   sec(s.projectiles, (p) => { u16(p.id); P(p.x); P(p.y); u8(teamBit(p.team)); });
@@ -79,6 +81,7 @@ export function decodeSnapshot(dv, slotId, slotTeam, rosterVersion) {
   const u8 = () => { const v = dv.getUint8(o); o += 1; return v; };
   const i8 = () => { const v = dv.getInt8(o); o += 1; return v; };
   const u16 = () => { const v = dv.getUint16(o, true); o += 2; return v; };
+  const u32 = () => { const v = dv.getUint32(o, true); o += 4; return v; };
   const i16 = () => { const v = dv.getInt16(o, true); o += 2; return v; };
   const P = () => i16() / 10;
 
@@ -94,17 +97,17 @@ export function decodeSnapshot(dv, slotId, slotTeam, rosterVersion) {
   const ownerSlot = u8();
   const mask = u8();
   const players = [];
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < 8; k++) {
     if (!(mask & (1 << k))) continue;
     const x = P(), y = P(), vx = i16() / 10, vy = i16() / 10;
     const aimX = i8() / 100, aimY = i8() / 100;
-    const flags = u8(); const reloadFrac = u8() / 100, buildFrac = u8() / 100;
+    const flags = u8(); const reloadFrac = u8() / 100, buildFrac = u8() / 100; const lastSeq = u32();
     players.push({
       id: slotId[k], char: 'player', team: slotTeam[k],
       x, y, vx, vy, aimX, aimY,
       firing: !!(flags & 1), reloading: !!(flags & 2), ammo: (flags >> 2) & 3, buildAmmo: (flags >> 4) & 3, power: !!(flags & 64),
       winding: !!(flags & 128),
-      reloadFrac, buildFrac,
+      reloadFrac, buildFrac, lastSeq,
     });
   }
   ball.owner = ownerSlot === 0xff ? null : slotId[ownerSlot];

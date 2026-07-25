@@ -22,7 +22,7 @@ import { MAIN_FIELD } from './shared/main-field.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
-const BACKPRESSURE_LIMIT = 64 * 1024; // drop a snapshot to a client whose send buffer is backed up (slow/backgrounded)
+const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
@@ -40,6 +40,7 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
+  '.png': 'image/png',
   '.mp3': 'audio/mpeg',
 };
 
@@ -53,9 +54,12 @@ const server = http.createServer((req, res) => {
   if (!filePath.startsWith(__dirname)) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); return res.end('not found'); }
+    // Art/audio never change per build -> let the device KEEP them (assets live on the phone).
+    // Code/markup stay no-store so a new client.js/index.html always lands (no stale-code trap).
+    const immutable = urlPath.startsWith('/public/assets/') || urlPath.startsWith('/public/audio/');
     res.writeHead(200, {
       'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream',
-      'Cache-Control': 'no-store, must-revalidate',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-store, must-revalidate',
     });
     res.end(data);
   });
@@ -338,7 +342,7 @@ function startTraining(member) {
     addPlayer(room.state, id, { name: e.role, char: DEFAULT_CHAR, team: 'B', slot: i, isBot: true, cosmetic: randomBotCosmetic() });
     room.inputs.set(id, emptyInput());
     const p = room.state.players[id]; p.x = e.x; p.y = e.y;
-    room.trainEnemies.push({ id, role: e.role, home: { x: e.x, y: e.y }, mem: e.role === 'sentry' ? createSentryMem() : null });
+    room.trainEnemies.push({ id, role: e.role, home: { x: e.x, y: e.y }, leash: e.leash !== false, mem: e.role === 'sentry' ? createSentryMem() : null });
   });
 
   const matchId = `${room.id}-${++matchSeq}`;
@@ -625,7 +629,8 @@ function tickRoom(room) {
   if (room.mode === 'training') {
     for (const e of room.trainEnemies || []) {
       if (e.role === 'keeper') keeperClamp(room.state, e.id);               // pin the keeper to the box
-      else leashSentry(room.state, e.id, e.home, TRAIN_HOME_LEASH);         // sentry + still: return-home leash
+      else if (e.leash) leashSentry(room.state, e.id, e.home, TRAIN_HOME_LEASH); // sentry + leashed still: return-home
+      // no-leash enemies (middle bot) fly off freely; their walk-home input still returns them
     }
   }
   for (const inp of room.inputs.values()) { inp.fire = false; inp.aimed = false; inp.special = false; inp.build = false; } // consume edges; hold persists as a level
@@ -765,6 +770,14 @@ function broadcastPresence() {
 setInterval(tickAll, 1000 / TICK_RATE);
 setInterval(broadcastSnapshots, 1000 / SNAPSHOT_RATE);
 setInterval(broadcastPresence, 200);
+// WS heartbeat: reap half-open sockets (phone switched wifi↔cellular / backgrounded) that would
+// otherwise linger as zombies holding a match slot until the OS TCP timeout. Browsers auto-pong.
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { try { ws.terminate(); } catch {} continue; }
+    ws.isAlive = false; try { ws.ping(); } catch {}
+  }
+}, 20000);
 
 // Sanitize the album handed over from the app (join.cards): a compact, non-PII list
 // [{r,n,c,w}]. Validate rarity/number, clamp copies/worth, cap the length.
@@ -1003,6 +1016,7 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', (ws, req) => {
   let member = null;
   try { req.socket.setNoDelay(true); } catch { /* disable Nagle so tiny 60Hz frames aren't batched */ }
+  ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; }); // liveness (see the heartbeat sweep)
 
   ws.on('message', (raw) => {
     let msg;
@@ -1190,16 +1204,25 @@ wss.on('connection', (ws, req) => {
           }
         }
         const prev = room.inputs.get(member.id) || {};
+        // The aim VECTOR must ride WITH the fire edge. On release the client zeroes its aim
+        // stick, so it sends P1{fire, aim} then P2{no-fire, aim≈0}; on a jittery connection
+        // both coalesce into one tick. fire is latched sticky, but if we let the latest packet
+        // overwrite aimX/aimY, P2 clobbers the shot direction and the sim falls back to the
+        // MOVEMENT dir — the ball flies where you're running, not where you aimed. So LOCK the
+        // aim to the message that carried the fire edge (same idea already used for `aimed`).
+        // Ditto the lob vector (sax/say) with the `special` edge.
+        const takeAim = !!msg.fire || !prev.fire;      // this msg fires, or no fire pending -> use its aim
+        const takeLob = !!msg.special || !prev.special;
         room.inputs.set(member.id, {
-          seq: msg.seq, moveX: msg.moveX || 0, moveY: msg.moveY || 0, aimX: msg.aimX || 0, aimY: msg.aimY || 0,
+          seq: msg.seq, moveX: msg.moveX || 0, moveY: msg.moveY || 0,
+          aimX: takeAim ? (msg.aimX || 0) : prev.aimX, aimY: takeAim ? (msg.aimY || 0) : prev.aimY,
           // hold = a level signal (charging now); fire = an EDGE (release), latched
           // sticky until the next tick consumes it so a fire between ticks isn't lost.
           hold: !!msg.hold, fire: prev.fire || !!msg.fire,
-          // aimed rides WITH the fire edge — latch it sticky too, else it's lost when fire is
-          // coalesced across ticks and every human shot degrades to a no-push quick shot.
           aimed: prev.aimed || !!msg.aimed,
           special: prev.special || !!msg.special, build: prev.build || !!msg.build,
-          buildHold: !!msg.buildHold, sax: msg.sax || 0, say: msg.say || 0,
+          buildHold: !!msg.buildHold, buildDist: msg.buildDist || 0,
+          sax: takeLob ? (msg.sax || 0) : prev.sax, say: takeLob ? (msg.say || 0) : prev.say,
         });
         return;
       }

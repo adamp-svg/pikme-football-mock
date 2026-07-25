@@ -44,10 +44,10 @@ export const TRAIN_ARENA = buildArenaFromField(TRAIN_FIELD);
 //   still  = stationary, never shoots, walks back home if knocked
 //   keeper = patrols the penalty box to block the goal, never shoots
 export const TRAIN_ENEMIES = [
-  { key: 'sentry', role: 'sentry', x: 75, y: 125 },    // top-left: shoots
-  { key: 'stillB', role: 'still', x: 175, y: 975 },    // bottom-left: idle target
-  { key: 'stillM', role: 'still', x: 975, y: 525 },    // middle: idle target
-  { key: 'keeper', role: 'keeper', x: 1925, y: 525 },  // far goal: goalie
+  { key: 'sentry', role: 'sentry', x: 75, y: 125 },                // top-left: shoots
+  { key: 'stillB', role: 'still', x: 175, y: 975 },                // bottom-left: idle target
+  { key: 'stillM', role: 'still', x: 975, y: 525, leash: false },  // middle: free — flies off when hit (no leash)
+  { key: 'keeper', role: 'keeper', x: 1925, y: 525 },              // far goal: goalie
 ];
 export const TRAIN_HOME_LEASH = 170; // how far a stationary enemy can be knocked before it's pinned
 
