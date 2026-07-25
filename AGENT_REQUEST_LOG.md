@@ -21,6 +21,8 @@
 
 ## 2026-07-25
 
+- **Rules re-affirmed AGAIN, 3rd time (agent `rules-scribe-3`)** — Same instruction, word for word: "you are working with other agents on the football game for the Saltiz app. Write everything I've asked you down in short simple bullets for other agents to find out. You commit all work to local host and when asked push." Nothing new to implement. ⚠️ **Every agent: read the 🔒 STANDING RULES block above + [`AGENT_RULES.md`](AGENT_RULES.md) at session start and stop making the user repeat this.** Working tree was CLEAN at the time (everything through `60121a7` committed). Committed this entry locally, **not pushed**.
+
 - **Rules re-affirmed by the user (agent `rules-scribe-2`)** — User repeated the standing instructions verbatim: "you are working with other agents on the football game for the Saltiz app. Write everything I've asked you down in short simple bullets for other agents to find out. You commit all work to local host and when asked push." Nothing new — the 🔒 STANDING RULES block above + [`AGENT_RULES.md`](AGENT_RULES.md) already cover it. Treat those rules as permanent, not per-session.
   - Working tree at the time (do NOT commit these if they aren't yours): `shared/sim.js` (goal/assist + per-match stats), `test-match-stats.mjs` (untracked, same owner), `public/client.js` + `server.js` (the `wall-place` build-position fix).
   - Committed the doc change locally. **Not pushed.**
