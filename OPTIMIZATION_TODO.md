@@ -8,6 +8,9 @@
 > Keywords: game optimization, performance, perf, netcode, latency, lag, reactive, sharp, smooth,
 > fps, 120Hz, WebRTC, UDP, transport, prediction, reconciliation, interpolation, lag compensation.
 >
+> 👥 Standing user rules for every agent: [`AGENT_RULES.md`](AGENT_RULES.md) — commit all work
+> LOCALLY, never push/deploy unless asked, log every request in `AGENT_REQUEST_LOG.md`.
+>
 > Coordination: this is a multi-agent repo — take an orchestration lock before editing a shared
 > file (`football-mock:<path>`), run the test suite (`for f in test*.mjs; do node $f; done`, must
 > stay green — 2 unrelated flakes aside), build locally on `PORT=3012 node server.js`, and deploy
