@@ -738,7 +738,11 @@ const MY_AVATAR = _params.get('avatar') || null;
 // (same precedent as window.SALTIZ_XP); ?ftoken= is the dev fallback. PIKME_API is the
 // pikme-server REST base for the friends endpoints (Task 3).
 const FOOTBALL_TOKEN = (() => { try { return window.PIKME_FOOTBALL_TOKEN || new URLSearchParams(location.search).get('ftoken') || null; } catch { return null; } })();
-const PIKME_API = (window.PIKME_API || (location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://pikme-server.onrender.com')).replace(/\/$/, '');
+// Fallback host was https://pikme-server.onrender.com, which is DEAD (Render answers a plain-text
+// 404). In-app that never showed because the app injects window.PIKME_API, but any browser test —
+// phone Safari against the Render game, or a LAN IP — got silently broken friends and DMs with no
+// error anywhere. The live API is server.pikme.tv; only a true localhost page assumes a local one.
+const PIKME_API = (window.PIKME_API || (location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://server.pikme.tv')).replace(/\/$/, '');
 let MY_USER_ID = null; // filled from the welcome message (authenticated connections only)
 
 // ---- Player album (cards) -------------------------------------------------
@@ -1817,6 +1821,9 @@ function startHomeDance() {
         lastCardCheck = now;
         // RANK arrives on its own channel (window.SALTIZ_RANK), so it needs its own check —
         // cardsSig() only tracks the album + xp and would miss a rank-only change.
+        // fetchOwnRank() is a no-op when the app injected; otherwise it fills the same global
+        // (rate-limited internally) so the badge works in a browser and in pre-rank app builds.
+        fetchOwnRank();
         pollRank();
         const sig = cardsSig();
         if (sig !== _cardsSig) {
@@ -2337,6 +2344,42 @@ async function apiPost(path, body) {
     if (!r.ok) { toast('החיבור נכשל, נסה שוב'); return false; }
     return true;
   } catch { toast('החיבור נכשל, נסה שוב'); return false; }
+}
+
+// ---- RANK self-fetch --------------------------------------------------------
+// The hub badge reads window.SALTIZ_RANK, which the app WebView injects. That inject only exists in
+// app builds we don't control, and never in a browser — so without this the badge silently falls
+// back to the legacy xp level and the whole RANK ladder is invisible outside a fresh app build.
+// We fetch our OWN standing and write the SAME global, so pollRank() picks it up unchanged.
+//
+// The app stays authoritative: it injects a per-match `delta` we cannot know, so a real inject is
+// never overwritten. Two sources, in order of trust:
+//   1. football token  → GET /handle-friends/rank   (identity from the signed token)
+//   2. ?phone=         → GET /handle-user/football/stats?phone=…  (unauthenticated, browser testing)
+// delta stays 0: this is a standing read, not a match result, and a wrong delta would animate a
+// jump that never happened.
+const RANK_SELF_MS = 60000;      // standing barely moves outside a match; don't hammer the API
+let _rankSelfAt = 0, _rankSelfBusy = false;
+async function fetchOwnRank() {
+  if (window.SALTIZ_RANK) return;                       // the app injected — it wins, always
+  if (_rankSelfBusy) return;
+  const now = performance.now();
+  if (_rankSelfAt && now - _rankSelfAt < RANK_SELF_MS) return;
+  const phone = (() => { try { return _params.get('phone'); } catch { return null; } })();
+  if (!FOOTBALL_TOKEN && !phone) return;                // no identity, nothing to ask for
+  _rankSelfBusy = true;
+  try {
+    const r = FOOTBALL_TOKEN
+      ? await apiGet('/handle-friends/rank')
+      : await apiGet(`/handle-user/football/stats?phone=${encodeURIComponent(phone)}`);
+    _rankSelfAt = performance.now();
+    // A pre-rank backend answers 200 with no rankPoints — that is "not deployed yet", not rank 0,
+    // so leave SALTIZ_RANK unset and let the legacy xp badge stand.
+    const rp = Number(r && r.rankPoints);
+    if (!Number.isFinite(rp)) return;
+    if (window.SALTIZ_RANK) return;                      // an inject landed while we awaited
+    window.SALTIZ_RANK = { rankPoints: rp, rankTier: (r && r.rankTier) || null, delta: 0, botLevel: null };
+  } finally { _rankSelfBusy = false; }
 }
 
 // 3 built-in BOT friends — always available (online), invitable into a party from the
@@ -3825,12 +3868,14 @@ let wallMaxPx = loadAimNum('fbWallMax', BUILT_WALL.offset + 32);   // wall total
 // PULL RESPONSE CURVE — the second dimension of aim feel, on top of the sensitivity DISTANCE above.
 // Sensitivity says how far you must drag to reach max; the curve says how the reach is DISTRIBUTED
 // across that drag (Brawl-Stars-style: the throw lands where you point, and short pulls stay short).
-//   1.0  linear   — reach is proportional to pull (the old behaviour, still the default)
-//   <1   "fast"   — reach ramps early; small pulls already throw far (twitchy, good for panic lobs)
-//   >1   "precise"— reach ramps late; most of the drag buys fine control up close, max needs a full pull
-// Applied as frac = t^curve on the normalized 0..1 pull, so both endpoints stay pinned (0→0, 1→1) and
-// the cancel dead-zone + max reach are untouched. Purely input feel; the sim never sees this number.
-let aimCurve = loadAimNum('fbAimCurve', 1);
+// Applied as frac = t^AIM_CURVE on the normalized 0..1 pull, so both endpoints stay pinned (0→0, 1→1)
+// and the cancel dead-zone + max reach are untouched. Purely input feel; the sim never sees it.
+//
+// NOT a setting. The user's call (2026-07-25): "remove the עקומת משיכה, leave it on accurate 2.2" —
+// so the curve is PINNED at the precise end of the old 0.6–2.2 slider. Most of the drag buys fine
+// control up close and max reach needs a full pull, which is the Brawl-Stars-style aim we want by
+// default. Don't re-expose it as a slider; the stale `fbAimCurve` key is deliberately ignored.
+const AIM_CURVE = 2.2;
 // IDLE OPACITY of the on-screen controls. Every shipped editor in the genre exposes this (CoD Mobile
 // + Free Fire transparency sliders; Unreal makes ActiveOpacity/InactiveOpacity first-class engine
 // params) — it's the one rung Brawl Stars' editor lacks. Controls go fully opaque while touched.
@@ -3843,8 +3888,7 @@ applyCtlOpacity();
 function aimFrac(len, ctl) {
   const s = Math.max(aimSens[ctl] || aimSensPx, AIM_DEADZONE_PX + 1);
   const t = clamp((len - AIM_DEADZONE_PX) / (s - AIM_DEADZONE_PX), 0, 1);
-  const c = Number.isFinite(aimCurve) && aimCurve > 0 ? aimCurve : 1;
-  return c === 1 ? t : Math.pow(t, c);   // endpoints pinned: 0→0, 1→1
+  return Math.pow(t, AIM_CURVE);   // endpoints pinned: 0→0, 1→1
 }
 function buildPushFrac(dx, dy) { return aimFrac(Math.hypot(dx, dy), 'wall'); }
 // Wall aimMag (0..1) the sim consumes: dist = offset + aimMag*BUILD_DIST_MAX, scaled so a full drag reaches wallMaxPx.
@@ -4518,12 +4562,10 @@ for (const puck of cePucks) {
 
 // Client-only tunables (persist to localStorage, apply in real matches too). NOT in SETTING_KEYS —
 // the server never reads them. They are split across TWO panels on purpose:
-//   • controls editor  → INPUT FEEL: how far/what shape your finger drag is (sens, curve)
+//   • controls editor  → INPUT FEEL: idle opacity (the pull CURVE is pinned, see AIM_CURVE)
 //   • settings→mechanics (training) → GAME REACH: how far a bomb lands / a wall builds
-// The `fmt` gives each its own unit so a curve doesn't render as "1px".
+// The `fmt` gives each its own unit so an opacity doesn't render as "1px".
 const _aimSliders = [
-  { id: 's-aimCurve', vid: 'v-aimCurve', key: 'fbAimCurve', def: 1,                         get: () => aimCurve,  set: (v) => { aimCurve = v; },
-    fmt: (v) => (v < 0.95 ? 'מהיר ' : v > 1.05 ? 'מדויק ' : 'ליניארי ') + '×' + v.toFixed(1) },
   { id: 's-ctlOpacity', vid: 'v-ctlOpacity', key: 'fbCtlOpacity', def: 0.5,                  get: () => ctlIdleOp, set: (v) => { ctlIdleOp = v; applyCtlOpacity(); },
     fmt: (v) => Math.round(v * 100) + '%' },
   { id: 's-bombMax',  vid: 'v-bombMax',  key: 'fbBombMax',  def: BOMB_LOB_RANGE,            get: () => bombMaxPx, set: (v) => { bombMaxPx = v; } },
@@ -4563,10 +4605,11 @@ document.getElementById('ce-reset')?.addEventListener('click', () => {
     for (const p of ['left', 'top', 'right', 'bottom', 'width', 'height', 'fontSize']) el.style[p] = '';
   }
   stickL.style.width = stickL.style.height = ''; stickR.style.width = stickR.style.height = '';
-  // Restore only the INPUT-FEEL defaults (sens + curve). The bomb/wall REACH sliders now live in
-  // Settings → mechanics, so they're reset by that panel's איפוס, not by this one.
+  // Restore only the INPUT-FEEL defaults (idle opacity; the pull curve is pinned, not a setting).
+  // The bomb/wall REACH sliders now live in Settings → mechanics, so they're reset by that panel's
+  // איפוס, not by this one.
   for (const s of _aimSliders) {
-    if (s.id !== 's-aimCurve' && s.id !== 's-ctlOpacity') continue;
+    if (s.id !== 's-ctlOpacity') continue;
     s.set(s.def); try { localStorage.removeItem(s.key); } catch { /* private mode */ } seedAimSlider(s);
   }
   // ...and the per-control pull distances (the outer squares).

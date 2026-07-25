@@ -649,9 +649,9 @@
         <!-- INPUT FEEL ONLY. Anything that changes how FAR a bomb lands or a wall builds is a
              GAME MECHANIC and lives in Settings → mechanics (training ground), not here. -->
         <!-- Pull DISTANCE is no longer a slider — it's the outer square on each of the 💣/🧱 pucks
-             (drag its blue corner grip), and it's per-control. What's left here is the response
-             SHAPE across that distance, and how visible the controls are. -->
-        <label class="ce-slider"><span>עקומת משיכה <b id="v-aimCurve"></b></span><input type="range" id="s-aimCurve" min="0.6" max="2.2" step="0.1"></label>
+             (drag its blue corner grip), and it's per-control. The response SHAPE across that
+             distance is no longer a slider either: the user pinned it at the precise end (2.2),
+             see AIM_CURVE in client.js. All that's left here is how visible the controls are. -->
         <label class="ce-slider"><span>שקיפות בקרות <b id="v-ctlOpacity"></b></span><input type="range" id="s-ctlOpacity" min="0.2" max="1" step="0.05"></label>
       </div>
       <div class="ce-bar">
