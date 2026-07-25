@@ -9,6 +9,8 @@
 
 ## 🔒 STANDING RULES (from the user — apply to EVERY agent, every session)
 
+> Full version: [`AGENT_RULES.md`](AGENT_RULES.md). Summary:
+
 - **Multi-agent:** several agents work this game at once. Assume someone else is editing — check
   `git status` / `git diff` before you touch a file, and never revert work you didn't write.
 - **Commit locally, always.** Every finished piece of work gets a local commit. Don't leave work
@@ -30,6 +32,8 @@
 - Before claiming done: `node --check` the files + run the test suite; report real output, list known pre-existing fails separately.
 
 ## 2026-07-25
+
+- **Standing rules written down (agent `rules-scribe`)** — User: "you are working with other agents on the football game for the Saltiz app. Write everything I've asked you down in short simple bullets for other agents to find out. You commit all work to local host and when asked push." DID: added the 🔒 STANDING RULES block at the top of this file + kept [`AGENT_RULES.md`](AGENT_RULES.md) (dropped by another agent, same intent) as the full version and cross-linked them. Committed locally (`b2935aa` + follow-up), **not pushed** (per the rule). Did NOT touch the in-flight `shared/sim.js` changes (another agent's goal/assist + per-match stat work — `ball.lastPlayer/prevPlayer` touch chain, `stat.assists/touches/possSec/distPx`); left uncommitted for its owner.
 
 - **Clean push + deploy (agent `wall-hp-fix`)** — User: review other agents' work, clean push, redeploy Render via CLI, write next steps. DID: reviewed the working tree (style.css XP-reveal, training.js middle-bot `leash:false`, wire.js 8-slot keeper + my u32 lastSeq, SFX proximity — all validated; no agent mid-edit; no secrets). **Reverted the 120Hz change** (constants back to 60Hz; client INPUT_RATE 60 / INTERP_DELAY 55) because it breaks 8 tick-counting tests (proved: 60Hz → all green). Full suite now **26/26 green** (incl test-wire for the u32 change). Committed `6d77a788` → pushed origin/main → `render deploys create` → **live** (`dep-d9i62u3tqb8s738f8nv0`, https://pikme-football.onrender.com HTTP 200). SHIPPED: aim-latch bug fix, input-replay reconciliation (u32 lastSeq wire + client replay behind `USE_REPLAY`), edge-flush + muzzle feedback, interp/easing, asset preload+decode + immutable /assets cache, backpressure/heartbeat/reconnect-jitter, wallJoints memoize. **120Hz is the #1 next step** — gated ONLY on re-tuning the ~8 tick-counting tests to assert on TIME (elapsed) not tick-count, then re-verify no real regressions. Full plan: `summery/REACTIVITY_ROADMAP.md`.
 
