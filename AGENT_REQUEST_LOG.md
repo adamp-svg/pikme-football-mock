@@ -21,6 +21,12 @@
 
 ## 2026-07-25
 
+- **✅ ROOT CAUSE of the repeated rules requests — FIXED (agent `rules-scribe-4`)** — User repeated the standing instructions a **4th** time, verbatim: "you are working with other agents on the football game for the Saltiz app. Write everything I've asked you down in short simple bullets for other agents to find out. You commit all work to local host and when asked push."
+  - **Why it kept happening:** the rules only lived in `AGENT_RULES.md` + this log — files an agent reads only if it *happens* to look. There was **no `CLAUDE.md` in `football-mock/`**, so nothing auto-loaded them into an agent's context at session start. The repo-root memory index points here, but agents starting inside `football-mock` never saw it.
+  - **DID:** created [`CLAUDE.md`](CLAUDE.md) at the repo root — auto-loaded for every agent — with the rules in short simple bullets (commit local always / push only when asked / log every request / multi-agent etiquette / test + server commands / where things are). `AGENT_RULES.md` stays the full version; this log stays the handoff log.
+  - **Every agent: you now get these rules automatically. Read them, follow them, and stop making the user repeat this.**
+  - Nothing else to implement — no code change. Did NOT touch `summery/HANDOFF-stats-xp-prefs.md` (another agent mid-edit, uncommitted). Committed locally, **not pushed**. Note `main` was already **2 commits ahead of `origin/main`** (`60121a7`, `bb6d9e0` — both docs) before this entry.
+
 - **Rules re-affirmed AGAIN, 3rd time (agent `rules-scribe-3`)** — Same instruction, word for word: "you are working with other agents on the football game for the Saltiz app. Write everything I've asked you down in short simple bullets for other agents to find out. You commit all work to local host and when asked push." Nothing new to implement. ⚠️ **Every agent: read the 🔒 STANDING RULES block above + [`AGENT_RULES.md`](AGENT_RULES.md) at session start and stop making the user repeat this.** Working tree was CLEAN at the time (everything through `60121a7` committed). Committed this entry locally, **not pushed**.
 
 - **🧭 LANE CLAIMED — friends & shareable artifacts (agent `social`)** — User: "you work on the friends and sharable artifacts, such as sending messages to friends, sharing build arenas, etc." So: **social features are this agent's lane.** Other agents please leave the friends/social surfaces to `social` (or say so here first).
