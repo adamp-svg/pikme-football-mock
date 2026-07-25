@@ -177,7 +177,9 @@ export function createState() {
     elapsed: 0, // seconds played (counts up)
     resetTimer: KICKOFF_FREEZE, // >0 => kickoff freeze
     players: {}, // id -> player
-    ball: { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 },
+    // lastPlayer/prevPlayer = the ball's TOUCH CHAIN (who held it last, and who before them). Used for
+    // goal credit when lastKicker is null (a dribble-in clears it) and for ASSIST credit on a pass.
+    ball: { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0, lastPlayer: null, prevPlayer: null },
     score: { A: 0, B: 0 },
     goalsToWin: 0, // first-to-N goals win (0 = timed only). Server sets it per mode (normal 2v2 = 3).
     lastGoal: null, // team key that just scored (for a flash), cleared after freeze
@@ -208,8 +210,10 @@ export function attachBall(state, team) {
   const holder = Object.values(state.players).find((p) => p.team === team);
   state.ball.pickupCd = 0;
   state.ball.lastTouch = team;
+  state.ball.prevPlayer = null; state.ball.lastPlayer = null; // fresh kickoff: no assist carries over
   if (!holder) { state.ball.owner = null; return; }
   state.ball.owner = holder.id;
+  state.ball.lastPlayer = holder.id;
   const off = radiusOf(holder, state) + ballRadius(state);
   state.ball.x = holder.x + holder.aimX * off;
   state.ball.y = holder.y + holder.aimY * off;
@@ -221,7 +225,8 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
   const p = {
     id, name, char: c, team, slot, isBot: !!isBot,
     cosmetic: cosmetic || null, // "hero:skin" visual id; never read by physics
-    stat: { goals: 0, strips: 0, saves: 0, shots: 0, bombs: 0, walls: 0 }, // per-match tallies; sent to each human at match end
+    // per-match tallies; sent to each human at match end (see the matchStats broadcast in server.js)
+    stat: { goals: 0, assists: 0, strips: 0, saves: 0, shots: 0, bombs: 0, walls: 0, touches: 0, possSec: 0, distPx: 0 },
 
     ...spawnPos(team, slot),
     vx: 0, vy: 0,
@@ -422,11 +427,27 @@ function handleBallBounds(state) {
   if (b.x > FIELD.W - R) { b.x = FIELD.W - R; b.vx = -Math.abs(b.vx) * WALL_RESTITUTION; }
 }
 
+// Record a player TAKING the ball (pickup/carry). Keeps the two-deep touch chain used for goal +
+// assist credit, and counts the touch. Re-taking it without anyone else touching isn't a new link.
+function touchBall(b, p) {
+  if (!p) return;
+  if (b.lastPlayer !== p.id) { b.prevPlayer = b.lastPlayer; b.lastPlayer = p.id; }
+  if (p.stat) p.stat.touches++;
+}
 function goal(state, team) {
   state.score[team]++;
   state.lastGoal = team;
-  const scorer = state.players[state.ball.lastKicker]; // credit the last kicker if they're on the scoring team
-  if (scorer && scorer.team === team && scorer.stat) scorer.stat.goals++;
+  const b = state.ball;
+  // Scorer: the last KICKER when there was a shot; on a dribble-in, clearKick nulled it, so fall
+  // back to the last player who held the ball. Either way only credit someone on the scoring team.
+  let scorer = state.players[b.lastKicker];
+  if (!scorer || scorer.team !== team) scorer = state.players[b.lastPlayer];
+  if (scorer && scorer.team === team && scorer.stat) {
+    scorer.stat.goals++;
+    // Assist: the team-mate who held the ball immediately before the scorer (a pass).
+    const prev = state.players[b.prevPlayer];
+    if (prev && prev.id !== scorer.id && prev.team === team && prev.stat) prev.stat.assists++;
+  }
   // Freeze in the scoring positions for GOAL_FREEZE_HOLD seconds so players see it, THEN snap
   // to kickoff (see the reset branch in step). The ball keeps its velocity and rolls into the
   // back of the net during the hold (rollBallIntoNet), instead of sticking at the goal line.
@@ -599,6 +620,11 @@ export function step(state, inputs, dt) {
       p.y += (p.vy + p.kvy) * dt / pSteps;
       clampToArea(p, rad); // pitch + goal-net pockets (#8): the mouth is a legal opening; the rest of the boundary is solid
       resolveWalls(p, rad, state.builtWalls, undefined, arenaOf(state).walls); // slide along static + built walls each substep
+    }
+    // Match tallies: seconds carrying the ball + ground covered under own power (knockback excluded).
+    if (p.stat) {
+      if (state.ball.owner === p.id) p.stat.possSec += dt;
+      p.stat.distPx += Math.hypot(p.vx, p.vy) * dt;
     }
     const kdec = p.launchGlide > 0 ? BOMB_LAUNCH_DECAY : KNOCKBACK_DECAY; // gentle glide while launched → smooth arc
     p.kvx *= kdec; p.kvy *= kdec;
@@ -830,7 +856,7 @@ export function step(state, inputs, dt) {
         // BELOW FULL + NOT super, on a FIELD defender: the defender CATCHES the kick — ball ATTACHES.
         // (A below-full kick fired IN super is too fast to catch → it BOUNCES off instead, below.)
         if (tier === 0 && !b.kickSuper && !inOwnPenalty(p)) {
-          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; clearKick(b);
+          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; clearKick(b); touchBall(b, p);
           break; // caught
         }
         // Otherwise the ball bumps: SNOOKER — shove the enemy along the line of centres (capped);
@@ -875,7 +901,7 @@ export function step(state, inputs, dt) {
         clearKick(b);
         continue; // keep checking other players
       }
-      if (b.pickupCd <= 0) { b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; clearKick(b); break; }
+      if (b.pickupCd <= 0) { b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; clearKick(b); touchBall(b, p); break; }
     }
   }
 
@@ -1437,7 +1463,7 @@ function resolveFlyingHits(state) {
         t.kvx += dirx * kb; t.kvy += diry * kb;
         p.kvx *= 0.5; p.kvy *= 0.5; // the flyer loses momentum on the hit
         if (launched && b.owner === t.id) { // a bomb-launch tackle steals the ball
-          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; b.pickupCd = 0; clearKick(b);
+          b.owner = p.id; b.lastTouch = p.team; b.vx = 0; b.vy = 0; b.pickupCd = 0; clearKick(b); touchBall(b, p);
         }
         if (launched) p.bombLaunch = 0; // one tackle per jump
         break;

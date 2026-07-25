@@ -667,7 +667,13 @@ function tickRoom(room) {
       for (const m of room.members) {
         if (!m.inMatch || m.ws.readyState !== m.ws.OPEN) continue;
         const pl = room.state.players[m.id];
-        if (pl && pl.stat) send(m.ws, { type: 'matchStats', stats: pl.stat });
+        // Round the accumulators (seconds / metres) so the wire + the logged stats stay tidy ints.
+        if (pl && pl.stat) send(m.ws, { type: 'matchStats', stats: {
+          ...pl.stat,
+          possSec: Math.round(pl.stat.possSec),
+          distM: Math.round(pl.stat.distPx / 100), // ~100px = 1 "metre" of pitch
+          distPx: undefined,
+        } });
       }
     }
     room.endHoldT += DT;

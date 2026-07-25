@@ -66,6 +66,39 @@ setInterval(() => { snapRate = snapCount; snapCount = 0; }, 1000);
 
 const chosenChar = 'player'; // one player type (physics); look is set by the cosmetic below
 const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' }; // home/picker preview kit colours
+
+// ---- Cross-device EXTRA prefs (settings / controls / builder) --------------------------------
+// Everything the player tunes that used to live ONLY in localStorage (so it died on a reinstall or a
+// new phone). The app injects the server-saved bag as window.SALTIZ_PREFS before the game's scripts
+// run; we mirror it into localStorage HERE — before any module reads those keys — then post changes
+// back out via postPrefs(). Values are plain strings (exactly what localStorage holds).
+const PREF_KEYS = [
+  'pikme-sound', 'pikme-music', 'pikme-musicvol', 'pikme-soundvol', 'pikme-diff-level', // audio + difficulty
+  'fbControls', 'fbAimSens', 'fbBombMax', 'fbWallMax',                                   // touch layout + aim feel
+  'pikme-joint-style', 'pikme-field-v1', 'pikme-fields', 'pikme-field-name',             // builder style + fields
+];
+const PREF_MAX_BYTES = 200000; // don't ship an unbounded builder library to the backend
+function readExtraPrefs() {
+  const out = {};
+  try { for (const k of PREF_KEYS) { const v = localStorage.getItem(k); if (v != null) out[k] = v; } } catch { /* private mode */ }
+  try { if (JSON.stringify(out).length > PREF_MAX_BYTES) delete out['pikme-fields']; } catch { /* ignore */ } // saved-field library is the big one
+  return out;
+}
+function applyExtraPrefs(bag) {
+  if (!bag || typeof bag !== 'object') return 0;
+  let n = 0;
+  try { for (const k of PREF_KEYS) if (typeof bag[k] === 'string') { localStorage.setItem(k, bag[k]); n++; } } catch { /* private mode */ }
+  return n;
+}
+// Restore the injected bag at boot (server-saved wins — it's rewritten on every change).
+applyExtraPrefs(window.SALTIZ_PREFS);
+// ONE hook instead of touching all ~11 save sites: any write to a tracked key schedules a debounced
+// prefs push. Installed AFTER the boot restore above so restoring doesn't echo straight back out, and
+// it can't drift when new settings/builder save points are added later.
+try {
+  const _setItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function (k, v) { _setItem(k, v); if (PREF_KEYS.indexOf(k) >= 0) postPrefs(); };
+} catch { /* private mode */ }
 // Cross-device prefs: the app injects window.SALTIZ_COSMETIC / SALTIZ_LOADOUT (server-saved, keyed by
 // phone) BEFORE the game loads; those WIN over localStorage so a fresh device restores your hero/loadout.
 // On change we persist locally, tell the game server, AND post {t:'prefs'} out so the app saves it.
@@ -77,7 +110,20 @@ function loadCosmetic() {
   } catch { return DEFAULT_COSMETIC; }
 }
 function saveCosmetic(c) { try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } postPrefs(); }
-function postPrefs() { try { window.ReactNativeWebView?.postMessage(JSON.stringify({ t: 'prefs', cosmetic: myCosmetic, loadout: myLoadout })); } catch { /* not in app */ } }
+// Push the player's prefs out to the app (which saves them under the phone). Debounced — a slider
+// drag or a controls-editor drag would otherwise fire this on every tick.
+let _prefsT = null;
+function postPrefs() {
+  if (_prefsT) clearTimeout(_prefsT);
+  _prefsT = setTimeout(() => {
+    _prefsT = null;
+    try {
+      window.ReactNativeWebView?.postMessage(JSON.stringify({
+        t: 'prefs', cosmetic: myCosmetic, loadout: myLoadout, prefs: readExtraPrefs(),
+      }));
+    } catch { /* not in app */ }
+  }, 700);
+}
 let myCosmetic = loadCosmetic();          // this player's chosen "hero:skin"
 // Re-skin the current hero by a card's rarity (keeps hero TYPE, swaps the tier). Mirrors
 // the picker's save path; the home preview (drawDancer) reads myCosmetic live so it updates.
@@ -101,6 +147,28 @@ function loadLoadout() {
 }
 function saveLoadout(a) { try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } postPrefs(); }
 let myLoadout = loadLoadout();            // null => auto-fill top-3; else a saved [{r,n}|null] x3
+// MID-SESSION prefs push from the app (it can call this any time after load — e.g. the player's prefs
+// changed on another device). Hero + loadout apply LIVE; the extras bag lands in localStorage and takes
+// effect where it's read (audio/difficulty immediately-ish, controls/builder on their next open).
+// Deliberately does NOT postPrefs() back — that would echo the app's own write into a loop.
+window.__pikmeApplyPrefs = function (p) {
+  try {
+    if (!p || typeof p !== 'object') return false;
+    if (typeof p.cosmetic === 'string' && p.cosmetic) {
+      myCosmetic = normalizeCosmetic(p.cosmetic);
+      try { localStorage.setItem('pikme_cosmetic', myCosmetic); } catch { /* private mode */ }
+      sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
+    }
+    if (Array.isArray(p.loadout)) {
+      myLoadout = [0, 1, 2].map((i) => (p.loadout[i] && p.loadout[i].r && p.loadout[i].n != null ? { r: p.loadout[i].r, n: +p.loadout[i].n } : null));
+      try { localStorage.setItem('pikme-loadout', JSON.stringify(myLoadout)); } catch { /* private mode */ }
+      sendMsg({ type: 'setLoadout', loadout: myLoadout });
+    }
+    applyExtraPrefs(p.prefs);
+    if (typeof renderHomeCharacter === 'function') renderHomeCharacter(); // repaint hero + power slots
+    return true;
+  } catch { return false; }
+};
 let cosmeticById = {};                    // playerId -> "hero:skin", from the roster control frame
 let holdingBall = false;     // am I currently carrying the ball?
 let mySuper = false;         // am I in SUPER (overcharge ready)? → local charge ring fills 2× faster
