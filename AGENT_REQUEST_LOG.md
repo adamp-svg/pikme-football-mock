@@ -1,11 +1,33 @@
 # Agent Request Log — Football Game
 
 > Handoff log so another agent can resume if this session fails.
-> Repo: football-mock | Branch: feat/build-bomb-cancel | Rule: work local, commit everything.
+> Repo: football-mock | Branch: main | Rule: work local, commit everything.
 >
 > 🔧 **GAME OPTIMIZATION / PERFORMANCE / NETCODE / LAG / "make it sharper·smoother·more reactive"
 > / fps / 120Hz / WebRTC work → see [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md)** (prioritized
 > pickup queue). Deep detail: `summery/REACTIVITY_ROADMAP.md` + `summery/WEBRTC_TRANSPORT_PLAN.md`.
+
+## 🔒 STANDING RULES (from the user — apply to EVERY agent, every session)
+
+- **Multi-agent:** several agents work this game at once. Assume someone else is editing — check
+  `git status` / `git diff` before you touch a file, and never revert work you didn't write.
+- **Commit locally, always.** Every finished piece of work gets a local commit. Don't leave work
+  sitting uncommitted in the tree for the next agent to guess at.
+- **Never push unless the user asks.** `git push` / deploy (Render) only on an explicit request.
+- **Write down what you did.** Append a dated bullet to this file (agent name, what the user asked,
+  what you changed, how you verified, status). Short and simple — it's how the other agents catch up.
+- **This is the Saltiz app's football game** — game code here (`football-mock`), app side in
+  `pikmeTV-saltiz` / `pikme-server`.
+
+## STANDING RULES — read first (user instructions, apply to every agent)
+
+- Project: the **football/Saltiz minigame** for the Saltiz (pikmeTV) app. Repo `football-mock`; app side is `pikmeTV-app` / `pikmeTV-saltiz`.
+- **Multiple agents work this repo at once.** Assume someone else is editing. Say which files you're touching, don't stomp another agent's uncommitted work.
+- **Write down every user request here**, in short simple bullets, so any other agent can pick it up. Log it even if you didn't finish it.
+- **Commit everything locally.** Work is committed to local git as you go — no work left dangling uncommitted.
+- **Never push unless the user asks.** Push (and Render deploy) only on an explicit "push"/"deploy".
+- Local test server is `PORT=3012 node server.js` (main dev server is :3010). Node does NOT hot-reload — **restart the server** after server/shared changes.
+- Before claiming done: `node --check` the files + run the test suite; report real output, list known pre-existing fails separately.
 
 ## 2026-07-25
 
