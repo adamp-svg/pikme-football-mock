@@ -2,8 +2,8 @@
 // NOT part of the `test*.mjs` suite: it needs Playwright and a running server, so it lives here
 // and is run by hand.
 //
-//   1. mint a token:  node -e "console.log(require('jsonwebtoken').sign({id:'507f1f77bcf86cd799439099',nickName:'test'},'testsecret',{expiresIn:'6h'}))"
-//      and paste it into PIKME_FOOTBALL_TOKEN below (the one in here expires).
+//   1. mint a token:  export PIKME_FOOTBALL_TOKEN=$(node -e "console.log(require('jsonwebtoken').sign({id:'507f1f77bcf86cd799439099',nickName:'test'},'testsecret',{expiresIn:'6h'}))")
+//      (never hardcode one here — this repo is public)
 //   2. FOOTBALL_TOKEN_SECRET=testsecret PORT=3018 node server.js
 //   3. npm i playwright && node docs/manual-tests/thread-ui-smoke.mjs
 //
@@ -13,6 +13,11 @@
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE || 'http://localhost:3018';
+const TOKEN = process.env.PIKME_FOOTBALL_TOKEN;
+if (!TOKEN) {
+  console.error('set PIKME_FOOTBALL_TOKEN first — see step 1 in the header comment.');
+  process.exit(1);
+}
 let fails = 0, ran = 0;
 const ok = (c, m) => { ran++; console.log((c ? 'PASS' : 'FAIL') + '  ' + m); if (!c) fails++; };
 
@@ -24,8 +29,8 @@ page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 
 // Fake identity + a fake /handle-messages backend, installed BEFORE the app boots.
-await page.addInitScript(() => {
-  window.PIKME_FOOTBALL_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjUwN2YxZjc3YmNmODZjZDc5OTQzOTA5OSIsIm5pY2tOYW1lIjoi15DXoNeZIiwiaWF0IjoxNzg1MDA3ODM0LCJleHAiOjE3ODUwMjk0MzR9.n046-hwVEWtCHfjNgQSWDdecSqAUDszZPuh_UKlCLuY';
+await page.addInitScript((token) => {
+  window.PIKME_FOOTBALL_TOKEN = token;
   window.PIKME_API = 'https://fake.pikme.test';
   const FRIEND = { userId: '507f1f77bcf86cd799439011', nickName: 'דני', xp: 100, level: 3 };
   window.__sent = [];
@@ -57,7 +62,7 @@ await page.addInitScript(() => {
     }
     return json({});
   };
-});
+}, TOKEN);
 
 await page.goto(BASE, { waitUntil: 'networkidle' });
 // MY_USER_ID comes from the WS `welcome`; force it so canMessage() passes in this harness.
