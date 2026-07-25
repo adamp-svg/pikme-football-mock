@@ -3320,6 +3320,9 @@ function enterMatch(msg) {
   // from it (hard walls + bushes). Dry walls ride the snapshot as built walls. null otherwise.
   customArena = msg.arena ? buildArenaFromField(msg.arena) : null;
   document.getElementById('train-tag').classList.toggle('hidden', !training);
+  // Controls editor gets its OWN top-bar button beside ⚙ — training ground only (same tier as the
+  // settings panel's controls section), so a real match can't have someone editing mid-play.
+  document.getElementById('edit-controls-btn')?.classList.toggle('hidden', !training);
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
   renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
   showScreen('game');
@@ -3749,8 +3752,22 @@ let wallMaxPx = loadAimNum('fbWallMax', BUILT_WALL.offset + 32);   // wall total
 // Cancel dead-zone (Brawl: drag back toward centre = cancel) with hysteresis so it can't flip-flop per-frame.
 const CANCEL_ARM_PX = 34; // pull past this = a real, cancellable aim (latches `aimed`)
 const CANCEL_IN_PX  = 18; // then drop back below this = armed-to-cancel
+// PULL RESPONSE CURVE — the second dimension of aim feel, on top of the sensitivity DISTANCE above.
+// Sensitivity says how far you must drag to reach max; the curve says how the reach is DISTRIBUTED
+// across that drag (Brawl-Stars-style: the throw lands where you point, and short pulls stay short).
+//   1.0  linear   — reach is proportional to pull (the old behaviour, still the default)
+//   <1   "fast"   — reach ramps early; small pulls already throw far (twitchy, good for panic lobs)
+//   >1   "precise"— reach ramps late; most of the drag buys fine control up close, max needs a full pull
+// Applied as frac = t^curve on the normalized 0..1 pull, so both endpoints stay pinned (0→0, 1→1) and
+// the cancel dead-zone + max reach are untouched. Purely input feel; the sim never sees this number.
+let aimCurve = loadAimNum('fbAimCurve', 1);
 // Shared drag → 0..1 fraction (after the deadzone, capped by sensitivity). Used by BOTH the bomb lob and the wall build.
-function aimFrac(len) { const s = Math.max(aimSensPx, AIM_DEADZONE_PX + 1); return clamp((len - AIM_DEADZONE_PX) / (s - AIM_DEADZONE_PX), 0, 1); }
+function aimFrac(len) {
+  const s = Math.max(aimSensPx, AIM_DEADZONE_PX + 1);
+  const t = clamp((len - AIM_DEADZONE_PX) / (s - AIM_DEADZONE_PX), 0, 1);
+  const c = Number.isFinite(aimCurve) && aimCurve > 0 ? aimCurve : 1;
+  return c === 1 ? t : Math.pow(t, c);   // endpoints pinned: 0→0, 1→1
+}
 function buildPushFrac(dx, dy) { return aimFrac(Math.hypot(dx, dy)); }
 // Wall aimMag (0..1) the sim consumes: dist = offset + aimMag*BUILD_DIST_MAX, scaled so a full drag reaches wallMaxPx.
 function wallReachFrac(dx, dy) { return clamp(buildPushFrac(dx, dy) * (wallMaxPx - BUILT_WALL.offset) / BUILD_DIST_MAX, 0, 1); }
@@ -4107,6 +4124,12 @@ document.getElementById('reset-settings').addEventListener('click', () => {
   settings.bulletKnockback = 1500;
   settings.bombPower = 1500;
   settings.bombReloadSpeed = 1; settings.wallReloadSpeed = 1;
+  // Bomb/wall REACH are client-only mechanics sliders that now live in this panel — reset them here
+  // (the controls editor's איפוס only owns the input-feel ones).
+  for (const s of _aimSliders) {
+    if (s.id !== 's-bombMax' && s.id !== 's-wallMax') continue;
+    s.set(s.def); try { localStorage.removeItem(s.key); } catch { /* private mode */ } seedAimSlider(s);
+  }
   syncSliderUI(); sendSettings();
 });
 for (const k of SETTING_KEYS) {
@@ -4214,7 +4237,7 @@ addEventListener('touchstart', (e) => {
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   if (editingControls) return; // the layout editor owns all touches while open
   for (const t of e.changedTouches) {
-    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target))) continue; // buttons aren't sticks
+    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target)) || (editBtn && editBtn.contains(t.target))) continue; // buttons aren't sticks
     const ad = adBoardAt(t.clientX, t.clientY); if (ad) { openAd(ad); continue; } // board tap, not a stick
     const which = claimStick(t);
     if (which === 'L' && touchL.id === null) {
@@ -4366,14 +4389,20 @@ for (const puck of cePucks) {
   puck.addEventListener('pointercancel', end);
 }
 
-// Aim-feel sliders (client-only; persist to localStorage, apply in real matches too). Live in the
-// controls editor next to the layout pucks. Not part of SETTING_KEYS — the server never reads them.
+// Client-only tunables (persist to localStorage, apply in real matches too). NOT in SETTING_KEYS —
+// the server never reads them. They are split across TWO panels on purpose:
+//   • controls editor  → INPUT FEEL: how far/what shape your finger drag is (sens, curve)
+//   • settings→mechanics (training) → GAME REACH: how far a bomb lands / a wall builds
+// The `fmt` gives each its own unit so a curve doesn't render as "1px".
 const _aimSliders = [
-  { id: 's-aimSens', vid: 'v-aimSens', key: 'fbAimSens', def: 90,                    get: () => aimSensPx, set: (v) => { aimSensPx = v; } },
-  { id: 's-bombMax', vid: 'v-bombMax', key: 'fbBombMax', def: BOMB_LOB_RANGE,         get: () => bombMaxPx, set: (v) => { bombMaxPx = v; } },
-  { id: 's-wallMax', vid: 'v-wallMax', key: 'fbWallMax', def: BUILT_WALL.offset + 32, get: () => wallMaxPx, set: (v) => { wallMaxPx = v; } },
+  { id: 's-aimSens',  vid: 'v-aimSens',  key: 'fbAimSens',  def: 90,                       get: () => aimSensPx, set: (v) => { aimSensPx = v; } },
+  { id: 's-aimCurve', vid: 'v-aimCurve', key: 'fbAimCurve', def: 1,                         get: () => aimCurve,  set: (v) => { aimCurve = v; },
+    fmt: (v) => (v < 0.95 ? 'מהיר ' : v > 1.05 ? 'מדויק ' : 'ליניארי ') + '×' + v.toFixed(1) },
+  { id: 's-bombMax',  vid: 'v-bombMax',  key: 'fbBombMax',  def: BOMB_LOB_RANGE,            get: () => bombMaxPx, set: (v) => { bombMaxPx = v; } },
+  { id: 's-wallMax',  vid: 'v-wallMax',  key: 'fbWallMax',  def: BUILT_WALL.offset + 32,    get: () => wallMaxPx, set: (v) => { wallMaxPx = v; } },
 ];
-function seedAimSlider(s) { const el = document.getElementById(s.id), lab = document.getElementById(s.vid); if (el) el.value = String(s.get()); if (lab) lab.textContent = Math.round(s.get()) + 'px'; }
+const _aimFmt = (s, v) => (s.fmt ? s.fmt(v) : Math.round(v) + 'px');
+function seedAimSlider(s) { const el = document.getElementById(s.id), lab = document.getElementById(s.vid); if (el) el.value = String(s.get()); if (lab) lab.textContent = _aimFmt(s, s.get()); }
 for (const s of _aimSliders) {
   const el = document.getElementById(s.id); if (!el) continue;
   seedAimSlider(s);
@@ -4382,7 +4411,7 @@ for (const s of _aimSliders) {
     if (!Number.isFinite(v)) return;
     s.set(v);
     try { localStorage.setItem(s.key, String(v)); } catch { /* private mode */ }
-    const lab = document.getElementById(s.vid); if (lab) lab.textContent = Math.round(v) + 'px';
+    const lab = document.getElementById(s.vid); if (lab) lab.textContent = _aimFmt(s, v);
   });
 }
 document.getElementById('ce-save')?.addEventListener('click', () => {
@@ -4398,8 +4427,12 @@ document.getElementById('ce-reset')?.addEventListener('click', () => {
     for (const p of ['left', 'top', 'right', 'bottom', 'width', 'height', 'fontSize']) el.style[p] = '';
   }
   stickL.style.width = stickL.style.height = ''; stickR.style.width = stickR.style.height = '';
-  // also restore the aim-feel defaults
-  for (const s of _aimSliders) { s.set(s.def); try { localStorage.removeItem(s.key); } catch { /* private mode */ } seedAimSlider(s); }
+  // Restore only the INPUT-FEEL defaults (sens + curve). The bomb/wall REACH sliders now live in
+  // Settings → mechanics, so they're reset by that panel's איפוס, not by this one.
+  for (const s of _aimSliders) {
+    if (s.id !== 's-aimSens' && s.id !== 's-aimCurve') continue;
+    s.set(s.def); try { localStorage.removeItem(s.key); } catch { /* private mode */ } seedAimSlider(s);
+  }
   closeControlsEditor();
 });
 editBtn?.addEventListener('click', openControlsEditor);

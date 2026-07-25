@@ -638,14 +638,18 @@
          Saving LOCKS the controls to those spots (they stop floating). Training only. -->
     <div id="controls-editor" class="controls-editor hidden">
       <div class="ce-hint">גררו למיקום · פינה לשינוי גודל</div>
-      <div class="ce-puck" data-ctl="move"><span>נוע</span><i class="ce-resize"></i></div>
-      <div class="ce-puck" data-ctl="aim"><span>כיוון</span><i class="ce-resize"></i></div>
-      <div class="ce-puck ce-round" data-ctl="bomb"><span>💣</span><i class="ce-resize"></i></div>
-      <div class="ce-puck ce-round" data-ctl="wall"><span>🧱</span><i class="ce-resize"></i></div>
+      <!-- Pucks are GHOSTS OF THE REAL CONTROLS: same rounded-square silhouette as .stick /
+           .special-btn / .build-btn (all border-radius:10%), so what you place is what you play.
+           .ce-stick also draws the inner knob. (bomb/wall used to be forced round via .ce-round.) -->
+      <div class="ce-puck ce-stick" data-ctl="move"><span>נוע</span><i class="ce-resize"></i></div>
+      <div class="ce-puck ce-stick" data-ctl="aim"><span>כיוון</span><i class="ce-resize"></i></div>
+      <div class="ce-puck" data-ctl="bomb"><span>💣</span><i class="ce-resize"></i></div>
+      <div class="ce-puck" data-ctl="wall"><span>🧱</span><i class="ce-resize"></i></div>
       <div class="ce-sliders">
+        <!-- INPUT FEEL ONLY. Anything that changes how FAR a bomb lands or a wall builds is a
+             GAME MECHANIC and lives in Settings → mechanics (training ground), not here. -->
         <label class="ce-slider"><span>רגישות כיוון (מרחק גרירה למקסימום) <b id="v-aimSens"></b></span><input type="range" id="s-aimSens" min="40" max="160" step="5"></label>
-        <label class="ce-slider"><span>טווח פצצה מקסימלי <b id="v-bombMax"></b></span><input type="range" id="s-bombMax" min="80" max="250" step="10"></label>
-        <label class="ce-slider"><span>טווח בניית קיר מקסימלי <b id="v-wallMax"></b></span><input type="range" id="s-wallMax" min="60" max="180" step="10"></label>
+        <label class="ce-slider"><span>עקומת משיכה <b id="v-aimCurve"></b></span><input type="range" id="s-aimCurve" min="0.6" max="2.2" step="0.1"></label>
       </div>
       <div class="ce-bar">
         <button id="ce-reset" class="ce-btn ce-reset">איפוס</button>
@@ -681,6 +685,9 @@
 
     <!-- Pause / settings -->
     <button id="pause-btn" class="pause-btn" title="הגדרות" aria-label="הגדרות">⚙</button>
+    <!-- Controls-layout editor — its OWN top-bar button BESIDE the gear (it used to be buried
+         inside the settings panel). Training ground only; client.js unhides it with the train tag. -->
+    <button id="edit-controls-btn" class="edit-controls-btn hidden" title="עריכת בקרות" aria-label="עריכת בקרות">🎛️</button>
     <!-- #17: always-available "back to lobby" — works in a match AND in the training ground -->
     <button id="leave-lobby-btn" class="leave-lobby-btn" aria-label="חזרה ללובי" title="חזרה ללובי">‹ לובי</button>
     <!-- #settings moved OUT of #game to top level (below) so the hub Settings icon can open
@@ -703,6 +710,12 @@
       <div class="setting setting-wide" id="setting-difficulty"><div class="setting-row"><span>רמת קושי (בוטים)</span></div><div id="difficulty" class="difficulty"></div></div>
       <!-- GAME MECHANICS — training ground only -->
       <div id="setting-mechanics" class="setting-mech">
+        <!-- REACH — how far a bomb LANDS / a wall BUILDS. These are game mechanics (they change what
+             happens on the pitch), so they live here with the other mechanics, NOT in the controls
+             editor, which is only about how your finger moves. The server hard-caps both
+             (BOMB_LOB_RANGE 250 / wall offset+BUILD_DIST_MAX 180); these can only shorten them. -->
+        <div class="setting"><div class="setting-row"><span>טווח פצצה</span><span id="v-bombMax"></span></div><input type="range" id="s-bombMax" min="80" max="250" step="10" /></div>
+        <div class="setting"><div class="setting-row"><span>טווח בניית קיר</span><span id="v-wallMax"></span></div><input type="range" id="s-wallMax" min="60" max="180" step="10" /></div>
         <div class="setting"><div class="setting-row"><span>מהירות שחקן</span><span id="v-speedMul"></span></div><input type="range" id="s-speedMul" min="0.3" max="1.8" step="0.05" /></div>
         <div class="setting"><div class="setting-row"><span>גודל שחקן</span><span id="v-sizeMul"></span></div><input type="range" id="s-sizeMul" min="0.5" max="2" step="0.05" /></div>
         <div class="setting"><div class="setting-row"><span>מהירות עם הכדור</span><span id="v-carrySpeedMul"></span></div><input type="range" id="s-carrySpeedMul" min="0.2" max="1" step="0.05" /></div>
