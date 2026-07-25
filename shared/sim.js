@@ -546,14 +546,6 @@ function snookerPush(sx, sy, dx, dy, px, py, maxOff, maxAng = MAX_DEFLECT, gain 
 // One authoritative step. `inputs` is a map: playerId -> input.
 // input = { seq, moveX, moveY, aimX, aimY, kick }
 export function step(state, inputs, dt) {
-  state.elapsed += dt;
-
-  // Match clock: at MATCH_DURATION the match ends. Play freezes; the room
-  // returns to the lobby after a short hold (handled by the server).
-  // Training rooms set state.noClock — they run endlessly, never 'ended'.
-  if (!state.noClock && state.phase === 'playing' && state.elapsed >= MATCH_DURATION) {
-    state.phase = 'ended';
-  }
   if (state.phase === 'ended') {
     state.tick++;
     return; // frozen final state, kept broadcasting for the end screen
@@ -561,6 +553,12 @@ export function step(state, inputs, dt) {
 
   // Kickoff freeze: bodies are still, but we still record last input seq so
   // client reconciliation stays consistent.
+  // The match CLOCK IS STOPPED for the whole of this branch (see the elapsed
+  // increment below it): freezes are dead time and must not be billed to
+  // MATCH_DURATION. A 3-2 match used to spend ~25s of its 120s frozen.
+  // Stopping it here also means the clock can no longer expire MID-freeze,
+  // so the first-to-N win check at the end of the branch always gets to run
+  // ("גול! → ניצחון!" instead of the match just stopping).
   if (state.resetTimer > 0) {
     state.resetTimer -= dt;
     // After a goal: the ball keeps rolling into the back of the net while bodies stay frozen.
@@ -582,6 +580,17 @@ export function step(state, inputs, dt) {
         state.phase = 'ended';
       }
     }
+    state.tick++;
+    return;
+  }
+
+  // Match clock — LIVE PLAY ONLY (the freeze branch above returns before this).
+  // At MATCH_DURATION the match ends; play freezes and the room returns to the
+  // lobby after a short hold (handled by the server).
+  // Training rooms set state.noClock — they run endlessly, never 'ended'.
+  state.elapsed += dt;
+  if (!state.noClock && state.phase === 'playing' && state.elapsed >= MATCH_DURATION) {
+    state.phase = 'ended';
     state.tick++;
     return;
   }
