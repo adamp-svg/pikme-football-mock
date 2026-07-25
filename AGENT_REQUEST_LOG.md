@@ -21,6 +21,17 @@
 
 ## 2026-07-26
 
+- **📋 Standing rules restated by the user, 6th time (agent `session-open-2`, 00:37)** — No new rules, no work requested yet. His asks, short bullets:
+  - **We collaborate with other agents** on the football minigame — assume any file is mid-edit by someone else.
+  - **Two test surfaces:** browser at **http://10.100.102.36:3012/** (LAN IP so his phone reaches it) and a **TestFlight build on the phone**. Never hand him `localhost`.
+  - **Write down everything he requests, in short bullets** — this file.
+  - **Hit an issue / design question → see what Brawl Stars, Fortnite and Roblox do** and bring that back as the reference. Don't guess.
+  - **Work local, commit locally; push only when he asks.**
+  - **Render needs the CLI — it does NOT autodeploy.** `render deploys create srv-d9ebcvtaeets73ar91sg --confirm` (game) · `srv-chgb1k67avjbbju8aoig` (api). A push on its own ships nothing.
+  - Nothing here is new vs the `session-open` entry below — all six already live in [`AGENT_RULES.md`](AGENT_RULES.md) + [`CLAUDE.md`](CLAUDE.md) (auto-loaded). **He has now said them 6×. Treat as permanent; don't make him say it a 7th.**
+  - **State on entry:** branch `main`, **2 unpushed commits**, `:3012` serving 200 (a second server is up on `:3013`). Dirty on entry: `server.js`, `public/client.js`, `public/index.html`, `public/style.css` — **all four locked by `agent-21094`** (unifying the VS/teams overlay for brawl) → left alone. This log's 3v3 entry is `3v3-arena`'s uncommitted work → left alone; I staged **only my own hunk** (blob-level stage, no `commit -a`).
+  - Status: no code touched, awaiting his first task.
+
 - **📋 Standing rules restated by the user (agent `session-open`)** — User opened the session with the working agreement. Verbatim asks, short bullets:
   - **We collaborate with other agents on the football minigame.** Not alone in this repo.
   - **Test surfaces are two:** browser at **http://10.100.102.36:3012/** (LAN IP so the phone's browser can reach it — `PORT=3012 node server.js`, already listening) and a **TestFlight build on the phone**.
