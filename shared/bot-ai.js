@@ -19,7 +19,7 @@
 import {
   FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, SUPER_USES, BUILD_WINDUP,
-  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, FRAGILE_PASS_SPEED,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, FRAGILE_PASS_SPEED, CHARGE_MIN_MUL, BALL_MIN_SPEED,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
 import { ARENA, pointInBox, pointInBush, nearestOnWall } from './arena.js';
@@ -28,6 +28,24 @@ import { ARENA, pointInBox, pointInBush, nearestOnWall } from './arena.js';
 // Bots must path/aim against the SAME geometry the sim collides with. Falls back to the
 // global ARENA when no state is threaded (safe default).
 const arenaOf = (state) => (state && state.arena) || ARENA;
+
+// ---- HOW FAR DOES A KICK ACTUALLY GO? -------------------------------------------------------
+// Tuned against BALL_FRICTION / BALL_MIN_SPEED, the ball's roll is linear in its release speed:
+// roll ≈ 0.468 * (v0 - BALL_MIN_SPEED)  (constants.js records the same relation for BALL_TAP_SPEED,
+// and it is confirmed by simulation: 613px/s→278px, 875→401, 1085→499, 1400→647).
+// Bots used to shoot with no model of this at all, from up to 835px with a kick that travels 504px.
+const ROLL_K = 0.468;
+const chargeMul = (c) => CHARGE_MIN_MUL + (1 - CHARGE_MIN_MUL) * clamp(c, 0, 1);
+function ballRollPx(state, charge) {
+  const v0 = (state.settings.shotPower || 1400) * chargeMul(charge);
+  return Math.max(0, ROLL_K * (v0 - BALL_MIN_SPEED));
+}
+// The charge needed to roll `px`, or >1 when it simply cannot be done.
+function chargeForRoll(state, px) {
+  const v0 = px / ROLL_K + BALL_MIN_SPEED;
+  const mul = v0 / (state.settings.shotPower || 1400);
+  return (mul - CHARGE_MIN_MUL) / (1 - CHARGE_MIN_MUL);
+}
 
 const GY = FIELD.H / 2;
 const PEN_TOP = (FIELD.H - PENALTY.width) / 2;
@@ -89,10 +107,10 @@ export const BOT_SKILL = {
   // Buffed 2026-07-22 (bots "not strong enough"): faster reaction, tighter aim, higher charge-rate
   // (reach fire charge sooner -> shoot more, dribble less), more aggression + quicker tools + turn.
   // Kept fair: non-extreme still no wallhack (visionMul is open-carrier tracking only); only extreme cheats.
-  easy:    { react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20 },
-  normal:  { react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12 },
-  hard:    { react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.90, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05 },
-  extreme: { react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 2.20, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, cheat: true, preCharge: true, cheatFlub: 0.16 },
+  easy:    { react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20, memoryS: 0.55 },
+  normal:  { react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12, memoryS: 0.90 },
+  hard:    { react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.40, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05, memoryS: 1.50 },
+  extreme: { react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 1.60, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, memoryS: 2.20, preChargeP: 0.55, cheatFlub: 0.34, flubMag: 0.10 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -100,7 +118,7 @@ export const DEFAULT_SKILL = 'normal';
 // t = 0 tutorial-weak, ~0.25 easy, 0.5 normal, ~0.82 hard, 1.0 extreme. Lets each SIDE of a
 // match carry its own continuous difficulty (see computeBotInputs' per-team skill), so enemy
 // and partner can be tuned independently and matched to game progression.
-const VERY_EASY = { react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30 };
+const VERY_EASY = { react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30, memoryS: 0.35 };
 const SKILL_ANCHORS = [
   { t: 0.00, v: VERY_EASY },
   { t: 0.25, v: BOT_SKILL.easy },
@@ -108,7 +126,7 @@ const SKILL_ANCHORS = [
   { t: 0.82, v: BOT_SKILL.hard },
   { t: 1.00, v: BOT_SKILL.extreme },
 ];
-const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'decisionHz', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul', 'wallCommit', 'detourRatio', 'flowAhead', 'navLag'];
+const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'decisionHz', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul', 'wallCommit', 'detourRatio', 'flowAhead', 'navLag', 'memoryS'];
 export function skillVec(t) {
   t = Math.max(0, Math.min(1, t));
   let a = SKILL_ANCHORS[0], b = SKILL_ANCHORS[SKILL_ANCHORS.length - 1];
@@ -116,7 +134,16 @@ export function skillVec(t) {
   const f = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
   const out = {};
   for (const k of SKILL_KEYS) out[k] = a.v[k] + (b.v[k] - a.v[k]) * f;
-  if (t >= 0.95) { out.cheat = true; out.preCharge = true; out.cheatFlub = BOT_SKILL.extreme.cheatFlub; } // top of the ladder gets the cheat tier
+  // The remaining bounded advantages RAMP IN from t=0.92 instead of snapping on at 0.95. The old
+  // discrete snap is why level 9 -> 10 read as a cliff: one step and the bot gained x-ray, permanent
+  // super and a pre-charged shot all at once. The knee stays above 0.92 so level 9 (T.veryHard) keeps
+  // ZERO of it and only ids 10/11 are inside the ramp (preserving bot-buffs' EXTREME_SKILL 0.95 gate).
+  const cf = clamp((t - 0.92) / 0.08, 0, 1);
+  if (cf > 0) {                                   // below the knee a tier gets NONE of this
+    out.preChargeP = 0.55 * cf;                   // 0 at L9, 0.55 at the very top
+    out.cheatFlub = 0.34 - 0.16 * cf;             // slips OFTEN at the knee, less at the peak
+    out.flubMag = 0.10 + 0.22 * (1 - cf);         // ...but each slip is BIGGER lower down (18deg -> 6deg)
+  }
   return out;
 }
 // Resolve the skill vector a TEAM's bots should use. Priority: per-team numeric scalar
@@ -337,7 +364,11 @@ export function botCanSee(viewer, target, state, sk) {
   const inBush = pointInBush(target.x, target.y);
   // EXTREME CHEAT (x-ray): an OPEN enemy is seen anywhere on the pitch, ignoring fog.
   // CRITICAL: a BUSHED enemy stays hidden even to EXTREME — cover still works.
-  if (sk && sk.cheat && !inBush) return true;
+  // X-RAY DELETED. The top tier used to see every OPEN enemy anywhere on the pitch — information
+  // the player provably cannot have, and the single most "unfair rather than hard" thing in the
+  // file. Brawl Stars' bots never cheat; Fortnite's are navmesh + a reaction budget. The top tier
+  // is now strong through DECISIONS (see decisionHz/memoryS/leadGain), with vision merely wide.
+
   const vMul = (sk && sk.visionMul) || 1;
   // The ball-carrier is the tracked objective — seen at a longer (tier-scaled) range so
   // bots keep pressing instead of losing it to fog mid-chase. BUT a carrier hiding IN A
@@ -360,13 +391,13 @@ export function botCanSee(viewer, target, state, sk) {
 // as before — its sanctioned x-ray of OPEN enemies is left intact (bushed foes still fail
 // `canSee`, so the SHOT gate keeps them safe from EXTREME too).
 function perceivedPos(bm, tgt, canSee, sk, mem) {
-  if (canSee || (sk && sk.cheat)) {
+  if (canSee) {
     bm.seen = { id: tgt.id, x: tgt.x, y: tgt.y, vx: tgt.vx || 0, vy: tgt.vy || 0, t: mem.t };
     return { x: tgt.x, y: tgt.y, vx: tgt.vx || 0, vy: tgt.vy || 0, live: true };
   }
   const s = bm.seen;
   if (!s || s.id !== tgt.id) return null;                 // no memory of THIS enemy — don't reveal it
-  const adv = clamp(mem.t - s.t, 0, LOST_SIGHT_MEMORY);   // dead-reckon during the window, then freeze
+  const adv = clamp(mem.t - s.t, 0, (sk && sk.memoryS) || LOST_SIGHT_MEMORY); // tier-scaled: a smart bot remembers a vanished target longer
   return { x: s.x + s.vx * adv, y: s.y + s.vy * adv, vx: s.vx, vy: s.vy, live: false };
 }
 
@@ -771,11 +802,26 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
       // difficulty as mechanical power: harder bots charge full sooner + cool down faster
-      p.chargeRate = sk.chargeRate != null ? sk.chargeRate : 1;
-      p.cdMul = sk.cdMul != null ? sk.cdMul : 1;
+      // BREAK THE CARD/SKILL DOUBLE-DIP. RARITY_BY_LEVEL (server.js) hands a bot its best CARDS at
+      // exactly the levels where this skill vector also spikes, and the sim multiplies the two:
+      // a L9 bot ran chargeRate 2.05 x cardShot 1.25 = 2.56x and cdMul 0.55 x cardUtil 0.80 = 0.44,
+      // so difficulty grew ~quadratically while the player's own power grows only with their album.
+      // sk.chargeRate/sk.cdMul are now read as the FINAL INTENDED multiplier and the cards are
+      // divided back out here, so the cards still drive the badge/dossier and speedBuff but no
+      // longer secretly re-multiply the difficulty.
+      p.chargeRate = clamp((sk.chargeRate != null ? sk.chargeRate : 1) / (p.cardShot || 1), 0.35, 6);
+      p.cdMul = clamp((sk.cdMul != null ? sk.cdMul : 1) / (p.cardUtil || 1), 0.30, 2.0);
+      // FAIRNESS CEILING on the effective charge ramp, so no future retune can quietly rebuild the
+      // 9.5x monster: cap what the SIM will actually compute (chargeRate x cardShot x super).
+      // 2.50 effective => FULL_CHARGE in 1.42/2.50 = 0.57s, a wind-up the player can still read.
+      p.chargeRate = Math.min(p.chargeRate, 2.50 / ((p.cardShot || 1) * (p.power ? SUPER_CHARGE_RATE : 1)));
       // EXTREME cheat: keep overcharge topped up so it can break a keeper / blast a lane at
       // will (a steady cheat — the STOCHASTIC part is its aim + charge, not this).
-      if (sk.cheat && !p.power) { p.power = true; p.powerT = OVERCHARGE_TTL; p.powerUses = SUPER_USES; } // grant uses too, else a body-strip decrements 0→-1 and flickers super off
+      // PERMANENT SUPER DELETED. This re-granted p.power (and powerUses) on EVERY tick they were
+      // false, so the top tier always had overcharge available: the only kick a keeper cannot
+      // catch, on tap, forever. Combined with chargeRate 3.40 x cardShot 1.40 x SUPER_CHARGE_RATE 2
+      // it reached FULL_CHARGE in 0.15s. A bot now EARNS overcharge off real hits, exactly like a
+      // player. See the fairness clamp below for the charge-rate ceiling.
       out[p.id] = decideBot(p, role, state, mem, sk, dt);
     }
   }
@@ -838,7 +884,12 @@ function decideBot(p, role, state, mem, sk, dt) {
   const AGG = sk.aggro != null ? sk.aggro : 0.9;
   const PRESS_RANGE  = 160 + 300 * AGG; // enemy-carrier strip range (easy~400 / normal~436 / hard 460 / extreme~505)
   const COVER_STRIP  = 120 + 200 * AGG; // plain-cover strip range   (easy~280 / normal~304 / hard 320 / extreme~350)
-  const FINISH_RANGE = 560 + 220 * AGG; // carrier shot-on-goal range (easy~736 / normal~762 / hard 780 / extreme~813)
+  // FINISH_RANGE is now derived from what a kick CAN DO, not from a hand-picked constant. Max reach
+  // is the roll at full charge (~647px on default settings); we shoot inside a safety margin of it,
+  // and aggro only decides how close to the edge a tier is willing to try. Previously this said
+  // 560+220*AGG = up to 835px, i.e. bots routinely shot from beyond the ball's reach.
+  const MAX_REACH = ballRollPx(state, 1);
+  const FINISH_RANGE = MAX_REACH * (0.72 + 0.16 * clamp(AGG, 0, 1.3)); // ~0.83..0.93 of reach
   const LINEUP_PAD   = 180 + 100 * AGG; // how far off-axis a carrier still tries the drive-finish
   const CARRY_IDLE   = 0.9 - 0.5 * AGG; // seconds holding before the anti-idle blast — lower = finish sooner, dribble less (buffed 2026-07-22: hard ~0.34 / normal ~0.39 / easy ~0.47)
   // HARD CEILING on holding the ball. The release ladder above should always fire long before
@@ -859,6 +910,9 @@ function decideBot(p, role, state, mem, sk, dt) {
   // Abort a tackle-steal hold the moment its target has already lost the ball — don't
   // sit frozen (a sitting duck) chasing a stale premise; the bomb still blasts normally.
   if (bm.bombHold && bm.bombHold.targetId && state.ball.owner !== bm.bombHold.targetId) bm.bombHold = null;
+  // Gained the ball mid-fuse? A carrier cannot plant (sim.js:840), so holding the spot buys
+  // nothing and just freezes us with the ball — exactly the "stands still" complaint.
+  if (bm.bombHold && state.ball.owner === p.id) bm.bombHold = null;
   if (bm.bombHold && mem.t < bm.bombHold.until) {
     const tp = bm.bombHold.targetId ? state.players[bm.bombHold.targetId] : null;
     const gx = tp ? tp.x : bm.bombHold.aimX, gy = tp ? tp.y : bm.bombHold.aimY;
@@ -998,8 +1052,11 @@ function decideBot(p, role, state, mem, sk, dt) {
     // 1) FINISH — a FULL kick now DRIVES THROUGH any field defender (monotonic), so just
     //    shoot on a walls-clear lane. Only a KEEPER-in-box catches it: then spend OVERCHARGE
     //    to break through (if ready), else BANK around them, else fall through to pass/drive.
+    // The charge is SIZED TO THE DISTANCE (plus a margin so it still crosses the line with pace),
+    // instead of always asking for max: a nearer shot stays quicker to release and less telegraphed.
+    const goalCharge = clamp(chargeForRoll(state, distGoal + 90), 0.45, 1);
     if (!shoot && distGoal < FINISH_RANGE && linedUp && goalAimY != null && !keeper) {
-      aim = { x: egX - p.x, y: goalAimY - p.y }; shoot = true; charge = 1;
+      aim = { x: egX - p.x, y: goalAimY - p.y }; shoot = true; charge = goalCharge;
       bm.lastTrick = goalAimY === GY ? 'drive' : 'postFinish'; // a corner shot is a real, distinct finish
       if (distGoal < 260) closeShot = true;
     } else if (distGoal < FINISH_RANGE + 40 && linedUp && keeper) {
@@ -1043,16 +1100,13 @@ function decideBot(p, role, state, mem, sk, dt) {
     // launch can't put the ball in the net — while burning a bomb charge worth far more on a
     // ~97% off-centre tackle-steal. TACTIC 4 below reuses the bomb for MOBILITY instead.)
 
-    // TACTIC 4 — CARRY ROCKET-JUMP for MOBILITY (hard/extreme). Far from goal with a clear lane
-    // and no enemy near, plant a bomb at our feet aimed at goal and rocket-jump forward: the ball
-    // stays attached and we cover ground fast (bombs now launch further). nfd>520 + laneWalls keep
-    // the fuse-hold safe so the reduced carry-launch still buys real distance.
-    if (!shoot && !special && sk.toolSkill >= 0.9 && bombReady && distGoal > FINISH_RANGE + 220
-        && laneWalls && nfd > 520 && mateSafe && mem.t > (bm.nextBombAt || 0)) {
-      special = true; aim = { x: egX - p.x, y: GY - p.y };
-      bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: egX, aimY: GY };
-      bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'carryJump';
-    }
+    // TACTIC 4 (carryJump) DELETED — it was PHYSICALLY IMPOSSIBLE and pure damage.
+    // sim.js:840 gates the bomb on `!carrying`: `if (p._special && p.specialCd <= 0 && !carrying)`.
+    // A ball-carrier can never plant. So this branch set bm.bombHold and stood the carrier still
+    // for the whole BOMB.fuse + 0.1 = 1.825s waiting to ride a bomb that never spawned, then did it
+    // again on the next cooldown. Measured by the council: ~28 commits and ~50 SECONDS of frozen
+    // carrier per match at the top tiers, and ZERO bombs produced — a large part of why the high
+    // tiers measured WEAKER than the middle. A carrier that wants to cover ground just runs.
 
     // ===== RELEASE LADDER (F6b) — a carrier ALWAYS has a next move =====
     // This branch used to be gated on `laneWalls`, so a wall across the goal lane left the
@@ -1063,7 +1117,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       if (goalAimY != null && distGoal < 1150) {
         // (a) some part of the mouth IS open — take it (keeper still wants the far corner)
         const ay = keeper ? (keeper.y > GY ? GOAL_TOP + postIn : GOAL_BOT - postIn) : goalAimY;
-        aim = { x: egX - p.x, y: ay - p.y }; shoot = true; charge = 1; bm.carryT = 0;
+        aim = { x: egX - p.x, y: ay - p.y }; shoot = true; charge = goalCharge; bm.carryT = 0;
         if (distGoal < 300) closeShot = true;
       } else if (blockIsSmashable && distGoal < 1150) {
         // (b) the blocker is a FRAGILE wall → smash straight through it with a full kick.
@@ -1125,13 +1179,31 @@ function decideBot(p, role, state, mem, sk, dt) {
     // TACTIC 9 — OFF-BALL CATCH-UP ROCKET-JUMP (hard/extreme): if we're lagging far behind the
     // play with a clear lane and no enemy on us, plant a bomb and rocket-jump toward the play so
     // the teammate isn't left alone (directly counters "the bot lags/hides instead of helping").
-    if (!isOnBall && sk.toolSkill >= 0.9 && bombReady && mem.t > (bm.nextBombAt || 0)) {
+    // Gate is toolSkill >= 0.72 (not 0.9): the PARTNER side of the ladder never exceeds 0.97 and
+    // most levels put the partner at 0.25-0.85, so a 0.9 gate meant the bot on the HUMAN's team
+    // essentially never used its tools — the "my team-mate does nothing" half of the complaint.
+    if (!isOnBall && sk.toolSkill >= 0.72 && bombReady && mem.t > (bm.nextBombAt || 0)) {
       const dPlay = hyp(carrier.x - p.x, carrier.y - p.y);
       const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(e.x - p.x, e.y - p.y)), 1e9);
-      if (dPlay > 760 && foeNear > 300 && laneClear(p.x, p.y, carrier.x, carrier.y, state, team, { enemies: false })) {
+      if (dPlay > 620 && foeNear > 300 && laneClear(p.x, p.y, carrier.x, carrier.y, state, team, { enemies: false })) {
         const [ex, ey] = unit(carrier.x - p.x, carrier.y - p.y);
+        // ---- "PUT A BOMB NEAR A WALL TO FLY FURTHER" (explicitly requested) -------------------
+        // sim.js wallCannonMul: a wall within BOMB_WALL_DIST (150px) of the BOMB, inside a ±35°
+        // cone OPPOSITE the launch, multiplies the self-launch — steel peaks at 1.55x. So the
+        // geometry has to be wall → bomb → bot, flying AWAY from the wall, and nothing
+        // indestructible ahead or the sim cancels the jump outright. staticCannonSpot() finds such
+        // a pad; if one is a short hop away we detour ONTO it first and launch from there instead
+        // of from where we happen to stand. Restored as a MOBILITY play only — never as the
+        // tackle-steal, which is what got the old wall-cannon nudge deleted (it rocket-jumped the
+        // planter AWAY from the loose ball, for a measured 0% steal rate).
+        const pad = sk.toolSkill >= 0.8 ? staticCannonSpot(p.x, p.y, ex, ey, state) : null;
+        if (pad && hyp(pad.x - p.x, pad.y - p.y) > 34) {
+          bm.lastTrick = 'cannonSetup'; // walk onto the pad, keep facing the launch direction
+          return finalize(p, { x: pad.x, y: pad.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+        }
         bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + ex * 500, aimY: p.y + ey * 500 };
-        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'catchUpJump';
+        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+        bm.lastTrick = pad ? 'wallCannonJump' : 'catchUpJump'; // on the pad => the boosted launch
         return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
       }
     }
@@ -1142,7 +1214,9 @@ function decideBot(p, role, state, mem, sk, dt) {
     // (wall->carrier) and (wall->goal): n = unit( unit(G-W) - unit(W-C) ). Built OUTSIDE the box
     // + bushes so it's a solid hp3 wall the shot can bank off.
     const spLive = mem.setPiece && mem.setPiece[team];
-    if (!isOnBall && sk.toolSkill >= 0.8 && buildReady && !bm.buildHold && !spLive && mem.t > (bm.nextBuildAt || 0)) {
+    // 0.70, not 0.80: most levels put the human's PARTNER at skill 0.25-0.50 => toolSkill
+    // 0.58-0.85, so the showpiece set-piece never fired on the player's own team.
+    if (!isOnBall && sk.toolSkill >= 0.70 && buildReady && !bm.buildHold && !spLive && mem.t > (bm.nextBuildAt || 0)) {
       const distCG = hyp(egX - carrier.x, GY - carrier.y);
       const blocked = visibleEnemies.some((e) => Math.abs(e.x - egX) < PENALTY.depth + 40 && Math.abs(e.y - GY) < GOAL.width / 2 + 60);
       if (distCG < 760 && distCG > 240 && blocked) {
@@ -1188,7 +1262,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       // TACTIC 10 — COOPERATIVE PUSH (hard/extreme): rocket-jump into the open attacking outlet so
       // the carrier can hit a fast one-two (the pass arrives via the pass-to-mate logic below). We
       // signal mem.push so the carrier prioritises the pass. A bomb-jump into space, no enemy near.
-      if (sk.toolSkill >= 0.85 && bombReady && mem.t > (bm.nextBombAt || 0)) {
+      if (sk.toolSkill >= 0.72 && bombReady && mem.t > (bm.nextBombAt || 0)) { // see note above on partner-side reach
         const dOut = hyp(ahead - p.x, bestY - p.y);
         const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(ahead - e.x, bestY - e.y)), 1e9);
         if (dOut > 620 && foeNear > 260 && laneClear(p.x, p.y, ahead, bestY, state, team, { enemies: false })) {
@@ -1262,7 +1336,11 @@ function decideBot(p, role, state, mem, sk, dt) {
       // cover (that starved the ambush/mark plays). Occasional, opportunistic set-piece.
       const stk = mem.stack && mem.stack[team];
       if (stk && stk.by !== p.id && mem.t < stk.until && bombReady && sk.toolSkill >= 0.75 && !bm.bombHold
-          && hyp(stk.x - p.x, stk.y - p.y) < BOMB_COMBINE_RADIUS * 1.3) {
+          // 2.2x, not 1.3x: at 1.3 the gate is 273px while the off-ball SEPARATION floor below
+          // holds a support bot at >= 320px from the carrier, so the join radius sat entirely
+          // inside the forbidden zone and the two-bomb stack was geometrically impossible.
+          // The branch walks to the plant point first, so a wider gate just means it can start.
+          && hyp(stk.x - p.x, stk.y - p.y) < BOMB_COMBINE_RADIUS * 2.2) {
         const dS = hyp(stk.x - p.x, stk.y - p.y);
         {
           if (dS > BOMB_COMBINE_RADIUS * 0.6) {
@@ -1382,7 +1460,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       const myD = hyp(bx - p.x, by - p.y);
       const fastBreak = hyp(b.vx, b.vy) > 260 && (ogX - b.x) * b.vx > 0 && Math.abs(b.x - ogX) < FIELD.W * 0.5;
       if (fastBreak) tgt = { x: (b.x + ogX * 1.2) / 2.2, y: (b.y + GY) / 2 };  // stay home on a break
-      else if (sk.cheat || myD < 440 + 200 * AGG) tgt = { x: bx, y: by };      // CONTEST the 50/50 (aggro-scaled)
+      else if (myD < 360 + 340 * AGG) tgt = { x: bx, y: by };                  // CONTEST the 50/50 (monotone in aggro; the old `sk.cheat ||` made the top contest EVERYTHING)
       else { const bush = nearestBushCenter(tgt.x, tgt.y, 520, state); if (bush) tgt = bush; } // lurk/ambush when genuinely far
     }
   }
@@ -1452,6 +1530,23 @@ function windupBudget(p, fireAt) {
 
 // Apply steering + skill (reaction latency + smoothed noisy aim), emit the input.
 function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
+  // ---- WHY decisionHz IS STILL DEAD (do not "just wire it up") ------------------------------
+  // decisionHz sits in all five tier tables, is interpolated by skillVec, and is READ BY NOTHING:
+  // every bot re-plans at the full 60Hz, so the only live handicaps (react, turnRate) slow just the
+  // RETICLE, never the thinking. Reviving it is the obvious way to make the bottom of the ladder
+  // feel genuinely dumb, and it is the biggest remaining lever — but a naive plan-cache here makes
+  // things MEASURABLY WORSE, and it was tried three ways before this comment was written:
+  //   * cache tgt + aim as a world point  -> ladder rho +0.70 => +0.20, shots/match -56%
+  //   * same, replaying unit aims verbatim -> rho +0.20, still -40% shots
+  //   * cache the movement target only     -> rho -0.50 (the HIGH tiers suffer most, because
+  //                                          positional reactivity is exactly their advantage)
+  // The reason is that the tactical body is not a pure function of a cached plan: carryT/blindT and
+  // the progress ratchet are INTEGRATORS that must advance every tick (left inside a 4Hz gate,
+  // carryT advances 1dt per 15 ticks, so the anti-idle release never fires), and eight branches
+  // early-return straight into finalize() with a hand-built aim. Doing it properly means hoisting
+  // the integrators, a forceNow on every role/possession change, and live aim overrides for the
+  // tracked target — a real refactor, not a wrapper. Left dead ON PURPOSE with this note, so the
+  // next agent does not repeat the three cheap versions. Council spec: step 16B.
   bm.wantMove = opts.hold ? 0 : 1;
   let mvx = 0, mvy = 0;
   if (opts.hold) { bm.mvx = 0; bm.mvy = 0; bm.lastX = p.x; bm.lastY = p.y; bm.stuck = 0; } // stand ON the bomb plant
@@ -1513,9 +1608,12 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   let noise = sk.aimSigma * Math.exp(-(bm.onTgt || 0) / sk.aimTau) * seededNoise(mem.t * 9.3 + idHash(p.id) * 0.017);
   // EXTREME cheat is STOCHASTIC, not a robotic aimbot: usually pinpoint, but ~cheatFlub of the
   // time a real (un-damped) slip is injected so a skilled player gets a beatable window.
-  if (sk.cheat && sk.cheatFlub) {
+  if (sk.cheatFlub) {
     const slip = seededNoise(Math.floor(mem.t * 1.7) + idHash(p.id) * 0.013); // ~uniform [-1,1], changes a few times/sec
-    if (slip > 1 - sk.cheatFlub * 2) noise += 0.16 * seededNoise(mem.t * 5.1 + idHash(p.id) * 0.023);
+    // MAGNITUDE ramps with the tier as well as the rate: a flat 0.16rad (~9deg) slip is nothing at
+    // close range, so it could never be the thing that keeps a boss beatable.
+    const mag = sk.flubMag != null ? sk.flubMag : 0.16;
+    if (slip > 1 - sk.cheatFlub * 2) noise += mag * seededNoise(mem.t * 5.1 + idHash(p.id) * 0.023);
   }
   const th = bm.aimTheta + noise;
   const ax = Math.cos(th), ay = Math.sin(th);
@@ -1552,7 +1650,16 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   const wantCharge = clamp(charge || 1, 0, 1);
   if (shoot && !bm.charging) {
     if (isBallRelease || p.ammo > 0) { // don't start a BULLET wind-up we can't finish
-      const fireAt = wantCharge >= FULL_CHARGE ? FULL_CHARGE + 0.01 : Math.max(0.02, wantCharge - 0.02);
+      // A KICK's power IS its reach, so a ball release must fire at the charge it ASKED for.
+      // This used to clamp every request to FULL_CHARGE + 0.01 = 0.71 "to cut the vulnerable
+      // wind-up", which capped every bot kick at 1095px/s => a 504px roll, while FINISH_RANGE let
+      // bots shoot from up to 835px. Those shots died ~300px short and simply handed over
+      // possession — and since the range scales with aggro, the MORE aggressive (higher) tiers
+      // wasted more, which is why the measured ladder came out INVERTED.
+      // A BULLET is different: FULL_CHARGE is the strip threshold, so more is pointless there.
+      const fireAt = isBallRelease
+        ? clamp(wantCharge, 0.02, 1) - 0.01
+        : (wantCharge >= FULL_CHARGE ? FULL_CHARGE + 0.01 : Math.max(0.02, wantCharge - 0.02));
       bm.charging = { target: wantCharge, fireAt, tol: closeShot ? 0.85 : 0.45, ball: isBallRelease, until: mem.t + windupBudget(p, fireAt) };
     }
   } else if (shoot && bm.charging) {
@@ -1588,8 +1695,13 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   // EXTREME PRE-CHARGE (stochastic): bank power continuously while approaching so the shot is
   // already wound up the instant the gate opens (kills the visible wind-up) — but only ~70% of
   // the time, so occasionally EXTREME still has a beatable wind-up. Never overrides bomb/special/build.
-  if (sk.preCharge && !opts.hold && !fire && !special && !build && (state.ball.owner === p.id || p.ammo > 0)) {
-    if (seededNoise(Math.floor(mem.t * 0.9) + idHash(p.id) * 0.019) > -0.45) hold = true;
+  // Kept, but BOUNDED so a telegraph survives: banking is allowed only until _charge reaches 0.35
+  // (at most half the wind-up), and the probability RAMPS in from t=0.92 rather than snapping on at
+  // 0.95. Before, ~70% of the time the shot was already wound up when the gate opened, so there was
+  // no visible wind-up at all and therefore nothing for the player to react to.
+  const pcp = sk.preChargeP != null ? sk.preChargeP : (sk.preCharge ? 0.55 : 0);
+  if (pcp > 0 && !fire && !special && !build && (p._charge || 0) < 0.35 && (state.ball.owner === p.id || p.ammo > 0)) {
+    if (seededNoise(Math.floor(mem.t * 0.9) + idHash(p.id) * 0.019) > 1 - pcp * 2) hold = true;
   }
 
   // Resolve a pending build-hold: hold the buildHold control until the windup completes,
