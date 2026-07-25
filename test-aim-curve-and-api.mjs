@@ -61,5 +61,18 @@ ok('delta is 0 on a standing read', /delta: 0, botLevel: null/.test(src));
 ok('it is rate-limited', /RANK_SELF_MS/.test(src));
 ok('the hub loop calls it', /fetchOwnRank\(\);\s*\n\s*pollRank\(\);/.test(src));
 
+// TDZ ORDER — this shipped broken once. startHomeDance() is INVOKED at module level and its loop()
+// runs synchronously on the first frame, so it reaches fetchOwnRank() during module evaluation.
+// `function` declarations hoist; `let`/`const` do not. State declared after that invocation throws
+// "Cannot access '_rankSelfAt' before initialization" and the whole hub dies — on a device only,
+// because neither a source assertion nor a curl of the served bytes executes the module.
+const lineOf = (re) => { const l = src.split('\n').findIndex((s) => re.test(s)); return l < 0 ? Infinity : l + 1; };
+const stateLine = lineOf(/^let _rankSelfAt = 0, _rankSelfBusy = false;/);
+const msLine = lineOf(/^const RANK_SELF_MS = /);
+const invokeLine = lineOf(/^startHomeDance\(\);/);
+ok('startHomeDance() is invoked at module level (the hazard is real)', invokeLine !== Infinity, `line ${invokeLine}`);
+ok('_rankSelfAt/_rankSelfBusy initialize BEFORE it', stateLine < invokeLine, `state ${stateLine} vs invoke ${invokeLine}`);
+ok('RANK_SELF_MS initializes BEFORE it', msLine < invokeLine, `const ${msLine} vs invoke ${invokeLine}`);
+
 console.log(failed ? `\n❌ ${failed} failed` : '\n✅ all passed');
 process.exit(failed ? 1 : 0);

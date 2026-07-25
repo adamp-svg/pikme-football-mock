@@ -743,6 +743,49 @@ const FOOTBALL_TOKEN = (() => { try { return window.PIKME_FOOTBALL_TOKEN || new 
 // phone Safari against the Render game, or a LAN IP — got silently broken friends and DMs with no
 // error anywhere. The live API is server.pikme.tv; only a true localhost page assumes a local one.
 const PIKME_API = (window.PIKME_API || (location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://server.pikme.tv')).replace(/\/$/, '');
+
+// ---- RANK self-fetch --------------------------------------------------------
+// The hub badge reads window.SALTIZ_RANK, which the app WebView injects. That inject only exists in
+// app builds we don't control, and never in a browser — so without this the badge silently falls
+// back to the legacy xp level and the whole RANK ladder is invisible outside a fresh app build.
+// We fetch our OWN standing and write the SAME global, so pollRank() picks it up unchanged.
+//
+// The app stays authoritative: it injects a per-match `delta` we cannot know, so a real inject is
+// never overwritten. Two sources, in order of trust:
+//   1. football token  → GET /handle-friends/rank   (identity from the signed token)
+//   2. ?phone=         → GET /handle-user/football/stats?phone=…  (unauthenticated, browser testing)
+// delta stays 0: this is a standing read, not a match result, and a wrong delta would animate a
+// jump that never happened.
+//
+// ⚠️ THIS BLOCK MUST STAY ABOVE startHomeDance() (which is *invoked* at module level and calls
+// loop() SYNCHRONOUSLY on its first frame → fetchOwnRank()). It shipped below it once and the hub
+// died on the device with "Cannot access '_rankSelfAt' before initialization" — a TDZ crash that
+// neither the source-assertion tests nor a curl of the served bytes can see, because neither
+// EXECUTES the module. `apiGet` is a hoisted function declaration, so calling it from up here is
+// fine; `let`/`const` state is not hoisted, which is the whole trap.
+const RANK_SELF_MS = 60000;      // standing barely moves outside a match; don't hammer the API
+let _rankSelfAt = 0, _rankSelfBusy = false;
+async function fetchOwnRank() {
+  if (window.SALTIZ_RANK) return;                       // the app injected — it wins, always
+  if (_rankSelfBusy) return;
+  const now = performance.now();
+  if (_rankSelfAt && now - _rankSelfAt < RANK_SELF_MS) return;
+  const phone = (() => { try { return _params.get('phone'); } catch { return null; } })();
+  if (!FOOTBALL_TOKEN && !phone) return;                // no identity, nothing to ask for
+  _rankSelfBusy = true;
+  try {
+    const r = FOOTBALL_TOKEN
+      ? await apiGet('/handle-friends/rank')
+      : await apiGet(`/handle-user/football/stats?phone=${encodeURIComponent(phone)}`);
+    _rankSelfAt = performance.now();
+    // A pre-rank backend answers 200 with no rankPoints — that is "not deployed yet", not rank 0,
+    // so leave SALTIZ_RANK unset and let the legacy xp badge stand.
+    const rp = Number(r && r.rankPoints);
+    if (!Number.isFinite(rp)) return;
+    if (window.SALTIZ_RANK) return;                      // an inject landed while we awaited
+    window.SALTIZ_RANK = { rankPoints: rp, rankTier: (r && r.rankTier) || null, delta: 0, botLevel: null };
+  } finally { _rankSelfBusy = false; }
+}
 let MY_USER_ID = null; // filled from the welcome message (authenticated connections only)
 
 // ---- Player album (cards) -------------------------------------------------
@@ -2346,41 +2389,7 @@ async function apiPost(path, body) {
   } catch { toast('החיבור נכשל, נסה שוב'); return false; }
 }
 
-// ---- RANK self-fetch --------------------------------------------------------
-// The hub badge reads window.SALTIZ_RANK, which the app WebView injects. That inject only exists in
-// app builds we don't control, and never in a browser — so without this the badge silently falls
-// back to the legacy xp level and the whole RANK ladder is invisible outside a fresh app build.
-// We fetch our OWN standing and write the SAME global, so pollRank() picks it up unchanged.
-//
-// The app stays authoritative: it injects a per-match `delta` we cannot know, so a real inject is
-// never overwritten. Two sources, in order of trust:
-//   1. football token  → GET /handle-friends/rank   (identity from the signed token)
-//   2. ?phone=         → GET /handle-user/football/stats?phone=…  (unauthenticated, browser testing)
-// delta stays 0: this is a standing read, not a match result, and a wrong delta would animate a
-// jump that never happened.
-const RANK_SELF_MS = 60000;      // standing barely moves outside a match; don't hammer the API
-let _rankSelfAt = 0, _rankSelfBusy = false;
-async function fetchOwnRank() {
-  if (window.SALTIZ_RANK) return;                       // the app injected — it wins, always
-  if (_rankSelfBusy) return;
-  const now = performance.now();
-  if (_rankSelfAt && now - _rankSelfAt < RANK_SELF_MS) return;
-  const phone = (() => { try { return _params.get('phone'); } catch { return null; } })();
-  if (!FOOTBALL_TOKEN && !phone) return;                // no identity, nothing to ask for
-  _rankSelfBusy = true;
-  try {
-    const r = FOOTBALL_TOKEN
-      ? await apiGet('/handle-friends/rank')
-      : await apiGet(`/handle-user/football/stats?phone=${encodeURIComponent(phone)}`);
-    _rankSelfAt = performance.now();
-    // A pre-rank backend answers 200 with no rankPoints — that is "not deployed yet", not rank 0,
-    // so leave SALTIZ_RANK unset and let the legacy xp badge stand.
-    const rp = Number(r && r.rankPoints);
-    if (!Number.isFinite(rp)) return;
-    if (window.SALTIZ_RANK) return;                      // an inject landed while we awaited
-    window.SALTIZ_RANK = { rankPoints: rp, rankTier: (r && r.rankTier) || null, delta: 0, botLevel: null };
-  } finally { _rankSelfBusy = false; }
-}
+// (fetchOwnRank lives up with PIKME_API — it must be initialized before startHomeDance() runs.)
 
 // 3 built-in BOT friends — always available (online), invitable into a party from the
 // invite panel (→ addBot). They fill out the friends list so solo players can "play with
