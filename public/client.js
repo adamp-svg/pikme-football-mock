@@ -2027,13 +2027,15 @@ const MODES = [
   {
     id: '2v2', ic: '⚽', name: 'כדורגל · 2 נגד 2', sub: 'אצטדיון הבלוקים',
     meta: ['ראשון ל-3', 'עד 2 דק׳'], hue: ['#7fd48f', '#4fae66'],
-    state: 'live', party: true,
+    // `format` ties this row to the server's FORMATS key, so the VS/teams page can name the mode
+    // you're waiting in. Every matchmade row needs one.
+    state: 'live', party: true, format: 'quick',
     launch: () => sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }),
   },
   {
     id: 'brawl', ic: '🥅', name: 'קרב על השער', sub: 'אצטדיון הבלוקים',
     meta: ['הכי הרבה גולים', '2 דקות'], hue: ['#ffd06a', '#e8a02f'],
-    state: 'live', party: true,
+    state: 'live', party: true, format: 'brawl',
     launch: () => sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }),
   },
   {
@@ -3293,7 +3295,12 @@ function connect(name, avatar) {
       isRoomHost = !!msg.host;                 // #14: host gets approval + kick controls
       clearRoomRequests(); hideRoomWait();     // fresh room: no stale pending UI / waiting overlay
       clearLobbyLists(); resetPlayNow();
-      if (msg.mode === 'quick') { quickVs = true; showScreen('home'); startLobbyMusic(); } // VS + countdown overlay drives the wait
+      // EVERY public matchmade mode gets the same pre-match VS/teams page (players + bots + power
+      // cards) and the same countdown. Gated on the server's `matchmade` flag, NOT on a mode name —
+      // goal-brawl used to fall through to the bare #lobby list purely because this read
+      // `mode === 'quick'`, so the two live modes looked like different games. `|| mode === 'quick'`
+      // keeps a pre-flag server working during a rolling deploy.
+      if (msg.matchmade || msg.mode === 'quick') { quickVs = true; showScreen('home'); startLobbyMusic(); } // VS + countdown overlay drives the wait
       else if (partyFlow) { quickVs = false; hideVs(); startLobbyMusic(); if (partyStage === 'roster') { showScreen('party'); renderParty(); } else { renderInvite(); } } // invite stage keeps the overlay; roster shows the party
       else { quickVs = false; hideVs(); showScreen('lobby'); startLobbyMusic(); }           // #12: lobby theme instantly
       if (pendingPartyApply && isRoomHost) { pendingPartyApply = false; applyPartyPicks(); } // add picked bots + invite friends
@@ -3465,10 +3472,22 @@ let audienceReady = false;   // seat layout rebuilt per match (see drawAudience)
 let crowdHypeT = -1e9;        // timestamp of the last goal — the crowd erupts (leaps) then settles
 const teamIntroEl = document.getElementById('team-intro');
 const tiCountEl = document.getElementById('ti-count');
+const tiModeEl = document.getElementById('ti-mode');
 let introTimer = null;
 // quickVs is declared above the startup init block (hoisted to avoid a load-time TDZ:
 // showScreen('home') reads it for the lobby-music gate before this point would run).
-function hideVs() { if (tiCountEl) tiCountEl.classList.add('hidden'); hideTeamIntro(); }
+function hideVs() { if (tiCountEl) tiCountEl.classList.add('hidden'); tiModeEl?.classList.add('hidden'); hideTeamIntro(); }
+// Name the mode + its win rule on the VS page. The name comes from the MODES table (matched on the
+// `format` key the server sends) so it can't drift from the picker; the rule comes from the room,
+// because that's the value the sim will actually enforce.
+function showVsMode(msg) {
+  if (!tiModeEl) return;
+  const m = MODES.find((x) => x.format && x.format === msg.format);
+  const rule = msg.rule || (msg.goalsToWin > 0 ? `ראשון ל-${msg.goalsToWin}` : 'הכי הרבה גולים · 2 דקות');
+  tiModeEl.querySelector('.ti-mode-name').textContent = m ? `${m.ic} ${m.name}` : '';
+  tiModeEl.querySelector('.ti-mode-rule').textContent = rule;
+  tiModeEl.classList.remove('hidden');
+}
 // Quick-match VS screen: HOME (my team) vs RIVALS from lobby members (bots fill empty
 // slots), with the big 5..0 countdown. Refreshed on every lobby payload.
 function updateVsCountdown(msg) {
@@ -3479,8 +3498,12 @@ function updateVsCountdown(msg) {
   const roster = (msg.members || []).concat(msg.bots || []);
   const mine = (roster.find((m) => m.id === myMemberId) || {}).team || 'A';
   const cols = teamIntroEl.querySelectorAll('.ti-col');
-  fillIntroCol(cols[0], roster, mine);
-  fillIntroCol(cols[1], roster, mine === 'A' ? 'B' : 'A');
+  // Rows per side come from the room's format (2 today; 3/5 when those formats land), never from
+  // the roster length — empty slots must still render as the "waiting for a player" placeholder.
+  const perTeam = Math.max(1, +msg.teamSize || 2);
+  fillIntroCol(cols[0], roster, mine, perTeam);
+  fillIntroCol(cols[1], roster, mine === 'A' ? 'B' : 'A', perTeam);
+  showVsMode(msg);
   preloadCards(roster.flatMap((m) => introCardsFor(m)));
   startLobbyMusic(); // #12: lobby theme plays for the whole wait (starts on entry, loops through the countdown)
   if (msg.phase === 'countdown' && msg.countdown > 0) { tiCountEl.textContent = msg.countdown; tiCountEl.classList.remove('hidden'); }
@@ -3510,10 +3533,11 @@ function introCardsFor(p) {
   if (Array.isArray(p.loadout)) return p.loadout.filter(Boolean).map((s) => ({ r: s.r, n: +s.n }));
   return rankCards(p.cards || []).slice(0, 3);
 }
-function fillIntroCol(colEl, players, team) {
+function fillIntroCol(colEl, players, team, perTeam = 2) {
   const rows = colEl.querySelector('.ti-rows'); rows.innerHTML = '';
+  colEl.dataset.size = perTeam;   // CSS shrinks the rows for the bigger formats
   const roster = players.filter((p) => p.team === team);
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < perTeam; i++) {
     const p = roster[i];
     const row = document.createElement('div'); row.className = 'ti-row';
     const av = document.createElement('div'); av.className = 'ti-av';

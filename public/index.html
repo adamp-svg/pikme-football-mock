@@ -588,6 +588,9 @@
 
   <!-- Team intro / quick-match VS + countdown screen (top-level overlay) -->
   <div id="team-intro" class="team-intro hidden">
+    <!-- Which mode you're about to play + its win rule. Both live modes share this screen, so
+         without the label ראשון ל-3 and קרב על השער are indistinguishable while you wait. -->
+    <div id="ti-mode" class="ti-mode hidden"><span class="ti-mode-name"></span><span class="ti-mode-rule"></span></div>
     <div id="ti-count" class="ti-count hidden">5</div>
     <div class="ti-inner">
       <div class="ti-col ti-home"><div class="ti-team-title">הקבוצה שלי</div><div class="ti-rows"></div></div>

@@ -80,8 +80,21 @@ const onlineByUser = new Map(); // userId -> member (authenticated connections o
 const challenges = new Map(); // challengeId -> { fromUserId, toUserId }
 let challengeCounter = 0;
 const rooms = new Map();     // roomId -> room
-let publicRoom = null;       // the current forming quick-match room (first-to-3), in lobby/countdown
-let publicRoomBrawl = null;  // the current forming goal-brawl room (2-min timed, most goals)
+// FORMATS is the single source of truth for every public matchmade mode. One row per mode; the
+// row is the ONLY thing that differs between them — everything downstream (lobby, 5s window,
+// XP-scaled bot fill, the VS/teams page, the countdown) is shared. Adding 3v3/5v5 is a new row
+// here plus the per-room teamSize work listed in summery/TEAM_FORMATS_PLAN.md — never a copy of
+// joinMatchmade(). Two near-identical copies is exactly how goal-brawl drifted off the VS page.
+const FORMATS = {
+  quick: { prefix: 'pub',   teamSize: 2, goalsToWin: GOALS_TO_WIN, rule: 'ראשון ל-3 · עד 2 דק׳' },
+  brawl: { prefix: 'brawl', teamSize: 2, goalsToWin: 0,            rule: 'הכי הרבה גולים · 2 דקות' },
+};
+// mode -> the room currently forming for that mode. Each format matchmakes in its OWN pool so
+// first-to-3 and timed players never mix. Was two hand-rolled `publicRoom*` globals.
+const publicRooms = new Map();
+const formingRoom = (mode) => publicRooms.get(mode) || null;
+// Drop a room from its matchmaking pool (it started, or it died) so the next joiner forms a fresh one.
+function clearForming(room) { for (const [mode, r] of publicRooms) if (r === room) publicRooms.delete(mode); }
 let memberCounter = 0, roomCounter = 0;
 // Module-level monotonic match counter — never resets, so matchId is globally unique even when a
 // private room CODE is reused by a later room instance (a per-room counter would collide and the
@@ -301,41 +314,31 @@ function transferHost(room) {
   }
 }
 
-function quickMatch(member, diffLevel) {
+// THE entry point for every public matchmade mode — quick match (ראשון ל-3) and goal-brawl
+// (קרב על השער, timed most-goals) both land here, and 3v3/5v5 will too. Identical flow for all
+// of them; the FORMATS row supplies the win rule. `matchmade: true` on roomJoined is what tells
+// the client to show the VS/teams page with the power cards — so a new format cannot be born
+// with a different pre-match screen the way goal-brawl was.
+function joinMatchmade(member, mode, diffLevel) {
+  const fmt = FORMATS[mode] || FORMATS.quick;
   leaveCurrentRoom(member);
-  // Join the forming public room if there's space & it hasn't started; else open one.
-  if (!publicRoom || publicRoom.phase === 'match' || publicRoom.members.size >= MAX_PLAYERS) {
-    publicRoom = makeRoom(`pub-${++roomCounter}`, false);
-    rooms.set(publicRoom.id, publicRoom);
+  // Join the forming room for THIS format if there's space & it hasn't started; else open one.
+  let room = formingRoom(mode);
+  if (!room || room.phase === 'match' || room.members.size >= MAX_PLAYERS) {
+    room = makeRoom(`${fmt.prefix}-${++roomCounter}`, false);
+    room.format = mode;
+    room.goalsToWin = fmt.goalsToWin; // 0 = timed only (goal-brawl); else first-to-N
+    rooms.set(room.id, room);
+    publicRooms.set(mode, room);
   }
-  const room = publicRoom;
   // Bots reflect the joining player's XP-driven level. Applied before the countdown/preview so the
   // VS badge + previewed bot cards match from the first tick. Shared public room => last-writer-wins.
   if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
   addToRoom(member, room);
-  send(member.ws, { type: 'roomJoined', mode: 'quick', code: null });
+  send(member.ws, { type: 'roomJoined', mode, matchmade: true, code: null });
   // Room is full (all human slots taken) -> start now; no point waiting out the countdown.
   if (room.members.size >= MAX_PLAYERS) { startMatch(room); return; }
   if (room.phase === 'lobby') startCountdown(room); // first in: open the 5s matchmaking window
-  broadcastLobby(room);
-}
-
-// קרב על השער — public matchmade 2v2 like quick match, but the classic TIMED format:
-// no first-to-3, just most goals when the 2-minute clock runs out. Its own pool so first-to-3
-// and timed players don't mix.
-function goalBrawl(member, diffLevel) {
-  leaveCurrentRoom(member);
-  if (!publicRoomBrawl || publicRoomBrawl.phase === 'match' || publicRoomBrawl.members.size >= MAX_PLAYERS) {
-    publicRoomBrawl = makeRoom(`brawl-${++roomCounter}`, false);
-    publicRoomBrawl.goalsToWin = 0; // timed only — the distinguishing rule vs quick match
-    rooms.set(publicRoomBrawl.id, publicRoomBrawl);
-  }
-  const room = publicRoomBrawl;
-  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
-  addToRoom(member, room);
-  send(member.ws, { type: 'roomJoined', mode: 'brawl', code: null });
-  if (room.members.size >= MAX_PLAYERS) { startMatch(room); return; }
-  if (room.phase === 'lobby') startCountdown(room);
   broadcastLobby(room);
 }
 
@@ -526,8 +529,7 @@ function leaveCurrentRoom(member) {
 
 function destroyRoom(room) {
   rooms.delete(room.id);
-  if (publicRoom === room) publicRoom = null;
-  if (publicRoomBrawl === room) publicRoomBrawl = null;
+  clearForming(room);
   // Any joiners still waiting on this (now gone) room's host must be returned to the lobby.
   if (room.pending) {
     for (const p of room.pending.values()) { p.pendingRoom = null; send(p.ws, { type: 'joinRejected', code: room.id, reason: 'closed' }); }
@@ -599,8 +601,7 @@ function startMatch(room) {
   room.introT = INTRO_PROMO;   // hold the sim frozen while the client plays the promo (see tickRoom)
   room.phase = 'match';
   room.rosterVersion++; broadcastRoster(room); // slot->id map for binary snapshots — sent before any snapshot
-  if (publicRoom === room) publicRoom = null; // next quick-matchers form a fresh room
-  if (publicRoomBrawl === room) publicRoomBrawl = null; // ditto for goal-brawl matchmakers
+  clearForming(room); // it's playing now — the next joiners of this format form a fresh room
   broadcastLobby(room);
 }
 
@@ -772,9 +773,16 @@ function lobbyPayload(room) {
     ? room.botPlan.map((b, i) => ({ id: `botprev-${room.id}-${i}`, name: 'Bot', avatar: null, team: b.team, isBot: true, cards: b.cards, loadout: b.loadout,
         level: displayLevelForBot(room.diffLevel), xp: xpForBotLevel(room.diffLevel) })) // bot level+XP for the countdown badge
     : [];
+  const fmt = FORMATS[room.format] || FORMATS.quick;
   return {
     type: 'lobby',
     mode: room.isPrivate ? 'private' : 'quick',
+    // Which format this room is playing, so the VS/teams page can print the win rule and size its
+    // columns. `mode` above stays private|quick for the older lobby/party readers — don't reuse it.
+    format: room.format || (room.isPrivate ? 'private' : 'quick'),
+    rule: room.goalsToWin > 0 ? `ראשון ל-${room.goalsToWin} · עד 2 דק׳` : fmt.rule,
+    teamSize: fmt.teamSize,
+    goalsToWin: room.goalsToWin | 0,
     code: room.isPrivate ? room.id : null,
     phase: room.phase,
     countdown: room.phase === 'countdown' ? Math.max(0, Math.ceil(room.countdownT)) : 0,
@@ -1095,8 +1103,11 @@ wss.on('connection', (ws, req) => {
       // Album changed mid-session (the app re-injected SALTIZ_CARDS): refresh the member's cards so
       // loadout validation + bot buff-matching use the CURRENT album (was frozen at join until reconnect).
       if (msg.type === 'setCards') { member.cards = sanitizeCards(msg.cards); member.loadout = sanitizeLoadout(member.loadout, member.cards); return; }
-      if (msg.type === 'quickMatch') { quickMatch(member, msg.diffLevel); return; }
-      if (msg.type === 'goalBrawl') { goalBrawl(member, msg.diffLevel); return; }
+      // Both public modes go through the ONE matchmade path (see joinMatchmade). Keep the two
+      // legacy msg types — old clients/builds still send them — and route by format.
+      if (msg.type === 'quickMatch') { joinMatchmade(member, 'quick', msg.diffLevel); return; }
+      if (msg.type === 'goalBrawl') { joinMatchmade(member, 'brawl', msg.diffLevel); return; }
+      if (msg.type === 'matchmade') { joinMatchmade(member, FORMATS[msg.format] ? msg.format : 'quick', msg.diffLevel); return; }
       if (msg.type === 'training') { startTraining(member); return; }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }

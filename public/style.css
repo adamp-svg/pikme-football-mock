@@ -729,6 +729,23 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   color: #fff4ca; text-shadow: 0 6px 0 #a56a16, 0 11px 0 #252a21; margin-bottom: 2px;
 }
 .ti-count.hidden { display: none; }
+/* Mode label above the countdown: WHICH mode + the rule that decides the win. Both live modes
+   share this screen, so this line is the only thing distinguishing ראשון ל-3 from קרב על השער. */
+.ti-mode { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
+.ti-mode.hidden { display: none; }
+.ti-mode-name { font: 900 15px "Arial Black", sans-serif; color: #ffe49a; text-shadow: 0 2px #0b0f0b; letter-spacing: .5px; }
+.ti-mode-rule {
+  font: 800 11px sans-serif; color: #cfe0ff; letter-spacing: 1px; padding: 3px 10px;
+  border: 1px solid #2f3f60; border-radius: 999px; background: rgba(255,255,255,.05);
+}
+/* 3v3 / 5v5: more rows per side, so the rows tighten instead of overflowing the column. */
+.ti-col[data-size="3"] .ti-rows { gap: 7px; }
+.ti-col[data-size="3"] .ti-card { width: 26px; height: 36px; }
+.ti-col[data-size="5"] .ti-rows { gap: 5px; }
+.ti-col[data-size="5"] .ti-row { grid-template-columns: 30px 1fr; }
+.ti-col[data-size="5"] .ti-av { width: 30px; height: 30px; font-size: 12px; }
+.ti-col[data-size="5"] .ti-card { width: 22px; height: 30px; }
+.ti-col[data-size="5"] .ti-name { font-size: 11px; }
 
 /* Home user screen: dancing character + small avatar/name row. */
 .home-char { display: block; width: 150px; height: 158px; image-rendering: pixelated; margin: 0 0 -4px; }
