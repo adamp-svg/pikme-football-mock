@@ -5,6 +5,8 @@ services:
     name: pikme-football
     env: node
     plan: free
-    buildCommand: npm install
+    # --omit=dev: jsdom is a devDependency (test-modes-table.mjs renders index.html
+    # headlessly). The server never needs it, so keep it out of the deploy.
+    buildCommand: npm install --omit=dev
     startCommand: npm start
     healthCheckPath: /

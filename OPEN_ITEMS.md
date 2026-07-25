@@ -4,9 +4,13 @@
 > [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md); rules in [`CLAUDE.md`](CLAUDE.md); history in
 > [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md).
 >
-> State at audit time: `main` = `a82e6bb`, **3 commits ahead of `origin/main`** (docs only, not pushed).
-> Test suite **27/28 green** — only `test-power.mjs` fails (PRE-EXISTING, stale vs the shipped shot rebalance).
-> Working tree clean except untracked `CLAUDE.md` + `summery/research-trophies/`.
+> **Update 2026-07-25 21:5x (agent `handoff-audit`, 2nd pass).** User: *"leave 120hz, keep all heroes
+> unlocked for now; other stuff fix and research and build if needed."* So **#4 (120Hz) and #6
+> (`DEV_UNLOCK_ALL`) are PARKED BY DECISION — do not pick them up.** Everything else in my lane is
+> now done or reduced to a user/env action; see the ✅ marks below.
+>
+> Test suite is **fully GREEN (35/35)** — the two "known pre-existing fails" were both test bugs, not
+> product bugs, and are fixed. Nothing is pushed (standing rule).
 
 ---
 
@@ -16,11 +20,13 @@
 - Not lost — it was still in flight when this board was written. Landed as commit `2710141`, **not pushed**.
 - Build edge now latches its aim + `buildDist` in `shared/input-merge.js`; the ghost and the sim share one `wallPlacement()` in `shared/arena.js`; covered by `test-wall-place.mjs`.
 - Measured E2E: **143.6px + 45° wrong → 2.4px, 0°**. Details in the `wall-place` entry in [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md).
-- **Left open from it (P2):** (a) make `sim.js buildWall()` call the shared `wallPlacement()` once `shared/sim.js` is free — the test already asserts they agree; (b) the ~0.35s "full ring, no wall" window inside `buildCd` (client ring is wall-clock, sim pins windup to 0) — gate the ring on the server's `buildCd`/ammo.
+- **Left open from it — both now ✅ DONE:**
+  - (a) `sim.js buildWall()` calls the shared `wallPlacement()` (landed inside `d383099`; sim.js's duplicate `WALL_ANGLE_STEPS/QUANT` deleted so there is exactly one copy of the formula). `test-wall-place` now measures **0.000px** ghost-vs-sim disagreement across 126 cases.
+  - (b) the "full ring, no wall" window — `0821ee2`. `currentWindup()` runs on the local clock for one round-trip of grace, then follows the snapshot's `winding` flag; not winding ⇒ ring empty ⇒ release cancels instead of eating the input. Covered by the new cooldown case in `test-build-windup.mjs`.
 
-### 2. `FOOTBALL_TOKEN_SECRET` must MATCH on both Render services
-- pikme-football + pikmeTV-server. If they differ, **every player silently becomes a guest** → friends, challenges and party invites all break with no error.
-- Needs the user (env var, not code).
+### 2. ~~`FOOTBALL_TOKEN_SECRET` must MATCH on both Render services~~ ✅ VERIFIED — they already match
+- Checked via the Render API on both `srv-d9ebcvtaeets73ar91sg` (pikme-football) and `srv-chgb1k67avjbbju8aoig` (pikmeTV-server): **same 96-char value, identical SHA-256**. Friends / challenges / party auth is correctly configured in prod. Nothing to do.
+- Re-check this the same way if friends ever start silently behaving as guests (`render` CLI v2.5.0 has no `env-vars` command — use `GET https://api.render.com/v1/services/<id>/env-vars` with the token in `~/.render/cli.yaml`, and compare HASHES, never print the value).
 
 ### 3. New TestFlight build — the whole stats/XP/prefs feature is invisible without it
 - App branch `pikmeTV-saltiz@feat/football-store`, commit `d1b411a`.
@@ -31,22 +37,22 @@
 
 ## 🟠 P1 — high value, ready to start
 
-### 4. 120Hz sim (user explicitly asked for it) — unblock the tests
-- Built and verified once, then **reverted** because ~8 tests count TICKS not TIME.
-- Do: re-tune those tests to assert on elapsed time, then re-apply `TICK_RATE=120` + `SNAPSHOT_RATE=90` (`shared/constants.js`) and `INPUT_RATE=120` + `INTERP_DELAY=35` (`public/client.js`).
-- Note: all suites now pass at 60Hz, so the failing set must be re-derived at 120Hz.
+### 4. ⛔ 120Hz sim — PARKED BY THE USER (2026-07-25: "leave 120hz")
+- Do NOT pick this up. Kept here only so nobody re-discovers it as an obvious win.
+- If it is ever un-parked: re-tune the tick-counting tests to assert on elapsed TIME, then re-apply `TICK_RATE=120` + `SNAPSHOT_RATE=90` (`shared/constants.js`) and `INPUT_RATE=120` + `INTERP_DELAY=35` (`public/client.js`).
 
 ### 5. On-device feel-check of `USE_REPLAY` reconciliation
 - Mechanically verified (ack echoes seq) but never felt on a phone. Watch for jitter during knockback. Kill switch: `USE_REPLAY=false` in `public/client.js`.
 - Gated on item 3.
 
-### 6. Decide `DEV_UNLOCK_ALL` (`public/client.js:764`, currently `true`)
-- Every hero is unlocked for everyone. Real 7-cards-per-hero gating never activates; the hero-demote reconcile is a no-op until flipped.
-- **Product decision, not a bug** — the user should say ship-unlocked or flip to `false`.
+### 6. ⛔ `DEV_UNLOCK_ALL` — DECIDED: stays `true` (2026-07-25: "keep all heros unlocked for now")
+- Every hero stays unlocked for everyone; the 7-cards-per-hero gating and the hero-demote reconcile stay dormant on purpose. Don't "fix" this.
 
-### 7. Surface career stats in the app
-- Backend returns `careerGoals, assists, strips, saves, shotsFired, bombsPlanted, wallsBuilt, touches, possSeconds, distanceM` from `GET /handle-user/football/stats` — **nothing renders them**.
-- Obvious next feature: player profile / post-match summary screen.
+### 7. ~~Surface career stats in the app~~ ✅ DONE (app `c51d8a1`, backend `a40fe5e`)
+- `app/pages/football-profile.jsx` now has a **הקריירה שלי** section: goals, assists, strips, saves, shots, touches, bombs, walls, ball-time, running distance + goals-per-match.
+- Formatters extracted to `app/pages/football-profile.format.js` (repo convention: pure logic in a sibling module) with 9 unit tests — the counters are client-reported, so the screen must never print `NaN`. App suite 148/148 green.
+- Backend: `footballPublicStats()` now includes the career tallies, so **another player's** profile (opened by `profileToken` from the leaderboard) shows the same section instead of all zeros. Still no phone/userId in that projection.
+- Still needs a TestFlight build (item 3) to be seen on a device.
 
 ---
 
@@ -80,11 +86,12 @@
 
 ## 🔵 P4 — small / stale / verification debt
 
-- **App: call `__pikmeApplyPrefs` mid-session** — the game hook is live, nothing calls it (`football.jsx` `injectJavaScript`). Low value, prefs rarely change mid-match.
-- **Stat attribution polish** — assists credit only the immediately-previous holder; own goals unattributed; keeper `saves` = catch in own box only (`shared/sim.js` `touchBall`).
-- **`test-power.mjs`** — the one red test. Stale vs the committed shot rebalance; either update it to the new spec or delete it. It has been reported as "known pre-existing" for 3 sessions.
-- **pikme-server never DB-verified**: `GET /handle-friends/rank` and the phone-variant friend search were logic-checked only — local node 26 can't boot pikme-server (old `jsonwebtoken` / `SlowBuffer`). Needs node 18/20 + a real token.
+- ~~**App: call `__pikmeApplyPrefs` mid-session**~~ ✅ DONE (`c51d8a1`). `football.jsx` pushes hero/loadout/prefs into an already-open game when the stats query changes. The echo hazard is handled: the game POSTs prefs → query invalidates → we would inject the same values back, so the effect remembers the last payload signature and the first resolve is seeded (bootJs already carried it), not injected.
+- ~~**Stat attribution polish**~~ — ✅ INVESTIGATED, nothing to fix. Assists crediting only the immediately-previous holder is *correct football* (the last pass); own goals are structurally impossible (`shared/sim.js:79` — the own goal line is solid, and `goal()` only credits the scoring team); keeper `saves` = catch in own box is the intended definition. Deeper attribution (second assists, etc.) would be a new feature, not a bug fix.
+- ~~**`test-power.mjs`**~~ ✅ FIXED (`d57d007`). It was the TEST that was stale — it still asserted the old 1/2 partial overcharge gain after the rebalance moved it to 1/3. It now derives the hit count from `OVERCHARGE_PARTIAL_GAIN` so a retune can't rot it again. The 1/2-vs-1/3 comments in `sim.js` + `MECHANICS.md` were wrong too, now corrected.
+- ~~**`test-party.mjs`**~~ ✅ FIXED (`d57d007`). Never a product bug: it pointed at `:3010`, a server another agent had started WITHOUT `FOOTBALL_TOKEN_SECRET=testsecret`, so both clients authed as guests and the invite never arrived. It now boots its own server on a private port. **Whole suite is green — if you see a red test, it is real.**
+- **pikme-server never DB-verified**: `GET /handle-friends/rank` and the phone-variant friend search are still logic-checked only. Blocked here: no node 18/20 on this machine (only 24/26 via brew; pikme-server's old `jsonwebtoken` needs the removed `SlowBuffer`), and booting it locally would need prod Mongo credentials — **a user call, not something to do unasked.**
 - **Bot rarity mirroring is probabilistic** — a single-legendary human often faces a bot showing rare/common. Empty-slot weirdness is fixed; visual mirroring is a separate rarity-model change if the user wants it.
 - **`summery/HANDOFF-EXTERNAL-TODO.md` item 1 is STALE** — it asks the backend to consume `xpFactor`; `computeMatchXp` already applies it and is live. Ignore that item.
 - **Field-builder handoff is STALE** — `summery/TASK-field-builder.md` lists a "REMAINING" section, but the `builderMatch` handler (`server.js:1095`) and the client wiring (`public/client.js:6143`) both landed. Nothing left there.
-- Follow-ups noted and never done: bots don't avoid hazard/terrain zones; the ball isn't slowed by water (player-only).
+- ~~Follow-ups noted and never done: bots don't avoid hazard/terrain zones; the ball isn't slowed by water~~ — **OBSOLETE, do not build these.** The whole terrain/hazard-zone feature (`ZONE_FX`: water/mud/sand/ice/thorns/cactus/fire + 11 builder tools) was implemented on 07-24 and then **deliberately reverted — the user disliked it** (`798d022`: "field-obstacles + tree-walls experiments were DONE then REVERTED by their agents"). `ZONE_FX` exists nowhere in the code today; only the log entry remains, which is what makes these two look like open work.

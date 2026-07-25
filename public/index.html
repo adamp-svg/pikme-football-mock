@@ -53,7 +53,7 @@
       <button class="hub-sat" data-open-screen="news"><span class="hub-sat-ic">📰</span><b>חדשות</b></button>
       <button id="rank-btn" class="hub-sat"><span class="hub-sat-ic">🏅</span><b>דירוג</b></button>
       <button class="hub-sat" data-open-screen="shop"><span class="hub-sat-ic">🛒</span><b>חנות</b></button>
-      <button id="friends-btn" class="hub-sat"><span class="hub-sat-ic">👥</span><b>חברים</b><i id="friends-dot" class="hub-sat-dot hidden"></i></button>
+      <button id="friends-btn" class="hub-sat"><span class="hub-sat-ic">👥</span><b>חברים</b><i id="friends-dot" class="hub-sat-dot hidden"></i><i id="friends-unread" class="hub-sat-unread hidden">0</i></button>
       <button class="hub-sat" data-open-screen="clubs"><span class="hub-sat-ic">🏰</span><b>מועדונים</b></button>
 
       <!-- COMPACT carousel: one BIG front card + a couple of small ones -->
@@ -233,30 +233,13 @@
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
       <div class="subpage-head">
-        <h2>בחר מגרש</h2>
+        <h2>מה משחקים?</h2>
       </div>
+      <!-- Cards are RENDERED from the MODES table in client.js — never hand-written.
+           Four hand-copied lists had already drifted apart (goal-brawl was live but
+           shown «בקרוב» in three of them). One table, one renderer, no drift. -->
       <div class="subpage-body">
-        <button id="arena-2v2-btn" class="modecard">
-          <span class="mc-ic">⚽</span>
-          <span class="mc-tx"><b>כדורגל · 2 נגד 2</b><small>הקלאסי · אצטדיון הבלוקים</small></span>
-          <span class="mc-go">‹</span>
-        </button>
-        <div class="modecard lock">
-          <span class="mc-ic">⚽</span>
-          <span class="mc-tx"><b>כדורגל · 3 נגד 3</b><small>מגרש גדול · יותר טירוף</small></span>
-          <span class="mc-go soon">בקרוב</span>
-        </div>
-        <div class="modecard lock">
-          <span class="mc-ic">🏆</span>
-          <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים ופרסים</small></span>
-          <span class="mc-go soon">בקרוב</span>
-        </div>
-        <!-- LIVE (goalBrawl() has its own public pool) — was wrongly marked בקרוב here. -->
-        <button id="arena-brawl-btn" class="modecard">
-          <span class="mc-ic">🥅</span>
-          <span class="mc-tx"><b>קרב על השער</b><small>2 נגד 2 · 2 דקות · הכי הרבה גולים</small></span>
-          <span class="mc-go">‹</span>
-        </button>
+        <div class="mode-list" data-modes="launch"></div>
       </div>
     </div>
   </div>
@@ -439,6 +422,51 @@
     </div>
   </div>
 
+  <!-- ================= FRIEND THREAD (messages + shared arenas) =================
+       Opened by tapping a friend card. There is no text input by design: players pick a
+       preset phrase or attach a built arena, so there is nothing to moderate. -->
+  <div id="thread" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head th-head">
+        <button id="th-back" class="th-back" aria-label="חזרה">›</button>
+        <div id="th-who" class="th-who" role="button" tabindex="0">
+          <div id="th-pfp" class="fc-pfp sm"></div>
+          <span id="th-name" class="th-name"></span>
+          <span id="th-dot" class="friend-dot"></span>
+        </div>
+      </div>
+      <div class="subpage-body th-body">
+        <div id="th-msgs" class="th-msgs"></div>
+        <div class="th-compose">
+          <button id="th-say" class="th-cbtn" type="button">💬 הודעה</button>
+          <button id="th-share" class="th-cbtn" type="button">🏟️ שתף מגרש</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preset phrase picker: grouped tabs, filled from shared/quick-messages.js -->
+    <div id="th-sheet" class="th-sheet hidden">
+      <div class="th-sheet-card" dir="rtl">
+        <div id="th-sheet-tabs" class="th-sheet-tabs"></div>
+        <div id="th-sheet-list" class="th-sheet-list"></div>
+        <button id="th-sheet-close" class="th-sheet-close" type="button">ביטול</button>
+      </div>
+    </div>
+
+    <!-- Saved-arena picker: the player's builder library -->
+    <div id="th-arena-sheet" class="th-sheet hidden">
+      <div class="th-sheet-card" dir="rtl">
+        <div class="th-sheet-title">שתף מגרש</div>
+        <div id="th-arena-list" class="th-sheet-list"></div>
+        <button id="th-arena-close" class="th-sheet-close" type="button">ביטול</button>
+      </div>
+    </div>
+
+    <!-- Reaction bar (long-press a message) -->
+    <div id="th-react" class="th-react hidden"></div>
+  </div>
+
   <div id="friend-profile-modal" class="fp-modal hidden">
     <div class="fp-card">
       <button id="fp-close" class="fp-close" aria-label="close">✕</button>
@@ -500,21 +528,8 @@
         <div id="party-roster" class="party-roster"></div>
         <div class="party-games">
           <div class="party-games-h">בחרו משחק</div>
-          <button class="modecard" data-party-game="2v2">
-            <span class="mc-ic">⚽</span>
-            <span class="mc-tx"><b>כדורגל · 2 נגד 2</b><small>הקלאסי · אצטדיון הבלוקים</small></span>
-            <span class="mc-go">‹</span>
-          </button>
-          <div class="modecard lock">
-            <span class="mc-ic">🏆</span>
-            <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים</small></span>
-            <span class="mc-go soon">בקרוב</span>
-          </div>
-          <button class="modecard" data-party-game="brawl">
-            <span class="mc-ic">🥅</span>
-            <span class="mc-tx"><b>קרב על השער</b><small>2 דקות · הכי הרבה גולים</small></span>
-            <span class="mc-go">‹</span>
-          </button>
+          <!-- Rendered from MODES (party surface — see renderModeList in client.js). -->
+          <div class="mode-list" data-modes="party"></div>
         </div>
         <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
       </div>
@@ -564,21 +579,8 @@
         <h2>בחר משחק</h2>
         <button id="game-select-close" class="subpage-back" aria-label="סגור">›</button>
       </div>
-      <button class="modecard" data-game="2v2">
-        <span class="mc-ic">⚽</span>
-        <span class="mc-tx"><b>כדורגל · 2 נגד 2</b><small>הקלאסי · אצטדיון הבלוקים</small></span>
-        <span class="mc-go">‹</span>
-      </button>
-      <div class="modecard lock">
-        <span class="mc-ic">🏆</span>
-        <span class="mc-tx"><b>טורניר</b><small>עונתי · סוללת משחקים</small></span>
-        <span class="mc-go soon">בקרוב</span>
-      </div>
-      <button class="modecard" data-game="brawl">
-        <span class="mc-ic">🥅</span>
-        <span class="mc-tx"><b>קרב על השער</b><small>2 דקות · הכי הרבה גולים</small></span>
-        <span class="mc-go">‹</span>
-      </button>
+      <!-- Rendered from MODES (setup surface — see renderModeList in client.js). -->
+      <div class="mode-list" data-modes="party"></div>
     </div>
   </div>
 

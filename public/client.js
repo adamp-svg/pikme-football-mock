@@ -45,6 +45,8 @@ let ws = null;
 let me = { playerId: null, team: null, char: 'striker' };
 let matchId = null;            // stable per-match id from matchStart (app-bound matchResult key)
 let matchGoalsToWin = 0;       // first-to-N from matchStart; 0 = timed (most goals wins)
+let matchDiffLevel = null;     // authoritative bot difficulty (0..11) from matchStart; sets the trophy bot ceiling
+let matchOpponentKey = '';     // server-computed opaque id of MY human opponents (win-trading cap); '' vs bots
 let training = false;          // true in the training ground (no clock, penned dummy, reset-ball)
 let matchResultSent = false;   // one-shot guard: matchResult is posted to the app exactly once per match
 let myMatchStats = null;       // per-player tallies for THIS match (goals/strips/saves/…), sent by the server at match end
@@ -523,6 +525,10 @@ function postMatchResult(myT, opT, myScore, opScore) {
     const otherSlots = Math.max(1, totalPlayers - 1);
     const humanFrac = Math.max(0, Math.min(1, (humanCount - 1) / otherSlots));
     const xpFactor = Math.round((0.2 + 0.8 * humanFrac) * 100) / 100; // 0.20 .. 1.00
+    // TROPHY inputs (the game reports, the SERVER decides — see pikme-server data/football-trophies.js).
+    // opponentKey comes from matchStart, computed server-side: it must be stable ACROSS matches for the
+    // win-trading cap to work, and member ids are per-connection (`m-<counter>`), so the client cannot
+    // build it itself. '' for a bots-only match.
     const payload = {
       t: 'matchResult',
       matchId,
@@ -536,6 +542,8 @@ function postMatchResult(myT, opT, myScore, opScore) {
       humanCount,                   // total humans in the match (incl. me)
       totalPlayers,                 // filled slots (humans + bots)
       xpFactor,                     // XP multiplier: 0.2 (all bots) .. 1.0 (all humans)
+      botLevel: matchDiffLevel,     // authoritative room difficulty 0..11 → the trophy BOT CEILING
+      opponentKey: matchOpponentKey, // server-computed opaque id of MY human opponents ('' vs bots)
       stats: myMatchStats || null,  // MY per-player tallies: { goals, strips, saves, shots, bombs, walls }
     };
     window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
@@ -1905,9 +1913,92 @@ function fitHub() {
 addEventListener('resize', fitHub);
 fitHub();
 
+// ---- MODES: one source of truth for every mode surface ----------------------
+// There used to be FOUR hand-written copies of the mode list (#arena, #party,
+// #game-select, plus the hub strip). They drifted: goal-brawl went live on the
+// server but stayed «בקרוב» in three of them, and the #arena launcher forgot to
+// send diffLevel so its bots never XP-scaled. Both bugs were only possible
+// because the list was duplicated. Add a mode HERE and every surface updates.
+//
+//   state 'live' — playable now
+//   state 'dev'  — not built yet; renders locked and says so when tapped
+//   party        — offerable inside a private/party room (`ready` carries `game`)
+//   launch()     — how the PUBLIC queue for this mode is joined
+const MODES = [
+  {
+    id: '2v2', ic: '⚽', name: 'כדורגל · 2 נגד 2', sub: '2 נגד 2 · עד 2 דק\' · ראשון ל-3',
+    state: 'live', party: true,
+    launch: () => sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }),
+  },
+  {
+    id: 'brawl', ic: '🥅', name: 'קרב על השער', sub: '2 נגד 2 · 2 דקות · הכי הרבה גולים',
+    state: 'live', party: true,
+    launch: () => sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }),
+  },
+  { id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש גדול · יותר טירוף', state: 'dev' },
+  { id: 'cup', ic: '🏆', name: 'טורניר', sub: 'עונתי · סוללת משחקים ופרסים', state: 'dev' },
+];
+const modeById = (id) => MODES.find((m) => m.id === id) || null;
+// Join a mode's public queue. Every launcher goes through here so the audio unlock and
+// the loadout sync can never be forgotten on one path (which is how #arena's bots ended
+// up unscaled — that launcher had drifted from the gold button's).
+function launchMode(id) {
+  const m = modeById(id);
+  if (!m || m.state !== 'live' || !m.launch) return;
+  unlockAudio(); syncLoadout(); m.launch();
+}
+
+// Render one surface. `kind` is 'launch' (joins a public queue straight away) or
+// 'party' (picks the game for a private room — the room start sends it as `game`).
+// Live modes first, dev tail last. Locked cards stay TAPPABLE and explain themselves
+// rather than being dead pixels.
+function renderModeList(el) {
+  const kind = el.dataset.modes === 'party' ? 'party' : 'launch';
+  const list = MODES.filter((m) => (kind === 'party' ? m.party || m.state === 'dev' : true));
+  const live = list.filter((m) => m.state === 'live');
+  const dev = list.filter((m) => m.state !== 'live');
+  el.innerHTML = '';
+  for (const m of [...live, ...dev]) {
+    const card = document.createElement('button');
+    card.className = 'modecard' + (m.state === 'live' ? '' : ' lock');
+    card.dataset.modeId = m.id;
+    card.dataset.modeKind = kind;
+    const go = m.state === 'live' ? '<span class="mc-go">‹</span>' : '<span class="mc-go soon">בקרוב</span>';
+    card.innerHTML = `<span class="mc-ic">${m.ic}</span>`
+      + `<span class="mc-tx"><b>${m.name}</b><small>${m.sub}</small></span>${go}`;
+    el.appendChild(card);
+  }
+}
+function renderAllModeLists() { document.querySelectorAll('.mode-list').forEach(renderModeList); }
+renderAllModeLists();
+
+// One delegated handler for every surface — the reason a new mode needs no new wiring.
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.modecard[data-mode-id]');
+  if (!card) return;
+  const m = modeById(card.dataset.modeId);
+  if (!m) return;
+  if (m.state !== 'live') { toast('בקרוב — עוד לא מוכן'); return; } // tappable, not dead
+  if (card.dataset.modeKind === 'party') {
+    unlockAudio(); syncLoadout();
+    // Private/party room: remember the pick; the room start sends it as `game`.
+    // Which flow we're in is decided by the CONTAINER, not by gameSelectMode —
+    // that flag is stale state from whichever flow opened the overlay last.
+    selectedGame = m.id;
+    if (card.closest('#party')) { showScreen('lobby'); return; }   // host picked → group up
+    closeGameSelect();
+    if (gameSelectMode === 'setup') { pendingPartyApply = true; sendMsg({ type: 'createRoom' }); } // → roomJoined applies picks
+    else { sendMsg({ type: 'ready', game: selectedGame }); toast('מתחילים…'); }
+    return;
+  }
+  launchMode(m.id);
+});
+
 // ---- Lobby-redesign sub-screens (arena / news / shop / clubs) ---------------
 // Register the new .screen divs so the existing showScreen() drives open/close.
-for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party', 'friend-select']) {
+// 'thread' is registered here but deliberately NOT in the tap-outside-to-dismiss list below —
+// a conversation shouldn't close on a stray tap next to a bubble.
+for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party', 'friend-select', 'thread']) {
   const el = document.getElementById(id);
   if (el) screens[id] = el;
 }
@@ -1966,11 +2057,10 @@ for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends'])
 // Push my live equipped loadout to the server right before entering a match, so the countdown/reveal
 // other players see (and my own server-side record) match my slots even if join raced card-loading.
 function syncLoadout() { sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); }
-// diffLevel matters: without it the server can't XP-scale the bots, so this path
-// used to serve different (unscaled) opponents than the gold Quick Match button.
-document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }); });
-document.getElementById('goal-brawl-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }); }); // 2v2 timed (most goals), its own public pool
-document.getElementById('arena-brawl-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }); }); // same mode from the arena picker
+// The #arena launchers are gone — that list is rendered from MODES and handled by the
+// delegated .modecard[data-mode-id] listener. The hub strip's goal-brawl shortcut stays
+// (it is a baked layout box), but it launches THROUGH the table so it can never drift.
+document.getElementById('goal-brawl-btn')?.addEventListener('click', () => launchMode('brawl'));
 
 // Hub top-left: settings opens the shared settings/pause panel; exit asks the RN app host.
 document.getElementById('hub-settings')?.addEventListener('click', () => { unlockAudio(); openSettings(); });
@@ -1997,6 +2087,7 @@ document.getElementById('friends-btn').addEventListener('click', () => {
   const s = document.getElementById('friend-search'); if (s) s.value = '';
   renderSearch([]); setFriendsTab('list');
   loadFriends(); // #3: refresh on open (also self-heals a failed initial load / WS reconnect)
+  loadThreads(); // unread dots + last-message previews on the friend cards
 });
 document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); document.getElementById('train-choose')?.classList.remove('hidden'); });
 document.getElementById('tc-cancel')?.addEventListener('click', () => document.getElementById('train-choose')?.classList.add('hidden'));
@@ -2329,17 +2420,27 @@ function friendCardEl(f) {
   const nm = document.createElement('span'); nm.className = 'fc-name'; nm.textContent = f.nickName || '';
   top.append(dot, nm);
   if (f.isBot) { const t = document.createElement('span'); t.className = 'friend-bot-tag'; t.textContent = '🤖'; top.appendChild(t); }
+  // Unread count for this friend's thread.
+  const unread = threadUnread(f.userId);
+  if (unread) { const u = document.createElement('span'); u.className = 'fc-unread'; u.textContent = unread > 9 ? '9+' : String(unread); top.appendChild(u); }
   main.appendChild(top);
-  // Stats row — always shown, zeros when unknown.
+  // Stats row — always shown, zeros when unknown. Replaced by the last message when there is one,
+  // so the list reads like a conversation list once people start talking.
   const meta = document.createElement('div'); meta.className = 'fc-meta';
-  meta.textContent = ['דרגה ' + (f.level || 0), 'XP ' + fmtCompact(f.xp || 0), 'שווי ' + fmtCompact(f.worth || 0), 'קלפים ' + (f.owned || 0)].join(' · ');
+  const preview = msgPreview((THREADS.get(f.userId) || {}).last);
+  if (preview) { meta.classList.add('fc-preview'); meta.textContent = preview; }
+  else meta.textContent = ['דרגה ' + (f.level || 0), 'XP ' + fmtCompact(f.xp || 0), 'שווי ' + fmtCompact(f.worth || 0), 'קלפים ' + (f.owned || 0)].join(' · ');
   main.appendChild(meta);
   // Power slots — always 3; filled with top cards (inline for bots, lazy-fetched for real friends).
   const slots = document.createElement('div'); slots.className = 'fc-slots';
   main.appendChild(slots);
   fillFriendSlots(slots, f);
   div.append(pfp, main);
-  div.addEventListener('click', () => openFriendProfile(f)); // #5
+  // Tapping the card opens the conversation (the standard chat-list gesture); the AVATAR still
+  // opens the profile modal, so #5 stays reachable in one tap. Bots have no thread, so their
+  // card keeps the original profile-on-tap behaviour.
+  pfp.addEventListener('click', (e) => { e.stopPropagation(); openFriendProfile(f); });
+  div.addEventListener('click', () => { if (canMessage(f)) openThread(f); else openFriendProfile(f); });
   return div;
 }
 // Compact friend profile modal (#5): hero avatar, top power cards, division + XP/worth/owned.
@@ -2564,14 +2665,10 @@ document.getElementById('pick-game-btn')?.addEventListener('click', () => {
   else openGameSelect('lobby');
 });
 document.getElementById('game-select-close')?.addEventListener('click', closeGameSelect);
+// Backdrop only — the cards themselves are rendered from MODES and handled by the
+// delegated .modecard[data-mode-id] listener.
 gameSelectEl?.addEventListener('click', (e) => {
-  if (e.target === gameSelectEl) { closeGameSelect(); return; }               // backdrop
-  const card = e.target.closest('.modecard[data-game]'); if (!card) return;   // ignore locked/coming-soon
-  unlockAudio(); syncLoadout();
-  selectedGame = card.dataset.game || '2v2';
-  closeGameSelect();
-  if (gameSelectMode === 'setup') { pendingPartyApply = true; sendMsg({ type: 'createRoom' }); } // → roomJoined applies picks
-  else { sendMsg({ type: 'ready', game: selectedGame }); toast('מתחילים…'); }
+  if (e.target === gameSelectEl) closeGameSelect();
 });
 // Once the fresh party room is created (host), apply the picks: bots via addBot, real friends
 // via inviteFriend. Called from the roomJoined handler.
@@ -2672,10 +2769,9 @@ function renderParty(msg) {
 let partyDownBackdrop = false;
 partyEl?.addEventListener('pointerdown', (e) => { partyDownBackdrop = isDismissBackdrop(e.target, partyEl); });
 partyEl?.addEventListener('click', (e) => {
-  const card = e.target.closest('.modecard[data-party-game]');
-  if (card && !card.classList.contains('lock')) {
-    unlockAudio(); syncLoadout(); selectedGame = card.dataset.partyGame || '2v2'; showScreen('lobby'); return;
-  }
+  // Mode cards are rendered from MODES and handled by the delegated listener; here we
+  // only need to keep a tap ON a card from being read as a backdrop tap (= leave room).
+  if (e.target.closest('.modecard')) return;
   if (partyDownBackdrop && isDismissBackdrop(e.target, partyEl)) { partyDownBackdrop = false; leaveToLobby(); }
 });
 
@@ -2697,6 +2793,7 @@ function connect(name, avatar) {
     if (pingIv) clearInterval(pingIv);
     pingIv = setInterval(sendPing, 1500);
     loadFriends(); // register friends → server replies friendsPresence → bulb reflects online friends
+    startThreadPoll();
   };
   // If the socket drops (network / server restart / WebView backgrounding), the
   // game would otherwise freeze forever — so fall back to the home menu and retry.
@@ -2850,6 +2947,11 @@ function enterMatch(msg) {
   // format is a per-room property (a private room can pick brawl); the client can't infer it.
   matchGoalsToWin = msg.goalsToWin | 0;
   matchId = msg.matchId || null; // stable id for this match's app-bound result
+  // The room's AUTHORITATIVE bot difficulty, straight from the server (the client can't infer it —
+  // xpDiffLevel() is only what we ASKED for, and a private/party room may have set its own). Reported
+  // in matchResult so the backend can apply the trophy BOT CEILING for the level actually played.
+  matchDiffLevel = (typeof msg.diffLevel === 'number') ? msg.diffLevel : null;
+  matchOpponentKey = typeof msg.opponentKey === 'string' ? msg.opponentKey : '';
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
   myMatchStats = null; _pendingPost = null; // clear last match's per-player tallies + any pending post
   celeb = null;                  // clear any lingering goal/win/lose celebration overlay

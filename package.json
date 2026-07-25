@@ -13,5 +13,8 @@
   "dependencies": {
     "jsonwebtoken": "^9.0.3",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }
