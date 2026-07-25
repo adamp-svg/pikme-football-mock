@@ -1,9 +1,13 @@
-// Sim unit tests for the SHARED-ZONE health of a player-built wall.
-// A build is 4 blocks sharing a wallId, split into two zones: SOLID (open ground, hp3) and
-// WEAK (in a bush/penalty, hp1). Each zone acts as ONE unit — damage to any block drains every
-// same-zone block of that group together. So half a wall in a bush keeps the solid half at full
-// health while the weak half breaks off first. Verified end-to-end via real shots.
-// Run: node test-wall-shared.mjs   (exits non-zero on any failure)
+// Sim unit tests for the SINGLE-SHARED-POOL health of a player-built wall.
+// A build is 4 blocks sharing a wallId, tagged by zone: SOLID (open ground, base hp3) or WEAK
+// (bush/penalty, base hp1). Damage to ANY block drains EVERY block of the group equally (one
+// shared pool). Because weak starts at 1 and solid at 3 and they drain together:
+//   - the WEAK part always breaks FIRST (gone after the first hit of any size);
+//   - a hit on the solid end also drains the weak part, and vice versa;
+//   - when the SOLID part reaches 0 the WHOLE wall is removed as one unit;
+//   - a full-power shot / bomb anywhere deletes the whole wall in one hit;
+//   - an all-weak wall is a one-hit wall.
+// Verified end-to-end via real shots. Run: node test-wall-shared.mjs
 import { createState, addPlayer, step, setField, WALL_BLOCKS } from './shared/sim.js';
 import { DT, BUILD_WINDUP, BUILT_WALL, FIELD, SHOOT_CHARGE_TIME } from './shared/constants.js';
 
@@ -20,7 +24,7 @@ function fresh(field) {
 }
 // Build a vertical wall (aim +x) ahead of p1 at (px,py); returns the player-built blocks.
 function build(s, px, py) {
-  s.ball.owner = null; s.ball.x = 100; s.ball.y = 100; s.ball.vx = 0; s.ball.vy = 0; // park the ball (no auto-grab -> windup won't reset)
+  s.ball.owner = null; s.ball.x = 100; s.ball.y = 100; s.ball.vx = 0; s.ball.vy = 0; // park the ball
   const p = s.players.p1;
   p.x = px; p.y = py; p.aimX = 1; p.aimY = 0; p.buildCd = 0; p.buildAmmo = 9;
   const k = Math.round(BUILD_WINDUP / DT) + 1;
@@ -28,95 +32,96 @@ function build(s, px, py) {
   step(s, { p1: inp({ buildHold: false, build: true }), p2: inp() }, DT);
   return s.builtWalls.filter((w) => !w.field);
 }
-// Fire ONE shot from p1 straight through `block` (aim +x). A quick/tap shot is slow, so stand
-// CLOSE to the block's near edge (like test-mechanics does). charge 0 = tap (chips 1 HP);
-// charge 1 = full (destroys a full-HP zone in one hit). Park the ball so p1 isn't carrying.
+// Fire ONE shot from p1 through `block` (aim +x). A tap is slow, so stand CLOSE. charge 0 = tap
+// (1 dmg); charge 1 = full (BUILT_WALL.hp dmg). Clears per-shot pacing so back-to-back shots fire.
 function shootAt(s, block, charge) {
   s.ball.owner = null; s.ball.x = 100; s.ball.y = 100;
   const p = s.players.p1;
   p.x = block.x - 70; p.y = block.cy; p.aimX = 1; p.aimY = 0; p.ammo = 5; p.kvx = 0; p.kvy = 0;
-  p.shootCd = 0; p.reloadLock = 0; // clear per-shot pacing so this test's back-to-back shots all fire
+  p.shootCd = 0; p.reloadLock = 0;
   const n = Math.max(0, Math.round(charge * SHOOT_CHARGE_TIME * 60));
   for (let i = 0; i < n; i++) step(s, { p1: inp({ hold: true, moveX: 0 }), p2: inp() }, DT);
   step(s, { p1: inp({ fire: true }), p2: inp() }, DT);
   for (let i = 0; i < 90 && s.projectiles.length; i++) step(s, { p1: inp(), p2: inp() }, DT);
 }
+const live = (s) => s.builtWalls.filter((w) => !w.field);
 const solids = (bs) => bs.filter((b) => !b.fragile);
 const weaks = (bs) => bs.filter((b) => b.fragile);
-const hps = (bs) => bs.map((b) => b.hp).join(',');
 
-// Build a half-bush wall and confirm the split, then learn a solid + a weak block to aim at.
+// A half-bush wall: bush covers the wall's upper half → upper blocks WEAK, lower blocks SOLID.
 function halfBushState() {
-  // Open build first to learn where the vertical wall lands.
   const probe = fresh(null); const pb = build(probe, 1000, 550);
   const cx = pb[0].cx, midY = pb.reduce((a, b) => a + b.cy, 0) / pb.length;
-  // Bush covering only y < midY (the wall's upper half) → upper blocks weak, lower blocks solid.
   const field = { version: 1, bushes: [{ x: cx - 200, y: 0, w: 400, h: midY }], hardWalls: [], dryWalls: [], crates: [] };
   const s = fresh(field); const bs = build(s, 1000, 550);
   return { s, bs };
 }
 
-// ---- 0) Sanity: a half-bush wall splits into a SOLID zone + a WEAK zone. ----
+// ---- 0) Sanity: a half-bush wall splits into a SOLID zone (hp3) + a WEAK zone (hp1). ----
 {
   const { bs } = halfBushState();
   ok(bs.length === WALL_BLOCKS, `wall is ${WALL_BLOCKS} blocks (${bs.length})`);
-  ok(solids(bs).length >= 1 && weaks(bs).length >= 1, `split into solid + weak zones (solid=${solids(bs).length}, weak=${weaks(bs).length})`);
-  ok(solids(bs).every((b) => b.hp === BUILT_WALL.hp) && weaks(bs).every((b) => b.hp === 1), `solid=hp${BUILT_WALL.hp}, weak=hp1 (${hps(bs)})`);
+  ok(solids(bs).length >= 1 && weaks(bs).length >= 1, `split into solid + weak (solid=${solids(bs).length}, weak=${weaks(bs).length})`);
+  ok(solids(bs).every((b) => b.hp === BUILT_WALL.hp) && weaks(bs).every((b) => b.hp === 1), `solid base hp${BUILT_WALL.hp}, weak base hp1`);
 }
 
-// ---- 1) A TAP on the SOLID zone drains ALL solid blocks by 1 (shared) — weak zone untouched. ----
-{
-  const { s, bs } = halfBushState();
-  const solidBefore = solids(bs).length, weakBefore = weaks(bs).length;
-  shootAt(s, solids(bs)[0], 0); // tap the solid part
-  const now = s.builtWalls.filter((w) => !w.field);
-  const s2 = solids(now);
-  ok(s2.length === solidBefore, `solid zone still standing after one tap (${s2.length}/${solidBefore})`);
-  ok(s2.every((b) => b.hp === BUILT_WALL.hp - 1), `ALL solid blocks share the hit: hp ${BUILT_WALL.hp}->${BUILT_WALL.hp - 1} (${s2.map((b) => b.hp).join(',')})`);
-  ok(weaks(now).length === weakBefore && weaks(now).every((b) => b.hp === 1), `weak zone untouched by a solid hit (${weaks(now).length}/${weakBefore})`);
-}
-
-// ---- 2) The SOLID zone falls as ONE unit after BUILT_WALL.hp taps (not block-by-block). ----
-{
-  const { s, bs } = halfBushState();
-  const weakBefore = weaks(bs).length;
-  for (let t = 0; t < BUILT_WALL.hp; t++) {
-    const now = s.builtWalls.filter((w) => !w.field);
-    if (solids(now).length) shootAt(s, solids(now)[0], 0);
-  }
-  const now = s.builtWalls.filter((w) => !w.field);
-  ok(solids(now).length === 0, `whole solid zone gone together after ${BUILT_WALL.hp} taps (${solids(now).length} left)`);
-  ok(weaks(now).length === weakBefore, `weak zone still there — solid falling did NOT take it (${weaks(now).length}/${weakBefore})`);
-}
-
-// ---- 3) A hit on the WEAK zone breaks it independently — SOLID zone keeps FULL health. ----
+// ---- 1) A tap on the SOLID end drains the WEAK part too → WEAK breaks FIRST; solid at hp2. ----
 {
   const { s, bs } = halfBushState();
   const solidBefore = solids(bs).length;
-  shootAt(s, weaks(bs)[0], 0); // tap the penalty/bush part
-  const now = s.builtWalls.filter((w) => !w.field);
-  ok(weaks(now).length === 0, `weak zone breaks off (hp1) on one hit (${weaks(now).length} left)`);
-  ok(solids(now).length === solidBefore && solids(now).every((b) => b.hp === BUILT_WALL.hp), `SOLID zone stays at FULL health (${solids(now).map((b) => b.hp).join(',')})`);
+  shootAt(s, solids(bs)[0], 0); // hit the SOLID end
+  const now = live(s);
+  ok(weaks(now).length === 0, `weak part broke FIRST from a hit on the solid end (${weaks(now).length} weak left)`);
+  ok(solids(now).length === solidBefore && solids(now).every((b) => b.hp === BUILT_WALL.hp - 1), `solid drained to hp${BUILT_WALL.hp - 1}, still standing (${solids(now).map((b) => b.hp).join(',')})`);
 }
 
-// ---- 4) A FULL-power shot destroys the whole solid zone in ONE hit (unit, not one block). ----
+// ---- 2) A tap on the WEAK end drains the SOLID part too (vice versa): solid NOT left at full. ----
 {
   const { s, bs } = halfBushState();
-  const weakBefore = weaks(bs).length;
-  shootAt(s, solids(bs)[0], 1); // full charge
-  const now = s.builtWalls.filter((w) => !w.field);
-  ok(solids(now).length === 0, `full shot drops the entire solid zone at once (${solids(now).length} left)`);
-  ok(weaks(now).length === weakBefore, `weak zone unaffected by the full shot on the solid zone (${weaks(now).length}/${weakBefore})`);
+  shootAt(s, weaks(bs)[0], 0); // hit the WEAK end
+  const now = live(s);
+  ok(weaks(now).length === 0, `weak part gone (${weaks(now).length} left)`);
+  ok(solids(now).length >= 1 && solids(now).every((b) => b.hp === BUILT_WALL.hp - 1), `a hit on the weak end ALSO drained the solid part to hp${BUILT_WALL.hp - 1} (${solids(now).map((b) => b.hp).join(',')})`);
 }
 
-// ---- 5) An all-open wall (no restricted zone) is ONE solid unit: a tap chips ALL blocks by 1. ----
+// ---- 3) Single unit: when the SOLID part reaches 0 the WHOLE wall is removed at once. ----
+{
+  const { s } = halfBushState();
+  for (let t = 0; t < BUILT_WALL.hp; t++) {
+    const now = live(s);
+    if (solids(now).length) shootAt(s, solids(now)[0], 0);
+  }
+  ok(live(s).length === 0, `whole wall gone after ${BUILT_WALL.hp} taps — solid breaking took everything (${live(s).length} left)`);
+}
+
+// ---- 4) A FULL-power shot ANYWHERE deletes the whole wall in one hit (3 dmg = whole pool). ----
+{
+  const a = halfBushState(); shootAt(a.s, solids(a.bs)[0], 1); // full shot on the solid end
+  ok(live(a.s).length === 0, `full shot on the solid end one-shots the whole wall (${live(a.s).length} left)`);
+  const b = halfBushState(); shootAt(b.s, weaks(b.bs)[0], 1);  // full shot on the weak end
+  ok(live(b.s).length === 0, `full shot on the weak end one-shots the whole wall too (${live(b.s).length} left)`);
+}
+
+// ---- 5) An all-open wall is ONE solid unit: a tap chips all blocks by 1; 3 taps destroys it. ----
 {
   const emptyField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
-  const s = fresh(emptyField); const bs = build(s, 1000, 550); // centre x=1000 → clear of both penalty boxes
+  const s = fresh(emptyField); const bs = build(s, 1000, 550); // centre x → clear of both penalty boxes
   ok(solids(bs).length === WALL_BLOCKS, `open wall is all solid (${solids(bs).length})`);
   shootAt(s, bs[0], 0);
-  const now = s.builtWalls.filter((w) => !w.field);
-  ok(now.length === WALL_BLOCKS && now.every((b) => b.hp === BUILT_WALL.hp - 1), `one tap drains the whole solid unit by 1 (${now.map((b) => b.hp).join(',')})`);
+  ok(live(s).length === WALL_BLOCKS && live(s).every((b) => b.hp === BUILT_WALL.hp - 1), `one tap drains the whole solid unit by 1 (${live(s).map((b) => b.hp).join(',')})`);
+  for (let t = 0; t < BUILT_WALL.hp - 1; t++) { const n = live(s); if (n.length) shootAt(s, n[0], 0); }
+  ok(live(s).length === 0, `open wall gone after ${BUILT_WALL.hp} taps total (${live(s).length} left)`);
+}
+
+// ---- 6) An ALL-WEAK wall (fully inside a bush) is a ONE-HIT wall. ----
+{
+  const probe = fresh(null); const pb = build(probe, 1000, 550);
+  const cx = pb[0].cx;
+  const field = { version: 1, bushes: [{ x: cx - 300, y: 0, w: 600, h: FIELD.H }], hardWalls: [], dryWalls: [], crates: [] };
+  const s = fresh(field); const bs = build(s, 1000, 550);
+  ok(weaks(bs).length === WALL_BLOCKS, `wall fully in a bush is all weak (${weaks(bs).length})`);
+  shootAt(s, bs[0], 0);
+  ok(live(s).length === 0, `all-weak wall dies to one hit (${live(s).length} left)`);
 }
 
 console.log(`\n${fails === 0 ? '✅ ALL PASS' : '❌ ' + fails + ' FAILED'}`);

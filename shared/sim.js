@@ -1015,16 +1015,21 @@ function buildWall(state, p) {
 }
 
 // Chip a built wall's HP; the caller filters out hp<=0 walls afterwards. A player wall is built
-// as blocks sharing a wallId, split into two ZONES: the SOLID part (open ground, hp3) and the
-// weak part (in a bush/penalty, hp1). Each ZONE acts as ONE unit with a SHARED health pool —
-// damage to any block drains every same-zone block of that group together, so the zone holds
-// and then falls as one. This makes the wall a single unit whose restricted part is a separate
-// weak spot: half in a penalty keeps the SOLID half at full health while the penalty half breaks
-// off first. Field dry walls (no wallId) are single pieces, damaged individually.
+// as blocks sharing a wallId, tagged by ZONE: SOLID (open ground, base hp3) or WEAK (bush/penalty,
+// base hp1). The whole wall is ONE SHARED HEALTH POOL: a hit on ANY block drains EVERY block of
+// the group equally — hitting the solid part damages the weak part and vice versa. Because weak
+// starts at hp1 and solid at hp3 and they drain together, the WEAK part always reaches 0 FIRST
+// (breaks first, via the caller's hp<=0 filter) while the solid part holds; and the instant a
+// SOLID block hits 0 the ENTIRE wall is removed as one unit (a full shot / bomb anywhere, or the
+// 3rd tap, takes the whole thing). Field dry walls (no wallId) are single pieces, damaged alone.
 function damageWall(state, w, dmg) {
   if (w.wallId == null) { w.hp -= dmg; return; }
-  const zone = !!w.fragile; // share within the same zone (solid<->solid, weak<->weak)
-  for (const q of state.builtWalls) if (q.wallId === w.wallId && !!q.fragile === zone) q.hp -= dmg;
+  for (const q of state.builtWalls) if (q.wallId === w.wallId) q.hp -= dmg; // one shared pool: drain the whole group
+  // Single unit: when the strong (solid) part gives out, the whole wall falls — drop every
+  // remaining block of the group at once (robust even against a future single-block damage path).
+  if (state.builtWalls.some((q) => q.wallId === w.wallId && !q.fragile && q.hp <= 0)) {
+    state.builtWalls = state.builtWalls.filter((q) => q.wallId !== w.wallId);
+  }
 }
 
 // Chip a built wall's HP; drop it if destroyed. Returns true if a wall absorbed the hit.
