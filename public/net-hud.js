@@ -99,7 +99,20 @@ export function onPong(rtt) {
 export function onSnapshot(now = performance.now()) { lastSnapAt = now; }
 
 // A fresh socket must not inherit the dead one's samples.
-export function resetNetHud() { monitor.reset(); rttSamples = []; lastSnapAt = null; lastRtt = 0; toastArmed = true; lastStats = null; }
+export function resetNetHud() { monitor.reset(); rttSamples = []; lastSnapAt = null; lastRtt = 0; toastArmed = true; lastStats = null; hideNetHud(); }
+
+// Pull every layer off the screen. NEEDED because the caller only renders while the pitch is
+// visible (renderFrame() early-returns in the lobby), so whatever the LAST in-game frame painted —
+// lit bars, a visible toast, the reconnect spinner — would otherwise sit frozen on top of the hub
+// with no further frame coming to clear it. That reads as "the game says my connection is bad"
+// while the player is standing in a menu doing nothing.
+export function hideNetHud() {
+  if (!els) return;
+  els.bars.classList.remove('nq-on');
+  els.toast.classList.remove('nq-on');
+  els.stall.classList.remove('nq-on');
+  if (toastT) { clearTimeout(toastT); toastT = null; }
+}
 
 // Last frame's numbers, for the settings panel's connection readout (public/match-info.js).
 // A CACHE of what renderNetHud already computed — deliberately NOT a second measurement, so the

@@ -14,7 +14,7 @@ import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
-import { onPong, onSnapshot, resetNetHud, renderNetHud, NET_DEBUG } from '/net-hud.js';
+import { onPong, onSnapshot, resetNetHud, renderNetHud, hideNetHud, NET_DEBUG } from '/net-hud.js';
 import { openMatchInfo, closeMatchInfo } from '/match-info.js';
 import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
@@ -70,9 +70,35 @@ let seq = 0;
 const USE_REPLAY = true;
 let pendingInputs = [];
 let ping = 0;
-let snapCount = 0;   // snapshots received since last sample
-let snapRate = 0;    // snapshots/sec (on-screen diagnostic)
-setInterval(() => { snapRate = snapCount; snapCount = 0; }, 1000);
+// Snapshots/sec, as a ROLLING 1s window over actual arrival times.
+//
+// This was a fixed-phase sampler (`setInterval(() => { snapRate = snapCount; snapCount = 0 }, 1000)`)
+// started at page load, so the value it published was up to a second STALE — and at kickoff that
+// stale value was the lobby's 0. The net HUD reads snapRate, sees 0 < poor threshold 30, and after
+// its 600ms escalate dwell paints «חיבור לא יציב» on a flawless connection. Reproduced in
+// test-net-warmup.mjs: perfect 3ms LAN + stale 0 -> false 'poor' at 601ms.
+//
+// A rolling window can't go stale, and `null` (= "don't know yet") until a full second of history
+// exists means the first frames of a match are never judged on a half-filled window. net-quality
+// treats a null rate as Infinity, i.e. ignored.
+const SNAP_WIN_MS = 1000;
+let snapTimes = [];   // arrival times (performance.now) inside the window
+let snapFirstAt = null;
+let snapRate = null;  // snapshots/sec, or null while still warming up
+function noteSnapshotRate(now) {
+  const last = snapTimes.length ? snapTimes[snapTimes.length - 1] : null;
+  // A break longer than the window means this is a FRESH stream — a new match, a resume from
+  // backgrounding, a reconnect. Re-warm rather than judging its first few arrivals: the socket
+  // outlives a match, so without this the next kickoff reads 1/s, 2/s… and cries wolf again.
+  if (last == null || now - last > SNAP_WIN_MS) { snapTimes = []; snapFirstAt = now; }
+  snapTimes.push(now);
+  const cut = now - SNAP_WIN_MS;
+  while (snapTimes.length && snapTimes[0] < cut) snapTimes.shift();
+  // Only meaningful once the window is genuinely full — otherwise a 3-snapshot-old match reads
+  // as "3/s" and looks like a dying connection.
+  snapRate = (now - snapFirstAt) >= SNAP_WIN_MS ? snapTimes.length : null;
+}
+function resetSnapshotRate() { snapTimes = []; snapFirstAt = null; snapRate = null; }
 
 const chosenChar = 'player'; // one player type (physics); look is set by the cosmetic below
 const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' }; // home/picker preview kit colours
@@ -703,6 +729,10 @@ function showScreen(name) {
   }
   else if (name !== 'game' && name !== 'lobby') stopMusic();
   for (const k in screens) screens[k].classList.toggle('hidden', k !== name);
+  // The connection warning belongs to the PITCH. renderFrame() stops drawing off the pitch, so
+  // without this the last frame's bars/toast/spinner freeze on top of the hub — the player sees
+  // «חיבור לא יציב» in a menu, with nothing running and nothing to clear it.
+  if (name !== 'game') hideNetHud();
   if (sticksReady) refreshSticks(); // show the always-on joysticks on the pitch, hide them elsewhere
 }
 
@@ -3255,7 +3285,7 @@ function connect(name, avatar) {
   // game would otherwise freeze forever — so fall back to the home menu and retry.
   ws.onclose = () => {
     setNet('reconnecting…');
-    resetNetHud();                        // stale RTT/snapshot samples must not haunt the next socket
+    resetNetHud(); resetSnapshotRate();   // stale RTT/snapshot samples must not haunt the next socket
     if (pingIv) { clearInterval(pingIv); pingIv = null; }
     me = { playerId: null, team: null, char: chosenChar };
     latest = null; snaps = []; predicted = null; rendered = null;
@@ -3272,8 +3302,7 @@ function connect(name, avatar) {
       if (!snap) return; // roster seam / stale rosterVersion — wait for the matching roster
       processSnapshotSounds(snap);
       latest = snap;
-      snapCount++;
-      onSnapshot();                       // stamp arrival: the freeze detector measures the gap since this
+      { const tNow = performance.now(); noteSnapshotRate(tNow); onSnapshot(tNow); } // rolling rate + freeze-gap stamp, one clock read
       holdingBall = snap.ball.owner === me.playerId;
       { const meP = snap.players && snap.players.find((p) => p.id === me.playerId); mySuper = !!(meP && meP.power); } // SUPER ready → charge fills 2× (mirrors sim)
       snaps.push({ tRecv: performance.now(), snap });
