@@ -24,10 +24,11 @@ const dom = new JSDOM(html);
 const { document } = dom.window;
 global.document = document;
 
-const scope = { document, MODES: null, renderModeList: null };
-const run = new Function('document', `${modesSrc}; return { MODES, renderModeList };`);
-Object.assign(scope, run(document));
-const { MODES, renderModeList } = scope;
+// drawModeArt lives in its own module (public/mode-art.js) and is a real dependency of the
+// renderer, so inject the real one rather than a stub — that way the art code is exercised too.
+const { drawModeArt } = await import('./public/mode-art.js');
+const run = new Function('document', 'drawModeArt', `${modesSrc}; return { MODES, renderModeList };`);
+const { MODES, renderModeList } = run(document, drawModeArt);
 
 console.log('1) the table itself');
 ok('has entries', Array.isArray(MODES) && MODES.length >= 2, `${MODES.length} modes`);
@@ -44,7 +45,7 @@ ok('no hand-written mode cards left in the markup',
 
 for (const el of lists) renderModeList(el);
 for (const el of lists) {
-  const cards = [...el.querySelectorAll('.modecard')];
+  const cards = [...el.querySelectorAll('[data-mode-id]')];
   const kind = el.dataset.modes;
   ok(`[${kind}] rendered cards`, cards.length > 0, `${cards.length}`);
   ok(`[${kind}] every card carries a mode id`, cards.every((c) => c.dataset.modeId));
@@ -57,20 +58,59 @@ for (const el of lists) {
       .every((c) => c.classList.contains('lock')));
 }
 
-console.log('3) the drift bug cannot come back');
+console.log('3) the picker renders portrait pixel-art cards');
+{
+  const picker = lists.find((el) => el.dataset.modes === 'launch');
+  const cards = [...picker.querySelectorAll('.pcard')];
+  ok('one portrait card per mode', cards.length === MODES.length, `${cards.length} of ${MODES.length}`);
+  ok('every card has a pixel-art canvas', cards.every((c) => c.querySelector('canvas.pc-cv')));
+  ok('every card has a coloured band', cards.every((c) => c.style.getPropertyValue('--band-hi')));
+  ok('band colours are all distinct',
+    new Set(cards.map((c) => c.style.getPropertyValue('--band-hi'))).size === cards.length);
+  ok('live cards show rule text, not a lock strip',
+    cards.filter((c) => !c.classList.contains('lock')).every((c) => c.querySelector('.pc-meta') && !c.querySelector('.pc-soon')));
+  ok('locked cards name a TARGET instead of a bare בקרוב',
+    cards.filter((c) => c.classList.contains('lock')).every((c) => c.querySelector('.pc-soon')?.textContent.trim().length > 0));
+  // The party surface must stay a compact row list — portrait cards would not fit there.
+  const party = lists.find((el) => el.dataset.modes === 'party');
+  ok('party surface keeps row cards (no portrait cards)', party.querySelectorAll('.pcard').length === 0);
+}
+
+console.log('4) the pixel art itself');
+{
+  const { ART_W, ART_H } = await import('./public/mode-art.js');
+  ok('art is drawn at a tiny internal resolution', ART_W <= 96 && ART_H <= 96, `${ART_W}x${ART_H}`);
+  // Every mode must get a DISTINCT scene — a shared fallback would make the picker unreadable.
+  const sigs = new Map();
+  for (const m of MODES) {
+    const cv = document.createElement('canvas');
+    let calls = 0;
+    cv.getContext = () => ({
+      set imageSmoothingEnabled(v) {}, set fillStyle(v) { calls++; this._c = v; },
+      get fillStyle() { return this._c; },
+      fillRect(x, y, w, h) { calls += (x + y + w + h) | 0; },
+    });
+    drawModeArt(cv, m.id);
+    ok(`  ${m.id} draws something`, calls > 0, `${calls} ops`);
+    sigs.set(m.id, calls);
+  }
+  ok('every mode has a DISTINCT scene', new Set(sigs.values()).size === MODES.length);
+}
+
+console.log('5) the drift bug cannot come back');
 // goal-brawl is live on the server; it must render live on EVERY surface that offers it.
 for (const el of lists) {
-  const brawl = el.querySelector('.modecard[data-mode-id="brawl"]');
+  const brawl = el.querySelector('[data-mode-id="brawl"]'); // .modecard OR .pcard
   ok(`[${el.dataset.modes}] goal-brawl present and live`, !!brawl && !brawl.classList.contains('lock'),
     brawl ? (brawl.classList.contains('lock') ? 'rendered LOCKED' : 'live') : 'missing');
 }
 // The party surface must only offer modes a private room can actually host.
 const partyList = lists.find((el) => el.dataset.modes === 'party');
-const partyLive = [...partyList.querySelectorAll('.modecard:not(.lock)')].map((c) => c.dataset.modeId);
+const partyLive = [...partyList.querySelectorAll('[data-mode-id]:not(.lock)')].map((c) => c.dataset.modeId);
 ok('party surface offers only party-capable modes',
   partyLive.every((id) => MODES.find((m) => m.id === id).party === true), partyLive.join(', '));
 
-console.log('4) launchers go through the table');
+console.log('6) launchers go through the table');
 ok('no stale #arena-2v2-btn handler', !src.includes("getElementById('arena-2v2-btn')"));
 ok('no stale #arena-brawl-btn handler', !src.includes("getElementById('arena-brawl-btn')"));
 ok('no stale data-game / data-party-game readers',

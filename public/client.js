@@ -8,6 +8,7 @@ import {
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
+import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
 import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
@@ -1969,19 +1970,30 @@ fitHub();
 //   state 'dev'  — not built yet; renders locked and says so when tapped
 //   party        — offerable inside a private/party room (`ready` carries `game`)
 //   launch()     — how the PUBLIC queue for this mode is joined
+// `hue` drives the card's title band — one colour per mode, so you can tell them apart at a
+// glance (Brawl Stars' colour dictionary). `art` is the pixel scene id in mode-art.js.
+// `soon` is what a not-yet-built mode promises INSTEAD of a bare «בקרוב».
 const MODES = [
   {
-    id: '2v2', ic: '⚽', name: 'כדורגל · 2 נגד 2', sub: '2 נגד 2 · עד 2 דק\' · ראשון ל-3',
+    id: '2v2', ic: '⚽', name: 'כדורגל · 2 נגד 2', sub: 'אצטדיון הבלוקים',
+    meta: ['ראשון ל-3', 'עד 2 דק׳'], hue: ['#7fd48f', '#4fae66'],
     state: 'live', party: true,
     launch: () => sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }),
   },
   {
-    id: 'brawl', ic: '🥅', name: 'קרב על השער', sub: '2 נגד 2 · 2 דקות · הכי הרבה גולים',
+    id: 'brawl', ic: '🥅', name: 'קרב על השער', sub: 'אצטדיון הבלוקים',
+    meta: ['הכי הרבה גולים', '2 דקות'], hue: ['#ffd06a', '#e8a02f'],
     state: 'live', party: true,
     launch: () => sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }),
   },
-  { id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש גדול · יותר טירוף', state: 'dev' },
-  { id: 'cup', ic: '🏆', name: 'טורניר', sub: 'עונתי · סוללת משחקים ופרסים', state: 'dev' },
+  {
+    id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש גדול · יותר טירוף',
+    meta: ['3 נגד 3', 'בפיתוח'], hue: ['#8fb6ef', '#4f7fd4'], state: 'dev', soon: 'בקרוב',
+  },
+  {
+    id: 'cup', ic: '🏆', name: 'טורניר', sub: 'עונתי · סוללת משחקים',
+    meta: ['עונה 1', 'בפיתוח'], hue: ['#e0a2f0', '#a45cc4'], state: 'dev', soon: 'עונה 1',
+  },
 ];
 const modeById = (id) => MODES.find((m) => m.id === id) || null;
 // Join a mode's public queue. Every launcher goes through here so the audio unlock and
@@ -2005,13 +2017,30 @@ function renderModeList(el) {
   el.innerHTML = '';
   for (const m of [...live, ...dev]) {
     const card = document.createElement('button');
-    card.className = 'modecard' + (m.state === 'live' ? '' : ' lock');
     card.dataset.modeId = m.id;
     card.dataset.modeKind = kind;
-    const go = m.state === 'live' ? '<span class="mc-go">‹</span>' : '<span class="mc-go soon">בקרוב</span>';
-    card.innerHTML = `<span class="mc-ic">${m.ic}</span>`
-      + `<span class="mc-tx"><b>${m.name}</b><small>${m.sub}</small></span>${go}`;
-    el.appendChild(card);
+    if (kind === 'launch') {
+      // The PICKER: a tall portrait card per mode — coloured title band, pixel-art scene,
+      // rule strip. Four fit on one screen, so there is no scrolling and no tabs.
+      card.className = 'pcard' + (m.state === 'live' ? '' : ' lock');
+      card.style.setProperty('--band-hi', m.hue[0]);
+      card.style.setProperty('--band-lo', m.hue[1]);
+      card.innerHTML = `<span class="pc-band"><span class="pc-ic">${m.ic}</span>`
+        + `<span class="pc-tx"><b>${m.name}</b><small>${m.sub}</small></span></span>`
+        + `<span class="pc-art"><canvas class="pc-cv" aria-hidden="true"></canvas></span>`
+        + (m.state === 'live'
+          ? `<span class="pc-meta"><span>${m.meta[0]}</span><span>${m.meta[1]}</span></span>`
+          : `<span class="pc-soon">${m.soon || 'בקרוב'}</span>`);
+      el.appendChild(card);
+      drawModeArt(card.querySelector('.pc-cv'), m.id);
+    } else {
+      // The PARTY surface stays a compact row list — it sits inside an existing panel.
+      card.className = 'modecard' + (m.state === 'live' ? '' : ' lock');
+      const go = m.state === 'live' ? '<span class="mc-go">‹</span>' : `<span class="mc-go soon">${m.soon || 'בקרוב'}</span>`;
+      card.innerHTML = `<span class="mc-ic">${m.ic}</span>`
+        + `<span class="mc-tx"><b>${m.name}</b><small>${m.sub}</small></span>${go}`;
+      el.appendChild(card);
+    }
   }
 }
 function renderAllModeLists() { document.querySelectorAll('.mode-list').forEach(renderModeList); }
@@ -2019,7 +2048,7 @@ renderAllModeLists();
 
 // One delegated handler for every surface — the reason a new mode needs no new wiring.
 document.addEventListener('click', (e) => {
-  const card = e.target.closest('.modecard[data-mode-id]');
+  const card = e.target.closest('[data-mode-id]'); // .modecard (party rows) or .pcard (picker)
   if (!card) return;
   const m = modeById(card.dataset.modeId);
   if (!m) return;

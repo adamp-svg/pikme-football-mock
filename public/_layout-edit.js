@@ -25,7 +25,11 @@
   'use strict';
 
   var HUB_W = 900, HUB_H = 415;
-  var LS_KEY = 'pikme-lobby-layout';
+  // Bumped to -v2 with the bottom-strip change (בחר משחק replaced the 2v2 card and goal-brawl
+  // left the strip). applySaved() re-applies saved positions as INLINE styles on every load,
+  // which beat the CSS — so anyone who had ever opened ?edit=1 would otherwise be pinned to
+  // the old strip forever. Bump this key whenever the baked layout changes.
+  var LS_KEY = 'pikme-lobby-layout-v2';
   var PANEL_KEY = 'pikme-lobby-editor-panel'; // editor panel pos + collapsed (dev UI only)
   var snap = false; // 5px grid snap toggle (editor only)
 
