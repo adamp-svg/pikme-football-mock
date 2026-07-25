@@ -71,7 +71,14 @@
     - **Messaging friends** — there is NO chat/DM anywhere in the game (grepped: no `chat`/`message`/`inbox` handlers). Needs to be designed from scratch: transport (WS via `onlineByUser` = online-only, vs pikme-server REST = persisted/offline), unread badge, moderation/rate-limit.
     - **Sharing a built arena** — arenas ARE already saveable, so this is a share layer on top: builder library lives in **localStorage `pikme-fields`** (+ `pikme-field-v1` current, `pikme-field-name`), shape `{version, bushes, hardWalls, dryWalls, crates}` — the same shape `arenaFromLayout()` (`shared/arena.js:212`) and `FIELD_PRESETS` consume. Send one to a friend → they import it into their library / play a match on it.
   - **⚠️ GOTCHA for arena sharing:** the saved-field library is synced to the account through the prefs bag, but `public/client.js:84` **silently DROPS `pikme-fields` entirely if the whole bag exceeds `PREF_MAX_BYTES` (200 KB)**. Any share feature that grows the library must not rely on that sync — a heavy builder user's fields already don't reach the account.
-  - Status: scope logged, nothing built yet.
+  - **DESIGN DECIDED with the user (question-by-question)** — full spec: [`docs/superpowers/specs/2026-07-25-friend-messaging-and-arena-sharing.md`](docs/superpowers/specs/2026-07-25-friend-messaging-and-arena-sharing.md). Short version:
+    - Build **both, messaging first** — a shared arena is just a message kind in the thread.
+    - **Persisted in pikme-server** (Mongo + REST behind `football-auth`), NOT online-only WS — so it reaches offline friends.
+    - **Preset quick-messages only, no free text** + emoji reactions. Presets stored as an opaque id; the Hebrew text lives only in `shared/quick-messages.js` so wording changes need NO backend deploy.
+    - **Tap a friend row → thread** (unread dot on the row, badge on the friends button). No new hub screen.
+    - **In-game badges now, push later** via a single no-op `notifyMessage()` hook (`routes-pikme/notifications.js` already exists for that slice).
+  - **Good news for whoever picks this up:** playing a shared arena needs NO new game code — `builderMatch` (server.js:1098) already takes a raw field, `sanitizeField`s it and starts a match. Receiving an arena reuses that path verbatim.
+  - Status: spec written + committed. Implementation starting at `shared/quick-messages.js`.
 
 - **Rules re-affirmed by the user (agent `rules-scribe-2`)** — User repeated the standing instructions verbatim: "you are working with other agents on the football game for the Saltiz app. Write everything I've asked you down in short simple bullets for other agents to find out. You commit all work to local host and when asked push." Nothing new — the 🔒 STANDING RULES block above + [`AGENT_RULES.md`](AGENT_RULES.md) already cover it. Treat those rules as permanent, not per-session.
   - Working tree at the time (do NOT commit these if they aren't yours): `shared/sim.js` (goal/assist + per-match stats), `test-match-stats.mjs` (untracked, same owner), `public/client.js` + `server.js` (the `wall-place` build-position fix).
