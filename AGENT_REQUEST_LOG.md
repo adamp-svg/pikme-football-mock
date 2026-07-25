@@ -21,6 +21,14 @@
 
 ## 2026-07-26
 
+- **📋 Rules restated by the user (agent `session-rules`, 00:54)** — nothing to build; logging so the next agent sees these are still live:
+  - Multi-agent collaboration on the football minigame — assume shared files are mid-edit.
+  - Test surfaces: browser **http://10.100.102.36:3012/** + **TestFlight on the phone**.
+  - **Log every request here in short bullets.**
+  - Stuck on a design question → research **Brawl Stars / Fortnite / Roblox**, don't guess.
+  - **Work local + commit; push only when asked. Render does NOT autodeploy — deploy via Render CLI.**
+  - No code touched. Only this file. Nothing pushed, nothing deployed.
+
 - **🥅 Goal-brawl now uses the SAME teams/VS page as 2v2 + a 3v3/5v5 plan (agent `session-open`, 00:45)** — User: "when selecting a 2v2 game first to 3 it pulls the players and bots in the teams pages with the powercards. when selecting the 2 minutes game fight for the goal, it has something else. I want that this be consistent with the current classic 2v2 3 goals. also plan for future 3v3 and 5v5."
   - **Cause was one string compare.** `client.js` gated the VS/teams overlay on `roomJoined.mode === 'quick'`. Server-side `goalBrawl()` sent `mode: 'brawl'`, so brawl fell through to the `else` → the bare `#lobby` member list. **Nothing else differed** — the server already matchmade both identically (same lobby, same 5s window, same XP-scaled bot preview *with* loadouts). The "something else" you saw was the old lobby screen, not a different feature.
   - **Real fix = kill the duplication that allowed the drift.** `quickMatch()` and `goalBrawl()` were two 95%-identical copies. Both gone, replaced by one **`joinMatchmade(member, mode, diffLevel)`** driven by a **`FORMATS` table** (`{ prefix, teamSize, goalsToWin, rule }`). `publicRoom`/`publicRoomBrawl` globals → a `publicRooms` Map (per-format pool, so first-to-3 and timed players still never mix).
