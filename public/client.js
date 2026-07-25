@@ -16,6 +16,8 @@ import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/s
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, hideNetHud, NET_DEBUG } from '/net-hud.js';
 import { openMatchInfo, closeMatchInfo } from '/match-info.js';
+import { FIELD_SIZES, SIZE_IDS, DEFAULT_SIZE, sizeOf, sizeOfField, canHost } from '/shared/field-sizes.js';
+import { setPixelText, mountPixelDigitCss } from '/pixel-digits.js';
 import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
@@ -81,6 +83,12 @@ let ping = 0;
 // A rolling window can't go stale, and `null` (= "don't know yet") until a full second of history
 // exists means the first frames of a match are never judged on a half-filled window. net-quality
 // treats a null rate as Infinity, i.e. ignored.
+// Cached `--pd-px` per element (pixel-numeral block size). Declared HERE, not next to its helpers
+// further down, because resize() clears it — and resize() is defined above those helpers. A const
+// is in its temporal dead zone until evaluation reaches it, and this file has shipped a TDZ crash
+// to TestFlight once already.
+const _pdPxCache = new Map();
+
 const SNAP_WIN_MS = 1000;
 let snapTimes = [];   // arrival times (performance.now) inside the window
 let snapFirstAt = null;
@@ -4833,6 +4841,7 @@ const CAM_BAND = 2.5 * ROW_Y + LANE;
 const CAM_BACK = 2.5 * ROW_X + LANE;
 
 function resize() {
+  _pdPxCache.clear();   // --pd-px could come from a media query; re-read it after a rotate/resize
   dpr = Math.min(devicePixelRatio || 1, 2);
   canvas.width = innerWidth * dpr;
   canvas.height = innerHeight * dpr;
@@ -5998,13 +6007,36 @@ function updateBuildHud(p) {
   buildBtn.classList.toggle('empty', ammo <= 0);
 }
 
+// --- Pixel numerals for the clock + score -----------------------------------------------------
+// The BLOCK SIZE lives in style.css as `--pd-px` on `.timer` / `.score`, so the clock and score are
+// resized by editing one number in the stylesheet rather than here. Read once per element and
+// cached: getComputedStyle forces a style recalc, and drawHUD runs 60×/second.
+const scoreDashEl = document.querySelector('#hud .score .dash');
+function pdPx(el, fallback) {
+  if (!el) return fallback;
+  let v = _pdPxCache.get(el);
+  if (v === undefined) {
+    v = parseFloat(getComputedStyle(el).getPropertyValue('--pd-px')) || fallback;
+    _pdPxCache.set(el, v);
+  }
+  return v;
+}
+const clockPx = () => pdPx(document.getElementById('timer'), 2);
+const scorePx = () => pdPx(document.getElementById('scoreA'), 3);
+mountPixelDigitCss();
+
 function drawHUD() {
   if (!latest) return;
   // Score shown from my perspective: my team (blue) on the left, opponent (red) right.
   const myT = me.team || 'A', opT = myT === 'A' ? 'B' : 'A';
   const myScore = latest.score[myT], opScore = latest.score[opT];
-  document.getElementById('scoreA').textContent = myScore;
-  document.getElementById('scoreB').textContent = opScore;
+  // Pixel-block numerals (public/pixel-digits.js), not text — matches the pixel art, and stays
+  // crisp at any size. The size comes from each element's own --pd-px, so the clock and the score
+  // are tuned purely in style.css. setPixelText no-ops when the value hasn't changed, so this is
+  // free on a steady frame even though drawHUD runs at 60Hz.
+  setPixelText(document.getElementById('scoreA'), myScore, scorePx());
+  setPixelText(scoreDashEl, '–', scorePx());
+  setPixelText(document.getElementById('scoreB'), opScore, scorePx());
   // Format caption + match point. Without this, first-to-3 rendered as bare digits and
   // you could win (or lose) the match with no warning that the next goal decided it.
   const fmtEl = document.getElementById('score-fmt');
@@ -6036,7 +6068,7 @@ function drawHUD() {
     const cap = inOT ? MATCH_DURATION + OVERTIME_DURATION : MATCH_DURATION;
     const remain = Math.max(0, Math.ceil(cap - (latest.elapsed || 0)));
     const m = Math.floor(remain / 60), s = remain % 60;
-    timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    setPixelText(timerEl, `${m}:${String(s).padStart(2, '0')}`, clockPx());
     timerEl.classList.toggle('urgent', remain <= 10 && latest.phase !== 'ended');
     timerEl.classList.toggle('overtime', inOT);
   }

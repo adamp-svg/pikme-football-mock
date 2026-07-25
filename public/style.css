@@ -85,24 +85,33 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* ---- Game ---- */
 #canvas { display: block; width: 100vw; height: 100vh; touch-action: none; -webkit-user-select: none; user-select: none; }
+/* TOP-CENTRE STACK: clock, then score under it, then the format caption. A COLUMN, and the three
+   rows are ordered with `order:` rather than by moving them in index.html (several agents live in
+   that file). `.match-powers` and `.net` stay position:fixed, so they sit this column out. */
 #hud {
-  position: fixed; top: 0; left: 0; right: 0; padding: 10px 16px;
-  display: flex; align-items: center; justify-content: center; gap: 18px;
+  position: fixed; top: 0; left: 0; right: 0; padding: 8px 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
   pointer-events: none; font-variant-numeric: tabular-nums;
 }
-.score { font-size: 30px; font-weight: 800; display: flex; gap: 10px; align-items: center;
-  background: #182019e8; padding: 5px 22px 9px; border: 3px solid #667061; border-radius: 0;
-  box-shadow: inset 0 -4px #0b100c, 0 5px 0 rgba(0,0,0,.4); font-family: "Arial Black", sans-serif; }
+/* Both numbers are drawn by public/pixel-digits.js as real pixel blocks in `currentColor`, so every
+   colour rule below still applies — the glyph code knows nothing about colour. `--pd-px` is the size
+   of ONE pixel block: the only knob for how big the clock / score are. */
+.timer { order: 1; --pd-px: 2px; color: #cdd8ef;
+  background: #182019e8; padding: 4px 7px; border: 2px solid #667061; border-radius: 0;
+  box-shadow: 0 3px 0 rgba(0,0,0,.4); filter: drop-shadow(0 0 2px rgba(205,216,239,.45)); }
+.score { order: 2; --pd-px: 3px; display: flex; gap: 4px; align-items: flex-start;
+  background: #182019e8; padding: 4px 9px; border: 2px solid #667061; border-radius: 0;
+  box-shadow: inset 0 -3px #0b100c, 0 3px 0 rgba(0,0,0,.4); }
 .team-a { color: var(--a); } .team-b { color: var(--b); } .dash { color: #55637f; }
-/* Match-format caption, centred just under the score box. Fixed (not a #hud flex child)
-   so it stacks BELOW the score instead of sitting beside it. */
-.score-fmt { position: fixed; top: 62px; left: 0; right: 0; text-align: center; pointer-events: none;
+/* Match-format caption — third row of the same column (was position:fixed at top:62px, which the
+   restacked HUD would have dropped on top of the score). */
+.score-fmt { order: 3; text-align: center; pointer-events: none;
   font-size: 11px; font-weight: 700; letter-spacing: .5px; color: #8b9ab5; text-shadow: 0 2px 0 rgba(0,0,0,.5); }
 .score-fmt.match-point { color: #ffd34d; animation: fmtPulse .9s ease-in-out infinite; }
 @keyframes fmtPulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .score-fmt.match-point { animation: none; } }
-.timer { position: fixed; top: 16px; right: 18px; font-size: 20px; font-weight: 700; color: #cdd8ef;
-  background: #182019e8; padding: 6px 12px; border: 2px solid #667061; border-radius: 0; box-shadow: 0 4px 0 rgba(0,0,0,.4); }
+/* (the old top-RIGHT .timer rule lived here — the clock is now the first row of the #hud column
+   above, so a second `position: fixed` declaration would have pulled it straight back out) */
 .net { position: fixed; bottom: 8px; left: 12px; font-size: 11px; color: #6b7ea3;
   background: rgba(11,16,12,.78); padding: 4px 8px; border-radius: 0; }
 
@@ -1410,7 +1419,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   font: 900 12px "Arial Black", sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,.5);
 }
 /* In-match HUD: 3 small equipped-card icons next to the timer. */
-.match-powers { position: fixed; top: 16px; right: 118px; display: flex; gap: 5px; pointer-events: none; z-index: 6; }
+/* right:18px, not 118 — it used to sit to the LEFT of the top-right clock, which has moved to the
+   centre column, so the old offset left a 100px hole at the screen edge. */
+.match-powers { position: fixed; top: 16px; right: 18px; display: flex; gap: 5px; pointer-events: none; z-index: 6; }
 .mpwr {
   width: 26px; height: 34px; overflow: hidden; border: 2px solid #667061;
   background: rgba(11,16,12,.78); display: flex; align-items: center; justify-content: center;
