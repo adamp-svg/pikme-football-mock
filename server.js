@@ -437,6 +437,7 @@ function startBotGame(member, diffLevel) {
   rooms.set(room.id, room);
   addToRoom(member, room);
   room.state = createState();
+  room.state.goalsToWin = room.goalsToWin || 0; // vs-bots is a normal 2v2 → first to 3
   setField(room.state, MAIN_FIELD_CLEAN); // play on the main arena (custom field)
   if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
   room.inputs.clear();
@@ -603,7 +604,7 @@ function endRoom(room) {
   const hadHumans = [...room.members];
   if (room.isPrivate && room.members.size > 0) {
     room.phase = 'lobby'; room.countdownT = 0; room.endHoldT = 0;
-    room.state = createState(); room.botMem = createBotMemory(); room.inputs.clear(); room.botCounter = 0;
+    room.state = createState(); room.state.goalsToWin = room.goalsToWin || 0; room.botMem = createBotMemory(); room.inputs.clear(); room.botCounter = 0;
     for (const m of room.members) { m.inMatch = false; m.afk = false; }
     for (const m of room.members) send(m.ws, { type: 'toLobby' });
     broadcastLobby(room);

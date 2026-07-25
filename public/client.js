@@ -1898,6 +1898,7 @@ for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends'])
 // other players see (and my own server-side record) match my slots even if join raced card-loading.
 function syncLoadout() { sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); }
 document.getElementById('arena-2v2-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch' }); });
+document.getElementById('goal-brawl-btn')?.addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }); }); // 2v2 timed (most goals), its own public pool
 
 // Hub top-left: settings opens the shared settings/pause panel; exit asks the RN app host.
 document.getElementById('hub-settings')?.addEventListener('click', () => { unlockAudio(); openSettings(); });
