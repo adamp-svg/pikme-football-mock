@@ -4390,6 +4390,10 @@ function layoutPucks() {
     }
   }
 }
+// Corner-handle drag → one signed delta. Takes the DOMINANT axis rather than Math.max of the two:
+// with max(), a purely horizontal shrink reads max(-40, 0) = 0 and the handle simply refuses to move
+// inward. Callers pass the deltas already oriented so that positive = grow for their corner.
+function cornerDelta(dx, dy) { return Math.abs(dx) >= Math.abs(dy) ? dx : dy; }
 // Real safe-area insets in px. env() can't be read from JS, so a probe element carries them as
 // padding and we read the computed value back. Cached per layout pass; re-measured on resize.
 let _saProbe = null;
@@ -4451,12 +4455,14 @@ for (const puck of cePucks) {
     } else if (mode === 'sens') {
       // Drag the outer square out/in to set how far the thumb travels for MAX reach. Floor is the
       // dead-zone + a little, so the pull can never collapse to "any touch = max".
-      const d = Math.max(e.clientX - sx, e.clientY - sy);
-      ceDraft[c].sens = clamp(sSens + d, AIM_DEADZONE_PX + 18, 220);
+      // NOTE the sign: this grip is on the TOP-LEFT corner, so dragging LEFT/UP grows the box
+      // (away from centre) and right/down shrinks it. Using the bottom-right form (clientX - sx)
+      // here inverts the whole control — that was the "size inverted" bug.
+      ceDraft[c].sens = clamp(sSens + cornerDelta(sx - e.clientX, sy - e.clientY), AIM_DEADZONE_PX + 18, 220);
     } else {
       // Min sizes follow Apple HIG touch targets (44pt primary); sticks want more to be usable.
       const isBtn = (c === 'bomb' || c === 'wall');
-      const d = Math.max(e.clientX - sx, e.clientY - sy);
+      const d = cornerDelta(e.clientX - sx, e.clientY - sy); // bottom-right grip: right/down grows
       ceDraft[c].size = clamp(sSize + d, isBtn ? 44 : 80, isBtn ? 130 : 190);
     }
     layoutPucks();
