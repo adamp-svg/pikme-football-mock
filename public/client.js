@@ -13,7 +13,9 @@ import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, NET_DEBUG } from '/net-hud.js';
+import { renderHubTrophies, pollTrophies, armTrophyReveal } from '/hub-trophies.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
+import { QUICK_GROUPS, phraseById, REACTION_EMOJI } from '/shared/quick-messages.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import { mountHeroFx } from '/hero-fx.js';
 import {
@@ -836,6 +838,7 @@ function renderHomeCharacter() {
   renderPowerSlots();
   renderHubStats();
   renderHubXp();
+  renderHubTrophies(); // headline trophy count + tier badge (self-contained; no-op on old app builds)
   renderHubTier();
   _cardsSig = cardsSig();
   _cardsOnlySig = cardsOnlySig();
@@ -1083,6 +1086,28 @@ if (DEV_LOCAL) {
     const gain = up ? (span - into) + Math.round(span * 0.4) : Math.max(30, Math.round((span - into) * 0.6));
     window.SALTIZ_XP = { xp: from + gain }; _xpShown = from; playXpReveal(from, from + gain);
   });
+}
+
+// LOCALHOST preview for the TROPHY reveal: tap the trophy box to cycle through the four cases that
+// matter — a gain, a tier promotion, a DROP, and the bot-ceiling nudge. There's no app on :3012 to
+// inject window.SALTIZ_TROPHIES, and a real match is 120s, so this is the only practical way to eyeball
+// the drop treatment. Never runs on device/Render.
+if (DEV_LOCAL) {
+  const cases = [
+    { from: 180, delta: 30, note: 'gain + promotion to כסף' },
+    { from: 620, delta: 25, note: 'plain gain in זהב' },
+    { from: 620, delta: -8, note: 'a DROP — muted, no confetti' },
+    { from: 940, delta: 0, note: 'at the L11 bot ceiling — nudge to raise difficulty' },
+  ];
+  let _devTrN = 0;
+  const _tb = document.querySelector('.hub-trwrap') || document.getElementById('hub-trophies');
+  if (_tb) _tb.addEventListener('click', () => {
+    const c = cases[_devTrN++ % cases.length];
+    console.log('[trophy preview]', c.note);
+    import('/hub-trophies.js').then((m) => m.devSimulate(c.from, c.delta));
+  });
+  // Seed a visible starting state on localhost so the box isn't blank before the first tap.
+  if (!window.SALTIZ_TROPHIES) window.SALTIZ_TROPHIES = { trophies: 620, delta: 0, botLevel: 11 };
 }
 
 // --- Competitive rank ladder: 7 tiers × 4 sub-ranks (28 divisions), driven by the
@@ -1773,6 +1798,9 @@ function startHomeDance() {
       drawDancer(homeCharCtx, homeCharCanvas.width, homeCharCanvas.height, now);
       if (now - lastCardCheck > 700 && !_xpRevealing) {  // while a reveal animates, it OWNS the bar — don't snap it
         lastCardCheck = now;
+        // Trophies are injected on their OWN channel (window.SALTIZ_TROPHIES), so they need their own
+        // check — cardsSig() only tracks the album + xp and would miss a trophy-only change.
+        pollTrophies();
         const sig = cardsSig();
         if (sig !== _cardsSig) {
           const newXp = currentXpRaw();
@@ -2494,6 +2522,331 @@ function showChallengePrompt(challengeId, fromName) {
   sendMsg({ type: 'challengeRespond', challengeId, accept: true });
 }
 
+// --------------------------------------------------------------------------
+// Friend threads — preset messages + shared arenas (pikme-server /handle-messages).
+//
+// There is NO free text anywhere: a message is either a preset phrase id or an attached
+// arena, so nothing here needs moderating. Phrase WORDING lives in shared/quick-messages.js
+// and never travels — the backend stores only the id, so phrases can change without a
+// backend deploy and an unknown id is simply skipped by an older client.
+//
+// Bot friends have no real userId, so they have no thread (their card opens the profile).
+// --------------------------------------------------------------------------
+const THREADS = new Map();      // friendUserId -> { unread, last }
+let threadWith = null;          // the friend whose thread is open
+let threadMsgs = [];            // messages in the open thread, oldest first
+let threadPollT = 0;
+
+// apiPost() returns a boolean; sending needs the created message back, so this variant
+// returns the parsed body (or null on failure) without duplicating the error toast.
+async function apiPostJson(path, body) {
+  try {
+    const r = await fetch(`${PIKME_API}${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+    if (!r.ok) { toast(r.status === 429 ? 'שלחת יותר מדי הודעות, רגע…' : 'השליחה נכשלה'); return null; }
+    return await r.json();
+  } catch { toast('השליחה נכשלה'); return null; }
+}
+
+// Can this friend be messaged at all? Bots aren't real accounts, and without an app token
+// there's no identity to send as.
+function canMessage(f) { return !!(f && f.userId && !f.isBot && FOOTBALL_TOKEN && MY_USER_ID); }
+
+function threadUnread(userId) { return (THREADS.get(userId) || {}).unread || 0; }
+function totalUnread() { let n = 0; for (const t of THREADS.values()) n += t.unread || 0; return n; }
+
+// One-line preview of a message for the friend card ('' when this build can't render it).
+function msgPreview(m) {
+  if (!m) return '';
+  if (m.kind === 'arena') return '🏟️ ' + ((m.arena && m.arena.name) || 'מגרש');
+  const p = phraseById(m.presetId);
+  return p ? p.text : '';
+}
+
+async function loadThreads() {
+  if (!FOOTBALL_TOKEN || !MY_USER_ID) return;
+  const res = await apiGet('/handle-messages/threads');
+  if (!Array.isArray(res)) return;                 // stay silent on error — this is a background poll
+  THREADS.clear();
+  for (const t of res) if (t && t.userId) THREADS.set(t.userId, { unread: t.unread || 0, last: t.last || null });
+  updateUnreadBadges();
+  renderFriends();
+}
+
+// Numeric unread badge on the hub friends button (the green dot next to it stays presence-only).
+function updateUnreadBadges() {
+  const b = document.getElementById('friends-unread');
+  if (!b) return;
+  const n = totalUnread();
+  b.textContent = n > 9 ? '9+' : String(n);
+  b.classList.toggle('hidden', n === 0);
+}
+
+// ---- Opening / rendering a thread -----------------------------------------
+
+function openThread(f) {
+  if (!canMessage(f)) return;
+  threadWith = f;
+  threadMsgs = [];
+  loadThread._sig = '';   // a fresh open must always render, even if it's the same thread again
+  const nameEl = document.getElementById('th-name');
+  if (nameEl) nameEl.textContent = f.nickName || '';
+  const dot = document.getElementById('th-dot');
+  if (dot) dot.classList.toggle('online', ONLINE.has(f.userId));
+  const pfp = document.getElementById('th-pfp');
+  if (pfp) {
+    pfp.innerHTML = ''; pfp.style.background = '';
+    const img = (f.image || '').toString();
+    if (/^https?:\/\//i.test(img)) { const im = document.createElement('img'); im.src = img; im.alt = ''; pfp.appendChild(im); }
+    else { pfp.textContent = memberInitials(f.nickName); if (f.color) pfp.style.background = f.color; }
+  }
+  showScreen('thread');
+  renderThread(true);
+  loadThread();
+}
+
+async function loadThread() {
+  if (!threadWith) return;
+  const who = threadWith.userId;
+  const res = await apiGet(`/handle-messages/thread?withUserId=${encodeURIComponent(who)}`);
+  if (!threadWith || threadWith.userId !== who) return;   // user moved on while it loaded
+  if (!Array.isArray(res)) { renderThread(false, 'לא הצלחנו לטעון את השיחה'); return; }
+  // The poll re-fetches every few seconds. Re-rendering an unchanged thread would scroll the
+  // view back to the bottom under someone who is reading further up, so bail when nothing moved.
+  const sig = res.map((m) => m.id + ':' + (m.reactions || []).map((r) => r.userId + r.emoji).join('')).join('|');
+  const unchanged = sig === loadThread._sig;
+  loadThread._sig = sig;
+  threadMsgs = res;
+  if (unchanged) return;
+  // The server marked them read as part of this fetch — mirror that locally so the badge
+  // clears immediately instead of waiting for the next threads poll.
+  const t = THREADS.get(who);
+  if (t) { t.unread = 0; updateUnreadBadges(); renderFriends(); }
+  renderThread();
+}
+
+function renderThread(loading, errText) {
+  const el = document.getElementById('th-msgs');
+  if (!el) return;
+  el.innerHTML = '';
+  if (errText) { const d = document.createElement('div'); d.className = 'th-empty'; d.textContent = errText; el.appendChild(d); return; }
+  if (loading && !threadMsgs.length) { const d = document.createElement('div'); d.className = 'th-empty'; d.textContent = 'טוען…'; el.appendChild(d); return; }
+  if (!threadMsgs.length) { const d = document.createElement('div'); d.className = 'th-empty'; d.textContent = 'אין עדיין הודעות — שלחו את הראשונה!'; el.appendChild(d); return; }
+  for (const m of threadMsgs) {
+    const row = msgEl(m);
+    if (row) el.appendChild(row);              // null = a kind/phrase this build doesn't know
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+function msgEl(m) {
+  const mine = m.fromUserId === MY_USER_ID;
+  // Unknown phrase ids come from a NEWER client — skip the bubble rather than render a blank one.
+  if (m.kind === 'preset' && !phraseById(m.presetId)) return null;
+  const row = document.createElement('div');
+  row.className = 'th-row' + (mine ? ' mine' : '');
+  const bub = document.createElement('div');
+  bub.className = 'th-bub' + (m.kind === 'arena' ? ' arena' : '');
+  if (m.kind === 'arena') bub.appendChild(arenaCardEl(m));
+  else bub.textContent = phraseById(m.presetId).text;
+  if (m.reactions && m.reactions.length) {
+    const r = document.createElement('div'); r.className = 'th-reacts';
+    r.textContent = m.reactions.map((x) => x.emoji).join(' ');
+    bub.appendChild(r);
+  }
+  bindReactPress(bub, m);
+  row.appendChild(bub);
+  return row;
+}
+
+// A shared arena: name, a size line, and the two things you can do with it.
+function arenaCardEl(m) {
+  const a = m.arena || {};
+  const wrap = document.createElement('div'); wrap.className = 'th-arena';
+  const t = document.createElement('div'); t.className = 'th-arena-name';
+  t.textContent = '🏟️ ' + (a.name || 'מגרש');
+  const sub = document.createElement('div'); sub.className = 'th-arena-sub';
+  sub.textContent = fpCount(a.field) + ' אלמנטים';
+  const acts = document.createElement('div'); acts.className = 'th-arena-acts';
+  const play = document.createElement('button'); play.type = 'button'; play.className = 'th-arena-btn';
+  play.textContent = 'שחק';
+  play.onclick = (e) => { e.stopPropagation(); playSharedArena(a); };
+  const save = document.createElement('button'); save.type = 'button'; save.className = 'th-arena-btn ghost';
+  save.textContent = 'שמור';
+  save.onclick = (e) => { e.stopPropagation(); saveSharedArena(a); };
+  acts.append(play, save);
+  wrap.append(t, sub, acts);
+  return wrap;
+}
+
+// Play a received arena: the server already re-sanitizes the layout in builderMatch, so this
+// reuses the existing "play my field vs bots" path with no new server code.
+function playSharedArena(a) {
+  if (!a || !a.field) return;
+  unlockAudio && unlockAudio();
+  syncLoadout && syncLoadout();
+  sendMsg({ type: 'builderMatch', field: fpNormField(a.field) });
+}
+
+// Save a received arena into the builder library. Writes localStorage ONLY — deliberately not
+// routed through the prefs bag, which silently drops the whole library past PREF_MAX_BYTES.
+function saveSharedArena(a) {
+  if (!a || !a.field) return;
+  const saves = fpLoadSaves();
+  if (saves.length >= FP_MAX_SLOTS) { toast('ספריית המגרשים מלאה'); return; }
+  const base = (a.name || '').trim() || fpNextDefault();
+  const taken = new Set(saves.map((s) => s.name));
+  let name = base;
+  for (let i = 2; taken.has(name); i++) name = `${base} (${i})`;   // never overwrite an existing field
+  saves.push({ id: fpNewId(), name, field: fpNormField(a.field) });
+  toast(fpWriteSaves(saves) ? `נשמר כ"${name}"` : 'השמירה נכשלה');
+}
+
+// ---- Sending ---------------------------------------------------------------
+
+async function sendPreset(presetId) {
+  if (!threadWith) return;
+  const m = await apiPostJson('/handle-messages/send', { toUserId: threadWith.userId, kind: 'preset', presetId });
+  if (m) { threadMsgs.push(m); renderThread(); }
+}
+
+async function sendArena(save) {
+  if (!threadWith || !save) return;
+  const m = await apiPostJson('/handle-messages/send', {
+    toUserId: threadWith.userId, kind: 'arena', arena: { name: save.name, field: save.field },
+  });
+  if (m) { threadMsgs.push(m); renderThread(); }
+  else toast('המגרש גדול מדי לשיתוף');   // the only 400 the arena path can produce
+}
+
+// ---- Reactions -------------------------------------------------------------
+
+let reactFor = null;   // message the reaction bar is open for
+
+function bindReactPress(el, m) {
+  let timer = 0;
+  const start = () => { clearTimeout(timer); timer = setTimeout(() => openReactBar(el, m), 420); };
+  const cancel = () => clearTimeout(timer);
+  el.addEventListener('pointerdown', start);
+  el.addEventListener('pointerup', cancel);
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('pointercancel', cancel);
+  // Long-press on a touch device fires the OS text-selection/callout otherwise.
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+function openReactBar(anchor, m) {
+  const bar = document.getElementById('th-react');
+  if (!bar) return;
+  reactFor = m;
+  bar.innerHTML = '';
+  for (const emoji of REACTION_EMOJI) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'th-react-btn';
+    b.textContent = emoji;
+    b.onclick = () => { reactTo(m, emoji); closeReactBar(); };
+    bar.appendChild(b);
+  }
+  const r = anchor.getBoundingClientRect();
+  bar.classList.remove('hidden');
+  const bw = bar.offsetWidth || 200;
+  // Keep the bar on-screen when the bubble sits near an edge.
+  bar.style.left = Math.max(8, Math.min(window.innerWidth - bw - 8, r.left + r.width / 2 - bw / 2)) + 'px';
+  bar.style.top = Math.max(8, r.top - 52) + 'px';
+}
+function closeReactBar() { reactFor = null; document.getElementById('th-react')?.classList.add('hidden'); }
+
+async function reactTo(m, emoji) {
+  const updated = await apiPostJson('/handle-messages/react', { messageId: m.id, emoji });
+  if (!updated) return;
+  const i = threadMsgs.findIndex((x) => x.id === m.id);
+  if (i >= 0) threadMsgs[i] = updated;
+  renderThread();
+}
+
+// ---- Composer sheets -------------------------------------------------------
+
+let sheetGroup = QUICK_GROUPS[0] ? QUICK_GROUPS[0].id : '';
+
+function openPhraseSheet() {
+  const sheet = document.getElementById('th-sheet');
+  if (!sheet) return;
+  renderPhraseSheet();
+  sheet.classList.remove('hidden');
+}
+function renderPhraseSheet() {
+  const tabs = document.getElementById('th-sheet-tabs');
+  const list = document.getElementById('th-sheet-list');
+  if (!tabs || !list) return;
+  tabs.innerHTML = '';
+  for (const g of QUICK_GROUPS) {
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'th-sheet-tab' + (g.id === sheetGroup ? ' active' : '');
+    b.textContent = g.name;
+    b.onclick = () => { sheetGroup = g.id; renderPhraseSheet(); };
+    tabs.appendChild(b);
+  }
+  const group = QUICK_GROUPS.find((g) => g.id === sheetGroup) || QUICK_GROUPS[0];
+  list.innerHTML = '';
+  for (const p of (group ? group.phrases : [])) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'th-phrase';
+    b.textContent = p.text;
+    b.onclick = () => { document.getElementById('th-sheet')?.classList.add('hidden'); sendPreset(p.id); };
+    list.appendChild(b);
+  }
+}
+
+function openArenaSheet() {
+  const sheet = document.getElementById('th-arena-sheet');
+  const list = document.getElementById('th-arena-list');
+  if (!sheet || !list) return;
+  const saves = fpLoadSaves();
+  list.innerHTML = '';
+  if (!saves.length) {
+    const d = document.createElement('div'); d.className = 'th-empty';
+    d.textContent = 'אין מגרשים שמורים — בנו מגרש קודם';
+    list.appendChild(d);
+  } else {
+    for (const s of saves) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'th-phrase';
+      b.textContent = `🏟️ ${s.name || 'מגרש'} · ${fpCount(s.field)}`;
+      b.onclick = () => { sheet.classList.add('hidden'); sendArena(s); };
+      list.appendChild(b);
+    }
+  }
+  sheet.classList.remove('hidden');
+}
+
+// ---- Wiring ----------------------------------------------------------------
+
+document.getElementById('th-back')?.addEventListener('click', () => { threadWith = null; showScreen('friends'); });
+document.getElementById('th-say')?.addEventListener('click', () => { unlockAudio(); openPhraseSheet(); });
+document.getElementById('th-share')?.addEventListener('click', () => { unlockAudio(); openArenaSheet(); });
+document.getElementById('th-sheet-close')?.addEventListener('click', () => document.getElementById('th-sheet')?.classList.add('hidden'));
+document.getElementById('th-arena-close')?.addEventListener('click', () => document.getElementById('th-arena-sheet')?.classList.add('hidden'));
+// The thread header is the way back to the profile modal, which used to be the card's own tap.
+document.getElementById('th-who')?.addEventListener('click', () => { if (threadWith) openFriendProfile(threadWith); });
+// Any tap outside the reaction bar dismisses it (capture, so it beats the bubble's own handlers).
+document.addEventListener('pointerdown', (e) => {
+  if (reactFor && !e.target.closest('#th-react')) closeReactBar();
+}, true);
+
+// ---- Background poll -------------------------------------------------------
+// Messages are stored, not pushed, so the client polls: fast while a thread is open, slow
+// otherwise (just to keep the unread badge honest). Paused in a match and when the tab/WebView
+// is backgrounded, so it never competes with gameplay traffic.
+const THREAD_TICK_MS = 8000;
+const THREADS_EVERY_TICKS = 3;   // → the badge refreshes about every 24s
+let threadTick = 0;
+function startThreadPoll() {
+  if (threadPollT) return;
+  threadPollT = setInterval(() => {
+    if (!FOOTBALL_TOKEN || !MY_USER_ID || document.hidden) return;
+    if (screens.game && !screens.game.classList.contains('hidden')) return;    // in a match
+    const threadOpen = threadWith && screens.thread && !screens.thread.classList.contains('hidden');
+    if (threadOpen) loadThread();
+    if (++threadTick % THREADS_EVERY_TICKS === 0) loadThreads();
+  }, THREAD_TICK_MS);
+}
+
 // --- Party flow: invite online friends into the lobby, then pick a game ------------------
 // Host-only panel of ONLINE friends (FRIENDS ∩ ONLINE). Shown in the private-room lobby.
 function renderPartyInvite() {
@@ -2800,6 +3153,7 @@ function connect(name, avatar) {
   // game would otherwise freeze forever — so fall back to the home menu and retry.
   ws.onclose = () => {
     setNet('reconnecting…');
+    resetNetHud();                        // stale RTT/snapshot samples must not haunt the next socket
     if (pingIv) { clearInterval(pingIv); pingIv = null; }
     me = { playerId: null, team: null, char: chosenChar };
     latest = null; snaps = []; predicted = null; rendered = null;
@@ -2817,6 +3171,7 @@ function connect(name, avatar) {
       processSnapshotSounds(snap);
       latest = snap;
       snapCount++;
+      onSnapshot();                       // stamp arrival: the freeze detector measures the gap since this
       holdingBall = snap.ball.owner === me.playerId;
       { const meP = snap.players && snap.players.find((p) => p.id === me.playerId); mySuper = !!(meP && meP.power); } // SUPER ready → charge fills 2× (mirrors sim)
       snaps.push({ tRecv: performance.now(), snap });
@@ -2828,7 +3183,7 @@ function connect(name, avatar) {
     if (msg.type === 'welcome') {
       myMemberId = msg.id; // our lobby identity; playerId + team arrive with matchStart
       MY_USER_ID = msg.userId || null;
-      if (MY_USER_ID) loadFriends();
+      if (MY_USER_ID) { loadFriends(); loadThreads(); }   // unread badge without opening the screen
     } else if (msg.type === 'roster') {
       rosterVersion = msg.v; // slot->id/team map for the binary snapshots that follow
       slotIds = msg.slots.map((s) => s.id);
@@ -2853,6 +3208,7 @@ function connect(name, avatar) {
       quickVs = false; hideVs(); showScreen('home');
       if (matchResultSent) {                 // a real match just finished -> celebrate the XP the app injects on return
         _awaitXpReveal = true;
+        armTrophyReveal();                   // ...and reveal the trophy change, which may be a DROP
         simulateXpGainForDemo();             // localhost only (no native app to inject xp); no-op on device/Render
       }
     } else if (msg.type === 'roomError') {
@@ -2894,6 +3250,7 @@ function connect(name, avatar) {
       exitToLobby();
     } else if (msg.type === 'pong') {
       ping = Math.round(performance.now() - msg.t);
+      onPong(ping);                                     // feed the jitter window
     } else if (msg.type === 'friendsPresence') {
       ONLINE = new Set(msg.online || []);
       updateFriendsDot();
@@ -3126,7 +3483,6 @@ function cardDrama(c) {
   const dupeBoost = Math.min(1, ((c.c || 1) - 1) / 5);                  // 0..1 over 1..6 copies
   return { rank, power: rank + worthBoost * 1.6 + dupeBoost * 1.1 };    // 0 .. ~5.7
 }
-    resetNetHud();                        // stale RTT/snapshot samples must not haunt the next socket
 // Legendary fire: a wall of OUR pixel-fire sprite (fire-sheet.png, 32 frames) around
 // the card — each tile a sprite window with its own size/phase/speed/mirror.
 function buildFireWall(card, cardW) {
@@ -3144,7 +3500,6 @@ function buildFireWall(card, cardW) {
     t.style.animationDelay = '-' + (Math.random() * 0.9).toFixed(2) + 's'; // desync start frame
     if (Math.random() < 0.5) t.style.transform = 'scaleX(-1)';          // mirror some
     wall.appendChild(t);
-      onSnapshot();                       // stamp arrival: the freeze detector measures the gap since this
   }
   card.appendChild(wall);
 }
@@ -3222,7 +3577,6 @@ function buildMemberRow(m, listEl) {
   const av = document.createElement('div'); av.className = 'member-av';
   const nm = document.createElement('div'); nm.className = 'member-name';
   const st = document.createElement('div'); st.className = 'member-status';
-      onPong(ping);                                     // feed the jitter window
   // #14: host-only kick control (shown/wired per-update in updateLobbyUI). 4th child —
   // the [av,nm,st] destructure below stays valid.
   const kick = document.createElement('button'); kick.className = 'member-kick hidden'; kick.textContent = '✕'; kick.setAttribute('aria-label', 'הסרה מהחדר');

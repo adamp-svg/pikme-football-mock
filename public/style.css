@@ -2156,14 +2156,18 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .th-who .friend-dot { background: #555; }
 .th-who .friend-dot.online { background: #35d06a; box-shadow: 0 0 6px #35d06a; }
 
-.th-body { display: flex; flex-direction: column; min-height: 0; gap: 10px; }
+/* .subpage-body centres its children and scrolls itself; a chat needs full-width rows and an
+   inner scroller instead, so both are overridden here. */
+.th-body { display: flex; flex-direction: column; align-items: stretch; min-height: 0; gap: 10px; overflow: hidden; }
+.th-msgs, .th-compose { width: 100%; max-width: 620px; align-self: center; }
 .th-msgs { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
 .th-empty { color: #98ab8b; font: 800 12px/1.5 system-ui, sans-serif; text-align: center; padding: 18px 10px; }
 
-/* Bubbles: mine on the left, theirs on the right (the page is RTL). */
+/* Bubbles mirror the RTL chat convention (WhatsApp/Telegram in Hebrew): messages I sent hug the
+   LEFT edge, received ones hug the RIGHT. In an RTL row, flex-end IS the left edge. */
 .th-row { display: flex; }
-.th-row.mine { justify-content: flex-start; }
-.th-row:not(.mine) { justify-content: flex-end; }
+.th-row.mine { justify-content: flex-end; }
+.th-row:not(.mine) { justify-content: flex-start; }
 .th-bub { position: relative; max-width: 74%; padding: 9px 12px; border: 3px solid #46543f;
   background: rgba(19,27,22,.96); color: #eaf4e0; font: 800 13px/1.35 system-ui, sans-serif;
   box-shadow: 0 4px 0 #070b08; -webkit-user-select: none; user-select: none; }
