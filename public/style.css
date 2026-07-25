@@ -235,6 +235,29 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .ce-puck.dragging { cursor: grabbing; background: rgba(255,228,154,.42); }
 .ce-puck span { pointer-events: none; position: relative; z-index: 1; }
+/* ---- PULL SQUARE: the outer of the two nested squares on the bomb/wall pucks ----
+   Inner square = the button you press. Outer square = how far your thumb travels from the centre
+   to reach MAX reach (the sensitivity). Seeing them nested makes the relationship obvious: a small
+   outer box = twitchy (a short drag already maxes out), a big one = long, precise throws.
+   The puck must NOT clip it, so .ce-pull is allowed to overflow. */
+.ce-pull { overflow: visible; }
+.ce-sens {
+  position: absolute; box-sizing: border-box; pointer-events: none; z-index: 0;
+  border: 2px dashed rgba(120,200,255,.75); border-radius: 10%;
+  background: rgba(78,160,255,.10);
+}
+.ce-sens::after {                       /* label sits on the outer box, not the button */
+  content: attr(data-sens); position: absolute; left: 50%; top: -19px; transform: translateX(-50%);
+  font: 800 10px ui-monospace, SFMono-Regular, Consolas, monospace; color: #a9d2ff;
+  background: rgba(0,0,0,.62); padding: 1px 6px; border-radius: 6px; white-space: nowrap;
+}
+/* Grip on the pull square's top-left corner — deliberately the OPPOSITE corner from the button's
+   size handle (bottom-right), so the two can never be grabbed by accident. */
+.ce-sens-grip {
+  position: absolute; left: -11px; top: -11px; width: 26px; height: 26px; border-radius: 50%;
+  background: #2e70df; border: 2px solid #cfe6ff; box-shadow: 0 2px 6px rgba(0,0,0,.5);
+  cursor: nwse-resize; pointer-events: auto; touch-action: none;
+}
 /* Live size readout on every puck (CoD Mobile / Free Fire both surface the number you're dragging
    to, so a layout can be reproduced instead of eyeballed). JS writes it to data-size. */
 .ce-puck::after {
