@@ -1,8 +1,8 @@
 # 🏆 TROPHIES + SKILL PROGRESSION — synthesis & proposed spec
 
 > **Read this file first.** `01`–`05` are the raw research (5 parallel agents, ~1200 lines, sourced).
-> Status: **RESEARCH + PROPOSAL ONLY — nothing implemented yet.** Needs the user's sign-off on the
-> numbers before any code changes. Date: 2026-07-25.
+> Status: **RESEARCH DONE · SPEC SIGNED OFF (see §7) · NOT YET IMPLEMENTED.** Date: 2026-07-25.
+> The 4 design questions are **decided** — §7 is binding, build to it.
 >
 > User's ask: *"I want trophies instead [of XP]. New mechanism to progress player skills. How much
 > from losing, from winning, from bots-only game etc. Do full research."*
@@ -151,12 +151,31 @@ already holding roughly the rank they earned, set `tierFloor` to that tier, and 
 one-off founding badge. Announce it — the loudest backlash in every case we found (Overwatch 1→2 SR
 removal, Fortnite Arena→Ranked) was about a silent swap that felt like erasure, not about the new math.
 
-## 7. Open questions for the user
+## 7. ✅ DECIDED BY THE USER (2026-07-25) — these are locked
 
-1. **Bot ceiling numbers** — is `940` the right "bots can't take you past here" line, and is 40% the right bot rate?
-2. **Tier floors**: never relegate out of a reached tier (forgiving, recommended) vs. real demotion (sharper)?
-3. Keep the XP bar **visible** as a second bar, or hide it and surface only trophies + the training path?
-4. Ship trophies and the training path **together**, or trophies first?
+1. **Bot ceiling: YES, as proposed.** `ceiling(L) = 60 + 80*L`, bots pay **40%** below it and **0** above.
+   Bots carry a player to ~**940**; the top two tiers (Champion / Legend) are **human-only**. Raising the
+   difficulty is how a solo player keeps climbing.
+2. **No relegation out of a reached tier.** You still lose trophies on a loss, but once you enter a tier
+   you never leave it — `tierFloor` is sticky and monotonic. (Chosen over one-rank-drop and full demotion;
+   the audience is teens and ranked anxiety is the bigger risk than soft ranks.) Consequence to accept:
+   tiers slowly fill up over time — fine at our size, revisit only if the top tier gets crowded.
+3. **Trophies big, XP small underneath.** Trophies + tier badge become the primary hub element; the XP bar
+   stays as a thin secondary bar. XP keeps its real jobs (every-match payout so a loss still shows a gain,
+   `botLevelFromXp` bot difficulty, hero/card unlocks).
+4. **Ship trophies AND the training path together, in one release.**
+   ⚠️ Scope note (flagged, user's call, proceeding): this is the larger of the two options — the trophy half
+   spans 3 repos (incl. a new TestFlight build for the app injection) and the training/technique half needs
+   `shared/sim.js` + `shared/wire.js` changes, which are the highest-regression files in the repo and are
+   frequently mid-edit by other agents. Recommended sequencing INSIDE the single release, so it can still
+   be verified in pieces: (a) backend trophy math + schema (pure, unit-testable, no UI); (b) `techniques.js`
+   + drills behind a flag, sim hooks last; (c) hub UI for both, coordinated with `modes-lead`'s lobby work;
+   (d) app injection + TestFlight; (e) migration seed. Do not merge (b) while `sim.js` is dirty.
+
+### Still open (smaller, can be decided during implementation)
+- Hebrew tier names for the bronze→legend ladder.
+- Exact drill list + medal thresholds for the training path (§4 table is a starting proposal).
+- Whether the founding badge for existing Diamond+ players is worth the art.
 
 ---
 
