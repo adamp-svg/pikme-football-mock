@@ -183,8 +183,28 @@ function spawnPos(team, slot, n = 2) {
   return { x, y: FIELD.H * fy };
 }
 
+// --- Optional DETERMINISTIC randomness -------------------------------------------------
+// The sim has three genuinely random moments (a strip's left/right detach side, and a
+// bomb-popped ball's angle + speed). In production they stay Math.random. But a headless
+// A/B harness could not measure anything through them: identical code produced
+// wall-pinning rates from 0.27% to 0.51% run to run, so real regressions hid inside the
+// noise and false wins looked real. Set `state.rng` to a seeded generator and every sim
+// random becomes reproducible, which makes a PAIRED before/after comparison possible.
+// Unset (the server's path) => Math.random, i.e. behaviour is bit-identical to before.
+export function makeRng(seed) {
+  let a = (seed >>> 0) || 1;
+  return function rng() {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rnd = (state) => (state.rng ? state.rng() : Math.random());
+
 export function createState() {
   return {
+    rng: null,        // null => Math.random (production). Set via makeRng(seed) for a reproducible run.
     phase: 'playing', // endless — never 'ended'
     tick: 0,
     elapsed: 0, // seconds played (counts up). LIVE PLAY ONLY — freezes do not advance it.
@@ -1276,7 +1296,7 @@ function bulletStripCarrier(state, carrier, pr, nx, ny, pushX, pushY, angMul = 1
   const kb = Math.min(CARRIER_STRIP_KB_MAX, state.settings.bulletKnockback * pushCurve(pr.charge) * CARRIER_KNOCKBACK_MUL * overMul) * knockMul(carrier) * (pr.coverMul ?? 1);
   carrier.kvx += pushX * kb * angMul;
   carrier.kvy += pushY * kb * angMul;
-  const side = (Math.random() * 2 - 1) * DETACH_SIDE; // random left/right
+  const side = (rnd(state) * 2 - 1) * DETACH_SIDE; // random left/right (state.rng when seeded)
   b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
   b.vy = ny * PROJECTILE.ballPush + (nx) * side;
   if (pr.over) spendSuper(shooter); // an overcharge strip spends the meter
@@ -1451,8 +1471,8 @@ function explode(state, bomb, stack = 1) {
     if (wasCarried) {
       // A carried ball knocked loose by a bomb pops off in a slightly RANDOM
       // direction (roughly away from the blast) and only travels a little.
-      const ang = Math.atan2(by, bx) + (Math.random() - 0.5) * 2.2; // away ± ~1.1 rad
-      const speed = 240 + Math.random() * 170;
+      const ang = Math.atan2(by, bx) + (rnd(state) - 0.5) * 2.2; // away ± ~1.1 rad
+      const speed = 240 + rnd(state) * 170;
       b.vx = Math.cos(ang) * speed;
       b.vy = Math.sin(ang) * speed;
     } else {

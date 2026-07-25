@@ -3,13 +3,18 @@
 //    touching a wall or the pitch edge  -> "stuck in the stadium walls"
 //  - idleBallRate: the ball-carrier barely moves (<1.2px)                -> "idle with the ball"
 // Run: node test-behavior.mjs [matches] [seconds]
-import { createState, addPlayer, attachBall, step } from './shared/sim.js';
+import { createState, addPlayer, attachBall, step, makeRng } from './shared/sim.js';
 import { DT, FIELD } from './shared/constants.js';
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { ARENA } from './shared/arena.js';
 
 const MATCHES = parseInt(process.argv[2] || '12', 10);
 const SECS = parseInt(process.argv[3] || '70', 10);
+// SEED makes the whole run reproducible (sim randoms + which side kicks off), so a bot change
+// can be A/B'd PAIRED instead of drowning in noise: identical code used to report pinned rates
+// anywhere from 0.27% to 0.51%. `SEED=1 node test-behavior.mjs` => same numbers every time.
+const SEED = process.env.SEED ? parseInt(process.env.SEED, 10) : 0;
+const seedRng = SEED ? makeRng(SEED) : null;
 const TICKS = Math.round(SECS / DT);
 const R = 27;
 function nearWallOrEdge(p) {
@@ -21,9 +26,10 @@ function nearWallOrEdge(p) {
 let movingTicks = 0, pinned = 0, carryTicks = 0, idleBall = 0, playTicks = 0, longestIdleRun = 0;
 for (let mi = 0; mi < MATCHES; mi++) {
   const s = createState(); s.resetTimer = 0;
+  if (seedRng) s.rng = makeRng(SEED * 7919 + mi); // per-match stream, deterministic across runs
   for (const [id, team, slot] of [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]])
     addPlayer(s, id, { name: id, char: 'player', team, slot, isBot: true });
-  attachBall(s, Math.random() < 0.5 ? 'A' : 'B');
+  attachBall(s, (seedRng ? seedRng() : Math.random()) < 0.5 ? 'A' : 'B');
   const mem = createBotMemory('normal');
   let prev = {}; for (const id in s.players) prev[id] = { x: s.players[id].x, y: s.players[id].y };
   let idleRun = 0;
