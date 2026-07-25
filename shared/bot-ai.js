@@ -460,9 +460,19 @@ export function assignRoles(state, team, mem, dt) {
     if (hold || dOther > dCur - SWITCH_MARGIN) onBall = prev.onBall;
     else onBall = other.id;
   }
-  const support = bots.find((p) => p.id !== onBall)?.id || null;
+  // SUPPORT = the off-ball bot nearest the focus, i.e. the best pass outlet. With one off-ball bot
+  // (2v2) that is the same pick `bots.find(...)` made, so 2v2 behaviour is unchanged.
+  const off = bots.filter((p) => p.id !== onBall);
+  let support = null, bestD = Infinity;
+  for (const q of off) { const d = hyp(focus.x - q.x, focus.y - q.y); if (d < bestD) { bestD = d; support = q.id; } }
+  // COVER = everyone else (only exists at 3v3+). They get a LANE index so they hold distinct
+  // defensive spots instead of stacking on the support spot. Ordered by SLOT, not by distance, so
+  // a lane doesn't flip every tick as players move.
+  const cover = off.filter((q) => q.id !== support).sort((a, b) => (a.slot | 0) - (b.slot | 0));
+  const lane = {};
+  cover.forEach((q, i) => { lane[q.id] = i; });
   const since = (prev && prev.onBall === onBall) ? (prev.since || mem.t) : mem.t;
-  const r = { onBall, support, mode: ballMode(state, team), since, belief };
+  const r = { onBall, support, mode: ballMode(state, team), since, belief, lane, lanes: cover.length };
   mem.teams[team] = r;
   return r;
 }
@@ -1026,6 +1036,24 @@ function decideBot(p, role, state, mem, sk, dt) {
       if (fastBreak) tgt = { x: (b.x + ogX * 1.2) / 2.2, y: (b.y + GY) / 2 };  // stay home on a break
       else if (sk.cheat || myD < 440 + 200 * AGG) tgt = { x: bx, y: by };      // CONTEST the 50/50 (aggro-scaled)
       else { const bush = nearestBushCenter(tgt.x, tgt.y, 520, state); if (bush) tgt = bush; } // lurk/ambush when genuinely far
+    }
+  }
+
+  // COVER LANE (3v3+ only — at 2v2 there is no cover bot, so this whole block is dead there).
+  // The onBall bot chases and the support bot works the outlet; every FURTHER bot would otherwise
+  // run the identical support tactics and stack on the same spot. Instead each holds a distinct
+  // vertical lane, goal-side of the ball, tracking play without joining the scrum. It still
+  // contests anything that comes into its own zone — a cover bot that ignored a loose ball at its
+  // feet would read as broken, which is worse than crowding.
+  const laneIdx = role.lane ? role.lane[p.id] : undefined;
+  if (laneIdx != null && !isOnBall) {
+    const near = hyp(b.x - p.x, b.y - p.y) < 340; // ball is at my feet — keep whatever I already decided
+    if (!near) {
+      const lanes = Math.max(1, role.lanes | 0);
+      const laneY = FIELD.H * ((laneIdx + 1) / (lanes + 1));
+      // Blend the lane toward the ball's height so cover shifts across with play, and sit goal-side.
+      tgt = { x: (b.x + ogX * 1.5) / 2.5, y: laneY * 0.58 + b.y * 0.42 };
+      aim = { x: b.x - p.x, y: b.y - p.y };
     }
   }
 

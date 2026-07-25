@@ -163,10 +163,24 @@ function earnPower(p, amt) {
 }
 
 // Spawn spots — each team near its OWN goal (A defends left, B defends right).
-function spawnPos(team, slot) {
-  const y = slot === 0 ? FIELD.H * 0.36 : FIELD.H * 0.64;
-  const x = team === 'A' ? FIELD.W * 0.15 : FIELD.W * 0.85;
-  return { x, y };
+//
+// `n` = players per team. 2v2 is special-cased to the exact original 0.36/0.64 pair so the format
+// everyone plays today is untouched; 3+ spreads evenly across a 0.18..0.82 band. Without this,
+// `slot === 0 ? .36 : .64` put EVERY slot past the first on the same spot — 3v3 spawned two
+// players inside each other.
+function spawnPos(team, slot, n = 2) {
+  const k = Math.max(1, n | 0);
+  const i = Math.min(Math.max(slot | 0, 0), k - 1);
+  let fy;
+  if (k === 1) fy = 0.5;
+  else if (k === 2) fy = i === 0 ? 0.36 : 0.64; // unchanged 2v2 kickoff
+  else fy = 0.18 + (0.64 * i) / (k - 1);        // 3 -> .18/.50/.82 ; 5 -> .18/.34/.50/.66/.82
+  // Depth stagger: the CENTRE lane starts a touch further upfield (it contests the kickoff), the
+  // wings sit deeper. Flat for 2v2, so again nothing changes there.
+  const centred = k > 2 ? 1 - Math.abs((2 * i) / (k - 1) - 1) : 0; // 1 at the middle lane, 0 at the wings
+  const fx = 0.15 + 0.05 * centred;
+  const x = team === 'A' ? FIELD.W * fx : FIELD.W * (1 - fx);
+  return { x, y: FIELD.H * fy };
 }
 
 export function createState() {
@@ -176,6 +190,7 @@ export function createState() {
     elapsed: 0, // seconds played (counts up). LIVE PLAY ONLY — freezes do not advance it.
     overtime: false, // true once a level match passes MATCH_DURATION: next goal wins (golden goal)
     resetTimer: KICKOFF_FREEZE, // >0 => kickoff freeze
+    teamSize: 2, // players per side — drives the kickoff formation (spawnPos). Server sets it per format.
     players: {}, // id -> player
     // lastPlayer/prevPlayer = the ball's TOUCH CHAIN (who held it last, and who before them). Used for
     // goal credit when lastKicker is null (a dribble-in clears it) and for ASSIST credit on a pass.
@@ -228,7 +243,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     // per-match tallies; sent to each human at match end (see the matchStats broadcast in server.js)
     stat: { goals: 0, assists: 0, strips: 0, saves: 0, shots: 0, bombs: 0, walls: 0, touches: 0, possSec: 0, distPx: 0 },
 
-    ...spawnPos(team, slot),
+    ...spawnPos(team, slot, state.teamSize),
     vx: 0, vy: 0,
     kvx: 0, kvy: 0, // knockback velocity (decays), added on top of movement
     aimX: team === 'A' ? 1 : -1, aimY: 0,
@@ -281,7 +296,7 @@ export function removePlayer(state, id) {
 function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
-    const s = spawnPos(p.team, p.slot);
+    const s = spawnPos(p.team, p.slot, state.teamSize);
     p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.powerUses = 0; p.launchGlide = 0; p.buildWindup = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }

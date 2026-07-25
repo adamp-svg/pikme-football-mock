@@ -1,6 +1,7 @@
 // Built-in ("in-game") field presets the player can clone into the builder from the field picker.
 // Each `field` is in the field-builder save shape { version, bushes, hardWalls, dryWalls, crates }.
 import { MAIN_FIELD } from './main-field.js';
+import { FIELD_3V3 } from './field-3v3.js';
 
 // "Classic" = the original mirror-symmetric default arena (4 stone covers + 3 bushes), expressed
 // in field-builder shape (stone covers → solid boxes; centre + wing bushes).
@@ -26,6 +27,7 @@ const EMPTY = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] 
 // Order shown in the picker. `id` is stable; `name` is the Hebrew label.
 export const FIELD_PRESETS = [
   { id: 'main', name: 'ראשי', field: MAIN_FIELD },
+  { id: 'threes', name: 'שלושות', field: FIELD_3V3 }, // the 3v3 arena — open centre, cover on the wings
   { id: 'classic', name: 'קלאסי', field: CLASSIC },
   { id: 'empty', name: 'ריק', field: EMPTY },
 ];

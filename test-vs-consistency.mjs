@@ -104,8 +104,11 @@ const { drawModeArt } = await import('./public/mode-art.js');
 const { MODES } = new Function('document', 'drawModeArt', `${modesSrc}; return { MODES };`)(dom.window.document, drawModeArt);
 const live = MODES.filter((m) => m.state === 'live');
 ok('every live mode declares a format', live.every((m) => !!m.format), live.map((m) => `${m.id}:${m.format}`).join(', '));
+// FORMATS keys may be quoted ('3v3' is not a bare identifier), so match either form.
+const hasFormatKey = (k) => new RegExp(`(^|[{\\s])['"]?${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*:`, 'm').test(fmtBlock);
 ok('every declared format exists in the server FORMATS table',
-  live.every((m) => fmtBlock.includes(`${m.format}:`)), fmtBlock.match(/^\s{2}(\w+):/gm)?.join(' ').trim());
+  live.every((m) => hasFormatKey(m.format)),
+  live.map((m) => `${m.format}${hasFormatKey(m.format) ? '✓' : '✗'}`).join(' '));
 
 console.log('5) the duplicated matchmaker is gone (that is how the drift happened)');
 ok('no quickMatch()/goalBrawl() function definitions left',

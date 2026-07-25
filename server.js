@@ -20,6 +20,7 @@ import {
 import { ARENA } from './shared/arena.js';
 import { coalesceInput, consumeEdges } from './shared/input-merge.js';
 import { MAIN_FIELD } from './shared/main-field.js';
+import { FIELD_3V3 } from './shared/field-3v3.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
@@ -89,7 +90,28 @@ const rooms = new Map();     // roomId -> room
 const FORMATS = {
   quick: { prefix: 'pub',   teamSize: 2, goalsToWin: GOALS_TO_WIN, rule: 'ראשון ל-3 · עד 2 דק׳' },
   brawl: { prefix: 'brawl', teamSize: 2, goalsToWin: 0,            rule: 'הכי הרבה גולים · 2 דקות' },
+  // 3v3 — 6 players. Fits the 8-slot snapshot mask as-is, so no wire change (5v5 would NOT; see
+  // summery/TEAM_FORMATS_PLAN.md §2.2). Its own arena, because MAIN_FIELD's dense centre turns into
+  // a scrum with six bodies.
+  '3v3': { prefix: 'trio',  teamSize: 3, goalsToWin: GOALS_TO_WIN, rule: 'ראשון ל-3 · 3 נגד 3', field: FIELD_3V3 },
 };
+// Players per side / total cap for a room. Private + training rooms keep the MAX_PLAYERS default.
+const roomTeamSize = (room) => Math.max(1, (room && room.teamSize) | 0 || MAX_PLAYERS / 2);
+const roomMax = (room) => roomTeamSize(room) * 2;
+// The arena a room plays on: its format's field, else the shared main one.
+const roomField = (room) => ((FORMATS[room && room.format] || {}).cleanField) || MAIN_FIELD_CLEAN;
+// MODES card id (client-side) -> FORMATS key (server-side). The picker's '2v2' card is the 'quick'
+// format; every other card id matches its format key. Unknown ids fall back to quick.
+const CARD_TO_FORMAT = { '2v2': 'quick', brawl: 'brawl', '3v3': '3v3' };
+const formatForCard = (cardId) => CARD_TO_FORMAT[cardId] || 'quick';
+// Stamp a format onto a room. One place, so the public queue and a private room's "Play Now" can
+// never disagree about what a format means.
+function applyFormat(room, mode) {
+  const fmt = FORMATS[mode] || FORMATS.quick;
+  room.format = mode;
+  room.teamSize = fmt.teamSize;
+  room.goalsToWin = fmt.goalsToWin;
+}
 // mode -> the room currently forming for that mode. Each format matchmakes in its OWN pool so
 // first-to-3 and timed players never mix. Was two hand-rolled `publicRoom*` globals.
 const publicRooms = new Map();
@@ -183,9 +205,18 @@ function balancedTeam(room) {
   for (const b of (room.lobbyBots || [])) (b.team === 'B' ? B++ : A++);
   return A <= B ? 'A' : 'B';
 }
+// Lowest slot index not already taken on this team. Was `used.has(0) ? 1 : 0`, which only ever
+// produced 0 or 1 — at 3v3 that handed slot 1 to both of the last two bots, and they spawned inside
+// each other. Falls back to the last index if somehow all are taken.
+function firstFreeSlot(used, teamSize) {
+  for (let i = 0; i < teamSize; i++) if (!used.has(i)) return i;
+  return teamSize - 1;
+}
+// All slot indices for a team, in order: [0,1] at 2v2, [0,1,2] at 3v3.
+const teamSlotList = (teamSize) => Array.from({ length: teamSize }, (_, i) => i);
 // Keep humans + invited lobby bots within the room cap (drop excess bots when humans arrive).
 function trimLobbyBots(room) {
-  while (room.lobbyBots.length && room.members.size + room.lobbyBots.length > MAX_PLAYERS) room.lobbyBots.pop();
+  while (room.lobbyBots.length && room.members.size + room.lobbyBots.length > roomMax(room)) room.lobbyBots.pop();
 }
 
 // req6 — a match bot is drawn only UP TO the highest hero tier any human in the room has
@@ -217,9 +248,9 @@ function fillBots(room, rosterOut) {
   // no rosterOut — without this a bot that replaces a leaver would be missing from the panel.
   // Pruned against the live sim so a reclaimed slot drops out on its own.
   room.botRoster = (Array.isArray(room.botRoster) ? room.botRoster : []).filter((b) => room.state.players[b.id]);
-  while (Object.keys(room.state.players).length < MAX_PLAYERS) {
+  while (Object.keys(room.state.players).length < roomMax(room)) {
     const team = teamCount('A') <= teamCount('B') ? 'A' : 'B';
-    const slot = usedSlots(team).has(0) ? 1 : 0;
+    const slot = firstFreeSlot(usedSlots(team), roomTeamSize(room));
     const id = `bot-${room.id}-${++room.botCounter}`;
     const planned = takePlanned(team, slot);
     const cosmetic = (planned && planned.cosmetic) || botCosmeticForRoom(room);
@@ -345,10 +376,9 @@ function joinMatchmade(member, mode, diffLevel) {
   leaveCurrentRoom(member);
   // Join the forming room for THIS format if there's space & it hasn't started; else open one.
   let room = formingRoom(mode);
-  if (!room || room.phase === 'match' || room.members.size >= MAX_PLAYERS) {
+  if (!room || room.phase === 'match' || room.members.size >= roomMax(room)) {
     room = makeRoom(`${fmt.prefix}-${++roomCounter}`, false);
-    room.format = mode;
-    room.goalsToWin = fmt.goalsToWin; // 0 = timed only (goal-brawl); else first-to-N
+    applyFormat(room, mode); // format + teamSize (→ slots, bot fill, kickoff formation) + win rule
     rooms.set(room.id, room);
     publicRooms.set(mode, room);
   }
@@ -358,7 +388,7 @@ function joinMatchmade(member, mode, diffLevel) {
   addToRoom(member, room);
   send(member.ws, { type: 'roomJoined', mode, matchmade: true, code: null });
   // Room is full (all human slots taken) -> start now; no point waiting out the countdown.
-  if (room.members.size >= MAX_PLAYERS) { startMatch(room); return; }
+  if (room.members.size >= roomMax(room)) { startMatch(room); return; }
   if (room.phase === 'lobby') startCountdown(room); // first in: open the 5s matchmaking window
   broadcastLobby(room);
 }
@@ -428,6 +458,9 @@ function sanitizeField(field) {
 // The main arena, sanitized once — applied to normal (2v2) + bot-game matches via setField,
 // and sent to the client in matchStart (arena:...) so it renders + collides identically.
 const MAIN_FIELD_CLEAN = sanitizeField(MAIN_FIELD);
+// Sanitize each format's own arena ONCE at boot (same treatment MAIN_FIELD gets) and cache it on the
+// FORMATS row, so roomField() is a lookup rather than a per-match sanitize.
+for (const f of Object.values(FORMATS)) if (f.field) f.cleanField = sanitizeField(f.field);
 
 // Solo "play my field vs bots": instant, endless, custom field + backfilled bots (2v2).
 function startBuilderMatch(member, field) {
@@ -520,8 +553,8 @@ function joinPrivateRoom(member, code) {
   const room = rooms.get(normalizeRoomCode(code));
   if (!room || !room.isPrivate) { send(member.ws, { type: 'roomError', msg: 'החדר לא נמצא' }); return; }
   if (room.phase === 'match') { send(member.ws, { type: 'roomError', msg: 'המשחק כבר התחיל' }); return; }
-  if (room.members.size >= MAX_PLAYERS) { send(member.ws, { type: 'roomError', msg: 'החדר מלא' }); return; }
-  if (room.pending.size >= MAX_PLAYERS) { send(member.ws, { type: 'roomError', msg: 'יותר מדי בקשות, נסו שוב' }); return; }
+  if (room.members.size >= roomMax(room)) { send(member.ws, { type: 'roomError', msg: 'החדר מלא' }); return; }
+  if (room.pending.size >= roomMax(room)) { send(member.ws, { type: 'roomError', msg: 'יותר מדי בקשות, נסו שוב' }); return; }
   leaveCurrentRoom(member); // leaves any current room AND clears a prior pending request (clearPending runs first)
   member.pendingRoom = room;
   room.pending.set(member.id, member);
@@ -567,18 +600,19 @@ function startCountdown(room) {
 // Everyone still in the room (not already playing) starts the match, honouring
 // chosen teams (up to 2 each); empty slots become bots.
 function startMatch(room) {
-  const humans = [...room.members].filter((m) => !m.inMatch).slice(0, MAX_PLAYERS);
+  const humans = [...room.members].filter((m) => !m.inMatch).slice(0, roomMax(room));
   if (humans.length === 0) { endRoom(room); return; }
 
   room.lobbyBots = []; // reservation consumed — fillBots creates the real match bots
   room.state = createState();
+  room.state.teamSize = roomTeamSize(room); // spawnPos reads this for the kickoff formation
   room.state.goalsToWin = room.goalsToWin || 0; // first-to-N (normal 2v2 = 3; goal-brawl = 0 = timed)
-  setField(room.state, MAIN_FIELD_CLEAN); // play on the main arena (custom field)
+  setField(room.state, roomField(room)); // this format's arena (3v3 has its own; else the main one)
   room.botMem = createBotMemory();
   room.inputs.clear();
   room.botCounter = 0;
 
-  const teamSlots = { A: [0, 1], B: [0, 1] };
+  const teamSlots = { A: teamSlotList(roomTeamSize(room)), B: teamSlotList(roomTeamSize(room)) };
   const assigned = [];
   for (const m of humans) { // first pass — honour chosen team when a slot is free
     const t = m.team === 'B' ? 'B' : 'A';
@@ -615,7 +649,7 @@ function startMatch(room) {
     // Without it the HUD renders bare digits with no target and no match-point cue.
     // opponentKey is computed PER RECIPIENT (see opponentKeyFor) so no player ever learns another
     // player's identity — each client only gets an opaque hash describing who it just played.
-    send(m.ws, { type: 'matchStart', diffLevel: room.diffLevel, matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0, opponentKey: opponentKeyFor(assigned, m, team) });
+    send(m.ws, { type: 'matchStart', diffLevel: room.diffLevel, matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: roomField(room), teamSize: roomTeamSize(room), goalsToWin: room.state.goalsToWin | 0, opponentKey: opponentKeyFor(assigned, m, team) });
   }
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0; room.statsSent = false;
@@ -1038,8 +1072,8 @@ function loadoutToCards(loadout) {
 // human team/slot assignment + fillBots' balancing so the (team,slot) keys line up, and reuses the
 // same rarity-matching as match time. fillBots then consumes this plan verbatim (preview == match).
 function computeBotPlan(room) {
-  const humans = [...room.members].filter((m) => !m.inMatch).slice(0, MAX_PLAYERS);
-  const teamSlots = { A: [0, 1], B: [0, 1] };
+  const humans = [...room.members].filter((m) => !m.inMatch).slice(0, roomMax(room));
+  const teamSlots = { A: teamSlotList(roomTeamSize(room)), B: teamSlotList(roomTeamSize(room)) };
   const assigned = [];
   for (const m of humans) { const t = m.team === 'B' ? 'B' : 'A'; if (teamSlots[t].length) assigned.push([m, t, teamSlots[t].shift()]); else assigned.push([m, null, null]); }
   for (const a of assigned) { if (a[1]) continue; const t = teamSlots.A.length ? 'A' : 'B'; a[1] = t; a[2] = teamSlots[t].shift(); }
@@ -1048,9 +1082,9 @@ function computeBotPlan(room) {
   const usedT = (t) => new Set([...assigned.filter((a) => a[1] === t).map((a) => a[2]), ...plan.filter((b) => b.team === t).map((b) => b.slot)]);
   const humanT = { A: assigned.some((a) => a[1] === 'A'), B: assigned.some((a) => a[1] === 'B') };
   const lvl = levelAt(room.diffLevel);
-  while (humans.length + plan.length < MAX_PLAYERS) {
+  while (humans.length + plan.length < roomMax(room)) {
     const team = countT('A') <= countT('B') ? 'A' : 'B';
-    const slot = usedT(team).has(0) ? 1 : 0;
+    const slot = firstFreeSlot(usedT(team), roomTeamSize(room));
     const sideScalar = humanT[team] ? lvl.partner : lvl.enemy; // this preview-bot's side skill
     const loadout = sideScalar >= 0.95 ? extremeBotLoadout() : botLoadoutForLevel(room.diffLevel);
     plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room) });
@@ -1135,7 +1169,7 @@ wss.on('connection', (ws, req) => {
         if (!joiner) return; // already resolved / left
         r.pending.delete(joinerId);
         joiner.pendingRoom = null;
-        if (msg.accept && r.members.size < MAX_PLAYERS && r.phase !== 'match') {
+        if (msg.accept && r.members.size < roomMax(r) && r.phase !== 'match') {
           addToRoom(joiner, r);
           trimLobbyBots(r); // a real human takes priority over an invited bot
           send(joiner.ws, { type: 'roomJoined', mode: 'private', code: r.id, host: false });
@@ -1203,7 +1237,7 @@ wss.on('connection', (ws, req) => {
         if (!r || !r.isPrivate || r.hostId !== member.id) { createPrivateRoom(member); r = member.room; }
         if (!r) { send(ws, { type: 'partyError', msg: 'לא ניתן ליצור חדר' }); return; }
         if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
-        if (r.members.size >= MAX_PLAYERS) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
+        if (r.members.size >= roomMax(r)) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
         const target = onlineByUser.get(toUserId);
         if (!target) { send(ws, { type: 'partyError', msg: 'החבר לא מחובר' }); return; }
         r.invited.add(toUserId);
@@ -1217,7 +1251,7 @@ wss.on('connection', (ws, req) => {
         if (!r || !r.isPrivate) { send(ws, { type: 'partyError', msg: 'החדר לא נמצא' }); return; }
         if (!member.userId || !r.invited.has(member.userId)) { send(ws, { type: 'partyError', msg: 'ההזמנה פגה' }); return; }
         if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
-        if (r.members.size >= MAX_PLAYERS) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
+        if (r.members.size >= roomMax(r)) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
         leaveCurrentRoom(member);            // drop any current room / pending request first
         addToRoom(member, r);                // AUTO-admit — the host invited them
         trimLobbyBots(r);                    // a real human takes priority over an invited bot
@@ -1233,7 +1267,7 @@ wss.on('connection', (ws, req) => {
         const r = member.room;
         if (!r || !r.isPrivate || r.hostId !== member.id) return;
         if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
-        if (r.members.size + r.lobbyBots.length >= MAX_PLAYERS) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
+        if (r.members.size + r.lobbyBots.length >= roomMax(r)) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
         const name = (msg.name || 'בוט').toString().slice(0, 24);
         r.lobbyBots.push({ id: `lbot-${r.id}-${++r.botCounter}`, name, team: balancedTeam(r) });
         broadcastLobby(r);
@@ -1254,10 +1288,12 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'ready') { // "Play Now" in a private room
         if (!room || member.inMatch) return;
-        // The party / game-select pickers set `game`; until now it was client-only state,
-        // so a private room ALWAYS played first-to-3 no matter which card was tapped.
-        // 'brawl' = timed, most goals (goalsToWin 0); anything else = the normal first-to-N.
-        if (msg.game) room.goalsToWin = msg.game === 'brawl' ? 0 : GOALS_TO_WIN;
+        // The party / game-select pickers set `game` (a MODES card id); until now it was
+        // client-only state, so a private room ALWAYS played first-to-3 no matter which card was
+        // tapped. Resolve the card to a FORMATS row so a private room honours the FULL format —
+        // win rule AND team size AND arena. Reading only `=== 'brawl'` meant a host who picked
+        // 3v3 silently got a 4-player first-to-3 match.
+        if (msg.game) applyFormat(room, formatForCard(msg.game));
         if (room.phase === 'lobby') startCountdown(room);
         return;
       }
