@@ -3448,6 +3448,9 @@ function enterMatch(msg) {
   // Match FORMAT: first-to-N goals, or 0 = timed (most goals). Sent by the server since the
   // format is a per-room property (a private room can pick brawl); the client can't infer it.
   matchGoalsToWin = msg.goalsToWin | 0;
+  // Players per side for THIS match (2 normally, 3 at 3v3). Drives the my-team reveal, which used to
+  // hardcode two columns and so hid the third teammate entirely. Server-sent, like goalsToWin.
+  matchTeamSize = Math.max(1, msg.teamSize | 0 || 2);
   matchId = msg.matchId || null; // stable id for this match's app-bound result
   // The room's AUTHORITATIVE bot difficulty, straight from the server (the client can't infer it —
   // xpDiffLevel() is only what we ASKED for, and a private/party room may have set its own). Reported
@@ -3508,6 +3511,7 @@ function leaveToLobby() {
 
 // ---- Team intro overlay + match roster --------------------------------------
 let matchRoster = [];        // [{id,name,avatar,team,cards}] from matchStart (humans)
+let matchTeamSize = 2;       // players per side this match (matchStart.teamSize) — 3 at 3v3
 let matchBots = [];          // [{id,team,loadout,buffs,skill,botLevel}] — the bots, for the settings readout
 let audienceReady = false;   // seat layout rebuilt per match (see drawAudience)
 let crowdHypeT = -1e9;        // timestamp of the last goal — the crowd erupts (leaps) then settles
@@ -3705,10 +3709,13 @@ function playPromo(introMs) {
   const heroesEl = promoEl.querySelector('.promo-heroes');
   const flashEl = document.getElementById('promo-flash');
   heroesEl.innerHTML = '';
-  // my team (2 slots; bot fill). Each hero gets its OWN top cards beneath it.
+  // My team — one column per slot, from THIS match's team size (2 normally, 3 at 3v3). Was a
+  // hardcoded 2, which silently dropped the third teammate from the reveal at 3v3.
   const mates = matchRoster.filter((p) => p.team === me.team);
+  const perTeam = Math.max(1, matchTeamSize | 0 || 2);
+  promoEl.dataset.size = perTeam;   // CSS tightens the columns so 3 heroes still fit the width
   const queue = []; promoBoosters = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < perTeam; i++) {
     const p = mates[i] || null;
     const col = document.createElement('div'); col.className = 'promo-hero';
     col.appendChild(promoHeroCanvas(p ? p.cosmetic : DEFAULT_COSMETIC));
