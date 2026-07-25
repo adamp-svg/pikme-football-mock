@@ -3761,6 +3761,13 @@ const CANCEL_IN_PX  = 18; // then drop back below this = armed-to-cancel
 // Applied as frac = t^curve on the normalized 0..1 pull, so both endpoints stay pinned (0→0, 1→1) and
 // the cancel dead-zone + max reach are untouched. Purely input feel; the sim never sees this number.
 let aimCurve = loadAimNum('fbAimCurve', 1);
+// IDLE OPACITY of the on-screen controls. Every shipped editor in the genre exposes this (CoD Mobile
+// + Free Fire transparency sliders; Unreal makes ActiveOpacity/InactiveOpacity first-class engine
+// params) — it's the one rung Brawl Stars' editor lacks. Controls go fully opaque while touched.
+// 0.5 is the previous hard-coded .stick value, so the default is a no-op.
+let ctlIdleOp = loadAimNum('fbCtlOpacity', 0.5);
+function applyCtlOpacity() { document.documentElement.style.setProperty('--ctl-idle-op', String(ctlIdleOp)); }
+applyCtlOpacity();
 // Shared drag → 0..1 fraction (after the deadzone, capped by sensitivity). Used by BOTH the bomb lob and the wall build.
 function aimFrac(len) {
   const s = Math.max(aimSensPx, AIM_DEADZONE_PX + 1);
@@ -4342,7 +4349,24 @@ function layoutPucks() {
     puck.style.width = puck.style.height = `${d.size}px`;
     puck.style.left = `${d.cx * innerWidth - d.size / 2}px`;
     puck.style.top = `${d.cy * innerHeight - d.size / 2}px`;
+    // Live size readout — every shipped editor (CoD Mobile, Free Fire) shows the number you're
+    // dragging to, so a size can be reproduced instead of eyeballed.
+    puck.dataset.size = `${Math.round(d.size)}px`;
   }
+}
+// Real safe-area insets in px. env() can't be read from JS, so a probe element carries them as
+// padding and we read the computed value back. Cached per layout pass; re-measured on resize.
+let _saProbe = null;
+function safeInsets() {
+  if (!_saProbe) {
+    _saProbe = document.createElement('div');
+    _saProbe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;visibility:hidden;'
+      + 'padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);';
+    document.body.appendChild(_saProbe);
+  }
+  const s = getComputedStyle(_saProbe);
+  return { t: parseFloat(s.paddingTop) || 0, r: parseFloat(s.paddingRight) || 0,
+           b: parseFloat(s.paddingBottom) || 0, l: parseFloat(s.paddingLeft) || 0 };
 }
 function openControlsEditor() {
   if (!ceOverlay) return;
@@ -4373,11 +4397,15 @@ for (const puck of cePucks) {
   puck.addEventListener('pointermove', (e) => {
     if (!mode) return;
     if (mode === 'move') {
-      const half = ceDraft[c].size / 2;
+      // Clamp inside the SAFE AREA, not just the viewport. Apple HIG: keep controls clear of the
+      // notch / Dynamic Island / home indicator. viewport-fit=cover means innerWidth/Height paint
+      // UNDER them, so a bare 0..innerWidth clamp happily parks a control beneath the notch.
+      const half = ceDraft[c].size / 2, sa = safeInsets();
       const nx = sCx * innerWidth + (e.clientX - sx), ny = sCy * innerHeight + (e.clientY - sy);
-      ceDraft[c].cx = clamp(nx, half, innerWidth - half) / innerWidth;
-      ceDraft[c].cy = clamp(ny, half, innerHeight - half) / innerHeight;
+      ceDraft[c].cx = clamp(nx, sa.l + half, innerWidth - sa.r - half) / innerWidth;
+      ceDraft[c].cy = clamp(ny, sa.t + half, innerHeight - sa.b - half) / innerHeight;
     } else {
+      // Min sizes follow Apple HIG touch targets (44pt primary); sticks want more to be usable.
       const isBtn = (c === 'bomb' || c === 'wall');
       const d = Math.max(e.clientX - sx, e.clientY - sy);
       ceDraft[c].size = clamp(sSize + d, isBtn ? 44 : 80, isBtn ? 130 : 190);
@@ -4398,6 +4426,8 @@ const _aimSliders = [
   { id: 's-aimSens',  vid: 'v-aimSens',  key: 'fbAimSens',  def: 90,                       get: () => aimSensPx, set: (v) => { aimSensPx = v; } },
   { id: 's-aimCurve', vid: 'v-aimCurve', key: 'fbAimCurve', def: 1,                         get: () => aimCurve,  set: (v) => { aimCurve = v; },
     fmt: (v) => (v < 0.95 ? 'מהיר ' : v > 1.05 ? 'מדויק ' : 'ליניארי ') + '×' + v.toFixed(1) },
+  { id: 's-ctlOpacity', vid: 'v-ctlOpacity', key: 'fbCtlOpacity', def: 0.5,                  get: () => ctlIdleOp, set: (v) => { ctlIdleOp = v; applyCtlOpacity(); },
+    fmt: (v) => Math.round(v * 100) + '%' },
   { id: 's-bombMax',  vid: 'v-bombMax',  key: 'fbBombMax',  def: BOMB_LOB_RANGE,            get: () => bombMaxPx, set: (v) => { bombMaxPx = v; } },
   { id: 's-wallMax',  vid: 'v-wallMax',  key: 'fbWallMax',  def: BUILT_WALL.offset + 32,    get: () => wallMaxPx, set: (v) => { wallMaxPx = v; } },
 ];
@@ -4430,7 +4460,7 @@ document.getElementById('ce-reset')?.addEventListener('click', () => {
   // Restore only the INPUT-FEEL defaults (sens + curve). The bomb/wall REACH sliders now live in
   // Settings → mechanics, so they're reset by that panel's איפוס, not by this one.
   for (const s of _aimSliders) {
-    if (s.id !== 's-aimSens' && s.id !== 's-aimCurve') continue;
+    if (s.id !== 's-aimSens' && s.id !== 's-aimCurve' && s.id !== 's-ctlOpacity') continue;
     s.set(s.def); try { localStorage.removeItem(s.key); } catch { /* private mode */ } seedAimSlider(s);
   }
   closeControlsEditor();

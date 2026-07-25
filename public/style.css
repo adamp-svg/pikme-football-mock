@@ -116,7 +116,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .stick {
   position: fixed; width: 120px; height: 120px; border-radius: 10%; z-index: 4; pointer-events: none;
   background: rgba(15,23,16,.5); border: 3px solid rgba(240,228,185,.5); box-shadow: inset 0 0 0 5px rgba(0,0,0,.15);
-  opacity: .5; transition: opacity .12s ease; /* dimmed while idle, full while in use */
+  /* Idle opacity is player-tunable (--ctl-idle-op, controls editor); full while in use.
+     CoD Mobile / Free Fire both ship a transparency slider; Unreal treats Active/InactiveOpacity
+     as first-class joystick params. Fallback .5 keeps the pre-slider look if the var is unset. */
+  opacity: var(--ctl-idle-op, .5); transition: opacity .12s ease;
 }
 .stick.active { opacity: 1; }
 .stick .knob {
@@ -232,6 +235,15 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .ce-puck.dragging { cursor: grabbing; background: rgba(255,228,154,.42); }
 .ce-puck span { pointer-events: none; position: relative; z-index: 1; }
+/* Live size readout on every puck (CoD Mobile / Free Fire both surface the number you're dragging
+   to, so a layout can be reproduced instead of eyeballed). JS writes it to data-size. */
+.ce-puck::after {
+  content: attr(data-size); position: absolute; left: 50%; bottom: -20px; transform: translateX(-50%);
+  font: 800 10px ui-monospace, SFMono-Regular, Consolas, monospace; color: #ffe49a;
+  background: rgba(0,0,0,.62); padding: 1px 6px; border-radius: 6px; white-space: nowrap;
+  pointer-events: none; opacity: 0; transition: opacity .12s ease;
+}
+.ce-puck.dragging::after { opacity: 1; }
 /* Corner resize handle — drag to scale the control. */
 .ce-resize {
   position: absolute; right: -9px; bottom: -9px; width: 26px; height: 26px;
