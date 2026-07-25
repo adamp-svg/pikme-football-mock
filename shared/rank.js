@@ -30,11 +30,15 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-// How far bots at difficulty level L can carry a player. Same formula as the server — a bot match pays
-// nothing at or above this, which is what makes the difficulty picker the progression gate.
+// RETIRED 2026-07-26 — mirrors the server, which now returns 0 at every level.
+// Rank is HUMANS-ONLY: bot matches pay no rank at any difficulty, so bots carry a player nowhere and
+// the difficulty picker is no longer a rank gate. Kept (returning 0) rather than deleted because
+// test-rank-parity.mjs asserts this function against the server's at all 12 levels, so the name has to
+// retire in both repos in the same commit. See pikme-server/data/football-rank.js.
 export function botCeiling(botLevel) {
-  const L = Math.max(0, Math.min(BOT_LEVEL_MAX, Math.round(num(botLevel))));
-  return 60 + 80 * L;
+  void botLevel;
+  void BOT_LEVEL_MAX;
+  return 0;
 }
 
 export function tierIndexFromRank(rankPoints) {
@@ -65,9 +69,14 @@ export function tierProgress(rankPoints) {
   return Math.max(0, Math.min(1, (t - lo) / (next - lo)));
 }
 
-// True when bot matches have stopped paying this player — drives the "raise the difficulty" nudge.
+// True when bot matches are not paying this player any rank — which, since 2026-07-26, is ALWAYS in a
+// bot match: rank is humans-only. Callers guard on `botLevel != null`, i.e. "am I looking at a
+// bot-populated mode", so this still reads correctly at every call site; what changed is that raising
+// the difficulty is no longer an escape from it. The only escape is playing real humans.
 export function atBotCeiling(rankPoints, botLevel) {
-  return Math.max(0, num(rankPoints)) >= botCeiling(botLevel);
+  void rankPoints;
+  void botLevel;
+  return true;
 }
 
 export { BOT_LEVEL_MAX };

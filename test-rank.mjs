@@ -62,17 +62,19 @@ eq(nextTierAt(950), 1400, 'from platinum, next is 1400')
 eq(nextTierAt(3200), null, 'legend is the top — nothing to count toward')
 
 console.log('botCeiling (same formula as the server: 60 + 80*L):')
-eq(botCeiling(0), 60, 'L0 = 60')
-eq(botCeiling(5), 460, 'L5 = 460')
-eq(botCeiling(11), 940, 'L11 = 940')
-eq(botCeiling(50), 940, 'clamped at L11')
+// CHANGED 2026-07-26 — rank is HUMANS-ONLY, so bots carry a player nowhere and the ceiling is 0 at
+// every difficulty. Mirrors pikme-server/data/football-rank.js; test-rank-parity.mjs asserts the two
+// agree at all 12 levels. Server-side spec: pikme-server/test-football-rank-humans.mjs.
+eq(botCeiling(0), 0, 'L0 = 0 (was 60)')
+eq(botCeiling(5), 0, 'L5 = 0 (was 460)')
+eq(botCeiling(11), 0, 'L11 = 0 (was 940)')
+eq(botCeiling(50), 0, 'out-of-range level is still 0')
 
-console.log('atBotCeiling — drives the "raise the difficulty" nudge:')
-assert(atBotCeiling(460, 5) === true, 'at the L5 ceiling → nudge')
-assert(atBotCeiling(500, 5) === true, 'past the L5 ceiling → nudge')
-assert(atBotCeiling(459, 5) === false, 'one short of it → no nudge')
-assert(atBotCeiling(940, 11) === true, 'at the top bot ceiling → nudge (only humans pay now)')
-assert(atBotCeiling(0, 0) === false, 'a new player on the tutorial level is not capped yet')
+console.log('atBotCeiling — now means "bots pay me no rank", which is always true in a bot match:')
+assert(atBotCeiling(460, 5) === true, 'mid-ladder, mid-difficulty → bots pay nothing')
+assert(atBotCeiling(459, 5) === true, 'one point lower → still nothing (there is no ceiling to be under)')
+assert(atBotCeiling(940, 11) === true, 'hardest bots → still nothing')
+assert(atBotCeiling(0, 0) === true, 'a brand-new player on the tutorial level earns no rank from bots either')
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
 process.exit(failures === 0 ? 0 : 1)

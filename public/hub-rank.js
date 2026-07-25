@@ -18,7 +18,7 @@
 // RELATIVE import so this resolves in BOTH the browser (served at /hub-rank.js → ../shared/ = /shared/)
 // and Node/jsdom (public/hub-rank.js → ../shared/ = football-mock/shared/).
 import {
-  TIER_MIN, TIER_HE, RANK_HE, tierIndexFromRank, tierProgress, nextTierAt, atBotCeiling, BOT_LEVEL_MAX,
+  TIER_MIN, TIER_HE, RANK_HE, tierIndexFromRank, tierProgress, nextTierAt, atBotCeiling,
 } from '../shared/rank.js';
 
 // Badge art per tier index — the 7 rungs of the server ladder.
@@ -95,10 +95,11 @@ function tooltip(rankPoints, botLevel) {
   const next = nextTierAt(rankPoints);
   const idx = tierIndexFromRank(rankPoints);
   const head = RANK_HE + ': ' + TIER_HE[idx] + ' · ' + rankPoints;
+  // 2026-07-26: rank is HUMANS-ONLY, so a bot-populated mode never moves it — at any difficulty. The
+  // old second branch ("raise the difficulty to keep climbing") is gone: difficulty is no longer a rank
+  // gate, and telling a player to raise it would send them somewhere that still pays nothing.
   if (botLevel != null && atBotCeiling(rankPoints, botLevel)) {
-    return head + ' — ' + (botLevel >= BOT_LEVEL_MAX
-      ? 'רק משחק מול שחקנים אמיתיים מעלה דרגה מכאן'
-      : 'העלה את רמת הקושי כדי להמשיך לעלות');
+    return head + ' — רק משחק מול שחקנים אמיתיים מעלה דרגה';
   }
   if (next == null) return head + ' — הדרגה הגבוהה ביותר';
   return head + ' — עוד ' + Math.max(0, next - rankPoints) + ' לדרגה הבאה';

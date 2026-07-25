@@ -72,14 +72,16 @@ console.log('--- BOT CEILING: the meter reads LOCKED, not merely stalled ---');
 window.SALTIZ_RANK = { rankPoints: 460, delta: 0, botLevel: 5 };
 rk.renderHubRank();
 ok(badge().classList.contains('hub-tier-capped'), 'at the L5 ceiling the badge is marked capped');
-ok(tip().includes('העלה את רמת הקושי'), 'and the tooltip says to raise the difficulty');
+ok(tip().includes('רק משחק מול שחקנים אמיתיים מעלה דרגה'), 'the tooltip says only real players raise rank');
 window.SALTIZ_RANK = { rankPoints: 459, delta: 0, botLevel: 5 };
 rk.renderHubRank();
-ok(!badge().classList.contains('hub-tier-capped'), 'one point below the ceiling it is not capped');
+ok(badge().classList.contains('hub-tier-capped'), 'every bot difficulty reads capped now — difficulty is not a rank lever');
 window.SALTIZ_RANK = { rankPoints: 940, delta: 0, botLevel: 11 };
 rk.renderHubRank();
 ok(badge().classList.contains('hub-tier-capped'), 'at the top bot ceiling it is capped too');
-ok(!tip().includes('העלה את רמת הקושי'), 'but must NOT say "raise the difficulty" — there is no higher level');
+// Regression guard on retired copy: "raise the difficulty" was the old nudge, and it must never come
+// back — difficulty is no longer a rank lever at any level, so it would send the player nowhere.
+ok(!tip().includes('העלה את רמת הקושי'), 'the retired "raise the difficulty" nudge never appears');
 ok(tip().includes('שחקנים אמיתיים'), 'it says only real players raise your rank from here');
 
 console.log('--- botLevel absence must not read as difficulty 0 ---');
