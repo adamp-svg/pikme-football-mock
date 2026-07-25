@@ -3,7 +3,7 @@
 
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
-  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION, OVERTIME_DURATION,
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_DIST_MAX, BUILD_WINDUP, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
@@ -5225,7 +5225,9 @@ function drawHUD() {
   // you could win (or lose) the match with no warning that the next goal decided it.
   const fmtEl = document.getElementById('score-fmt');
   if (fmtEl) {
+    const otNow = OVERTIME_DURATION > 0 && latest.phase !== 'ended' && (latest.elapsed || 0) >= MATCH_DURATION;
     if (training) { fmtEl.textContent = ''; fmtEl.classList.remove('match-point'); }
+    else if (otNow) { fmtEl.textContent = 'גול הזהב'; fmtEl.classList.add('match-point'); }
     else if (matchGoalsToWin > 0) {
       const N = matchGoalsToWin;
       const onPoint = myScore === N - 1 || opScore === N - 1;
@@ -5244,10 +5246,15 @@ function drawHUD() {
     timerEl.classList.add('hidden');
   } else {
     timerEl.classList.remove('hidden');
-    const remain = Math.max(0, Math.ceil(MATCH_DURATION - (latest.elapsed || 0)));
+    // OVERTIME needs no wire field: the clock only passes MATCH_DURATION when the sim
+    // extended a level match into golden goal (a decided match ends at the cap instead).
+    const inOT = OVERTIME_DURATION > 0 && latest.phase !== 'ended' && (latest.elapsed || 0) >= MATCH_DURATION;
+    const cap = inOT ? MATCH_DURATION + OVERTIME_DURATION : MATCH_DURATION;
+    const remain = Math.max(0, Math.ceil(cap - (latest.elapsed || 0)));
     const m = Math.floor(remain / 60), s = remain % 60;
     timerEl.textContent = `${m}:${String(s).padStart(2, '0')}`;
     timerEl.classList.toggle('urgent', remain <= 10 && latest.phase !== 'ended');
+    timerEl.classList.toggle('overtime', inOT);
   }
   document.getElementById('net').textContent = `${ping}ms · ${snapRate}/s`;
 

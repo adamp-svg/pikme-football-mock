@@ -56,6 +56,11 @@ export const BULLET_FULL_DIST = 300;
 
 export const MATCH_DURATION = 120; // seconds — TIME CAP: match ends here even if nobody hit the goal target
 export const GOALS_TO_WIN = 3;     // normal 2v2: first team to this many goals wins (0 = timed only, e.g. goal-brawl)
+// GOLDEN GOAL: if the clock runs out LEVEL, play continues and the next goal wins.
+// BOUNDED (not endless) for a hard wire reason: the snapshot packs `elapsed` as a u8
+// (shared/wire.js), so the match clock cannot exceed 255s. 120 + 45 = 165 — safe.
+// Set to 0 to disable overtime entirely (a level match then ends as an honest draw).
+export const OVERTIME_DURATION = 45;
 export const KICKOFF_FREEZE = 0.7; // brief reset pause at match start
 export const GOAL_RESET = 5;       // post-goal countdown before play resumes
 export const GOAL_FREEZE_HOLD = 2; // of GOAL_RESET, hold in the scoring positions this long before snapping to kickoff

@@ -4,7 +4,7 @@
 
 import {
   FIELD, GOAL, POST_R, BALL_RADIUS, BALL_FRICTION, BALL_MIN_SPEED, BALL_TAP_SPEED, WALL_RESTITUTION,
-  RELEASE_PICKUP_CD, MATCH_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
+  RELEASE_PICKUP_CD, MATCH_DURATION, OVERTIME_DURATION, KICKOFF_FREEZE, GOAL_RESET, GOAL_FREEZE_HOLD,
   PENALTY, PENALTY_KNOCKBACK_MUL, BALL_BUMP_SPEED, BALL_BUMP_SCALE,
   OVERCHARGE_TTL, SUPER_USES, OVERCHARGE_MUL, OVERCHARGE_ROLL, OVER_FIELD_ROLL, KICK_BLOCK_REBOUND, FULL_DRIVE_ROLL, KEEPER_BREAK_ROLL,
   OVERCHARGE_FULL_GAIN, OVERCHARGE_PARTIAL_GAIN, FULL_BUMP_MUL, OVERCHARGE_BULLET_MUL, BALL_WALL_POP_SPEED, BOMB_LAUNCH_MAX, BOMB_STACK_MAX,
@@ -16,17 +16,16 @@ import {
   SLOW_PER_STACK, SLOW_STACK_MAX, SLOW_STACK_DECAY, PUSH_MIN_MUL, PUSH_EASE,
   SUPER_BODY_PUSH, SUPER_BODY_STRIP_KB, SUPER_BODY_BALL_POP,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
-  WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_DIST_MAX, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
+  WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
   BUILD_WINDUP, BUILD_WINDUP_SLOW, BUILD_INTERRUPT_KV,
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, SUPER_KICK_MUL, SUPER_QUICK_KB, SUPER_QUICK_KICK_SPEED, SUPER_QUICK_BALL_POP, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
-import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds, capsuleAABB } from './arena.js';
+import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds, capsuleAABB, wallPlacement } from './arena.js';
 
-// Built walls can be built at an ANGLE. Their orientation is quantized to WALL_ANGLE_STEPS
-// steps over a half-turn (a wall is 180°-symmetric) so it round-trips the wire exactly.
-const WALL_ANGLE_STEPS = 16;
-const WALL_ANGLE_QUANT = Math.PI / WALL_ANGLE_STEPS;
+// Built walls can be built at an ANGLE, quantized over a half-turn (a wall is 180°-symmetric)
+// so it round-trips the wire exactly. The steps live with the placement formula in arena.js
+// (`WALL_ANGLE_STEPS` / `wallPlacement`) — this file must not keep a second copy of them.
 // A player-built wall is ONE piece, but its fragility is sampled at this many sections along
 // its length: fragile (weak) only if EVERY section is in a forbidden zone (see buildWall).
 export const WALL_BLOCKS = 4; // one build = this many block-capsules sharing a wallId (tile into one bar)
@@ -174,7 +173,8 @@ export function createState() {
   return {
     phase: 'playing', // endless — never 'ended'
     tick: 0,
-    elapsed: 0, // seconds played (counts up)
+    elapsed: 0, // seconds played (counts up). LIVE PLAY ONLY — freezes do not advance it.
+    overtime: false, // true once a level match passes MATCH_DURATION: next goal wins (golden goal)
     resetTimer: KICKOFF_FREEZE, // >0 => kickoff freeze
     players: {}, // id -> player
     // lastPlayer/prevPlayer = the ball's TOUCH CHAIN (who held it last, and who before them). Used for
@@ -579,6 +579,11 @@ export function step(state, inputs, dt) {
       if (!state.noClock && state.goalsToWin && (state.score.A >= state.goalsToWin || state.score.B >= state.goalsToWin)) {
         state.phase = 'ended';
       }
+      // GOLDEN GOAL: in overtime any goal that breaks the tie ends the match, whatever
+      // the format — same "goal, THEN win" beat as above.
+      if (!state.noClock && state.overtime && state.score.A !== state.score.B) {
+        state.phase = 'ended';
+      }
     }
     state.tick++;
     return;
@@ -590,9 +595,17 @@ export function step(state, inputs, dt) {
   // Training rooms set state.noClock — they run endlessly, never 'ended'.
   state.elapsed += dt;
   if (!state.noClock && state.phase === 'playing' && state.elapsed >= MATCH_DURATION) {
-    state.phase = 'ended';
-    state.tick++;
-    return;
+    // Level at the cap → GOLDEN GOAL instead of a flat draw. The next goal ends it
+    // (see the overtime check in the freeze-exit branch above). Bounded by
+    // OVERTIME_DURATION so a stalemate still terminates — and so `elapsed` stays
+    // inside the u8 the wire packs it into.
+    if (!state.overtime && state.score.A === state.score.B && OVERTIME_DURATION > 0) {
+      state.overtime = true;
+    } else if (!state.overtime || state.elapsed >= MATCH_DURATION + OVERTIME_DURATION) {
+      state.phase = 'ended';
+      state.tick++;
+      return;
+    }
   }
 
   // --- Players ---
@@ -1007,22 +1020,12 @@ function wallInPenalty(cx, cy, angle, hl, ht) {
          capsuleHitsBox(cx, cy, angle, hl, ht, FIELD.W - d, PENALTY_TOP, d, PENALTY.width);
 }
 function buildWall(state, p) {
-  const al = Math.hypot(p.aimX, p.aimY) || 1;
-  const ax = p.aimX / al, ay = p.aimY / al;
-  // The wall spans PERPENDICULAR to the aim (shields the facing direction), at ANY
-  // angle — quantized to the wire's 16 steps so server & client agree exactly.
-  const hl = BUILT_WALL.len / 2, ht = BUILT_WALL.thick / 2;
-  let angle = Math.atan2(ay, ax) + Math.PI / 2;
-  angle = Math.round(angle / WALL_ANGLE_QUANT) * WALL_ANGLE_QUANT;
-  // Axis-aligned bounding box of the rotated capsule (for the wire w/h bytes, the
-  // fragile-zone test, and the in-field clamp).
-  const ca = Math.abs(Math.cos(angle)), sa = Math.abs(Math.sin(angle));
-  const halfW = ca * hl + sa * ht, halfH = sa * hl + ca * ht;
-  // Push the aim stick harder to place the wall further out — base offset up to one wall
-  // thickness beyond it. Light push (or movement-based aim) keeps the old close placement.
-  const dist = BUILT_WALL.offset + (p.aimMag || 0) * BUILD_DIST_MAX;
-  let cx = clamp(p.x + ax * dist, halfW + 2, FIELD.W - halfW - 2);
-  let cy = clamp(p.y + ay * dist, halfH + 2, FIELD.H - halfH - 2);
+  // ONE formula for where the wall goes, shared with the client's drag ghost
+  // (`wallPlacement` in arena.js) — the preview IS the placement. Spans PERPENDICULAR to the
+  // aim, angle quantized to the wire's 16 steps, centre clamped in-field by the rotated AABB,
+  // pushed out by the drag magnitude. Do not re-derive any of it here; test-wall-place.mjs
+  // asserts the two agree.
+  const { cx, cy, angle, hl, ht } = wallPlacement(p.x, p.y, p.aimX, p.aimY, p.aimMag);
   // ONE build = WALL_BLOCKS (4) independent block-capsules that TILE the wall's length and share a
   // wallId, so they act as ONE continuous barrier. Each block's durability is decided by ITS OWN
   // zone: a block whose section sits in a bush/penalty is FRAGILE (hp1 — a power kick / bomb smashes

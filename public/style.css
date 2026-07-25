@@ -462,6 +462,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .member-row.is-me { outline: 2px solid var(--gold); }
 
 .timer.urgent { color: #ff5a4d; }
+/* Golden goal: the clock is counting down the bounded overtime, not the match. */
+.timer.overtime { color: #ffd34d; border-color: #ffd34d; }
 
 /* ---- Home / friends menus ---- */
 .screen#home {
