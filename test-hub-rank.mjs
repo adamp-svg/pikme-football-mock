@@ -68,33 +68,40 @@ ok(tip().includes('פלטינה'), '950 = פלטינה');
 ok(tip().includes('דרגה'), 'the tooltip names the track "דרגה" (rank), not גביעים');
 ok(tip().includes('450'), 'and counts the 450 remaining to יהלום');
 
-console.log('--- BOT CEILING: the meter reads LOCKED, not merely stalled ---');
+// REWRITTEN 2026-07-26. This block asserted a LOCK on the badge, driven by atBotCeiling. That function
+// became an unconditional `true` under the humans-only ruling, which latched the hatched meter and the
+// 🔒 onto every badge carrying an injected botLevel. The lock is gone; the tooltip carries the message.
+console.log('--- BOT MODES: no lock on the badge, but the tooltip is honest ---');
 window.SALTIZ_RANK = { rankPoints: 460, delta: 0, botLevel: 5 };
 rk.renderHubRank();
-ok(badge().classList.contains('hub-tier-capped'), 'at the L5 ceiling the badge is marked capped');
+ok(!badge().classList.contains('hub-tier-capped'), 'a bot mode does NOT paint the badge as locked');
 ok(tip().includes('רק משחק מול שחקנים אמיתיים מעלה דרגה'), 'the tooltip says only real players raise rank');
 window.SALTIZ_RANK = { rankPoints: 459, delta: 0, botLevel: 5 };
 rk.renderHubRank();
-ok(badge().classList.contains('hub-tier-capped'), 'every bot difficulty reads capped now — difficulty is not a rank lever');
+ok(!badge().classList.contains('hub-tier-capped'), 'and no difficulty paints it either — difficulty is not a rank lever');
 window.SALTIZ_RANK = { rankPoints: 940, delta: 0, botLevel: 11 };
 rk.renderHubRank();
-ok(badge().classList.contains('hub-tier-capped'), 'at the top bot ceiling it is capped too');
+ok(!badge().classList.contains('hub-tier-capped'), 'not at the hardest difficulty either');
 // Regression guard on retired copy: "raise the difficulty" was the old nudge, and it must never come
 // back — difficulty is no longer a rank lever at any level, so it would send the player nowhere.
 ok(!tip().includes('העלה את רמת הקושי'), 'the retired "raise the difficulty" nudge never appears');
 ok(tip().includes('שחקנים אמיתיים'), 'it says only real players raise your rank from here');
 
 console.log('--- botLevel absence must not read as difficulty 0 ---');
-// Number(null) === 0 and Number('') === 0, and level 0's ceiling is 60 — that would mark essentially
-// every player as capped.
+// Number(null) === 0 and Number('') === 0, so a naive read turns "we were not told" into "difficulty 0".
+// It used to matter because level 0 had the lowest ceiling and would have marked every player capped.
+// The lock is gone, but the distinction still drives the TOOLTIP: with no botLevel we do not know the
+// player is in a bot mode, so promising "only real players raise rank" would be a guess.
 for (const missing of [null, undefined, '']) {
   window.SALTIZ_RANK = { rankPoints: 620, delta: 0, botLevel: missing };
   rk.renderHubRank();
-  ok(!badge().classList.contains('hub-tier-capped'), `botLevel=${JSON.stringify(missing)} is treated as UNKNOWN, not level 0`);
+  ok(!tip().includes('שחקנים אמיתיים'), `botLevel=${JSON.stringify(missing)} is UNKNOWN, so the bot-mode message is withheld`);
+  ok(tip().includes('לדרגה הבאה'), `botLevel=${JSON.stringify(missing)} falls back to the progress-to-next-tier tooltip`);
 }
 window.SALTIZ_RANK = { rankPoints: 620, delta: 0, botLevel: 0 };
 rk.renderHubRank();
-ok(badge().classList.contains('hub-tier-capped'), 'a real level 0 (ceiling 60) does cap a 620-point player');
+ok(!badge().classList.contains('hub-tier-capped'), 'a real level 0 does not lock a 620-point player');
+ok(tip().includes('שחקנים אמיתיים'), 'but a KNOWN level 0 does explain that only real players move rank');
 
 console.log('--- a GAIN reveal ---');
 window.SALTIZ_RANK = { rankPoints: 645, delta: 25, botLevel: 11 };

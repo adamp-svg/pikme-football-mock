@@ -29,8 +29,12 @@
 .hub-tier.hub-tier-rank .hub-tier-bar { height: 4px; bottom: 2px; }
 .hub-tier.hub-tier-rank .hub-tier-bar b { transition: width .25s ease-out; }
 
-/* Bot ceiling reached: bots pay nothing more, so the meter reads LOCKED rather than just stalled.
-   Without this the player only sees a number that stopped moving and assumes a bug. */
+/* "This mode cannot move your rank" — the meter reads LOCKED rather than merely stalled, so a number
+   that stopped moving does not read as a bug.
+   ⚠️ CURRENTLY UNAPPLIED, on purpose. It used to be driven by atBotCeiling, which the humans-only
+   ruling turned into a constant `true` — latching this lock onto every badge. Kept because the state is
+   real and returns with the ranked event (shared/ranked.js decides "is this the ranked mode"), NOT
+   because anything sets it today. */
 .hub-tier.hub-tier-capped .hub-tier-bar b {
   background: repeating-linear-gradient(45deg, #6b5a2a 0 3px, #241a05 3px 6px);
 }

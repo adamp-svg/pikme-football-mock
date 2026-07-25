@@ -18,7 +18,7 @@
 // RELATIVE import so this resolves in BOTH the browser (served at /hub-rank.js → ../shared/ = /shared/)
 // and Node/jsdom (public/hub-rank.js → ../shared/ = football-mock/shared/).
 import {
-  TIER_MIN, TIER_HE, RANK_HE, tierIndexFromRank, tierProgress, nextTierAt, atBotCeiling,
+  TIER_MIN, TIER_HE, RANK_HE, tierIndexFromRank, tierProgress, nextTierAt,
 } from '../shared/rank.js';
 
 // Badge art per tier index — the 7 rungs of the server ladder.
@@ -75,7 +75,10 @@ function paint(box, rankPoints, botLevel) {
   box.style.setProperty('--c1', art.c1);
   box.style.setProperty('--c2', art.c2);
   box.classList.add('hub-tier-rank'); // opts into the rank styling in rank.css
-  box.classList.toggle('hub-tier-capped', botLevel != null && atBotCeiling(rankPoints, botLevel));
+  // NO 'capped' state here any more. It used to be `botLevel != null && atBotCeiling(...)`, and once
+  // atBotCeiling became an unconditional true (humans-only rank), that latched a hatched meter and a
+  // 🔒 onto every badge the app injected a botLevel for. "This mode cannot move your rank" is a
+  // property of the MODE, not of a retired ceiling — shared/ranked.js will drive it.
   const lbl = document.getElementById('hub-tier-lbl');
   const fill = document.getElementById('hub-tier-fill');
   if (lbl) {
@@ -95,10 +98,10 @@ function tooltip(rankPoints, botLevel) {
   const next = nextTierAt(rankPoints);
   const idx = tierIndexFromRank(rankPoints);
   const head = RANK_HE + ': ' + TIER_HE[idx] + ' · ' + rankPoints;
-  // 2026-07-26: rank is HUMANS-ONLY, so a bot-populated mode never moves it — at any difficulty. The
-  // old second branch ("raise the difficulty to keep climbing") is gone: difficulty is no longer a rank
-  // gate, and telling a player to raise it would send them somewhere that still pays nothing.
-  if (botLevel != null && atBotCeiling(rankPoints, botLevel)) {
+  // 2026-07-26: rank is HUMANS-ONLY, so any bot-populated mode leaves it frozen — at every difficulty.
+  // The retired branch ("raise the difficulty to keep climbing") must not return: difficulty is no
+  // longer a rank lever, so it would send the player somewhere that still pays nothing.
+  if (botLevel != null) {
     return head + ' — רק משחק מול שחקנים אמיתיים מעלה דרגה';
   }
   if (next == null) return head + ' — הדרגה הגבוהה ביותר';

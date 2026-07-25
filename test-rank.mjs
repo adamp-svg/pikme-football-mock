@@ -7,9 +7,10 @@
 //
 // The ladder constants here MUST stay identical to the server's. test-rank-parity.mjs proves it.
 
+import * as rankNs from './shared/rank.js'
 import {
     RANK_TIERS, TIER_MIN, TIER_HE, botCeiling,
-    tierIndexFromRank, tierNameHe, tierProgress, atBotCeiling, nextTierAt,
+    tierIndexFromRank, tierNameHe, tierProgress, nextTierAt,
 } from './shared/rank.js'
 
 let failures = 0
@@ -70,11 +71,10 @@ eq(botCeiling(5), 0, 'L5 = 0 (was 460)')
 eq(botCeiling(11), 0, 'L11 = 0 (was 940)')
 eq(botCeiling(50), 0, 'out-of-range level is still 0')
 
-console.log('atBotCeiling — now means "bots pay me no rank", which is always true in a bot match:')
-assert(atBotCeiling(460, 5) === true, 'mid-ladder, mid-difficulty → bots pay nothing')
-assert(atBotCeiling(459, 5) === true, 'one point lower → still nothing (there is no ceiling to be under)')
-assert(atBotCeiling(940, 11) === true, 'hardest bots → still nothing')
-assert(atBotCeiling(0, 0) === true, 'a brand-new player on the tutorial level earns no rank from bots either')
+console.log('atBotCeiling is DELETED and must stay deleted:')
+// It had become an unconditional `true`, and hub-rank.js used it to latch a hatched meter and a 🔒 onto
+// every badge with an injected botLevel. "This mode cannot move your rank" belongs to shared/ranked.js.
+assert(rankNs.atBotCeiling === undefined, 'shared/rank.js no longer exports atBotCeiling')
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
 process.exit(failures === 0 ? 0 : 1)

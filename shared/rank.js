@@ -69,14 +69,16 @@ export function tierProgress(rankPoints) {
   return Math.max(0, Math.min(1, (t - lo) / (next - lo)));
 }
 
-// True when bot matches are not paying this player any rank — which, since 2026-07-26, is ALWAYS in a
-// bot match: rank is humans-only. Callers guard on `botLevel != null`, i.e. "am I looking at a
-// bot-populated mode", so this still reads correctly at every call site; what changed is that raising
-// the difficulty is no longer an escape from it. The only escape is playing real humans.
-export function atBotCeiling(rankPoints, botLevel) {
-  void rankPoints;
-  void botLevel;
-  return true;
-}
+// `atBotCeiling` was DELETED here on 2026-07-26 and must not come back.
+//
+// It answered "have bots stopped paying this player", which the humans-only ruling turned into an
+// unconditional `true`. That was not harmless: `hub-rank.js` toggled `hub-tier-capped` on
+// `botLevel != null && atBotCeiling(...)`, so the hatched meter and the 🔒 latched onto EVERY player's
+// badge the moment the app injected a botLevel — a permanent broken-looking lock, shipped by a function
+// that had become a constant.
+//
+// The state it was trying to express — "this mode cannot move your rank" — is real and worth showing,
+// but it is a property of the MODE (is this the ranked event?), not of a ceiling that no longer exists.
+// `shared/ranked.js` owns that question. See summery/research-trophies/15-RANKED-EVENT-SPEC.md.
 
 export { BOT_LEVEL_MAX };
