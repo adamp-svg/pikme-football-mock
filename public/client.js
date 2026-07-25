@@ -6,7 +6,7 @@ import {
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_DIST_MAX, BUILD_WINDUP, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
-import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB } from '/shared/arena.js';
+import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
@@ -5527,12 +5527,11 @@ function drawObstacles() {
     let ax, ay;
     if (l > 12) { ax = dx / l; ay = dy / l; }
     else { const meV = latest && latest.players.find((q) => q.id === me.playerId); ax = meV ? meV.aimX : 1; ay = meV ? meV.aimY : 0; }
-    // Ghost at the exact angle it'll build: perpendicular to aim, quantized like the sim.
-    let ang = Math.atan2(ay, ax) + Math.PI / 2;
-    ang = Math.round(ang / (Math.PI / 16)) * (Math.PI / 16);
-    // Match the sim: a harder drag pushes the wall further out (scaled to wallMaxPx, capped at BUILD_DIST_MAX).
-    const dist = BUILT_WALL.offset + wallReachFrac(dx, dy) * BUILD_DIST_MAX;
-    const cx = rendered.x + ax * dist, cy = rendered.y + ay * dist;
+    // The ghost IS the placement: one shared formula (angle quantization, push distance AND the
+    // in-field clamp that slides a wall built near a line back inside the pitch). Duplicating it
+    // here is how the preview used to lie by up to ~160px along a touchline.
+    const ghost = wallPlacement(rendered.x, rendered.y, ax, ay, wallReachFrac(dx, dy));
+    const ang = ghost.angle, cx = ghost.cx, cy = ghost.cy;
     const L = ws_(BUILT_WALL.len), T = ws_(BUILT_WALL.thick);
     const canc = buildDrag.cancelArmed; // drag pulled back toward centre → releasing now cancels
     ctx.save();

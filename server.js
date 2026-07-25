@@ -18,6 +18,7 @@ import {
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD, GOALS_TO_WIN,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
+import { coalesceInput, consumeEdges } from './shared/input-merge.js';
 import { MAIN_FIELD } from './shared/main-field.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
@@ -641,7 +642,7 @@ function tickRoom(room) {
   if (room.phase !== 'match') return;
   if (room.introT > 0) {                    // pre-kickoff promo: freeze the sim so the clock + play wait for the cinematic
     room.introT -= DT;
-    for (const inp of room.inputs.values()) { inp.fire = false; inp.aimed = false; inp.special = false; inp.build = false; }
+    for (const inp of room.inputs.values()) consumeEdges(inp);
     return;                                 // snapshots keep broadcasting the frozen kickoff state
   }
   if (room.mode === 'training') {
@@ -660,7 +661,7 @@ function tickRoom(room) {
       // no-leash enemies (middle bot) fly off freely; their walk-home input still returns them
     }
   }
-  for (const inp of room.inputs.values()) { inp.fire = false; inp.aimed = false; inp.special = false; inp.build = false; } // consume edges; hold persists as a level
+  for (const inp of room.inputs.values()) consumeEdges(inp); // edges + their payloads are one-shot; hold persists as a level
   if (room.state.phase === 'ended') {
     if (!room.statsSent) { // one-shot: hand each human their per-player match tallies for logging
       room.statsSent = true;
@@ -1249,26 +1250,11 @@ wss.on('connection', (ws, req) => {
           }
         }
         const prev = room.inputs.get(member.id) || {};
-        // The aim VECTOR must ride WITH the fire edge. On release the client zeroes its aim
-        // stick, so it sends P1{fire, aim} then P2{no-fire, aim≈0}; on a jittery connection
-        // both coalesce into one tick. fire is latched sticky, but if we let the latest packet
-        // overwrite aimX/aimY, P2 clobbers the shot direction and the sim falls back to the
-        // MOVEMENT dir — the ball flies where you're running, not where you aimed. So LOCK the
-        // aim to the message that carried the fire edge (same idea already used for `aimed`).
-        // Ditto the lob vector (sax/say) with the `special` edge.
-        const takeAim = !!msg.fire || !prev.fire;      // this msg fires, or no fire pending -> use its aim
-        const takeLob = !!msg.special || !prev.special;
-        room.inputs.set(member.id, {
-          seq: msg.seq, moveX: msg.moveX || 0, moveY: msg.moveY || 0,
-          aimX: takeAim ? (msg.aimX || 0) : prev.aimX, aimY: takeAim ? (msg.aimY || 0) : prev.aimY,
-          // hold = a level signal (charging now); fire = an EDGE (release), latched
-          // sticky until the next tick consumes it so a fire between ticks isn't lost.
-          hold: !!msg.hold, fire: prev.fire || !!msg.fire,
-          aimed: prev.aimed || !!msg.aimed,
-          special: prev.special || !!msg.special, build: prev.build || !!msg.build,
-          buildHold: !!msg.buildHold, buildDist: msg.buildDist || 0,
-          sax: takeLob ? (msg.sax || 0) : prev.sax, say: takeLob ? (msg.say || 0) : prev.say,
-        });
+        // Several packets can land between two ticks (the client edge-flushes every action), so
+        // they merge into one input. Each action EDGE locks the payload it arrived with — see
+        // shared/input-merge.js for why (it's the same class of bug three times over: the shot
+        // aim, the lob vector, and the wall's aim + push distance).
+        room.inputs.set(member.id, coalesceInput(prev, msg));
         return;
       }
       if (msg.type === 'settings' && room) {

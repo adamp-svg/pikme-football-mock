@@ -8,7 +8,7 @@
 // (y=550) centre lines, so neither team is advantaged — important because team B
 // renders a horizontally-mirrored view.
 
-import { FIELD, clamp, DRY_WALL_HP } from './constants.js';
+import { FIELD, clamp, DRY_WALL_HP, BUILT_WALL, BUILD_DIST_MAX } from './constants.js';
 
 // Static, indestructible stone walls (axis-aligned boxes).
 const WALLS = [
@@ -202,6 +202,32 @@ export function capsuleAABB(cx, cy, angle, hl, ht) {
   const ca = Math.abs(Math.cos(angle)), sa = Math.abs(Math.sin(angle));
   const w = Math.round((ca * hl + sa * ht) * 2), h = Math.round((sa * hl + ca * ht) * 2);
   return { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), w, h };
+}
+// Where a player's built wall goes. ONE formula, so the client's drag ghost and the sim's
+// buildWall() can never disagree: the ghost IS the placement. Returns the wall's centre, its
+// (quantized) angle and half-extents — the caller tiles WALL_BLOCKS blocks along it.
+//   px,py  player position        ax,ay  aim direction (need not be normalized)
+//   mag    0..1 drag push — how much further out than the base offset to place it
+// The angle is quantized to WALL_ANGLE_STEPS so server and client agree byte-for-byte, and the
+// centre is CLAMPED inside the pitch using the rotated bounding box — that clamp visibly slides
+// a wall built near a touchline, which is exactly what the preview has to show.
+export const WALL_ANGLE_STEPS = 16;
+export const WALL_ANGLE_QUANT = Math.PI / WALL_ANGLE_STEPS;
+export function wallPlacement(px, py, ax, ay, mag) {
+  const al = Math.hypot(ax, ay) || 1;
+  const nx = ax / al, ny = ay / al;
+  const hl = BUILT_WALL.len / 2, ht = BUILT_WALL.thick / 2;
+  // The wall spans PERPENDICULAR to the aim (it shields the direction you're facing).
+  let angle = Math.atan2(ny, nx) + Math.PI / 2;
+  angle = Math.round(angle / WALL_ANGLE_QUANT) * WALL_ANGLE_QUANT;
+  const ca = Math.abs(Math.cos(angle)), sa = Math.abs(Math.sin(angle));
+  const halfW = ca * hl + sa * ht, halfH = sa * hl + ca * ht;
+  const dist = BUILT_WALL.offset + clamp(mag || 0, 0, 1) * BUILD_DIST_MAX;
+  return {
+    cx: clamp(px + nx * dist, halfW + 2, FIELD.W - halfW - 2),
+    cy: clamp(py + ny * dist, halfH + 2, FIELD.H - halfH - 2),
+    angle, hl, ht, halfW, halfH,
+  };
 }
 // A rotatable INDESTRUCTIBLE hard wall (capsule) — same shape a built wall uses, so all
 // collision/cover/cannon code (which branches on `angle`) treats it identically; it just
