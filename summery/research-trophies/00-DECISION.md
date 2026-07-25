@@ -1,8 +1,9 @@
 # 🏆 TROPHIES + SKILL PROGRESSION — synthesis & proposed spec
 
 > **Read this file first.** `01`–`05` are the raw research (5 parallel agents, ~1200 lines, sourced).
-> Status: **RESEARCH DONE · SPEC SIGNED OFF (see §7) · NOT YET IMPLEMENTED.** Date: 2026-07-25.
-> The 4 design questions are **decided** — §7 is binding, build to it.
+> Status: **BUILT** (except the technique sim-hooks — see §8 "Still open"). Date: 2026-07-25.
+> §7 = the 4 signed-off decisions. **§8 = the terminology swap + revised curves — READ §8 BEFORE §1–§7,
+> because the two names changed after this doc was written.**
 >
 > User's ask: *"I want trophies instead [of XP]. New mechanism to progress player skills. How much
 > from losing, from winning, from bots-only game etc. Do full research."*
