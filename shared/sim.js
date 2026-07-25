@@ -154,8 +154,8 @@ function nearestVisibleEnemy(state, p) {
 }
 
 // OVERCHARGE is a consumable meter (p.powerMeter 0..1). A FORCEFUL hit adds `amt` —
-// a full-power hit/strip/bomb fills it (1.0), a lower-power hit fills half (0.5), so it
-// takes ONE full hit OR TWO partials. When it fills, the player is READY (p.power) for
+// a full-power hit/strip/bomb fills it (OVERCHARGE_FULL_GAIN = 1.0), a lower-power hit adds
+// OVERCHARGE_PARTIAL_GAIN (1/3), so it takes ONE full hit OR THREE partials. When it fills, the player is READY (p.power) for
 // exactly ONE overcharge shot/kick, which spends it. Never stacks past ready.
 function earnPower(p, amt) {
   if (!p || p.power) return;
@@ -245,7 +245,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     trampCd: 0, // >0 => recently launched by a trampoline (no re-launch)
     power: false, // OVERCHARGE READY: earned by filling the meter; enables ONE overcharge shot/kick
     powerT: 0,    // seconds the READY overcharge lasts if unused (decays)
-    powerMeter: 0, // 0..1 progress toward overcharge (1 full hit or 2 partial hits fills it)
+    powerMeter: 0, // 0..1 progress toward overcharge (1 full hit or 3 partial hits fills it)
     powerUses: 0,  // small super-actions left (super-quick / body strip); overcharge shot spends all
 
     buildAmmo: BUILD_MAG, // wall charges available

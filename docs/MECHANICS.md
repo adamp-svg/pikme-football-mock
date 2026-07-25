@@ -161,6 +161,7 @@ ball-length, `kv ≈ 220` ⇒ ~1.5 ball-lengths. Bomb launches use the gentler g
 
 Sim mechanics are covered by `test-power.mjs`, `test-mechanics.mjs`, `test-shoot-angle.mjs`,
 `test-cover.mjs`, `test-snooker.mjs`, `test-bomb-lob.mjs`, `test-fragile.mjs`, `test-net-roll.mjs`.
-Run `node test-<name>.mjs`. **Known pre-existing:** `test-power` has 2 medium-hit meter-gain fails
-(0.33 vs >0.4) unrelated to recent shot/super/bomb work. Test `shoot()` helpers hold
+Run `node test-<name>.mjs`. The whole suite is GREEN (`for f in test*.mjs; do node $f; done`) — the
+long-standing `test-power` medium-hit fails were the TEST being stale (it still asserted the old
+1/2 partial gain); it now derives the hit count from `OVERCHARGE_PARTIAL_GAIN`. Test `shoot()` helpers hold
 `charge × SHOOT_CHARGE_TIME × 60` ticks — keep that if you retune charge time.

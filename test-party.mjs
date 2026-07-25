@@ -1,11 +1,29 @@
 // End-to-end test of the party-invite flow (no DB): two authenticated WS clients become
 // friends via setFriends, host invites, invitee accepts + auto-joins, host starts 2v2.
-// Run: FOOTBALL_TOKEN_SECRET=testsecret node test-party.mjs   (server started with same secret)
+// Run: node test-party.mjs   — it BOOTS ITS OWN server on a private port with a matching
+// FOOTBALL_TOKEN_SECRET, so a plain `for f in test*.mjs` run passes with nothing set up.
+// (This test used to be reported as a "known pre-existing fail" for sessions on end — it was
+// really just pointing at :3010, a server another agent had started WITHOUT the test secret,
+// so every client authed as a guest. Set URL=ws://host:port to test an external server instead.)
 import { WebSocket } from 'ws';
 import jwt from 'jsonwebtoken';
+import { spawn } from 'node:child_process';
 
 const SECRET = process.env.FOOTBALL_TOKEN_SECRET || 'testsecret';
-const URL = process.env.URL || 'ws://localhost:3010';
+const OWN_PORT = 3900 + (process.pid % 90);   // private, out of the agents' 3010-3013 range
+let child = null;
+if (!process.env.URL) {
+  child = spawn(process.execPath, ['server.js'], {
+    env: { ...process.env, PORT: String(OWN_PORT), FOOTBALL_TOKEN_SECRET: SECRET },
+    stdio: 'ignore',
+  });
+  process.on('exit', () => child?.kill());
+  for (let i = 0; i < 50; i++) {                                        // wait for the port to answer
+    await new Promise((r) => setTimeout(r, 100));
+    try { const res = await fetch(`http://localhost:${OWN_PORT}/`); if (res.ok) break; } catch { /* not up yet */ }
+  }
+}
+const URL = process.env.URL || `ws://localhost:${OWN_PORT}`;
 const tok = (id, nick) => jwt.sign({ id, nickName: nick }, SECRET, { expiresIn: '1h' });
 
 function client(id, nick) {
@@ -123,5 +141,6 @@ try {
   console.log('✗ EXCEPTION:', e.message); failed = true;
 }
 A.ws.close(); B.ws.close();
+child?.kill();
 console.log(failed ? '\nRESULT: FAIL' : '\nRESULT: PASS');
 process.exit(failed ? 1 : 0);

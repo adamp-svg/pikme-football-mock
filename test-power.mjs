@@ -7,7 +7,7 @@
 //     enemy. A quick poke never earns it, and an overcharge kick can't self-farm it.
 // Run: node test-power.mjs
 import { createState, addPlayer, step } from './shared/sim.js';
-import { DT, FULL_CHARGE, OVERCHARGE_TTL, BOMB, SHOOT_CHARGE_TIME } from './shared/constants.js';
+import { DT, FULL_CHARGE, OVERCHARGE_TTL, BOMB, SHOOT_CHARGE_TIME, OVERCHARGE_PARTIAL_GAIN } from './shared/constants.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
@@ -45,16 +45,28 @@ function shoot(s, id, charge, aim = [1, 0], others = {}) {
   ok(A.power === true, 'a single FULL-power hit fills the overcharge meter (ready)');
 }
 
-// 1b) OVERCHARGE is a CONSUMABLE METER: one MEDIUM hit is NOT enough (fills half); TWO fill it.
+// 1b) OVERCHARGE is a CONSUMABLE METER: a MEDIUM hit only earns OVERCHARGE_PARTIAL_GAIN,
+//     so it takes `1 / OVERCHARGE_PARTIAL_GAIN` of them (today 1/3 → three) to fill it.
+//     Asserted against the CONSTANT, not a hard-coded 1/2 — this test went stale once already
+//     when the gain was retuned 1/2 → 1/3 in the shot rebalance.
 {
   const s = duel(); const A = s.players.A, B = s.players.B;
+  const need = Math.ceil(1 / OVERCHARGE_PARTIAL_GAIN);
+  A.ammo = need + 1;
   A.x = 800; A.y = 550; A.aimX = 1; A.aimY = 0; B.x = 1000; B.y = 550; s.ball.x = 200; s.ball.y = 200; // ball out of the line of fire
-  shoot(s, 'A', 0.5, [1, 0], { B: inp() });
-  for (let t = 0; t < 25; t++) { B.x = 1000; B.kvx = 0; step(s, { B: inp() }, DT); }
-  ok(A.power === false && (A.powerMeter || 0) > 0.4, `one MEDIUM hit half-fills the meter, not ready (meter ${(A.powerMeter || 0).toFixed(2)})`);
-  shoot(s, 'A', 0.5, [1, 0], { B: inp() });
-  for (let t = 0; t < 30; t++) { B.x = 1000; B.kvx = 0; step(s, { B: inp() }, DT); }
-  ok(A.power === true, 'a SECOND medium hit fills the meter (2 partials = 1 full)');
+  const mediumHit = () => {
+    shoot(s, 'A', 0.5, [1, 0], { B: inp() });
+    for (let t = 0; t < 30; t++) { B.x = 1000; B.kvx = 0; step(s, { B: inp() }, DT); }
+  };
+  mediumHit();
+  const after1 = A.powerMeter || 0;
+  ok(A.power === false && Math.abs(after1 - OVERCHARGE_PARTIAL_GAIN) < 0.01,
+    `one MEDIUM hit earns exactly OVERCHARGE_PARTIAL_GAIN, not ready (meter ${after1.toFixed(2)} vs ${OVERCHARGE_PARTIAL_GAIN.toFixed(2)})`);
+  for (let i = 1; i < need; i++) {
+    ok(A.power === false, `not ready yet after ${i} medium hit(s) (meter ${(A.powerMeter || 0).toFixed(2)})`);
+    mediumHit();
+  }
+  ok(A.power === true, `${need} medium hits fill the meter (${need} partials = 1 full)`);
 }
 
 // 2) a QUICK poke does NOT earn overcharge (only forceful hits do).
