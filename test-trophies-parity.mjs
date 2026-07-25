@@ -1,0 +1,52 @@
+// CROSS-REPO PARITY: the game's trophy ladder (shared/trophies.js) must match the server's
+// (pikme-server/data/football-trophies.js) exactly. Run: node test-trophies-parity.mjs
+//
+// Why this test exists: the server OWNS every trophy number, but the game has to draw the tier badge
+// and the bar. If the two ladders drift, the hub shows a player as "זהב 480" while the server has
+// already promoted them — a silent, confusing, hard-to-trace bug. This fails loudly instead.
+//
+// The server repo is a SIBLING checkout, not a dependency. If it isn't present (someone cloned only
+// the game), this test SKIPS rather than fails — it can't verify parity, and pretending otherwise
+// would be worse than saying so.
+
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+import { TROPHY_TIERS, TIER_MIN, botCeiling } from './shared/trophies.js';
+
+const require = createRequire(import.meta.url);
+const SERVER_MODULE = '../pikme-server/data/football-trophies.js';
+const serverPath = new URL(SERVER_MODULE, import.meta.url).pathname;
+
+if (!existsSync(serverPath)) {
+  console.log(`SKIP — sibling server checkout not found at ${SERVER_MODULE}; cannot verify parity.`);
+  process.exit(0);
+}
+
+const server = require(SERVER_MODULE);
+
+let failures = 0;
+function assert(cond, msg) {
+  if (cond) console.log('  ✓', msg);
+  else { console.error('  ✗', msg); failures++; }
+}
+
+console.log('game shared/trophies.js  ==  server data/football-trophies.js:');
+assert(TROPHY_TIERS.join(',') === server.TROPHY_TIERS.join(','),
+  `tier names match (game ${TROPHY_TIERS.join('/')} vs server ${server.TROPHY_TIERS.join('/')})`);
+assert(TIER_MIN.join(',') === server.TIER_MIN.join(','),
+  `tier thresholds match (game ${TIER_MIN.join('/')} vs server ${server.TIER_MIN.join('/')})`);
+
+// Every difficulty level, not just the ends — an off-by-one in the formula would slip past a 2-point check.
+let ceilMismatch = null;
+for (let L = 0; L <= 11; L++) {
+  if (botCeiling(L) !== server.botCeiling(L)) { ceilMismatch = `L${L}: game ${botCeiling(L)} vs server ${server.botCeiling(L)}`; break; }
+}
+assert(ceilMismatch === null, `botCeiling matches at every difficulty level 0..11${ceilMismatch ? ' — ' + ceilMismatch : ''}`);
+
+// A Hebrew name for every tier the server can return, or the badge renders blank.
+import { TIER_HE } from './shared/trophies.js';
+assert(TIER_HE.length === server.TROPHY_TIERS.length, 'a Hebrew label exists for every server tier');
+assert(TIER_HE.every((s) => typeof s === 'string' && s.length > 0), 'no Hebrew label is empty');
+
+console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
+process.exit(failures === 0 ? 0 : 1);
