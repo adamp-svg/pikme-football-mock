@@ -741,12 +741,14 @@ function renderHomeCharacter() {
   renderHubXp();
   renderHubTier();
   _cardsSig = cardsSig();
+  _cardsOnlySig = cardsOnlySig();
 }
 
 // Album-derived stats + collector rank on the home hub — all from myCards(), so it
 // works the moment the app injects window.SALTIZ_CARDS. The 3rd chip upgrades from
 // "copies" to real total views automatically if the app ever injects window.SALTIZ_PROFILE.views.
 let _cardsSig = '';
+let _cardsOnlySig = ''; // deep album fingerprint; distinguishes an album change from an xp-only change
 // Collector tiers — icon-forward pixel badge (icon + one short word; «אספן» prefix dropped
 // so the emblem stays minimal). Icon read as the art, word as the tier.
 const HUB_RANKS = [
@@ -764,9 +766,36 @@ function fmtCompact(n) {
   return String(n);
 }
 function setTxt(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+// Deep album fingerprint: every card's rarity+number+count (sorted, order-independent) so ANY
+// add/remove/count change trips the hub poll — the old first-card-only hash missed swaps.
+function cardsOnlySig() {
+  const c = myCards();
+  return c.length + ':' + c.map((x) => x.r[0] + x.n + 'x' + x.c).sort().join(',');
+}
 function cardsSig() {
-  const c = myCards(); const x = window.SALTIZ_XP;
-  return c.length + ':' + (c[0] ? c[0].r + c[0].n + c[0].w : '') + ':' + (x ? (x.xp ?? x.level ?? '') : '');
+  const x = window.SALTIZ_XP;
+  return cardsOnlySig() + '|' + (x ? (x.xp ?? x.level ?? '') : '');
+}
+// The app changed the album while we're live. Reconcile everything that references cards:
+//   • push the fresh album to the server (was frozen at join → stale loadout/bot-buff validation),
+//   • eagerly drop loadout slots whose card is gone (so they can't silently reappear if re-added),
+//   • demote a now-locked selected hero to the best still-unlocked one.
+function reconcileOnCardChange() {
+  sendMsg({ type: 'setCards', cards: myCards() });
+  if (Array.isArray(myLoadout)) {
+    const cleaned = [0, 1, 2].map((i) => validSlot(myLoadout[i]));
+    const changed = [0, 1, 2].some((i) => {
+      const a = myLoadout[i] ? { r: myLoadout[i].r, n: +myLoadout[i].n } : null;
+      return JSON.stringify(a) !== JSON.stringify(cleaned[i]);
+    });
+    if (changed) { myLoadout = cleaned; saveLoadout(myLoadout); sendMsg({ type: 'setLoadout', loadout: myLoadout }); }
+  }
+  const cut = myCosmetic.indexOf(':'), hero = cut >= 0 ? myCosmetic.slice(0, cut) : myCosmetic;
+  if (!isHeroUnlocked(hero)) {
+    const best = HERO_KEYS[unlockedHeroCount() - 1];
+    myCosmetic = normalizeCosmetic(best + ':' + (cut >= 0 ? myCosmetic.slice(cut + 1) : 'base'));
+    saveCosmetic(myCosmetic); sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
+  }
 }
 function renderHubStats() {
   const cards = myCards();
@@ -1650,6 +1679,8 @@ function startHomeDance() {
         const sig = cardsSig();
         if (sig !== _cardsSig) {
           const newXp = currentXpRaw();
+          // Album changed (not just xp) -> reconcile loadout/hero + push fresh cards to the server.
+          if (cardsOnlySig() !== _cardsOnlySig) { _cardsOnlySig = cardsOnlySig(); reconcileOnCardChange(); }
           // A match just ended and the app injected MORE xp -> celebrate the gain instead of snapping.
           if (_awaitXpReveal && _xpShown != null && newXp > _xpShown + 0.5) {
             _cardsSig = sig;                       // consume the signature so we don't also snap-render
@@ -3211,7 +3242,7 @@ const keys = {};
 addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()] = true;
   if (e.key === ' ' && !e.repeat) beginCharge();     // hold space to charge
-  if (e.key.toLowerCase() === 'e' && !holdingBall) specialQueued = true; // bomb locked while carrying
+  if (e.key.toLowerCase() === 'e' && !holdingBall && !bombCooling()) { specialQueued = true; flashSpecialCooldown(); } // bomb locked while carrying OR reloading
   if (e.key.toLowerCase() === 'q' && !e.repeat) beginBuild(); // hold Q to wind up a wall
 });
 addEventListener('keyup', (e) => {
@@ -3244,7 +3275,7 @@ function openAd(board) {
 canvas.addEventListener('mousedown', (e) => {
   if (usingTouch) return;                                                     // ignore synthesized-from-touch mouse events
   const ad = adBoardAt(e.clientX, e.clientY); if (ad) { openAd(ad); return; } // board tap, not a shot
-  if (e.button === 2) { if (!holdingBall) { specialQueued = true; specialAim = { x: 0, y: 0 }; } }   // right-click = special (locked while carrying)
+  if (e.button === 2) { if (!holdingBall && !bombCooling()) { specialQueued = true; specialAim = { x: 0, y: 0 }; flashSpecialCooldown(); } }   // right-click = special (locked while carrying/reloading)
   else { mouse.down = true; beginCharge(); }       // hold left-click to charge
 });
 addEventListener('mouseup', (e) => { if (usingTouch) return; if (mouse.down && e.button !== 2) { if (aimPulled() || currentCharge() < QUICK_CHARGE) releaseShot(); else cancelCharge(); } mouse.down = false; }); // aimed OR quick tap fires; a long no-aim hold does nothing
@@ -3262,7 +3293,7 @@ const settingsPanel = document.getElementById('settings');
 if (specialBtn) {
   specialBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    if (holdingBall) return; // bomb is LOCKED while carrying — no drag, no press feedback, no exhaust
+    if (holdingBall || bombCooling()) return; // LOCKED while carrying OR reloading — no drag, no feedback, no restart
     try { specialBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
     bombDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0, aimed: false };
   });
@@ -3365,13 +3396,15 @@ updateMusicButton();
 
 // Local cooldown shading for the button (approximate; server is authoritative).
 let specialCdUntil = 0;
+const bombCooling = () => performance.now() < specialCdUntil; // true while the bomb is reloading → button LOCKED
+const bombCdMs = () => (CHARACTERS.player.specialCooldown * 1000) / (settings.bombReloadSpeed || 1); // live: training reload-speed scales it
 function flashSpecialCooldown() {
-  const cd = (CHARACTERS[me.char] || CHARACTERS.player).specialCooldown * 1000;
-  specialCdUntil = performance.now() + cd;
+  if (bombCooling()) return;                 // already reloading — never restart (that's the "never reloads" bug)
+  specialCdUntil = performance.now() + bombCdMs();
 }
 
 // --- Pause + settings panel ---
-const SETTING_KEYS = ['speedMul', 'sizeMul', 'carrySpeedMul', 'ballSizeMul', 'shotPower', 'bulletSpeed', 'bulletKnockback', 'bombPower'];
+const SETTING_KEYS = ['speedMul', 'sizeMul', 'carrySpeedMul', 'ballSizeMul', 'shotPower', 'bulletSpeed', 'bulletKnockback', 'bombPower', 'bombReloadSpeed', 'wallReloadSpeed'];
 const SETTING_FMT = {
   speedMul: (v) => v.toFixed(2) + '×',
   sizeMul: (v) => v.toFixed(2) + '×',
@@ -3381,6 +3414,8 @@ const SETTING_FMT = {
   bulletSpeed: (v) => String(Math.round(v)),
   bulletKnockback: (v) => String(Math.round(v)),
   bombPower: (v) => String(Math.round(v)),
+  bombReloadSpeed: (v) => v.toFixed(2) + '×',
+  wallReloadSpeed: (v) => v.toFixed(2) + '×',
 };
 
 function syncSliderUI() {
@@ -3462,6 +3497,7 @@ document.getElementById('reset-settings').addEventListener('click', () => {
   settings.bulletSpeed = 720;
   settings.bulletKnockback = 1500;
   settings.bombPower = 1500;
+  settings.bombReloadSpeed = 1; settings.wallReloadSpeed = 1;
   syncSliderUI(); sendSettings();
 });
 for (const k of SETTING_KEYS) {
@@ -5489,8 +5525,7 @@ function renderFrame() {
   specialBtn.classList.toggle('cooling', specialCooling);
   specialBtn.classList.toggle('ready', !specialCooling); // Brawl-style charged-Super pulse
   // Radial cooldown ring: fills 0→1 as the bomb recharges; full when ready.
-  const specialCdMs = (CHARACTERS[me.char] || CHARACTERS.player).specialCooldown * 1000;
-  specialBtn.style.setProperty('--cd', specialCooling && specialCdMs > 0 ? 1 - (specialCdUntil - performance.now()) / specialCdMs : 1);
+  { const cdMs = bombCdMs(); specialBtn.style.setProperty('--cd', specialCooling && cdMs > 0 ? 1 - (specialCdUntil - performance.now()) / cdMs : 1); }
 
   // Charge power indicator: the right (aim) stick reddens as you hold.
   // (Cheap colour changes only — no per-frame box-shadow, which thrashes paint.)

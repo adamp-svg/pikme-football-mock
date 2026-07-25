@@ -153,6 +153,8 @@ function applySettings(room, s) {
     bulletSpeed: c(s.bulletSpeed, 50, 1500, cur.bulletSpeed),
     bulletKnockback: c(s.bulletKnockback, 0, 2500, cur.bulletKnockback),
     bombPower: c(s.bombPower, 0, 5000, cur.bombPower),
+    bombReloadSpeed: c(s.bombReloadSpeed, 0.25, 5, cur.bombReloadSpeed ?? 1), // training reload-speed knobs
+    wallReloadSpeed: c(s.wallReloadSpeed, 0.25, 5, cur.wallReloadSpeed ?? 1),
   };
 }
 
@@ -1045,6 +1047,9 @@ wss.on('connection', (ws, req) => {
       // Card-powers loadout chosen on the home screen; validated vs the member's album,
       // baked into buffs at the next match start.
       if (msg.type === 'setLoadout') { member.loadout = sanitizeLoadout(msg.loadout, member.cards); return; }
+      // Album changed mid-session (the app re-injected SALTIZ_CARDS): refresh the member's cards so
+      // loadout validation + bot buff-matching use the CURRENT album (was frozen at join until reconnect).
+      if (msg.type === 'setCards') { member.cards = sanitizeCards(msg.cards); member.loadout = sanitizeLoadout(member.loadout, member.cards); return; }
       if (msg.type === 'quickMatch') { quickMatch(member, msg.diffLevel); return; }
       if (msg.type === 'training') { startTraining(member); return; }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field); return; }
