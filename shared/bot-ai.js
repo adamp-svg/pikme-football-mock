@@ -19,10 +19,10 @@
 import {
   FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, SUPER_USES, BUILD_WINDUP,
-  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, FRAGILE_PASS_SPEED,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
-import { ARENA, pointInBox, pointInBush } from './arena.js';
+import { ARENA, pointInBox, pointInBush, nearestOnWall } from './arena.js';
 
 // Active arena for this state — a custom FIELD-BUILDER arena (state.arena) or the default.
 // Bots must path/aim against the SAME geometry the sim collides with. Falls back to the
@@ -89,10 +89,10 @@ export const BOT_SKILL = {
   // Buffed 2026-07-22 (bots "not strong enough"): faster reaction, tighter aim, higher charge-rate
   // (reach fire charge sooner -> shoot more, dribble less), more aggression + quicker tools + turn.
   // Kept fair: non-extreme still no wallhack (visionMul is open-carrier tracking only); only extreme cheats.
-  easy:    { react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00 },
-  normal:  { react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10 },
-  hard:    { react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.90 },
-  extreme: { react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 2.20, cheat: true, preCharge: true, cheatFlub: 0.16 },
+  easy:    { react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20 },
+  normal:  { react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12 },
+  hard:    { react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.90, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05 },
+  extreme: { react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 2.20, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, cheat: true, preCharge: true, cheatFlub: 0.16 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -100,7 +100,7 @@ export const DEFAULT_SKILL = 'normal';
 // t = 0 tutorial-weak, ~0.25 easy, 0.5 normal, ~0.82 hard, 1.0 extreme. Lets each SIDE of a
 // match carry its own continuous difficulty (see computeBotInputs' per-team skill), so enemy
 // and partner can be tuned independently and matched to game progression.
-const VERY_EASY = { react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9 };
+const VERY_EASY = { react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30 };
 const SKILL_ANCHORS = [
   { t: 0.00, v: VERY_EASY },
   { t: 0.25, v: BOT_SKILL.easy },
@@ -108,7 +108,7 @@ const SKILL_ANCHORS = [
   { t: 0.82, v: BOT_SKILL.hard },
   { t: 1.00, v: BOT_SKILL.extreme },
 ];
-const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'decisionHz', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul'];
+const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'decisionHz', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul', 'wallCommit', 'detourRatio', 'flowAhead', 'navLag'];
 export function skillVec(t) {
   t = Math.max(0, Math.min(1, t));
   let a = SKILL_ANCHORS[0], b = SKILL_ANCHORS[SKILL_ANCHORS.length - 1];
@@ -370,12 +370,135 @@ function perceivedPos(bm, tgt, canSee, sk, mem) {
   return { x: s.x + s.vx * adv, y: s.y + s.vy * adv, vx: s.vx, vy: s.vy, live: false };
 }
 
+// ============================ NAV GRID + FLOW FIELD ==================================
+// Local steering alone CANNOT route around a big obstacle, no matter how the danger terms are
+// weighted: past the end of a wall the direct line to the target clips the corner, the bot turns
+// back, and it orbits the corner forever (measured: it reached y=895 past a 600px wall at t=5.3s,
+// then oscillated between (861,845) and (915,895) indefinitely). That is a LOCAL MINIMUM, and the
+// standard fix is a global distance field — Roblox's PathfindingService and Fortnite's navmesh
+// exist for exactly this, and Brawl Stars pathfinds on its tile grid. Ours is the cheap version:
+// a coarse occupancy grid + BFS distance field, CACHED per arena, consulted only when the direct
+// line is actually a detour. Bushes are never obstacles (they are walk-through cover).
+const NAV_CELL = 32;
+const NAV_GW = Math.ceil(FIELD.W / NAV_CELL), NAV_GH = Math.ceil(FIELD.H / NAV_CELL); // 63 x 35 = 2205
+const NAV_INF = 0x3fffffff;
+const NAV_DX = [1, -1, 0, 0, 1, 1, -1, -1], NAV_DY = [0, 0, 1, -1, 1, -1, 1, -1];
+const navCellAt = (x, y) => clamp(Math.floor(y / NAV_CELL), 0, NAV_GH - 1) * NAV_GW + clamp(Math.floor(x / NAV_CELL), 0, NAV_GW - 1);
+const navCX = (c) => (c % NAV_GW) * NAV_CELL + NAV_CELL / 2;
+const navCY = (c) => ((c / NAV_GW) | 0) * NAV_CELL + NAV_CELL / 2;
+
+// Built walls change rarely (one build per ~15s per player), so a cheap signature is enough to
+// know when the grid is stale — far simpler than incremental re-stamping, and the rebuild is ~1ms.
+function navSig(state) {
+  let h = (state.builtWalls.length * 2654435761) >>> 0;
+  for (const w of state.builtWalls) h = (h ^ Math.imul(w.id | 0, 2246822519) ^ (Math.round(w.hp) * 97)) >>> 0;
+  return h;
+}
+function navBuildOcc(state, r) {
+  const occ = new Uint8Array(NAV_GW * NAV_GH);
+  const walls = arenaOf(state).walls.concat(state.builtWalls);
+  for (let gy = 0; gy < NAV_GH; gy++) {
+    for (let gx = 0; gx < NAV_GW; gx++) {
+      const x = gx * NAV_CELL + NAV_CELL / 2, y = gy * NAV_CELL + NAV_CELL / 2;
+      let blocked = outsidePlayArea(x, y, r, null) > 0;
+      if (!blocked) for (const w of walls) { const np = nearestOnWall(w, x, y); if (hyp(x - np.x, y - np.y) - (np.rad || 0) < r + 2) { blocked = true; break; } }
+      occ[gy * NAV_GW + gx] = blocked ? 1 : 0;
+    }
+  }
+  return occ;
+}
+function navEnsure(mem, state) {
+  const arena = arenaOf(state), sig = navSig(state);
+  let nav = mem.nav;
+  if (!nav || nav.arenaRef !== arena || nav.sig !== sig) {
+    nav = mem.nav = { arenaRef: arena, sig, occ: navBuildOcc(state, radOf(state)), fields: new Map(), lru: [], builds: (mem.nav ? mem.nav.builds : 0) + 1 };
+  }
+  return nav;
+}
+// The r+2 inflation makes the whole 64px band along every wall (and all four corners) blocked, so
+// a bot standing legally can still be IN a blocked cell — every lookup must snap to a free one or
+// the field reports "unreachable" for 17% of the pitch.
+function navNearestFree(occ, cell) {
+  if (cell >= 0 && !occ[cell]) return cell;
+  const cx = cell % NAV_GW, cy = (cell / NAV_GW) | 0;
+  for (let rad = 1; rad <= 3; rad++) {
+    for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= NAV_GW || ny >= NAV_GH) continue;
+      const c = ny * NAV_GW + nx;
+      if (!occ[c]) return c;
+    }
+  }
+  return -1;
+}
+// 8-connected BFS with 10/14 costs. MUST re-push on improvement (SPFA): a visit-once FIFO with
+// non-uniform weights produces wrong distances and a non-monotonic field, which shows up as a
+// bot jittering between two cells that each think the other is downhill.
+function navBfs(occ, start) {
+  const d = new Int32Array(NAV_GW * NAV_GH).fill(NAV_INF);
+  if (start < 0) return d;
+  d[start] = 0;
+  const q = [start];
+  for (let head = 0; head < q.length; head++) {
+    const c = q[head], cx = c % NAV_GW, cy = (c / NAV_GW) | 0, dc = d[c];
+    for (let k = 0; k < 8; k++) {
+      const nx = cx + NAV_DX[k], ny = cy + NAV_DY[k];
+      if (nx < 0 || ny < 0 || nx >= NAV_GW || ny >= NAV_GH) continue;
+      const n = ny * NAV_GW + nx;
+      if (occ[n]) continue;
+      if (NAV_DX[k] && NAV_DY[k] && (occ[cy * NAV_GW + nx] || occ[ny * NAV_GW + cx])) continue; // no corner cutting
+      const nd = dc + (NAV_DX[k] && NAV_DY[k] ? 14 : 10);
+      if (nd < d[n]) { d[n] = nd; q.push(n); }
+    }
+  }
+  return d;
+}
+// Fields are keyed by the target cell snapped to 64px, so several bots chasing one ball share one
+// field. Capped + LRU-evicted so a match cannot grow unbounded memory.
+const NAV_MAX_FIELDS = 16;
+function navField(mem, state, tx, ty) {
+  const nav = navEnsure(mem, state);
+  const cell = navNearestFree(nav.occ, navCellAt(tx, ty));
+  if (cell < 0) return null;
+  const key = ((cell % NAV_GW) >> 1) * 1000 + (((cell / NAV_GW) | 0) >> 1);
+  let f = nav.fields.get(key);
+  if (!f) {
+    f = navBfs(nav.occ, cell);
+    nav.fields.set(key, f); nav.lru.push(key);
+    while (nav.lru.length > NAV_MAX_FIELDS) nav.fields.delete(nav.lru.shift());
+  }
+  return f;
+}
+// Walk `ahead` cells downhill and return that cell's centre as the steering waypoint. Local
+// steering still does the last ~100px, so the waypoint only has to break the local minimum.
+function navWaypoint(fld, occ, x, y, ahead) {
+  let c = navNearestFree(occ, navCellAt(x, y));
+  if (c < 0 || fld[c] >= NAV_INF) return null;
+  for (let i = 0; i < ahead; i++) {
+    const cx = c % NAV_GW, cy = (c / NAV_GW) | 0;
+    let bn = c, bd = fld[c];
+    for (let k = 0; k < 8; k++) {
+      const nx = cx + NAV_DX[k], ny = cy + NAV_DY[k];
+      if (nx < 0 || ny < 0 || nx >= NAV_GW || ny >= NAV_GH) continue;
+      const n = ny * NAV_GW + nx;
+      if (occ[n] || fld[n] >= NAV_INF) continue;
+      if (fld[n] < bd) { bd = fld[n]; bn = n; }
+    }
+    if (bn === c) break;
+    c = bn;
+  }
+  return { x: navCX(c), y: navCY(c) };
+}
+// Read-only accessors for the tests (never mutate, never allocate a field).
+export function navForTest(mem) { return mem.nav || null; }
+export const NAV_DIMS = { CELL: NAV_CELL, GW: NAV_GW, GH: NAV_GH };
+
 // ---- CONTEXT STEERING: pick a movement dir toward `tgt`, avoiding walls/bombs/bullets ----
 // 16 candidate directions; each gets interest (dot toward target) minus danger
 // (proximity to walls, live bombs, incoming bullets, optionally enemies).
 const DIRS = (() => { const a = []; for (let i = 0; i < 16; i++) { const th = i / 16 * Math.PI * 2; a.push([Math.cos(th), Math.sin(th)]); } return a; })();
 
-function steer(bot, tgtx, tgty, state, bmem, sk) {
+function steer(bot, tgtx, tgty, state, bmem, sk, now = 0) {
   const r = radOf(state);
   // Only the ball-CARRIER may treat its ATTACKING net pocket as walkable (the dribble-in goal).
   const mouthX = state.ball.owner === bot.id ? (bot.team === 'A' ? FIELD.W : 0) : null;
@@ -383,30 +506,55 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
   // gather dangers: walls (static+built), live bombs, incoming enemy bullets.
   const walls = arenaOf(state).walls.concat(state.builtWalls);
   const look = 110;
+  // ---- CLEARANCE FIELD: how much room is there at (x,y)? Negative = overlapping. ----
+  // nearestOnWall is EXACT capsule geometry. The old code clamped to each wall's AABB, which for
+  // an ANGLED wall invents a phantom obstacle: capsuleAABB of a 600x120 wall at 45° is 509x509,
+  // so 8px inside that AABB corner a bot read 0px clearance where the true clearance is ~289px.
+  // Field-builder arenas are full of angled walls, so this mattered most exactly there.
+  const m = r + 34;
+  const clearAt = (x, y) => {
+    let c = 1e9;
+    for (const w of walls) { const np = nearestOnWall(w, x, y); const d = hyp(x - np.x, y - np.y) - (np.rad || 0) - r; if (d < c) c = d; }
+    // BOUNDARY — measured against the sim's own walkable area (pitch ∪ net pockets), so the GOAL
+    // MOUTH is not an obstacle. The old per-axis test treated the end line as uniformly solid,
+    // which repelled a carrier at x > FIELD.W - 55 (=1945) while the dribble-in goal needs
+    // x > ~1971: the steering itself made the unsaveable walk-in unreachable (F6a).
+    return Math.min(c, m - outsidePlayArea(x, y, r, mouthX));
+  };
+  // CRITICAL — the clearance where we ALREADY STAND. When a bot is wedged the sim cancels the
+  // into-wall velocity component and parks it at clearance ~0. A naive "is this ray blocked" test
+  // then flags the TANGENTIAL rays as blocked too (they sit at ~0 clearance as well), so the
+  // least-blocked direction becomes straight backwards: the bot retreats, interest pulls it back,
+  // and it oscillates forever — the reported "stuck in front of a steel wall". Judging every ray
+  // RELATIVE to c0 is what breaks that: measured on a real 4-block build, toward -1.10 /
+  // tangent -0.35 (wins) / away -1.00, where before tangent scored DEAD LAST.
+  const c0 = clearAt(bot.x, bot.y);
+  const LOOK = 120, SAMP = [0.34, 0.67, 1.0], HIT_PAD = 2, GRAZE_R = 22, W_BLOCK = 2.2, W_GRAZE = 0.6, W_HITFRAC = 0.6;
   let best = null, bestScore = -1e9, safest = null, safeD = 1e9;
   for (const [dx, dy] of DIRS) {
     const interest = dx * tox + dy * toy;            // -1..1
-    let danger = 0;
     const px = bot.x + dx * look, py = bot.y + dy * look;
-    for (const w of walls) {
-      const nx = clamp(px, w.x, w.x + w.w), ny = clamp(py, w.y, w.y + w.h);
-      const d = hyp(px - nx, py - ny);
-      if (d < r + 46) danger = Math.max(danger, (r + 46 - d) / (r + 46));
+    // RAY-CAST blockage: sample ALONG the ray and only count a sample as blocked when it is worse
+    // than where we already are. hitFrac records how far along the block begins, so an obstacle
+    // 120px away is far less discouraging than one at our toes.
+    let hitFrac = -1, cMin = 1e9;
+    for (const s of SAMP) {
+      const c = clearAt(bot.x + dx * LOOK * s, bot.y + dy * LOOK * s);
+      if (c < cMin) cMin = c;
+      if (hitFrac < 0 && c < Math.min(HIT_PAD, c0 - 4)) hitFrac = s;
     }
-    // BOUNDARY — measured against the sim's own walkable area (pitch ∪ net pockets), so the GOAL
-    // MOUTH is not danger. The old per-axis test treated the end line as uniformly solid, which
-    // repelled a carrier at x > FIELD.W - 55 (=1945) while the dribble-in goal needs x > ~1971:
-    // the steering itself made the unsaveable walk-in unreachable, and the carrier jittered in
-    // front of the net instead (F6a — the "stands with the ball in front of the goal" symptom).
-    const m = r + 34;
-    const outD = outsidePlayArea(px, py, r, mouthX);
-    if (outD > 0) danger = Math.max(danger, Math.min(1, outD / m));
+    const dBlock = hitFrac < 0 ? 0 : 1 - W_HITFRAC * hitFrac;
+    const graze = clamp((GRAZE_R - (cMin - Math.min(0, c0))) / GRAZE_R, 0, 1);
+    let danger = W_BLOCK * dBlock + W_GRAZE * graze;
+    // dynamic threats accumulate separately and are added at their own weight, so "a wall is
+    // that way" and "a bomb is about to go off" are no longer indistinguishable.
+    let dyn = 0;
     // live bombs: flee the blast (weight by how soon it blows) — but NOT my own planted
     // bomb, which I'm deliberately standing on to trigger the rocket-jump.
     for (const b of state.bombs) {
       if (b.owner === bot.id) continue;
       const d = hyp(px - b.x, py - b.y);
-      if (d < BOMB.radius + 40) { const soon = clamp(1 - b.fuse / BOMB.fuse, 0, 1); danger = Math.max(danger, (1 - d / (BOMB.radius + 40)) * (0.4 + 0.6 * soon) * sk.evade); }
+      if (d < BOMB.radius + 40) { const soon = clamp(1 - b.fuse / BOMB.fuse, 0, 1); dyn = Math.max(dyn, (1 - d / (BOMB.radius + 40)) * (0.4 + 0.6 * soon) * sk.evade); }
     }
     // incoming enemy bullets heading roughly at us: sidestep
     for (const pr of state.projectiles) {
@@ -418,7 +566,7 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
       if (bvx * toMe[0] + bvy * toMe[1] < 0.9) continue; // not aimed at us
       // danger for candidate dirs aligned with the bullet's travel (don't run along it)
       const align = Math.abs(dx * bvx + dy * bvy);
-      danger = Math.max(danger, align * (1 - rel / 340) * sk.evade * 0.9);
+      dyn = Math.max(dyn, align * (1 - rel / 340) * sk.evade * 0.9);
     }
     // incoming LUNGING enemy (rocket-jump tackle / fast knockback body): sidestep out of
     // its path so a bomb-launched or wall-cannoned opponent can't flying-tackle-steal us.
@@ -434,24 +582,69 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
       const toMe = unit(bot.x - e.x, bot.y - e.y);
       if (evx * toMe[0] + evy * toMe[1] < 0.6) continue; // not lunging at us
       const along = Math.abs(dx * evx + dy * evy);        // flee perpendicular, not along its line
-      danger = Math.max(danger, along * (1 - rel / 300) * sk.evade);
+      dyn = Math.max(dyn, along * (1 - rel / 300) * sk.evade);
     }
-    const score = interest - danger * 2.2;
+    danger += 2.2 * dyn;                 // the 2.2 stays explicit, on the DYNAMIC term only
+    const score = interest - danger;
     if (score > bestScore) { bestScore = score; best = [dx, dy]; }
     if (danger < safeD) { safeD = danger; safest = [dx, dy]; } // most-open dir (escape route)
   }
-  // stuck detection: barely moved while wanting to move -> break toward the most-open
-  // direction (reliably escapes a wall/edge pin, unlike a fixed rotate that can re-pin).
+  // ---- WALL DETOUR with a COMMITTED SIDE -------------------------------------------------
+  // With exact clearance the two tangential directions around an obstacle are almost perfectly
+  // SYMMETRIC (both score ~0), so the 0.55 low-pass averages them to nearly zero and the bot
+  // deadlocks in front of the wall. (The old fuzzy proximity danger broke that tie by accident.)
+  // A wall-follower needs to CHOOSE a side and STAY on it, so: when the straight line to the
+  // target is blocked, pick the side whose way round is shorter — measured to the blocking
+  // wall's nearer END, which is the actual thing we have to get past — and hold it for
+  // `wallCommit` seconds. Brawl Stars/Fortnite get this from a navmesh; this is the cheap
+  // equivalent for one convex obstacle and it is deterministic (no RNG, no per-bot mirroring).
   const moved = hyp(bot.x - (bmem.lastX ?? bot.x), bot.y - (bmem.lastY ?? bot.y));
-  bmem.lastX = bot.x; bmem.lastY = bot.y;
-  if (moved < 2.0 && (bmem.wantMove || 0) > 0.5) {
-    bmem.stuck = (bmem.stuck || 0) + 1;
-    if (bmem.stuck > 3 && safest) {
-      const h = bmem.stuckSign || (bmem.stuckSign = (idHash(bot.id) & 1) ? 1 : -1);
-      // bias the escape sideways (deterministic per bot) so two stuck bots don't mirror
-      best = [safest[0] - safest[1] * 0.4 * h, safest[1] + safest[0] * 0.4 * h];
+  bmem.lastX = bot.x; bmem.lastY = bot.y; bmem.movedLast = moved;
+  // (a) HARD PRESS — a genuine wedge is ~0px/tick (the sim cancels the into-wall component).
+  //     The slowest LEGAL movement is a build wind-up under slow stacks (~0.8px/tick), so 0.6 is safe.
+  if (moved < 0.6 && (bmem.wantMove || 0) > 0.5) bmem.pressTicks = (bmem.pressTicks || 0) + 1;
+  else bmem.pressTicks = 0;
+  // (b) NO-PROGRESS RATCHET — computed in finalize() against the FINAL target (and against PATH
+  //     length when the flow field knows it), not here. Measuring it against steer's own target
+  //     was wrong once the flow field started supplying waypoints: the waypoint moves every
+  //     navLag seconds, so the ratchet reset constantly, cried "stalled" and forced a sideways
+  //     detour that fought the field — the bot crawled the last stretch at 85px/s of 158.
+  const dTgt = hyp(tgtx - bot.x, tgty - bot.y);
+  const stalled = !!bmem.stalledFlag;
+  bmem.stuck = bmem.pressTicks || 0; // kept for TACTIC 11's corner-escape gate
+
+  // Is the straight line to the target actually blocked? (cheap: reuse the clearance field)
+  const [ux, uy] = [tox, toy];
+  let straightBlocked = false;
+  for (const s of SAMP) { if (clearAt(bot.x + ux * LOOK * s, bot.y + uy * LOOK * s) < Math.min(HIT_PAD, c0 - 4)) { straightBlocked = true; break; } }
+
+  if ((straightBlocked || stalled || (bmem.pressTicks || 0) >= 12) && dTgt > 46) {
+    const commit = sk.wallCommit != null ? sk.wallCommit : 0.6;
+    if (!bmem.detourUntil || (now) > bmem.detourUntil) {
+      // choose the side: which perpendicular gets us past the blocker's nearer end sooner?
+      let bw = null, bd = 1e9;
+      for (const w of walls) { const np = nearestOnWall(w, bot.x, bot.y); const d = hyp(bot.x - np.x, bot.y - np.y); if (d < bd) { bd = d; bw = w; } }
+      let sgn = (idHash(bot.id) & 1) ? 1 : -1; // deterministic fallback
+      if (bw) {
+        // the blocker's two extreme points along OUR perpendicular; head for the closer one
+        const pxn = -uy, pyn = ux;
+        const ex = bw.angle != null ? Math.cos(bw.angle) * bw.hl : bw.w / 2;
+        const ey = bw.angle != null ? Math.sin(bw.angle) * bw.hl : bw.h / 2;
+        const cx = bw.cx != null ? bw.cx : bw.x + bw.w / 2, cy = bw.cy != null ? bw.cy : bw.y + bw.h / 2;
+        const e1 = (cx + ex - bot.x) * pxn + (cy + ey - bot.y) * pyn;
+        const e2 = (cx - ex - bot.x) * pxn + (cy - ey - bot.y) * pyn;
+        sgn = Math.abs(e1) <= Math.abs(e2) ? Math.sign(e1) || 1 : Math.sign(e2) || 1;
+      }
+      bmem.detourSide = sgn; bmem.detourUntil = (now) + commit;
     }
-  } else bmem.stuck = 0;
+    const sgn = bmem.detourSide || 1;
+    // slide ALONG the obstacle (perpendicular to the target line) with a little forward lean,
+    // so the bot makes lateral progress instead of grinding into the face.
+    const wx = -uy * sgn + ux * 0.25, wy = ux * sgn + uy * 0.25;
+    // ...but never into something even more solid: keep it only if it is genuinely clearer.
+    if (clearAt(bot.x + wx * LOOK, bot.y + wy * LOOK) > Math.min(HIT_PAD, c0 - 4)) best = unit(wx, wy);
+    else if (safest) best = safest;
+  } else if (bmem.detourUntil && (now) > bmem.detourUntil) bmem.detourUntil = 0;
   // low-pass so movement doesn't twitch (sim MOVE_ACCEL snaps velocity).
   const px = bmem.mvx ?? best[0], py = bmem.mvy ?? best[1];
   bmem.mvx = px + (best[0] - px) * 0.55; // snappy enough to chase a bouncing ball
@@ -648,11 +841,17 @@ function decideBot(p, role, state, mem, sk, dt) {
   const FINISH_RANGE = 560 + 220 * AGG; // carrier shot-on-goal range (easy~736 / normal~762 / hard 780 / extreme~813)
   const LINEUP_PAD   = 180 + 100 * AGG; // how far off-axis a carrier still tries the drive-finish
   const CARRY_IDLE   = 0.9 - 0.5 * AGG; // seconds holding before the anti-idle blast — lower = finish sooner, dribble less (buffed 2026-07-22: hard ~0.34 / normal ~0.39 / easy ~0.47)
+  // HARD CEILING on holding the ball. The release ladder above should always fire long before
+  // this, so the watchdog is a backstop against any future branch that forgets to release — the
+  // symptom it prevents ("stands with the ball") was invisible in aggregate stats and obvious to
+  // the player. It must be > the tier's wind-up budget or it would cancel its own shot forever:
+  // the bottom tier needs 2.12s to reach FULL_CHARGE, hence the 2.6s floor.
+  const CARRY_HOLD_MAX = Math.max(2.6, 4.2 - 2.4 * AGG); // t=0: 2.76s → normal ~2.6s → top ~2.6s
 
   // target point to move toward, plus button intents (decided at decisionHz)
   let tgt = { x: p.x, y: p.y };
   let aim = { x: p.aimX, y: p.aimY };
-  let shoot = false, charge = 0, special = false, build = false, closeShot = false;
+  let shoot = false, charge = 0, special = false, build = false, closeShot = false, forceRelease = false;
 
   // --- If mid bomb-hold, STAND on the plant until the fuse blows (staying within
   // BOMB_CENTER_R is what makes the rocket-jump/tackle actually fire). Aim tracks the
@@ -744,6 +943,34 @@ function decideBot(p, role, state, mem, sk, dt) {
     const linedUp = Math.abs(p.y - GY) < GOAL.width / 2 + LINEUP_PAD;
     const laneWalls = laneClear(p.x, p.y, egX, GY, state, team, { enemies: false }); // walls only (a power shot plows a defender)
     const laneOpen = laneClear(p.x, p.y, egX, GY, state, team, { enemies: true, viewer: p });   // truly unobstructed (ignores hidden foes)
+    // AIM-POINT LADDER: the goal is a 300px-wide mouth, but every shot decision used to test the
+    // CENTRE alone. A wall or keeper covering the middle therefore read as "no shot exists" even
+    // when both corners were wide open. Try centre first (best angle), then each post.
+    // NB: computed from BALL_RADIUS directly, not from the `ballR` const declared a few lines
+    // below — reading that here is a temporal-dead-zone crash (`let`/`const` are not hoisted).
+    const postIn = BALL_RADIUS * (settings.ballSizeMul || 1) + 26; // keep the target inside the woodwork
+    const aimPoints = [GY, GOAL_TOP + postIn, GOAL_BOT - postIn];
+    let goalAimY = null, goalBlock = null;
+    for (const ay of aimPoints) {
+      const probe = {};
+      if (laneClear(p.x, p.y, egX, ay, state, team, { enemies: false, out: probe })) { goalAimY = ay; break; }
+      if (!goalBlock) goalBlock = probe.wall; // remember what stopped the BEST (centre-most) lane
+    }
+    // Can the CARRIER clear the thing in its way by kicking the ball at it? Mostly NO, and it is
+    // worth being precise because getting this wrong means kicking possession away for nothing:
+    //   * static stone (wallId == null)  -> indestructible, never.
+    //   * SOLID built wall (hp > 1)      -> the ball just RICOCHETS (sim.js:895 resolveCircleBox).
+    //                                       damageWall is only ever called from the BULLET path
+    //                                       (sim.js:1170) and the bomb blast — a kicked ball does
+    //                                       NOT chip a wall. A carrier cannot fire a bullet either
+    //                                       (shooting IS the ball release), so it simply cannot
+    //                                       break this: it must pass or work an angle. Clearing it
+    //                                       is the SUPPORT bot's job with a full-charge bullet.
+    //   * FRAGILE built wall (hp 1, built in a bush/penalty) -> a fast ball SMASHES THROUGH
+    //     (sim.js:893) once speed > FRAGILE_PASS_SPEED 900; a full kick leaves at shotPower 1850. ✔
+    const blockIsSmashable = !!goalBlock && goalBlock.wallId != null
+      && (goalBlock.fragile || (goalBlock.maxHp || goalBlock.hp || 3) <= 1)
+      && (settings.shotPower || 1850) > FRAGILE_PASS_SPEED;
     const trick = sk.toolSkill;                                                       // fancy tricks scale with difficulty
     const ballR = BALL_RADIUS * (settings.ballSizeMul || 1);
     const mateSafe = !mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state);
@@ -771,8 +998,9 @@ function decideBot(p, role, state, mem, sk, dt) {
     // 1) FINISH — a FULL kick now DRIVES THROUGH any field defender (monotonic), so just
     //    shoot on a walls-clear lane. Only a KEEPER-in-box catches it: then spend OVERCHARGE
     //    to break through (if ready), else BANK around them, else fall through to pass/drive.
-    if (!shoot && distGoal < FINISH_RANGE && linedUp && laneWalls && !keeper) {
-      aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'drive';
+    if (!shoot && distGoal < FINISH_RANGE && linedUp && goalAimY != null && !keeper) {
+      aim = { x: egX - p.x, y: goalAimY - p.y }; shoot = true; charge = 1;
+      bm.lastTrick = goalAimY === GY ? 'drive' : 'postFinish'; // a corner shot is a real, distinct finish
       if (distGoal < 260) closeShot = true;
     } else if (distGoal < FINISH_RANGE + 40 && linedUp && keeper) {
       if (p.power) { aim = { x: egX - p.x, y: GY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'overFinish'; } // overcharge beats the save
@@ -826,18 +1054,58 @@ function decideBot(p, role, state, mem, sk, dt) {
       bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'carryJump';
     }
 
-    // Anti-idle: blast goalward if we've dithered (delay scales with aggro). A full kick drives
-    // through a FIELD defender; if a KEEPER is parked, aim at the open corner past them rather
-    // than feeding the save — either way the carrier RELEASES instead of running in circles.
-    if (!shoot && !special && bm.carryT > CARRY_IDLE && laneWalls && distGoal < 1150) {
-      const ay = keeper ? (keeper.y > GY ? GY - GOAL.width * 0.30 : GY + GOAL.width * 0.30) : GY;
-      aim = { x: egX - p.x, y: ay - p.y }; shoot = true; charge = 1; bm.carryT = 0;
-      if (distGoal < 300) closeShot = true;
+    // ===== RELEASE LADDER (F6b) — a carrier ALWAYS has a next move =====
+    // This branch used to be gated on `laneWalls`, so a wall across the goal lane left the
+    // carrier with NO release path at all: it fell through to "drive at goal", walked into the
+    // wall, and held the ball for the rest of the match. That is the reported "stands with the
+    // ball in front of the goal". The ladder below is ordered by value and always terminates.
+    if (!shoot && !special && bm.carryT > CARRY_IDLE) {
+      if (goalAimY != null && distGoal < 1150) {
+        // (a) some part of the mouth IS open — take it (keeper still wants the far corner)
+        const ay = keeper ? (keeper.y > GY ? GOAL_TOP + postIn : GOAL_BOT - postIn) : goalAimY;
+        aim = { x: egX - p.x, y: ay - p.y }; shoot = true; charge = 1; bm.carryT = 0;
+        if (distGoal < 300) closeShot = true;
+      } else if (blockIsSmashable && distGoal < 1150) {
+        // (b) the blocker is a FRAGILE wall → smash straight through it with a full kick.
+        const gx = clamp(p.x, goalBlock.x, goalBlock.x + goalBlock.w);
+        const gy = clamp(p.y, goalBlock.y, goalBlock.y + goalBlock.h);
+        aim = { x: gx - p.x, y: gy - p.y }; shoot = true; charge = 1; bm.carryT = 0;
+        closeShot = true; bm.lastTrick = 'smashWall';
+      } else if (mate && laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
+        // (c) can't shoot at all (indestructible stone, or out of range) → give it to the mate
+        const full = settings.shotPower || 1850;
+        charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
+        const [pax, pay] = leadAim(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, full * clamp(charge, 0.33, 1), sk);
+        aim = { x: pax, y: pay }; shoot = true; bm.carryT = 0;
+        bm.giveGo = { until: mem.t + 1.0 }; bm.lastTrick = 'outletPass';
+      } else {
+        // (d) nothing is on — STOP grinding into the blocker and work an angle instead. Slide
+        // along the wall toward whichever post is more open; the ladder re-tests every tick, so
+        // as soon as a lane appears (a) fires. Never a dead end.
+        bm.workAngle = bm.workAngle || (p.y < GY ? 1 : -1);
+        if (mem.t > (bm.workFlip || 0)) { bm.workFlip = mem.t + 1.2; bm.workAngle *= -1; }
+        bm.lastTrick = 'workAngle';
+      }
+    }
+    // WATCHDOG — the last line of defence, and no branch above can defeat it. If the ball has
+    // been glued to this bot for longer than the tier's patience, it goes NOW: at the mouth if
+    // any part is open, else at the blocker, else square to the mate. Deliberately dumb.
+    if (bm.carryT > CARRY_HOLD_MAX) {
+      const ay = goalAimY != null ? goalAimY : GY;
+      aim = { x: egX - p.x, y: ay - p.y };
+      shoot = true; charge = 1; special = false; build = false;
+      forceRelease = true; // see finalize: drops the AIM TOLERANCE, which is what actually stalls
+      bm.lastTrick = 'watchdogRelease';
     }
     // Drive at goal; if marked, ZIGZAG (TACTIC 6): weave a serpentine path around the goalward
     // vector to shake a chaser, instead of a readable straight line or one fixed juke. Amplitude
     // scales with skill, flip-rate with aggro. Still always ADVANCES toward goal.
-    tgt = { x: egX, y: GY };
+    // The goalward target is the nearest point of the MOUTH (not the centre), so a carrier out
+    // by the post walks in at the near post instead of cutting across the face of the goal.
+    tgt = { x: egX, y: clamp(p.y, GOAL_TOP + postIn, GOAL_BOT - postIn) };
+    if (bm.lastTrick === 'workAngle') { // (d): slide across the blocker's face, not into it
+      tgt = { x: p.x + (egX - p.x) * 0.12, y: clamp(p.y + bm.workAngle * 260, 120, FIELD.H - 120) };
+    }
     if (nearFoe && nfd < 300) {
       const [gx, gy] = unit(egX - p.x, GY - p.y);
       let perpx = -gy, perpy = gx;
@@ -1163,7 +1431,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     }
   }
 
-  return finalize(p, tgt, aim, { shoot, charge, special, build, closeShot }, state, mem, bm, sk, dt);
+  return finalize(p, tgt, aim, { shoot, charge, special, build, closeShot, forceRelease }, state, mem, bm, sk, dt);
 }
 
 // ---- F2 FIX: how long may a wind-up run before we give up on it? ----
@@ -1187,7 +1455,44 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   bm.wantMove = opts.hold ? 0 : 1;
   let mvx = 0, mvy = 0;
   if (opts.hold) { bm.mvx = 0; bm.mvy = 0; bm.lastX = p.x; bm.lastY = p.y; bm.stuck = 0; } // stand ON the bomb plant
-  else { const s = steer(p, tgt.x, tgt.y, state, bm, sk); mvx = s[0]; mvy = s[1]; }
+  else {
+    // ---- FLOW-FIELD ENGAGE ----------------------------------------------------------------
+    // Only swap the steering target for a flow waypoint when the field says the direct line is
+    // genuinely a DETOUR (path length vs straight line), or when the stall detectors have fired.
+    // In open play the direct line IS the path, so this is inert and bots keep their old feel.
+    // `detourRatio` is the ladder knob: a dumb bot needs the path to be 2.6x longer before it
+    // believes it must go round (so it bonks into walls, which reads as dumb but not broken);
+    // the top tier acts on a 6% detour and routes cleanly.
+    let navTgt = tgt;
+    const straight = hyp(tgt.x - p.x, tgt.y - p.y);
+    if (straight > 120 && !bm.bombHold && !bm.buildHold) {
+      const fld = navField(mem, state, tgt.x, tgt.y);
+      const nav = mem.nav;
+      const cell = nav ? navNearestFree(nav.occ, navCellAt(p.x, p.y)) : -1;
+      const pc = (fld && cell >= 0) ? fld[cell] : NAV_INF;
+      bm.navPathPx = pc < NAV_INF ? pc * (NAV_CELL / 10) : -1;
+      const forced = (bm.pressTicks || 0) >= 12 || mem.t < (bm.detourUntil || 0);
+      const ratio = sk.detourRatio != null ? sk.detourRatio : 1.2;
+      if (pc < NAV_INF && (forced || bm.navPathPx > straight * ratio + 26)) {
+        const lag = sk.navLag != null ? sk.navLag : 0.12;
+        if (!bm.wp || mem.t - (bm.wpAt || -9) >= lag) {
+          bm.wp = navWaypoint(fld, nav.occ, p.x, p.y, Math.round(sk.flowAhead != null ? sk.flowAhead : 3));
+          bm.wpAt = mem.t;
+        }
+        if (bm.wp) navTgt = bm.wp;
+      } else bm.wp = null;
+    }
+    // NO-PROGRESS RATCHET, measured against the FINAL target — remaining PATH length when the
+    // field knows it, else the straight line. Remember the best ever achieved and complain only
+    // if it stops improving for 0.6s: a per-tick displacement test (the old `moved < 2.0`) is
+    // blind to an oscillation, because a bot circling at full speed moves 2.37px every tick.
+    const progress = bm.navPathPx > 0 ? bm.navPathPx : straight;
+    if (!bm.pg || hyp(tgt.x - bm.pg.tx, tgt.y - bm.pg.ty) > 200) bm.pg = { best: progress, bestAt: mem.t, tx: tgt.x, ty: tgt.y };
+    bm.pg.tx = tgt.x; bm.pg.ty = tgt.y;
+    if (progress < bm.pg.best - 8) { bm.pg.best = progress; bm.pg.bestAt = mem.t; }
+    bm.stalledFlag = straight > 46 && (mem.t - bm.pg.bestAt) > 0.6;
+    const s = steer(p, navTgt.x, navTgt.y, state, bm, sk, mem.t); mvx = s[0]; mvy = s[1];
+  }
 
   // desired aim angle
   const [dax, day] = unit(aimVec.x, aimVec.y);
@@ -1215,7 +1520,7 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   const th = bm.aimTheta + noise;
   const ax = Math.cos(th), ay = Math.sin(th);
 
-  let { shoot, charge, special, build, closeShot } = btn;
+  let { shoot, charge, special, build, closeShot, forceRelease } = btn;
   if (opts.hold) bm.charging = null; // standing on a bomb plant — never charge a shot
   const isBallRelease = state.ball.owner === p.id;
 
@@ -1253,6 +1558,19 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   } else if (shoot && bm.charging) {
     bm.charging.target = wantCharge; // keep the freshest target while winding up
     if (closeShot) bm.charging.tol = 0.85;
+  }
+  // WATCHDOG FORCE-RELEASE. Setting shoot=true alone does NOT get the ball out: `fire` needs both
+  // p._charge >= fireAt AND the aim inside c.tol, and it was the TOLERANCE that stalled — a close,
+  // juking target keeps |dTheta| above tol, so the shot never released and the ball stayed glued.
+  // So the watchdog widens tol past π (always satisfiable) and extends the deadline: the release
+  // then happens at the earliest instant the charge ramp physically allows, aimed wherever we are
+  // pointing. A slightly wild full-power clearance is strictly better than holding the ball for
+  // the rest of the match — and note a below-FULL kick would be CAUGHT by a field defender
+  // (sim.js:894), which is why this still insists on a FULL charge rather than dumping it instantly.
+  if (forceRelease && isBallRelease) {
+    const fa = FULL_CHARGE + 0.01;
+    if (!bm.charging) bm.charging = { target: 1, fireAt: fa, tol: 4, ball: true, until: mem.t + windupBudget(p, fa) + 1.0 };
+    else { bm.charging.tol = 4; bm.charging.fireAt = Math.min(bm.charging.fireAt, fa); bm.charging.until = Math.max(bm.charging.until, mem.t + 0.5); }
   }
   if (bm.charging) {
     const c = bm.charging;
