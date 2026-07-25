@@ -32,6 +32,33 @@ const arenaOf = (state) => (state && state.arena) || ARENA;
 const GY = FIELD.H / 2;
 const PEN_TOP = (FIELD.H - PENALTY.width) / 2;
 const PEN_BOT = (FIELD.H + PENALTY.width) / 2;
+const GOAL_TOP = (FIELD.H - GOAL.width) / 2;
+const GOAL_BOT = (FIELD.H + GOAL.width) / 2;
+
+// ---- WALKABLE AREA — an exact mirror of sim.js clampXYToArea ----------------------------
+// The legal area is the pitch UNION the two net pockets, reachable THROUGH the goal mouths.
+// The bot MUST agree with the sim here. It previously did not: steer() treated the end line as
+// plain "stadium wall" danger, so a carrier bounced ~55px short of the goal line and could never
+// reach it — while sim.js #9 (DRIBBLE-IN GOAL, sim.js:842) lets a carrier WALK THE BALL INTO THE
+// NET for a goal that skips the kick path entirely and so cannot be saved. The old bot-ai header
+// claim "you cannot dribble a goal" is stale; the walk-in is the highest-value finish in the game.
+// `openGoalX` = the goal line whose net pocket is a legal destination (the ATTACKING mouth of a
+// ball-CARRIER), or null for "pitch only". Mirrors sim.js clampBallCarryXY, deliberately NOT
+// clampXYToArea: the sim lets any player stand in either pocket, but a pocket is a 300x70 DEAD
+// END. Opening it to every bot measurably raised wall-pinning (0.29% -> 0.40% of move ticks) as
+// off-ball bots wandered in and wedged. Only the attacking carrier has a reason to be there — the
+// unsaveable dribble-in (sim.js #9) — so only the carrier gets it.
+function outsidePlayArea(x, y, r, openGoalX) {
+  const x1 = clamp(x, r, FIELD.W - r), y1 = clamp(y, r, FIELD.H - r);          // the pitch
+  let bx = x1, by = y1;
+  if (openGoalX != null) {
+    const lo = openGoalX === 0 ? r - GOAL.depth : r;                            // only the ONE attacking pocket
+    const hi = openGoalX === 0 ? FIELD.W - r : FIELD.W - r + GOAL.depth;
+    const x2 = clamp(x, lo, hi), y2 = clamp(y, GOAL_TOP + r, GOAL_BOT - r);     // mouth band into that pocket
+    if ((x - x2) * (x - x2) + (y - y2) * (y - y2) < (x - x1) * (x - x1) + (y - y1) * (y - y1)) { bx = x2; by = y2; }
+  }
+  return hyp(x - bx, y - by);
+}
 
 const enemyGoalX = (team) => (team === 'A' ? FIELD.W : 0);
 const ownGoalX = (team) => (team === 'A' ? 0 : FIELD.W);
@@ -350,6 +377,8 @@ const DIRS = (() => { const a = []; for (let i = 0; i < 16; i++) { const th = i 
 
 function steer(bot, tgtx, tgty, state, bmem, sk) {
   const r = radOf(state);
+  // Only the ball-CARRIER may treat its ATTACKING net pocket as walkable (the dribble-in goal).
+  const mouthX = state.ball.owner === bot.id ? (bot.team === 'A' ? FIELD.W : 0) : null;
   const [tox, toy] = unit(tgtx - bot.x, tgty - bot.y);
   // gather dangers: walls (static+built), live bombs, incoming enemy bullets.
   const walls = arenaOf(state).walls.concat(state.builtWalls);
@@ -364,12 +393,14 @@ function steer(bot, tgtx, tgty, state, bmem, sk) {
       const d = hyp(px - nx, py - ny);
       if (d < r + 46) danger = Math.max(danger, (r + 46 - d) / (r + 46));
     }
-    // field boundary (the "stadium wall") — don't steer into the pitch edge and pin there
+    // BOUNDARY — measured against the sim's own walkable area (pitch ∪ net pockets), so the GOAL
+    // MOUTH is not danger. The old per-axis test treated the end line as uniformly solid, which
+    // repelled a carrier at x > FIELD.W - 55 (=1945) while the dribble-in goal needs x > ~1971:
+    // the steering itself made the unsaveable walk-in unreachable, and the carrier jittered in
+    // front of the net instead (F6a — the "stands with the ball in front of the goal" symptom).
     const m = r + 34;
-    if (px < m) danger = Math.max(danger, (m - px) / m);
-    else if (px > FIELD.W - m) danger = Math.max(danger, (px - (FIELD.W - m)) / m);
-    if (py < m) danger = Math.max(danger, (m - py) / m);
-    else if (py > FIELD.H - m) danger = Math.max(danger, (py - (FIELD.H - m)) / m);
+    const outD = outsidePlayArea(px, py, r, mouthX);
+    if (outD > 0) danger = Math.max(danger, Math.min(1, outD / m));
     // live bombs: flee the blast (weight by how soon it blows) — but NOT my own planted
     // bomb, which I'm deliberately standing on to trigger the rocket-jump.
     for (const b of state.bombs) {
