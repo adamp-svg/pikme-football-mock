@@ -21,6 +21,7 @@ import { ARENA } from './shared/arena.js';
 import { coalesceInput, consumeEdges } from './shared/input-merge.js';
 import { MAIN_FIELD } from './shared/main-field.js';
 import { FIELD_3V3 } from './shared/field-3v3.js';
+import { sizeOfField, canHost, sizeOf } from './shared/field-sizes.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
@@ -436,22 +437,30 @@ function startTraining(member) {
 
 // Validate + clamp a client-supplied field layout (never trust the wire). Caps counts
 // and clamps every number into the pitch / sane capsule sizes.
+// Clamps a client-supplied field to sane values. Coordinates clamp to the field's OWN size (see
+// shared/field-sizes.js), not to the global FIELD — clamping a 2600-wide layout against 2000
+// silently collapsed its whole right-hand side onto the touchline with no error, which made a
+// bigger authored stadium impossible to round-trip. The resolved size id is echoed back so every
+// downstream consumer (setField, matchStart's arena) agrees on which pitch this layout is for.
+// An unknown/missing size resolves to s2v2 — the pitch every pre-sizes layout was drawn on.
 function sanitizeField(field) {
   if (!field || typeof field !== 'object') return null;
+  const size = sizeOfField(field);
   const num = (v, lo, hi, d) => (typeof v === 'number' && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
   const cap = (w) => ({
-    cx: num(w && w.cx, 0, FIELD.W, FIELD.W / 2), cy: num(w && w.cy, 0, FIELD.H, FIELD.H / 2),
+    cx: num(w && w.cx, 0, size.W, size.W / 2), cy: num(w && w.cy, 0, size.H, size.H / 2),
     angle: num(w && w.angle, -Math.PI * 2, Math.PI * 2, 0),
     hl: num(w && w.hl, 20, 300, 88), ht: num(w && w.ht, 8, 60, 16),
   });
   const arr = (a) => (Array.isArray(a) ? a : []);
   return {
-    version: 1,
-    bushes: arr(field.bushes).slice(0, 20).map((b) => ({ x: num(b && b.x, 0, FIELD.W, 0), y: num(b && b.y, 0, FIELD.H, 0), w: num(b && b.w, 40, 600, 200), h: num(b && b.h, 40, 600, 150) })),
+    version: 2,
+    size: size.id,
+    bushes: arr(field.bushes).slice(0, 20).map((b) => ({ x: num(b && b.x, 0, size.W, 0), y: num(b && b.y, 0, size.H, 0), w: num(b && b.w, 40, 600, 200), h: num(b && b.h, 40, 600, 150) })),
     hardWalls: arr(field.hardWalls).slice(0, 20).map(cap),
     dryWalls: arr(field.dryWalls).slice(0, 20).map(cap),
     // Crates: single-cell solid boxes (indestructible, like a hard wall). Clamp to a sane cell size.
-    crates: arr(field.crates).slice(0, 40).map((c) => ({ x: num(c && c.x, 0, FIELD.W, 0), y: num(c && c.y, 0, FIELD.H, 0), w: num(c && c.w, 30, 160, 50), h: num(c && c.h, 30, 160, 50) })),
+    crates: arr(field.crates).slice(0, 40).map((c) => ({ x: num(c && c.x, 0, size.W, 0), y: num(c && c.y, 0, size.H, 0), w: num(c && c.w, 30, 160, 50), h: num(c && c.h, 30, 160, 50) })),
   };
 }
 
@@ -464,6 +473,12 @@ for (const f of Object.values(FORMATS)) if (f.field) f.cleanField = sanitizeFiel
 
 // Solo "play my field vs bots": instant, endless, custom field + backfilled bots (2v2).
 function startBuilderMatch(member, field) {
+  // The client gates ▶ שחק on the size being hostable, but never trust it: the sim still reads its
+  // geometry from the global FIELD, so hosting a non-base size would run 2000x1100 goal lines and
+  // spawns underneath a bigger-looking pitch. Refuse instead of playing a lie. Widen RUNTIME_SIZES
+  // once per-match geometry lands — see summery/ARENA-SIZES-PLAN.md.
+  const wanted = sizeOfField(field);
+  if (!canHost(wanted.id)) { send(member.ws, { type: 'roomError', msg: `מגרש ${wanted.name} — אפשר לבנות, משחק בקרוב` }); return; }
   leaveCurrentRoom(member);
   const room = makeRoom(`build-${++roomCounter}`, false, 'builder');
   rooms.set(room.id, room);
