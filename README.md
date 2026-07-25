@@ -3,7 +3,7 @@
 Throwaway prototype to test the **look & feel** of a realtime 2v2 football
 minigame before we embed it in the pikmeTV app.
 
-> 🔧 **Optimizing the game (performance / netcode / lag / reactivity / 120Hz / WebRTC)?**
+> 🔧 **Optimizing the game (performance / netcode / lag / reactivity / WebRTC)?**
 > Pick up from [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md) — the prioritized handover queue.
 > Handoff log: [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md).
 

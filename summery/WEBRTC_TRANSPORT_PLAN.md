@@ -64,7 +64,7 @@ Keep the WebSocket; **add** a DataChannel next to it. Two lanes:
 
 ## 8. Effort & sequencing
 - Rough total: **~1–1.5 weeks** engineering for Phases 0–3, +telemetry rollout.
-- **Prerequisite from the roadmap:** this pairs with **lag compensation** (server rewind) as the two substance items; do transport **first** (bigger felt win on mobile), lag-comp second. **120Hz stays last** (polish, and only after the DT test re-tune).
+- **Prerequisite from the roadmap:** this pairs with **lag compensation** (server rewind) as the two substance items; do transport **first** (bigger felt win on mobile), lag-comp second. (Raising the tick rate is NOT on the table — the user dropped 120Hz on 2026-07-25.)
 
 ## 9. Decisions needed before building
 1. **Host:** Fly.io (managed, dedicated IPv4, UDP caveats) vs a plain VM (full control, more ops). 

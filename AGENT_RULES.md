@@ -23,6 +23,6 @@
 ## Where things are
 
 - [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md) — request/handoff log (what was asked, what shipped).
-- [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md) — prioritized queue for perf / netcode / lag / 120Hz / WebRTC.
+- [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md) — prioritized queue for perf / netcode / lag / WebRTC.
 - `docs/MECHANICS.md` — shot / super / bomb / body rules reference.
 - `summery/` — deep plans (REACTIVITY_ROADMAP, WEBRTC_TRANSPORT_PLAN, worktree audit).

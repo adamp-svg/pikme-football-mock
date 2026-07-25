@@ -25,6 +25,6 @@
 
 - [`AGENT_RULES.md`](AGENT_RULES.md) — full version of these rules.
 - [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md) — request / handoff log.
-- [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md) — prioritized queue for perf / netcode / lag / fps / 120Hz / WebRTC.
+- [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md) — prioritized queue for perf / netcode / lag / fps / WebRTC.
 - `docs/MECHANICS.md` — shot / super / bomb / body rules reference.
 - `summery/` — deep plans (`REACTIVITY_ROADMAP.md`, `WEBRTC_TRANSPORT_PLAN.md`, worktree audit, handoffs).
