@@ -19,6 +19,7 @@
 import {
   FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, SUPER_USES, BUILD_WINDUP,
+  SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE,
   CHARACTERS, DEFAULT_CHAR, clamp,
 } from './constants.js';
 import { ARENA, pointInBox, pointInBush } from './arena.js';
@@ -158,18 +159,53 @@ function leadAim(sx, sy, tx, ty, tvx, tvy, ps, sk) {
   return quadraticIntercept(sx, sy, tx, ty, (tvx || 0) * g, (tvy || 0) * g, ps);
 }
 
-// ---- line-of-fire clear? samples static+built walls AND enemy bodies ----
+// ---- EXACT segment-vs-AABB test (slab clipping). Replaces point-sampling a lane: sampling
+// with a FIXED step count strode OVER thin obstacles — a 32px built wall on a 1000px lane was
+// missed ~2 times out of 3 (stride 100px), so "is my shot blocked?" answered wrong in BOTH
+// directions. This is exact AND cheaper than 10 samples (O(1) per box, no allocation).
+// `pad` fattens the box by the projectile/ball radius so a graze counts as a block. ----
+function segHitsBox(x0, y0, x1, y1, b, pad = 0) {
+  const lox = b.x - pad, hix = b.x + b.w + pad, loy = b.y - pad, hiy = b.y + b.h + pad;
+  const dx = x1 - x0, dy = y1 - y0;
+  let t0 = 0, t1 = 1;
+  if (Math.abs(dx) < 1e-9) { if (x0 < lox || x0 > hix) return false; }
+  else {
+    let ta = (lox - x0) / dx, tb = (hix - x0) / dx;
+    if (ta > tb) { const s = ta; ta = tb; tb = s; }
+    if (ta > t0) t0 = ta; if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  if (Math.abs(dy) < 1e-9) { if (y0 < loy || y0 > hiy) return false; }
+  else {
+    let ta = (loy - y0) / dy, tb = (hiy - y0) / dy;
+    if (ta > tb) { const s = ta; ta = tb; tb = s; }
+    if (ta > t0) t0 = ta; if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+// ---- line-of-fire clear? EXACT against static+built walls AND enemy bodies ----
 // `viewer` (a bot): if given, an enemy HIDDEN in a bush (unseen by this viewer) is NOT
 // counted as blocking — the bot can't plan around a body it can't see (bush stealth).
-export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, margin = 0, viewer = null } = {}) {
-  const steps = 10;
-  const foes = enemies ? Object.values(state.players).filter((q) => q.team !== forTeam && (!viewer || botCanSee(viewer, q, state))) : [];
-  const er = radOf(state) + 10 + margin;
-  for (let i = 1; i <= steps; i++) {
-    const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
-    for (const w of arenaOf(state).walls) if (pointInBox(x, y, w)) return false;
-    for (const w of state.builtWalls) if (pointInBox(x, y, w)) return false;
-    for (const f of foes) if (hyp(f.x - x, f.y - y) < er) return false;
+// The segment starts LANE_SKIP px along so a wall the shooter is already touching doesn't veto
+// every lane (the old sampling skipped the first 10% for the same reason, just accidentally).
+// `out` (optional): receives the first blocking wall as out.wall — the release ladder needs to
+// know WHETHER it can shoot the blocker down (built = destructible, static stone = never).
+const LANE_SKIP = 14;
+export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, margin = 0, viewer = null, out = null } = {}) {
+  if (out) { out.wall = null; out.foe = null; }
+  const L = hyp(x1 - x0, y1 - y0);
+  if (L > LANE_SKIP * 2) { const f = LANE_SKIP / L; x0 += (x1 - x0) * f; y0 += (y1 - y0) * f; }
+  for (const w of arenaOf(state).walls) if (segHitsBox(x0, y0, x1, y1, w)) { if (out) out.wall = w; return false; }
+  for (const w of state.builtWalls) if (segHitsBox(x0, y0, x1, y1, w)) { if (out) out.wall = w; return false; }
+  if (enemies) {
+    const er = radOf(state) + 10 + margin;
+    for (const q of Object.values(state.players)) {
+      if (q.team === forTeam) continue;
+      if (viewer && !botCanSee(viewer, q, state)) continue;
+      if (pointSegDist(q.x, q.y, x0, y0, x1, y1) < er) { if (out) out.foe = q; return false; }
+    }
   }
   return true;
 }
@@ -179,13 +215,9 @@ export function laneClear(x0, y0, x1, y1, state, forTeam, { enemies = true, marg
 // a bullet or rocket-jump can't reach through an indestructible wall. Player-BUILT (destructible)
 // walls are intentionally IGNORED here: the sim lets shots chip/kill those, so they must NOT
 // suppress the attempt (that stays "per existing behavior", handled by laneClear elsewhere).
-// Step count scales with length so a ~120px wall is never stepped over on a long line. ----
+// Now EXACT (segHitsBox) instead of step-sampled — a stride could skip a thin crate. ----
 function indestructibleBlocks(x0, y0, x1, y1, state = null) {
-  const steps = Math.max(6, Math.ceil(hyp(x1 - x0, y1 - y0) / 40));
-  for (let i = 1; i <= steps; i++) {
-    const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
-    for (const w of arenaOf(state).walls) if (pointInBox(x, y, w)) return true;
-  }
+  for (const w of arenaOf(state).walls) if (segHitsBox(x0, y0, x1, y1, w)) return true;
   return false;
 }
 
@@ -526,16 +558,33 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
   return out;
 }
 
-// WALL-BOMB CANNON spot: a plant point a SHORT step from `(px,py)` where a static stone
-// wall sits ~130px BEHIND a launch aimed along `dir` (opposite it), so a rocket-jump there
-// gets the wall-cannon boost (sim wallCannonMul, static stone only). null if none nearby.
-function staticCannonSpot(px, py, dirx, diry) {
+// WALL-BOMB CANNON spot — "put a bomb near a wall to FLY FURTHER" (user-requested trick).
+// Grounded in the sim's ACTUAL rule (sim.js wallCannonMul + explode):
+//   * the bomb is planted at the bot's FEET, so the launch direction falls back to its AIM,
+//   * a wall boosts the launch only if it lies within BOMB_WALL_DIST (150px) of the BOMB and
+//     inside a ±35° cone (BOMB_WALL_COS 0.82) OPPOSITE the launch — i.e. wall BEHIND the bot,
+//   * closer wall = stronger: mul = 1 + (1 - d/150) * (peak - 1); steel peaks at 1.55×,
+//   * a static wall AHEAD in the launch cone CANCELS the jump entirely (jumpBlocked).
+// So the stand point is `STAND` px along +dir from the wall's nearest FACE (not its centre —
+// the old code used the centre and a fixed 130px, which on a 120px wall left the bomb 70px out
+// for a weak 1.29× instead of ~1.4×). Was also reading the GLOBAL ARENA, so it aimed at walls
+// that do not exist on a field-builder arena (F9). Returns the spot + the multiplier it earns.
+const CANNON_STAND = 52; // ⇒ mul ≈ 1 + (1-52/150)*0.55 ≈ 1.36× on steel, and clear of the wall body
+function staticCannonSpot(px, py, dirx, diry, state = null) {
   let best = null, bd = 1e9;
-  for (const w of ARENA.walls) {
-    const cx = w.x + w.w / 2, cy = w.y + w.h / 2;
-    const sx = cx + dirx * 130, sy = cy + diry * 130; // stand on the LAUNCH side of the wall
+  for (const w of arenaOf(state).walls) {
+    // nearest point of the wall box to the bot — the face we want at our back
+    const fx = clamp(px, w.x, w.x + w.w), fy = clamp(py, w.y, w.y + w.h);
+    const sx = fx + dirx * CANNON_STAND, sy = fy + diry * CANNON_STAND; // stand on the LAUNCH side
+    if (sx < 60 || sx > FIELD.W - 60 || sy < 60 || sy > FIELD.H - 60) continue; // never a spot off-pitch
+    // the wall must end up BEHIND the launch (cone opposite dir) once we are standing there
+    const bwx = fx - sx, bwy = fy - sy, bwd = hyp(bwx, bwy) || 1;
+    if ((bwx / bwd) * -dirx + (bwy / bwd) * -diry < 0.82) continue; // BOMB_WALL_COS
+    if (bwd > 150) continue;                                        // BOMB_WALL_DIST
+    // and nothing indestructible AHEAD in the launch cone, or the sim cancels the jump outright
+    if (indestructibleBlocks(sx, sy, sx + dirx * 160, sy + diry * 160, state)) continue;
     const d = hyp(sx - px, sy - py);
-    if (d < bd && d < 210) { bd = d; best = { x: sx, y: sy }; } // only a short hop — never detour far
+    if (d < bd && d < 210) { bd = d; best = { x: sx, y: sy, mul: 1 + (1 - bwd / 150) * 0.55 }; } // short hop only
   }
   return best;
 }
@@ -1086,6 +1135,22 @@ function decideBot(p, role, state, mem, sk, dt) {
   return finalize(p, tgt, aim, { shoot, charge, special, build, closeShot }, state, mem, bm, sk, dt);
 }
 
+// ---- F2 FIX: how long may a wind-up run before we give up on it? ----
+// This used to be a FLAT 2.2s. The sim's ramp is
+//   d(charge)/dt = chargeRate * cardShot * (power ? SUPER_CHARGE_RATE : 1) / SHOOT_CHARGE_TIME,
+// so reaching FULL_CHARGE (0.70) takes 1.42/chargeRate seconds — which at the BOTTOM of the ladder
+// (chargeRate ~0.67) is 2.12s, i.e. ~80ms inside the old 2.2s deadline. Any aim disturbance in those
+// last 5 ticks cancelled the shot, sim.js reset _charge to 0, the branch re-armed, and the bot stood
+// there holding the ball FOREVER without ever releasing. That is the "stands in front of the goal"
+// bug. The budget is now derived from the bot's OWN ramp (including its cards + super, and whatever
+// charge it has already banked), so it is impossible for a tier to be given less time than the shot
+// physically needs. Budgets: t=0.05 -> 3.53s, easy 2.58s, normal 2.06s, hard 1.39s, top ~0.80s.
+function windupBudget(p, fireAt) {
+  const rate = Math.max(0.05, (p.chargeRate || 1) * (p.cardShot || 1) * (p.power ? SUPER_CHARGE_RATE : 1) / SHOOT_CHARGE_TIME);
+  const needed = Math.max(0, fireAt - (p._charge || 0)) / rate;
+  return Math.max(0.8, needed * 1.5 + 0.35); // 50% headroom for aim convergence + a couple of decision ticks
+}
+
 // Apply steering + skill (reaction latency + smoothed noisy aim), emit the input.
 function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   bm.wantMove = opts.hold ? 0 : 1;
@@ -1152,7 +1217,7 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   if (shoot && !bm.charging) {
     if (isBallRelease || p.ammo > 0) { // don't start a BULLET wind-up we can't finish
       const fireAt = wantCharge >= FULL_CHARGE ? FULL_CHARGE + 0.01 : Math.max(0.02, wantCharge - 0.02);
-      bm.charging = { target: wantCharge, fireAt, tol: closeShot ? 0.85 : 0.45, ball: isBallRelease, until: mem.t + 2.2 };
+      bm.charging = { target: wantCharge, fireAt, tol: closeShot ? 0.85 : 0.45, ball: isBallRelease, until: mem.t + windupBudget(p, fireAt) };
     }
   } else if (shoot && bm.charging) {
     bm.charging.target = wantCharge; // keep the freshest target while winding up

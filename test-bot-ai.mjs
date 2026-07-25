@@ -114,5 +114,36 @@ const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail
   ok(role && role.onBall !== role.support && role.support != null, `coordination: distinct press/cover roles assigned (${role && role.onBall}/${role && role.support})`);
 }
 
+// 7) EXACT lane geometry — the old fixed 10-step sampling STRODE OVER thin obstacles.
+//    A 32px-thick built wall on a ~1000px lane meant a 100px stride: the wall fell between
+//    samples ~2 times in 3, so "is my shot blocked?" answered wrong in both directions.
+//    These assert the lane test is now exact (segment-vs-box), not sampled.
+{
+  const s = createState();
+  addPlayer(s, 'A0', { name: 'a', char: 'player', team: 'A', slot: 0, isBot: true });
+  s.players.A0.x = -999; s.players.A0.y = -999;
+  // A THIN wall (built-wall thickness) mid-lane, deliberately placed BETWEEN two old sample
+  // points: on a 500->1500 lane the old stride was 100px (samples at 600,700,...), so a wall
+  // centred at 1050 fell in the gap and read as CLEAR. Verified: the old sampler passes this
+  // geometry, the exact test catches it. (A wall at 1000 would sit ON a sample and prove nothing.)
+  s.builtWalls.push({ id: 1, wallId: 1, x: 1050 - 16, y: 950 - 60, w: 32, h: 120, hp: 3, maxHp: 3, team: 'B' });
+  ok(!laneClear(500, 950, 1500, 950, s, 'A', { enemies: false }),
+    'lane: a 32px wall mid-lane BLOCKS a 1000px lane (old 100px stride stepped over it)');
+  // and it must not false-positive: the same lane one wall-height away is clear
+  ok(laneClear(500, 700, 1500, 700, s, 'A', { enemies: false }),
+    'lane: a lane that misses the thin wall is still clear');
+  // a lane that ends before the wall is clear (no phantom blocking behind the endpoint)
+  ok(laneClear(500, 950, 1000, 950, s, 'A', { enemies: false }),
+    'lane: a lane stopping short of the wall is clear');
+  // `out` reports WHICH wall blocked, so the release ladder can tell destructible from stone
+  const out = {};
+  laneClear(500, 950, 1500, 950, s, 'A', { enemies: false, out });
+  ok(out.wall && out.wall.wallId === 1, 'lane: out.wall names the blocking BUILT wall (shootable)');
+  const out2 = {};
+  const w = ARENA.walls[0]; // static stone {x:560,y:250,w:120,h:120}
+  laneClear(400, w.y + 60, 900, w.y + 60, s, 'A', { enemies: false, out: out2 });
+  ok(out2.wall && out2.wall.wallId == null, 'lane: out.wall names the STATIC stone (never shootable)');
+}
+
 console.log(`\n${fails === 0 ? '✅ ALL PASS' : '❌ ' + fails + ' FAILED'}`);
 process.exit(fails === 0 ? 0 : 1);

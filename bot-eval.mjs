@@ -38,7 +38,9 @@ function runMatch(newTeam) { // newTeam: which side ('A'|'B') the NEW ai control
     // tool-use tally for the NEW team
     for (const id in inputs) {
       if (state.players[id] && state.players[id].team === newTeam) {
-        if (inputs[id].shoot) m.shots++; if (inputs[id].special) m.bombs++; if (inputs[id].build) m.builds++;
+        // computeBotInputs emits { hold, fire, ... } — there has never been a `shoot` key, so this
+        // counter silently read 0 for every run the harness has ever done. `fire` is the RELEASE.
+        if (inputs[id].fire) m.shots++; if (inputs[id].special) m.bombs++; if (inputs[id].build) m.builds++;
       }
     }
     const before = { A: state.score.A, B: state.score.B };
