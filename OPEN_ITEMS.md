@@ -57,7 +57,11 @@
 
 ---
 
-## 🚚 Release train — 44 local commits, nothing on any remote
+> 📦 **Preparing a shipment?** The cross-repo handoff for the reconciliation agent is
+> `../summery/HANDOFF-2026-07-25-reconciliation.md` (outside this repo — it covers football-mock +
+> pikme-server + pikmeTV-saltiz together, with the ship order, the verification gaps and the clashes).
+
+## 🚚 Release train — ~56 local commits, nothing on any remote
 
 These three repos are **coupled** and must go out together, in this order:
 
