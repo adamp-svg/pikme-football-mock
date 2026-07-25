@@ -16,8 +16,9 @@
 >
 > Coordination: this is a multi-agent repo — take an orchestration lock before editing a shared
 > file (`football-mock:<path>`), run the test suite (`for f in test*.mjs; do node $f; done`, must
-> stay green — 2 unrelated flakes aside), build locally on `PORT=3012 node server.js`, and deploy
-> via `render deploys create srv-d9ebcvtaeets73ar91sg --confirm -o json` (autoDeploy is also on).
+> stay green — 2 unrelated flakes aside), build locally on `PORT=3012 node server.js` (browser-test at
+> http://10.100.102.36:3012/), and deploy via `render deploys create srv-d9ebcvtaeets73ar91sg --confirm
+> -o json` — **autoDeploy is OFF / webhook dead, so a push deploys nothing; the CLI call is required.**
 
 ## ✅ Already shipped & LIVE (commit 6d77a788, https://pikme-football.onrender.com)
 Context so you don't redo these. Suite 26/26 green.

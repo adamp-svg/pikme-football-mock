@@ -66,7 +66,7 @@
 These three repos are **coupled** and must go out together, in this order:
 
 1. **pikme-server** — 5 commits: trophy math + persistence + lazy migration, friend-messaging API, career-stats projection.
-2. **football-mock** — 38 commits (9 feat / 5 fix / 2 test / 22 docs; 55 files, +8.8k lines). ⚠️ `autoDeploy=yes` — **pushing this deploys the game to production immediately**, so the server must be live first or the game will report trophy fields nothing understands.
+2. **football-mock** — 38 commits (9 feat / 5 fix / 2 test / 22 docs; 55 files, +8.8k lines). ⚠️ Render does **not** autodeploy (webhook dead, confirmed by the user 2026-07-26) — pushing changes nothing until `render deploys create srv-d9ebcvtaeets73ar91sg --confirm -o json`. Still deploy the server first, or the game reports trophy fields nothing understands.
 3. **pikmeTV-saltiz** (`feat/football-store`) — 1 commit (career-stats screen + mid-session prefs); ships only via a TestFlight build.
 
 Suite is green in football-mock and the app; the server's own tests should be run before its push.
