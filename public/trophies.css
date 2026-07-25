@@ -1,0 +1,131 @@
+/* HUB TROPHY LAYER — styles for public/hub-trophies.js.
+   Kept in its own stylesheet (like net-hud) so the trophy feature doesn't collide with the concurrent
+   hub/lobby redesign in style.css. Pixel-art idiom + Hebrew RTL to match the rest of the hub. */
+
+/* ---- placement on the hub stage ------------------------------------------------
+   .hub is an absolutely-positioned stage in logical px (see the "top row" block in style.css). The
+   trophy box takes over the XP bar's slot as the headline, and the XP bar drops below it.
+   The shift is gated on `.hub.has-trophies`, which hub-trophies.js only adds once it has real data —
+   so an older app build (no window.SALTIZ_TROPHIES) keeps the original layout with no empty gap. */
+.hub > .hub-trwrap {
+  position: absolute; right: auto; bottom: auto; margin: 0;
+  left: 410px; top: 10px; width: 325px; z-index: 5;
+  background: rgba(11, 16, 12, .72);
+  border: 2px solid #34413a;
+  border-radius: 8px;
+  padding: 4px 10px;
+  box-shadow: 0 3px 0 #070b08;
+}
+.hub > .hub-trwrap:has(.hub-trophies.hidden) { display: none; } /* nothing to show -> take no space */
+.hub.has-trophies > .hub-xpbar { top: 74px; }
+
+.hub-trophies {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  direction: rtl;
+}
+.hub-trophies.hidden { display: none !important; }
+
+/* Tier badge — chunky pixel medallion, colours driven by --c1/--c2 per tier. */
+.hub-trophies .tr-badge {
+  flex: 0 0 auto;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  background: linear-gradient(160deg, var(--c1), var(--c2));
+  border: 2px solid #1d2622;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .25), 0 2px 0 #10160f;
+  image-rendering: pixelated;
+}
+.hub-trophies .tr-ic { font-size: 15px; line-height: 1; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .45)); }
+
+.hub-trophies .tr-main { flex: 1 1 auto; min-width: 0; }
+
+.hub-trophies .tr-top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+  font: 900 9px "Arial Black", sans-serif;
+}
+/* The COUNT is the headline number — decision #3 (trophies big, XP small underneath). */
+.hub-trophies .tr-count { color: #c8d4bf; }
+.hub-trophies .tr-count b {
+  color: var(--gold, #ffe27a);
+  font-size: 15px;
+  /* tabular + LTR isolate: a bare number in an RTL run puts its sign on the wrong side. */
+  font-variant-numeric: tabular-nums;
+  direction: ltr; unicode-bidi: isolate;
+}
+.hub-trophies .tr-tier { color: #8aa08c; font-size: 9px; }
+
+/* Progress toward the next tier. Gold, so it reads as the primary bar and the blue XP bar below it
+   reads as secondary. */
+.hub-trophies .tr-bar {
+  height: 8px; margin-top: 3px;
+  background: rgba(0, 0, 0, .5);
+  border: 2px solid #34413a;
+  overflow: hidden;
+}
+.hub-trophies .tr-bar b {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, #ffd049, #ff8a1f);
+  box-shadow: 0 0 8px rgba(255, 190, 60, .7);
+  transition: width .25s ease-out;
+}
+
+.hub-trophies .tr-sub { margin-top: 2px; font: 900 8px "Arial Black", sans-serif; color: #8aa08c; }
+.hub-trophies .tr-next { color: #8aa08c; }
+.hub-trophies .tr-max { color: #ffd049; }
+/* The bot-ceiling nudge: the one piece of copy that tells a solo player WHY the number stopped. */
+.hub-trophies .tr-nudge { color: #ffb454; }
+
+/* ---- post-match reveal ---------------------------------------------------- */
+
+/* Floating +N / −N chip. A gain rises and glows; a loss sinks and stays muted — never celebratory. */
+.hub-trophies .tr-flash {
+  position: absolute;
+  top: -6px; inset-inline-start: 38px;
+  padding: 2px 6px;
+  font: 900 12px "Arial Black", sans-serif;
+  color: #16220f;
+  background: linear-gradient(180deg, #ffe27a, #f0a92a);
+  border: 2px solid #16220f;
+  box-shadow: 0 2px 0 #10160f;
+  pointer-events: none;
+  animation: trFlashUp 2s ease-out forwards;
+}
+.hub-trophies .tr-flash-down {
+  color: #f4e9e9;
+  background: linear-gradient(180deg, #6e5152, #4a3536);
+  border-color: #2a1d1e;
+  box-shadow: none;
+  animation: trFlashDown 1.6s ease-out forwards;
+}
+@keyframes trFlashUp {
+  0%   { opacity: 0; transform: translateY(8px) scale(.8); }
+  18%  { opacity: 1; transform: translateY(-2px) scale(1.12); }
+  30%  { transform: translateY(0) scale(1); }
+  75%  { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-14px); }
+}
+@keyframes trFlashDown {
+  0%   { opacity: 0; transform: translateY(-6px); }
+  20%  { opacity: 1; transform: translateY(0); }
+  70%  { opacity: .9; transform: translateY(4px); }
+  100% { opacity: 0; transform: translateY(10px); }
+}
+
+/* Tier promotion — the one moment that earns a real celebration. */
+.hub-trophies.tr-promote .tr-badge { animation: trPromote 1.4s ease-out; }
+@keyframes trPromote {
+  0%   { transform: scale(1) rotate(0); }
+  25%  { transform: scale(1.35) rotate(-8deg); filter: brightness(1.5); }
+  55%  { transform: scale(1.1) rotate(6deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hub-trophies .tr-flash,
+  .hub-trophies .tr-flash-down { animation-duration: .01ms; animation-iteration-count: 1; }
+  .hub-trophies.tr-promote .tr-badge { animation: none; }
+  .hub-trophies .tr-bar b { transition: none; }
+}

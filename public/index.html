@@ -6,6 +6,8 @@
   <title>סולטיז כדורגל בלוקים</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%9A%BD%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/style.css" />
+  <!-- trophy hub layer, kept separate from style.css (see public/trophies.css) -->
+  <link rel="stylesheet" href="/trophies.css" />
 </head>
 <body>
   <!-- Start screen retired: the user/home screen is shown first. Kept (empty, hidden)
@@ -40,7 +42,11 @@
       <div id="home-face" class="hub-pfp"></div>
       <div id="home-name" class="hub-name">שחקן</div>
 
-      <!-- XP horizontal bar (renderHubXp() fills #hub-xp) -->
+      <!-- TROPHIES — the headline progression number (hub-trophies.js fills it). Hidden until the app
+           injects window.SALTIZ_TROPHIES, so an older app build shows exactly the old hub. -->
+      <div class="hub-trwrap" aria-label="גביעים"><div id="hub-trophies" class="hub-trophies hidden"></div></div>
+
+      <!-- XP horizontal bar (renderHubXp() fills #hub-xp) — now the SECONDARY track under trophies -->
       <div class="hub-xpbar" aria-label="XP"><div id="hub-xp" class="hub-xp hidden"></div></div>
 
       <!-- album stats: individual chips + collector badge, each its own box -->
