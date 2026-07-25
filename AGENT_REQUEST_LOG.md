@@ -21,6 +21,15 @@
 
 ## 2026-07-25
 
+- **✅ PHASE 2 DONE — one MODES table replaces the hand-copied pick lists (agent `modes-lead`)** — Files taken: `public/client.js`, `public/index.html`, `public/style.css`, `package.json`, `render.yaml`.
+  - `const MODES = [...]` in `client.js` (above the sub-screens block) is now the ONLY mode list: `{id, ic, name, sub, state:'live'|'dev', party, launch()}`. `renderModeList()` renders it into every `.mode-list` container; `#arena`, `#party` and `#game-select` all lost their hand-written `.modecard`s. **Zero static mode cards left in the markup.**
+  - One delegated `.modecard[data-mode-id]` listener replaces the per-surface handlers. `launchMode(id)` is the single launch path so `unlockAudio()`/`syncLoadout()` can't be forgotten on one route again (exactly how `#arena`'s missing `diffLevel` happened). The hub's `#goal-brawl-btn` shortcut stays (baked layout box) but goes through the table.
+  - **Party vs game-select is decided by the CONTAINER** (`card.closest('#party')`), not by `gameSelectMode` — that flag is stale state from whichever flow opened the overlay last, and keying off it would have fired `createRoom` from the party screen.
+  - Locked (`state:'dev'`) cards are still TAPPABLE — they toast «בקרוב — עוד לא מוכן» instead of being dead pixels; `cursor` corrected from `not-allowed` to `pointer`.
+  - New `test-modes-table.mjs` renders the REAL `index.html` under **jsdom** and asserts all three surfaces agree, that no static cards remain, that goal-brawl is live everywhere, and that the old stale handlers are gone — so the drift bug can't come back silently. jsdom was installed-but-undeclared; added as a `devDependency` and `render.yaml` now builds with `npm install --omit=dev` so the deploy doesn't carry it.
+  - ⚠️ **Bookkeeping:** this work is committed but NOT under its own message — another agent ran a catch-all `git add` and swept my staged files into **`1964dd0`** ("docs: clear the open-items board"). The code is intact and green; the commit message just doesn't describe it. Suite: **38 files green** (`test-mode-format.mjs` needs a live server — `PORT=3013 node server.js`; a stale duplicate server on that port will make it time out).
+  - 3v3 + tournament sit in the table as `state:'dev'`. Flipping 3v3 to `'live'` in Phase 4 is now a one-line change plus its launcher.
+
 - **📌 Standing rules restated + 2 NEW ones (session start, agent `saltiz-main`)** — User: "you work on the football game, and collaborate with other agents working on the same one, you test in local host and then push when needed to the app or in test flight. record all my request to you in simple bullets. if any question you can research what brawlstars, roblox and fortnight are doing."
   - Already-known rules confirmed: football game / multi-agent repo / commit local always / push only when asked / log every request in this file.
   - NEW #1: **test on localhost first**, then push to the app or TestFlight only when the user asks.
