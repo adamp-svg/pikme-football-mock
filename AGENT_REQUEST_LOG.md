@@ -21,6 +21,19 @@
 
 ## 2026-07-26
 
+- **🏆 5-agent council: how trophies + rank should progress (agent `council-v2`, 00:35)** — User asked to start the 5-agent council to **research AND decide** trophy/rank progression, with 7 rules. Verbatim asks:
+  1. **Trophies can only go up.**
+  2. **Different trophies numbers for win / lose / tie / played.**
+  3. **Different trophies for humans vs bots, and by the NUMBER of bots** (2v2 → 1, 2 or 3 bots?).
+  4. **Bots should maybe give less trophies than humans?**
+  5. **How many trophies vs a higher-RANK or higher-TROPHIES opponent** — for win / lose / tie / played.
+  6. **Rank should be between ONLY HUMANS.**
+  7. **How should ranking XP work — by opponent rank, opponent trophies, or both?** ("etc" — adjacent questions welcome.)
+  - **Grounding I did before spawning** (so the council builds instead of redoing 2026-07-25): two tracks are already shipped — trophies = `xp` (monotonic, volume, `football-xp.js`, bot floor 0.5) and rank = `rankPoints` (losable, `football-rank.js`, BOT_RATE 0.4, ceiling 60+80·L, sticky floor, farm gates). Ask #1 is **already true**. Asks #2/#5/#7 are new. **Ask #6 contradicts locked decision §7.1** of `summery/research-trophies/00-DECISION.md` (bots pay 40% rank up to a ceiling) and would leave a solo player with **zero** rank progression — flagged to the council as the decision only the user can make.
+  - **Council shape:** 5 research seats (monotonic precedent · opponent-strength math · bots/humans/solo · up-only economy · integration risk) → chair synthesis → 3 adversarial critics (farm-exploit arithmetic, does-it-answer-all-7, does-it-break-the-shipped-build) → chair revision. Seats write `06`–`10-*.md`; decision lands in **`summery/research-trophies/11-DECISION-v2-progression.md`**.
+  - **No code touched** — research + decision docs only, per the ask. Nothing committed yet, nothing pushed.
+  - Status: **council running** at time of writing. If this session died: the run is `wf_dfd8f9e5-c54`; the seat docs and `11-DECISION-v2-progression.md` are the deliverable, and the open user-questions at the end of that doc still need his answers before anyone writes code.
+
 - **📋 Standing rules restated by the user, 6th time (agent `session-open-2`, 00:37)** — No new rules, no work requested yet. His asks, short bullets:
   - **We collaborate with other agents** on the football minigame — assume any file is mid-edit by someone else.
   - **Two test surfaces:** browser at **http://10.100.102.36:3012/** (LAN IP so his phone reaches it) and a **TestFlight build on the phone**. Never hand him `localhost`.
@@ -31,6 +44,19 @@
   - Nothing here is new vs the `session-open` entry below — all six already live in [`AGENT_RULES.md`](AGENT_RULES.md) + [`CLAUDE.md`](CLAUDE.md) (auto-loaded). **He has now said them 6×. Treat as permanent; don't make him say it a 7th.**
   - **State on entry:** branch `main`, **2 unpushed commits**, `:3012` serving 200 (a second server is up on `:3013`). Dirty on entry: `server.js`, `public/client.js`, `public/index.html`, `public/style.css` — **all four locked by `agent-21094`** (unifying the VS/teams overlay for brawl) → left alone. This log's 3v3 entry is `3v3-arena`'s uncommitted work → left alone; I staged **only my own hunk** (blob-level stage, no `commit -a`).
   - Status: no code touched, awaiting his first task.
+
+- **🆕 NEW 3v3 MODE + bigger stadium + builder size presets (agent `3v3-arena`)** — User: "you work on a new 3v3 game, should allow 3v3 players, and make the stadium bigger. do research and use the council and other skills to decide how much bigger the stadium should be. also add option in the arena builder to build a bigger stadium for 3v3 (and maybe 5v5 in the future)."
+  - Asks, short bullets: **(1)** new 3v3 mode, 3 players per team. **(2)** bigger stadium for it. **(3)** the size must be **researched + council-decided**, not guessed. **(4)** field builder gets a **bigger-arena option** for 3v3, forward-compatible with a future **5v5**.
+  - **Hard constraints I verified before designing** (any agent picking this up: do not re-derive, but do re-check if you change these files):
+    - `FIELD = {W:2000,H:1100}` is a module const in `shared/constants.js:6`, imported by sim + server + client → arena size is currently **global, not per-match**.
+    - `shared/wire.js:37` packs positions as `P = i16(round(v*10))` → **hard ceiling ±3276.7 world px.** An arena wider than ~3200 (leaving camera headroom behind the goals) **overflows the wire**.
+    - `shared/wire.js:51` player-presence mask is a **u8, loop `k < 8`** → **8 slots max. 3v3 (6) fits with NO wire change; 5v5 (10) does NOT.** That is the real cost of the future 5v5.
+    - `public/client.js:4767` `scale = CAM_ZOOM * wbW / FIELD.W` → zoom is DERIVED from field width, so **a bigger arena silently zooms out and shrinks the players**. Must be pinned to a reference width, Brawl-style (pan more, don't zoom out).
+    - `shared/sim.js:166` `spawnPos(team, slot)` only knows **slot 0/1** (`y = H*0.36 | H*0.64`) → needs a 3-per-side formula.
+    - `MAX_PLAYERS = 4` (`shared/constants.js:316`), `TEAM_CAP = 2` (`server.js:75`).
+    - Builder is pinned to `FB_W=2000, FB_H=1100, FB_GRID=50` (40×22 cells) and saves **absolute px with no size field** (`public/client.js:6469`, localStorage `pikme-field-v1`); `shared/field-presets.js` + `shared/main-field.js` use the same absolute shape → **plural sizes need a size field + a migration rule for existing saved fields.**
+  - **Council run** (workflow `football-3v3-arena-council`, 11 agents): 3 web-research agents (Brawl Stars/Brawl Ball tile counts + area-per-player; real football 3v3/5-a-side/11v11 m² per player + Rocket League's one-arena-for-all-modes counter-example; Roblox/Fortnite editor bounds-change UX) + 3 codebase recon agents (size/roster coupling map, netcode+perf at 6 players, builder surface) → 3 sizing proposals (density / feel / systems lenses) → 2 adversarial judges (player + engineer) → 1 ruling.
+  - Status: **council running, nothing implemented yet.** Design goes to the user for approval before any code. Files I intend to take when approved: `shared/constants.js`, `shared/sim.js`, `server.js`, `public/client.js` (modes table + camera + builder), `shared/field-presets.js`. ⚠️ `public/client.js` + `test-aim-curve-and-api.mjs` were **already dirty on entry (another agent's — left alone)**; `CLAUDE.md`/`AGENT_RULES.md`/this log are `session-open`'s uncommitted doc edits, also left alone.
 
 - **📋 Standing rules restated by the user (agent `session-open`)** — User opened the session with the working agreement. Verbatim asks, short bullets:
   - **We collaborate with other agents on the football minigame.** Not alone in this repo.
