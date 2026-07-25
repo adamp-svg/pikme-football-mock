@@ -12,6 +12,7 @@ import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
+import { onPong, onSnapshot, resetNetHud, renderNetHud, NET_DEBUG } from '/net-hud.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import { mountHeroFx } from '/hero-fx.js';
@@ -2791,7 +2792,7 @@ function connect(name, avatar) {
     setNet('connected');
     ws.send(JSON.stringify({ type: 'join', authToken: FOOTBALL_TOKEN, name, avatar, cards: myCards(), cosmetic: myCosmetic, loadout: effectiveLoadout() }));
     if (pingIv) clearInterval(pingIv);
-    pingIv = setInterval(sendPing, 1500);
+    pingIv = setInterval(sendPing, 1000);   // 1s: enough RTT samples for a usable jitter figure
     loadFriends(); // register friends → server replies friendsPresence → bulb reflects online friends
     startThreadPoll();
   };
@@ -3125,6 +3126,7 @@ function cardDrama(c) {
   const dupeBoost = Math.min(1, ((c.c || 1) - 1) / 5);                  // 0..1 over 1..6 copies
   return { rank, power: rank + worthBoost * 1.6 + dupeBoost * 1.1 };    // 0 .. ~5.7
 }
+    resetNetHud();                        // stale RTT/snapshot samples must not haunt the next socket
 // Legendary fire: a wall of OUR pixel-fire sprite (fire-sheet.png, 32 frames) around
 // the card — each tile a sprite window with its own size/phase/speed/mirror.
 function buildFireWall(card, cardW) {
@@ -3142,6 +3144,7 @@ function buildFireWall(card, cardW) {
     t.style.animationDelay = '-' + (Math.random() * 0.9).toFixed(2) + 's'; // desync start frame
     if (Math.random() < 0.5) t.style.transform = 'scaleX(-1)';          // mirror some
     wall.appendChild(t);
+      onSnapshot();                       // stamp arrival: the freeze detector measures the gap since this
   }
   card.appendChild(wall);
 }
@@ -3219,6 +3222,7 @@ function buildMemberRow(m, listEl) {
   const av = document.createElement('div'); av.className = 'member-av';
   const nm = document.createElement('div'); nm.className = 'member-name';
   const st = document.createElement('div'); st.className = 'member-status';
+      onPong(ping);                                     // feed the jitter window
   // #14: host-only kick control (shown/wired per-update in updateLobbyUI). 4th child —
   // the [av,nm,st] destructure below stays valid.
   const kick = document.createElement('button'); kick.className = 'member-kick hidden'; kick.textContent = '✕'; kick.setAttribute('aria-label', 'הסרה מהחדר');
@@ -5375,7 +5379,12 @@ function drawHUD() {
     timerEl.classList.toggle('urgent', remain <= 10 && latest.phase !== 'ended');
     timerEl.classList.toggle('overtime', inOT);
   }
-  document.getElementById('net').textContent = `${ping}ms · ${snapRate}/s`;
+  // Connection quality: warn the player when their OWN link degrades. Shows nothing while
+  // healthy — see public/net-hud.js + net-quality.js (unit-tested in test-net-quality.mjs).
+  renderNetHud({ snapRate, unacked: pendingInputs.length, wsOpen: !!(ws && ws.readyState === ws.OPEN) });
+  // The raw ping/snapshot numbers were always a developer diagnostic, never player-facing:
+  // ?debug=net now renders them from net-hud's own readout, so this chip stays hidden.
+  { const netEl = document.getElementById('net'); if (netEl) netEl.style.display = NET_DEBUG ? '' : 'none'; }
 
   // Build-wall HUD: charges + reload on the build button; "hidden" cue when in a bush.
   const meP = latest.players && latest.players.find((pp) => pp.id === me.playerId);
