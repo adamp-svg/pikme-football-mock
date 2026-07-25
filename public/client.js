@@ -3316,7 +3316,24 @@ let buildHolding = false;  // build control currently HELD (windup ramps server-
 let buildStart = null;     // timestamp the build hold began — LOCAL windup estimate for the HUD
 const BUILD_MS = BUILD_WINDUP * 1000;
 function beginBuild() { if (holdingBall) return; if (!buildHolding) { buildHolding = true; buildStart = performance.now(); } } // no building while carrying the ball
-function currentWindup() { return buildStart === null ? 0 : Math.min(1, (performance.now() - buildStart) / BUILD_MS); }
+// How full the wall wind-up ring is (0..1). The local clock drives it for smoothness, but the
+// SERVER owns whether a wind-up is happening at all: sim.js refuses to accumulate `buildWindup`
+// while the placement cooldown (BUILD_COOLDOWN, 0.4s after each wall) is running or the mag is
+// empty. Trusting the local clock alone is what produced the "ring fills, release, no wall"
+// window right after building — the ring promised something the server would reject.
+// So: run locally for one round-trip's grace, then follow the snapshot. If the server is not
+// winding by then we are blocked → report 0, which keeps the ring empty AND makes release
+// cancel (endBuildDrag commits only at >= 1) instead of silently eating the input.
+const BUILD_SYNC_GRACE_MS = 150;
+function currentWindup() {
+  if (buildStart === null) return 0;
+  const held = performance.now() - buildStart;
+  const local = Math.min(1, held / BUILD_MS);
+  if (held < BUILD_SYNC_GRACE_MS) return local;
+  const meP = latest && latest.players && latest.players.find((pp) => pp.id === me.playerId);
+  if (!meP) return local;                       // no snapshot yet — nothing better to go on
+  return meP.winding ? local : 0;               // server isn't winding => cooldown or no charges
+}
 function cancelBuild() { buildHolding = false; buildStart = null; buildHold = null; }
 
 // Build a wall — like a shot, you can drag to aim (pull-to-build) then release.
