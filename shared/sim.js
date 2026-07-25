@@ -220,6 +220,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
   const p = {
     id, name, char: c, team, slot, isBot: !!isBot,
     cosmetic: cosmetic || null, // "hero:skin" visual id; never read by physics
+    stat: { goals: 0, strips: 0, saves: 0, shots: 0, bombs: 0, walls: 0 }, // per-match tallies; sent to each human at match end
 
     ...spawnPos(team, slot),
     vx: 0, vy: 0,
@@ -358,6 +359,7 @@ function resolveSuperBodyStrip(state) {
     if (d < contact) {
       const nx = dx / d, ny = dy / d;
       b.owner = null; b.pickupCd = RELEASE_PICKUP_CD; b.lastTouch = p.team; clearKick(b); // stripped, not a kick
+      if (p.stat) p.stat.strips++;
       b.vx = nx * SUPER_BODY_BALL_POP; b.vy = ny * SUPER_BODY_BALL_POP; // ball pops loose past the carrier
       carrier.kvx += nx * SUPER_BODY_STRIP_KB * knockMul(carrier);
       carrier.kvy += ny * SUPER_BODY_STRIP_KB;
@@ -422,6 +424,8 @@ function handleBallBounds(state) {
 function goal(state, team) {
   state.score[team]++;
   state.lastGoal = team;
+  const scorer = state.players[state.ball.lastKicker]; // credit the last kicker if they're on the scoring team
+  if (scorer && scorer.team === team && scorer.stat) scorer.stat.goals++;
   // Freeze in the scoring positions for GOAL_FREEZE_HOLD seconds so players see it, THEN snap
   // to kickoff (see the reset branch in step). The ball keeps its velocity and rolls into the
   // back of the net during the hold (rollBallIntoNet), instead of sticking at the goal line.
@@ -621,7 +625,7 @@ export function step(state, inputs, dt) {
     p.buildCd = Math.max(0, p.buildCd - dt);
     if (p.buildAmmo < BUILD_MAG) {
       p.buildAmmoT += dt;
-      const buildReload = BUILD_RELOAD * (p.cdMul || 1) * (p.cardUtil || 1);
+      const buildReload = BUILD_RELOAD * (p.cdMul || 1) * (p.cardUtil || 1) / (state.settings.wallReloadSpeed || 1); // training: faster wall reload
       if (p.buildAmmoT >= buildReload) { p.buildAmmo = Math.min(BUILD_MAG, p.buildAmmo + 1); p.buildAmmoT -= buildReload; } // one charge back
     }
     // Ammo: a fully-emptied mag reloads all at once after EMPTY_RELOAD; otherwise
@@ -839,6 +843,7 @@ export function step(state, inputs, dt) {
         let f;
         if (inOwnPenalty(p) && tier < 2) {
           b.vx = 0; b.vy = 0; b.pickupCd = RELEASE_PICKUP_CD; f = null; // keeper catches a weak/full kick (a real save)
+          if (p.stat) p.stat.saves++;
         } else if (tier === 2) {
           f = inOwnPenalty(p) ? KEEPER_BREAK_ROLL : OVER_FIELD_ROLL;    // keeper: break through; field: only a LITTLE roll forward (stays in front)
           b.pickupCd = Math.max(b.pickupCd, RELEASE_PICKUP_CD * 0.5);
@@ -885,6 +890,7 @@ export function step(state, inputs, dt) {
 function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.aimY, superQuick = false, sup = false, aimed = false) {
   p.shootCd = ch.shootCooldown;
   p.firing = true;
+  if (p.stat) p.stat.shots++;
   const cm = chargeMul(charge); // caller already folded any SUPER boost into `charge` (one proportion)
   const off = radiusOf(p, state) + PROJECTILE.radius + 2;
   const spd = state.settings.bulletSpeed * cm;
@@ -909,7 +915,7 @@ function fireBullet(state, p, ch, charge, over = false, aimX = p.aimX, aimY = p.
 // (sax,say) drag vector — using p.aimX/p.aimY here would desync the lob from the ghost
 // whenever the player's aim differs from their drag direction.
 function useSpecial(state, p, ch, sax = 0, say = 0) {
-  p.specialCd = ch.specialCooldown * (p.cdMul || 1) * (p.cardUtil || 1);
+  p.specialCd = ch.specialCooldown * (p.cdMul || 1) * (p.cardUtil || 1) / (state.settings.bombReloadSpeed || 1); // training: faster bomb reload
   const mag = Math.hypot(sax, say);
   let bx, by;
   if (mag <= 0) {
@@ -923,6 +929,7 @@ function useSpecial(state, p, ch, sax = 0, say = 0) {
     id: state._nid++, owner: p.id, team: p.team,
     x: bx, y: by, fuse: BOMB.fuse,
   });
+  if (p.stat) p.stat.bombs++;
 }
 
 // BUILD skill — spawn a small destructible wall in front of the player, oriented
@@ -1004,6 +1011,7 @@ function buildWall(state, p) {
   p.buildAmmo -= 1;
   p.buildCd = BUILD_COOLDOWN * (p.cdMul || 1) * (p.cardUtil || 1);
   p.firing = true;
+  if (p.stat) p.stat.walls++;
 }
 
 // Chip a built wall's HP; the caller filters out hp<=0 walls afterwards. A player wall is built
@@ -1190,6 +1198,7 @@ function bulletStripCarrier(state, carrier, pr, nx, ny, pushX, pushY, angMul = 1
     carrier.kvx += pushX * SUPER_QUICK_KB * angMul;
     carrier.kvy += pushY * SUPER_QUICK_KB * angMul;
     useSuperCharge(shooter); // costs ⅓ of the super (3 uses), not the whole meter
+    if (shooter && shooter.stat) shooter.stat.strips++;
     return true;
   }
   // AIM SHOT: earn; a carrier is only STRIPPED at full charge (super inflates charge to reach it).
@@ -1205,6 +1214,7 @@ function bulletStripCarrier(state, carrier, pr, nx, ny, pushX, pushY, angMul = 1
   b.vx = nx * PROJECTILE.ballPush + (-ny) * side;
   b.vy = ny * PROJECTILE.ballPush + (nx) * side;
   if (pr.over) spendSuper(shooter); // an overcharge strip spends the meter
+  if (shooter && shooter.stat) shooter.stat.strips++;
   return true;
 }
 

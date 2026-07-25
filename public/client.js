@@ -46,6 +46,8 @@ let me = { playerId: null, team: null, char: 'striker' };
 let matchId = null;            // stable per-match id from matchStart (app-bound matchResult key)
 let training = false;          // true in the training ground (no clock, penned dummy, reset-ball)
 let matchResultSent = false;   // one-shot guard: matchResult is posted to the app exactly once per match
+let myMatchStats = null;       // per-player tallies for THIS match (goals/strips/saves/…), sent by the server at match end
+let _pendingPost = null;       // deferred postMatchResult fn — fires once matchStats arrives (or a fallback timer)
 let snaps = [];                // interpolation buffer: {tRecv, snap}
 let latest = null;             // most recent snapshot (for HUD/own authoritative)
 let predicted = null;          // {x, y} predicted own position
@@ -449,6 +451,7 @@ function postMatchResult(myT, opT, myScore, opScore) {
       humanCount,                   // total humans in the match (incl. me)
       totalPlayers,                 // filled slots (humans + bots)
       xpFactor,                     // XP multiplier: 0.2 (all bots) .. 1.0 (all humans)
+      stats: myMatchStats || null,  // MY per-player tallies: { goals, strips, saves, shots, bombs, walls }
     };
     window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
   } catch { /* not in app */ }
@@ -2695,6 +2698,9 @@ function connect(name, avatar) {
       else { lastLobby = msg; updateLobbyUI(msg);
         if (partyFlow && friendSelectEl && !friendSelectEl.classList.contains('hidden')) renderInvite();
         if (partyEl && !partyEl.classList.contains('hidden')) renderParty(msg); }
+    } else if (msg.type === 'matchStats') {
+      myMatchStats = msg.stats || null;                 // per-player tallies for the just-ended match
+      if (_pendingPost) { const f = _pendingPost; _pendingPost = null; f(); } // release a deferred result post
     } else if (msg.type === 'matchStart') {
       enterMatch(msg);
     } else if (msg.type === 'toLobby') {
@@ -2753,6 +2759,7 @@ function enterMatch(msg) {
   preloadCards(myCards()); matchRoster.forEach((p) => preloadCards(p.cards));
   matchId = msg.matchId || null; // stable id for this match's app-bound result
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
+  myMatchStats = null; _pendingPost = null; // clear last match's per-player tallies + any pending post
   celeb = null;                  // clear any lingering goal/win/lose celebration overlay
   audienceReady = false; // rebuild seat assignment for this match's roster
   training = msg.mode === 'training';
@@ -5097,10 +5104,14 @@ function drawHUD() {
     // Report the final result to the app exactly once (PII-free, one-way bridge).
     if (!matchResultSent) {
       matchResultSent = true;
-      postMatchResult(myT, opT, myScore, opScore);
       stopMusic();                                                    // clear the pitch for the sting
       if (myScore !== opScore) playSound(myScore > opScore ? 'win' : 'loss', 0.9);
       triggerCelebration(myScore > opScore ? 'win' : (myScore < opScore ? 'lose' : 'draw'));
+      // Post the result WITH the per-player stats: fire as soon as the server's matchStats arrives,
+      // else a 1.2s fallback posts without them (never miss the record).
+      _pendingPost = () => { _pendingPost = null; postMatchResult(myT, opT, myScore, opScore); };
+      if (myMatchStats) { const f = _pendingPost; _pendingPost = null; f(); }
+      else setTimeout(() => { if (_pendingPost) { const f = _pendingPost; _pendingPost = null; f(); } }, 1200);
     }
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
     // GOAL! is the canvas comic overlay (fired on the goal event). Hide the DOM banner during

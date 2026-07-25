@@ -99,7 +99,7 @@ function makeRoom(id, isPrivate, mode = 'match') {
     id, isPrivate: !!isPrivate,
     mode,                    // 'match' | 'training' (solo practice vs a penned dummy)
     phase: 'lobby',          // lobby | countdown | match
-    countdownT: 0, endHoldT: 0, introT: 0,
+    countdownT: 0, endHoldT: 0, introT: 0, statsSent: false,
     state: createState(),
     inputs: new Map(),       // playerId -> input
     botMem: createBotMemory(), // persistent bot-AI memory (roles, aim, beliefs)
@@ -350,7 +350,7 @@ function startTraining(member) {
   const matchId = `${room.id}-${++matchSeq}`;
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [] }];
   attachBall(room.state, 'A');
-  room.endHoldT = 0;
+  room.endHoldT = 0; room.statsSent = false;
   room.phase = 'match';
   send(member.ws, { type: 'roomJoined', mode: 'training', code: null });
   send(member.ws, { type: 'matchStart', mode: 'training', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
@@ -402,7 +402,7 @@ function startBuilderMatch(member, field) {
   room.phase = 'match';
   fillBots(room, roster); // backfill bots on both teams
   attachBall(room.state, 'A');
-  room.endHoldT = 0;
+  room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'builder', code: null });
   send(member.ws, { type: 'matchStart', mode: 'builder', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: clean });
   room.rosterVersion++; broadcastRoster(room);
@@ -428,7 +428,7 @@ function startBotGame(member, diffLevel) {
   room.phase = 'match';
   fillBots(room, roster); // fill the other 3 slots with bots
   attachBall(room.state, 'A');
-  room.endHoldT = 0;
+  room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
   send(member.ws, { type: 'matchStart', mode: 'botgame', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN });
   room.rosterVersion++; broadcastRoster(room);
@@ -565,7 +565,7 @@ function startMatch(room) {
     send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: MAIN_FIELD_CLEAN });
   }
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
-  room.endHoldT = 0;
+  room.endHoldT = 0; room.statsSent = false;
   room.introT = INTRO_PROMO;   // hold the sim frozen while the client plays the promo (see tickRoom)
   room.phase = 'match';
   room.rosterVersion++; broadcastRoster(room); // slot->id map for binary snapshots — sent before any snapshot
@@ -637,6 +637,14 @@ function tickRoom(room) {
   }
   for (const inp of room.inputs.values()) { inp.fire = false; inp.aimed = false; inp.special = false; inp.build = false; } // consume edges; hold persists as a level
   if (room.state.phase === 'ended') {
+    if (!room.statsSent) { // one-shot: hand each human their per-player match tallies for logging
+      room.statsSent = true;
+      for (const m of room.members) {
+        if (!m.inMatch || m.ws.readyState !== m.ws.OPEN) continue;
+        const pl = room.state.players[m.id];
+        if (pl && pl.stat) send(m.ws, { type: 'matchStats', stats: pl.stat });
+      }
+    }
     room.endHoldT += DT;
     if (room.endHoldT >= ENDED_HOLD) endRoom(room);
   } else if (humansInRoom(room) === 0) {
