@@ -1,16 +1,16 @@
-// Game-side trophy display math (shared/trophies.js). Run: node test-trophies.mjs
+// Game-side RANK display math (shared/rank.js). Run: node test-rank.mjs
 //
-// The SERVER owns every trophy number (pikme-server data/football-trophies.js) — the game never
+// The SERVER owns every trophy number (pikme-server data/football-rank.js) — the game never
 // computes a delta. This module only knows how to DISPLAY what the server sends: which tier a count
 // falls in, its Hebrew name, how full the bar to the next tier is, and whether the player has hit
 // their bot ceiling (so the hub can nudge "raise the difficulty to keep climbing").
 //
-// The ladder constants here MUST stay identical to the server's. test-trophies-parity.mjs proves it.
+// The ladder constants here MUST stay identical to the server's. test-rank-parity.mjs proves it.
 
 import {
-    TROPHY_TIERS, TIER_MIN, TIER_HE, botCeiling,
-    tierIndexFromTrophies, tierNameHe, tierProgress, atBotCeiling, nextTierAt,
-} from './shared/trophies.js'
+    RANK_TIERS, TIER_MIN, TIER_HE, botCeiling,
+    tierIndexFromRank, tierNameHe, tierProgress, atBotCeiling, nextTierAt,
+} from './shared/rank.js'
 
 let failures = 0
 function assert(cond, msg) {
@@ -25,22 +25,22 @@ function close(actual, expected, msg, tol = 0.001) {
 }
 
 console.log('ladder constants (must match the server):')
-eq(TROPHY_TIERS.length, 7, '7 tiers')
+eq(RANK_TIERS.length, 7, '7 tiers')
 eq(TIER_MIN.join(','), '0,200,500,900,1400,2200,3200', 'tier entry thresholds')
 eq(TIER_HE.length, 7, 'a Hebrew name per tier')
 eq(TIER_HE[0], 'ברונזה', 'bronze = ברונזה')
 eq(TIER_HE[6], 'אגדה', 'legend = אגדה')
 
-console.log('tierIndexFromTrophies:')
-eq(tierIndexFromTrophies(0), 0, '0 = bronze')
-eq(tierIndexFromTrophies(199), 0, '199 = bronze')
-eq(tierIndexFromTrophies(200), 1, '200 = silver')
-eq(tierIndexFromTrophies(899), 2, '899 = gold')
-eq(tierIndexFromTrophies(900), 3, '900 = platinum')
-eq(tierIndexFromTrophies(3200), 6, '3200 = legend')
-eq(tierIndexFromTrophies(99999), 6, 'above legend stays legend')
-eq(tierIndexFromTrophies(-5), 0, 'negative clamps to bronze')
-eq(tierIndexFromTrophies(undefined), 0, 'missing clamps to bronze')
+console.log('tierIndexFromRank:')
+eq(tierIndexFromRank(0), 0, '0 = bronze')
+eq(tierIndexFromRank(199), 0, '199 = bronze')
+eq(tierIndexFromRank(200), 1, '200 = silver')
+eq(tierIndexFromRank(899), 2, '899 = gold')
+eq(tierIndexFromRank(900), 3, '900 = platinum')
+eq(tierIndexFromRank(3200), 6, '3200 = legend')
+eq(tierIndexFromRank(99999), 6, 'above legend stays legend')
+eq(tierIndexFromRank(-5), 0, 'negative clamps to bronze')
+eq(tierIndexFromRank(undefined), 0, 'missing clamps to bronze')
 
 console.log('tierNameHe:')
 eq(tierNameHe(0), 'ברונזה', '0 trophies')

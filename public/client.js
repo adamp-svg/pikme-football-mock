@@ -14,7 +14,8 @@ import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, NET_DEBUG } from '/net-hud.js';
-import { renderHubTrophies, pollTrophies, armTrophyReveal } from '/hub-trophies.js';
+import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
+import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
 import { QUICK_GROUPS, phraseById, REACTION_EMOJI } from '/shared/quick-messages.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
@@ -839,8 +840,7 @@ function renderHomeCharacter() {
   renderPowerSlots();
   renderHubStats();
   renderHubXp();
-  renderHubTrophies(); // headline trophy count + tier badge (self-contained; no-op on old app builds)
-  renderHubTier();
+  renderHubTier();     // the badge over the hero: RANK when the app injects it, legacy XP level otherwise
   _cardsSig = cardsSig();
   _cardsOnlySig = cardsOnlySig();
 }
@@ -936,8 +936,13 @@ function renderHubXp() {
   const level = src && +src.level ? +src.level : levelFromXp(xp);
   const base = 50 * level * (level - 1), span = 100 * level;
   const into = Math.max(0, xp - base), pct = span ? Math.max(0, Math.min(1, into / span)) : 0;
+  // This bar is now גביעים (trophies) — the MONOTONIC collectible. Same number as before (xp), new
+  // name + a pixel-art trophy, because "XP" read like a second ranking next to the rank badge.
+  // The RANK (losable) is the badge over the hero. See shared/rank.js for the terminology note.
   el.innerHTML = '<div class="hub-xp-top"><span class="hub-xp-lvl">רמה <b>' + level + '</b></span>'
-    + '<span class="hub-xp-amt">' + fmtCompact(into) + ' / ' + fmtCompact(span) + ' XP</span></div>'
+    + '<span class="hub-xp-amt"><i class="xp-trophy" aria-hidden="true"></i>'
+    + '<span dir="ltr">' + fmtCompact(into) + ' / ' + fmtCompact(span) + '</span>'
+    + ' ' + TROPHIES_HE + '</span></div>'
     + '<div class="hub-xp-bar"><b style="width:' + (pct * 100).toFixed(1) + '%"></b></div>';
   el.classList.remove('hidden');
 }
@@ -962,7 +967,11 @@ function setXpBar(xp) {
   if (!bar || !lvlB || !amt) { renderHubXp(); bar = el.querySelector('.hub-xp-bar > b'); lvlB = el.querySelector('.hub-xp-lvl b'); amt = el.querySelector('.hub-xp-amt'); if (!bar) return; }
   const level = levelFromXp(xp), base = 50 * level * (level - 1), span = 100 * level;
   const into = Math.max(0, xp - base), pct = span ? Math.max(0, Math.min(1, into / span)) : 0;
-  lvlB.textContent = level; amt.textContent = fmtCompact(into) + ' / ' + fmtCompact(span) + ' XP';
+  lvlB.textContent = level;
+  // Keep the pixel trophy: this is the גביעים bar, and textContent alone would strip the icon.
+  amt.innerHTML = '<i class="xp-trophy" aria-hidden="true"></i>'
+    + '<span dir="ltr">' + fmtCompact(into) + ' / ' + fmtCompact(span) + '</span>'
+    + ' ' + TROPHIES_HE;
   bar.style.width = (pct * 100).toFixed(1) + '%';
 }
 function _xpEase(p) { return 1 - Math.pow(1 - p, 3); }
@@ -1060,7 +1069,7 @@ function playXpReveal(fromXp, toXp) {
   xpFxEnsure(); setXpBar(fromXp);
   const gain = Math.round(toXp - fromXp);
   try { if (typeof playSound === 'function') playSound('goalHappy', 0.6); } catch (e) {}
-  xpBigNum('+' + fmtCompact(gain) + ' XP', '#ffcb43', false, _hubXpRect, () => {
+  xpBigNum('+' + fmtCompact(gain) + ' ' + TROPHIES_HE, '#ffcb43', false, _hubXpRect, () => {
     xpConfetti(24);
     fillWithLevels(fromXp, toXp, () => { _xpShown = toXp; _xpRevealing = false; renderHomeCharacter(); });
   });
@@ -1089,26 +1098,26 @@ if (DEV_LOCAL) {
   });
 }
 
-// LOCALHOST preview for the TROPHY reveal: tap the trophy box to cycle through the four cases that
-// matter — a gain, a tier promotion, a DROP, and the bot-ceiling nudge. There's no app on :3012 to
-// inject window.SALTIZ_TROPHIES, and a real match is 120s, so this is the only practical way to eyeball
-// the drop treatment. Never runs on device/Render.
+// LOCALHOST preview for the RANK reveal: tap the badge over the hero to cycle the four cases that
+// matter — a gain, a tier promotion, a DROP, and the bot ceiling. There's no app on :3012 to inject
+// window.SALTIZ_RANK, and a real match is 120s, so this is the only practical way to eyeball the drop
+// treatment. Never runs on device/Render.
 if (DEV_LOCAL) {
   const cases = [
     { from: 180, delta: 30, note: 'gain + promotion to כסף' },
     { from: 620, delta: 25, note: 'plain gain in זהב' },
-    { from: 620, delta: -8, note: 'a DROP — muted, no confetti' },
-    { from: 940, delta: 0, note: 'at the L11 bot ceiling — nudge to raise difficulty' },
+    { from: 620, delta: -8, note: 'a DROP — muted, no celebration' },
+    { from: 940, delta: 0, note: 'at the L11 bot ceiling — meter reads LOCKED' },
   ];
-  let _devTrN = 0;
-  const _tb = document.querySelector('.hub-trwrap') || document.getElementById('hub-trophies');
-  if (_tb) _tb.addEventListener('click', () => {
-    const c = cases[_devTrN++ % cases.length];
-    console.log('[trophy preview]', c.note);
-    import('/hub-trophies.js').then((m) => m.devSimulate(c.from, c.delta));
+  let _devRkN = 0;
+  const _rb = document.getElementById('hub-tier');
+  if (_rb) _rb.addEventListener('click', () => {
+    const c = cases[_devRkN++ % cases.length];
+    console.log('[rank preview]', c.note);
+    import('/hub-rank.js').then((m) => m.devSimulate(c.from, c.delta));
   });
-  // Seed a visible starting state on localhost so the box isn't blank before the first tap.
-  if (!window.SALTIZ_TROPHIES) window.SALTIZ_TROPHIES = { trophies: 620, delta: 0, botLevel: 11 };
+  // Seed a visible starting state on localhost so the badge shows a real rank before the first tap.
+  if (!window.SALTIZ_RANK) window.SALTIZ_RANK = { rankPoints: 620, delta: 0, botLevel: 11 };
 }
 
 // --- Competitive rank ladder: 7 tiers × 4 sub-ranks (28 divisions), driven by the
@@ -1147,6 +1156,12 @@ function renderHubTier() {
   const lbl = document.getElementById('hub-tier-lbl');
   const fill = document.getElementById('hub-tier-fill');
   if (!box || !lbl) return;
+  // This badge is the RANK (the losable ladder) whenever the app has injected it — that's what a tier
+  // badge should actually mean, and its little meter now counts toward the next rank tier.
+  // renderHubRank() returns false when there's no rank data (older app build), and we fall back to the
+  // legacy XP-level ladder below so the badge is never blank.
+  if (renderHubRank()) return;
+  box.classList.remove('hub-tier-rank', 'hub-tier-capped');
   const { level, pct } = currentXpState();
   const { tier, sub, maxed } = rankTierFromLevel(level);
   lbl.innerHTML = '<span class="px-ic">' + tier.ic + '</span><span class="px-sub">' + sub + '</span>';
@@ -1799,9 +1814,9 @@ function startHomeDance() {
       drawDancer(homeCharCtx, homeCharCanvas.width, homeCharCanvas.height, now);
       if (now - lastCardCheck > 700 && !_xpRevealing) {  // while a reveal animates, it OWNS the bar — don't snap it
         lastCardCheck = now;
-        // Trophies are injected on their OWN channel (window.SALTIZ_TROPHIES), so they need their own
-        // check — cardsSig() only tracks the album + xp and would miss a trophy-only change.
-        pollTrophies();
+        // RANK arrives on its own channel (window.SALTIZ_RANK), so it needs its own check —
+        // cardsSig() only tracks the album + xp and would miss a rank-only change.
+        pollRank();
         const sig = cardsSig();
         if (sig !== _cardsSig) {
           const newXp = currentXpRaw();
@@ -3209,7 +3224,7 @@ function connect(name, avatar) {
       quickVs = false; hideVs(); showScreen('home');
       if (matchResultSent) {                 // a real match just finished -> celebrate the XP the app injects on return
         _awaitXpReveal = true;
-        armTrophyReveal();                   // ...and reveal the trophy change, which may be a DROP
+        armRankReveal();                     // ...and reveal the RANK change, which may be a DROP
         simulateXpGainForDemo();             // localhost only (no native app to inject xp); no-op on device/Render
       }
     } else if (msg.type === 'roomError') {

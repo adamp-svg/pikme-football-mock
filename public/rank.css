@@ -1,131 +1,133 @@
-/* HUB TROPHY LAYER — styles for public/hub-trophies.js.
-   Kept in its own stylesheet (like net-hud) so the trophy feature doesn't collide with the concurrent
-   hub/lobby redesign in style.css. Pixel-art idiom + Hebrew RTL to match the rest of the hub. */
+/* RANK + TROPHY styles for public/hub-rank.js and the relabelled top-row bar.
+   Kept in its own stylesheet (like net-hud.css) so this feature doesn't collide with the concurrent
+   hub/lobby redesign in style.css. Pixel-art idiom + Hebrew RTL to match the rest of the hub.
 
-/* ---- placement on the hub stage ------------------------------------------------
-   .hub is an absolutely-positioned stage in logical px (see the "top row" block in style.css). The
-   trophy box takes over the XP bar's slot as the headline, and the XP bar drops below it.
-   The shift is gated on `.hub.has-trophies`, which hub-trophies.js only adds once it has real data —
-   so an older app build (no window.SALTIZ_TROPHIES) keeps the original layout with no empty gap. */
-.hub > .hub-trwrap {
-  position: absolute; right: auto; bottom: auto; margin: 0;
-  left: 410px; top: 10px; width: 325px; z-index: 5;
-  background: rgba(11, 16, 12, .72);
-  border: 2px solid #34413a;
-  border-radius: 8px;
-  padding: 4px 10px;
-  box-shadow: 0 3px 0 #070b08;
-}
-.hub > .hub-trwrap:has(.hub-trophies.hidden) { display: none; } /* nothing to show -> take no space */
-.hub.has-trophies > .hub-xpbar { top: 74px; }
+   TERMINOLOGY: .hub-tier* = RANK (losable ladder, badge over the hero).
+                .hub-xp*   = גביעים / trophies (the monotonic xp-derived collectible, top-row bar).
+   Loaded AFTER style.css, so the few overrides here intentionally win. */
 
-.hub-trophies {
-  position: relative;
-  display: flex;
+/* ── RANK: the badge over the hero (#hub-tier) ────────────────────────────────
+   The badge already exists in style.css with a 3px meter (.hub-tier-bar). These rules only add what
+   RANK needs: the points number, the bot-ceiling "capped" cue, and the promotion celebration. */
+
+.hub-tier.hub-tier-rank .hub-tier-lbl {
+  display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  direction: rtl;
+  gap: 0;
+  line-height: 1;
 }
-.hub-trophies.hidden { display: none !important; }
-
-/* Tier badge — chunky pixel medallion, colours driven by --c1/--c2 per tier. */
-.hub-trophies .tr-badge {
-  flex: 0 0 auto;
-  width: 30px; height: 30px;
-  display: grid; place-items: center;
-  background: linear-gradient(160deg, var(--c1), var(--c2));
-  border: 2px solid #1d2622;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .25), 0 2px 0 #10160f;
-  image-rendering: pixelated;
-}
-.hub-trophies .tr-ic { font-size: 15px; line-height: 1; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .45)); }
-
-.hub-trophies .tr-main { flex: 1 1 auto; min-width: 0; }
-
-.hub-trophies .tr-top {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
-  font: 900 9px "Arial Black", sans-serif;
-}
-/* The COUNT is the headline number — decision #3 (trophies big, XP small underneath). */
-.hub-trophies .tr-count { color: #c8d4bf; }
-.hub-trophies .tr-count b {
-  color: var(--gold, #ffe27a);
-  font-size: 15px;
-  /* tabular + LTR isolate: a bare number in an RTL run puts its sign on the wrong side. */
+.hub-tier.hub-tier-rank .px-ic { font-size: 16px; }
+/* The rank POINTS. Tabular so the badge doesn't jiggle while the reveal counts up. */
+.hub-tier.hub-tier-rank .px-pts {
+  font: 900 10px "Arial Black", sans-serif;
+  color: #241a05;
   font-variant-numeric: tabular-nums;
-  direction: ltr; unicode-bidi: isolate;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .4);
 }
-.hub-trophies .tr-tier { color: #8aa08c; font-size: 9px; }
+/* Make the existing meter a touch more legible now that it carries real meaning. */
+.hub-tier.hub-tier-rank .hub-tier-bar { height: 4px; bottom: 2px; }
+.hub-tier.hub-tier-rank .hub-tier-bar b { transition: width .25s ease-out; }
 
-/* Progress toward the next tier. Gold, so it reads as the primary bar and the blue XP bar below it
-   reads as secondary. */
-.hub-trophies .tr-bar {
-  height: 8px; margin-top: 3px;
-  background: rgba(0, 0, 0, .5);
-  border: 2px solid #34413a;
-  overflow: hidden;
+/* Bot ceiling reached: bots pay nothing more, so the meter reads LOCKED rather than just stalled.
+   Without this the player only sees a number that stopped moving and assumes a bug. */
+.hub-tier.hub-tier-capped .hub-tier-bar b {
+  background: repeating-linear-gradient(45deg, #6b5a2a 0 3px, #241a05 3px 6px);
 }
-.hub-trophies .tr-bar b {
-  display: block; height: 100%;
-  background: linear-gradient(90deg, #ffd049, #ff8a1f);
-  box-shadow: 0 0 8px rgba(255, 190, 60, .7);
-  transition: width .25s ease-out;
-}
-
-.hub-trophies .tr-sub { margin-top: 2px; font: 900 8px "Arial Black", sans-serif; color: #8aa08c; }
-.hub-trophies .tr-next { color: #8aa08c; }
-.hub-trophies .tr-max { color: #ffd049; }
-/* The bot-ceiling nudge: the one piece of copy that tells a solo player WHY the number stopped. */
-.hub-trophies .tr-nudge { color: #ffb454; }
-
-/* ---- post-match reveal ---------------------------------------------------- */
-
-/* Floating +N / −N chip. A gain rises and glows; a loss sinks and stays muted — never celebratory. */
-.hub-trophies .tr-flash {
+.hub-tier.hub-tier-capped::after {
+  content: '🔒';
   position: absolute;
-  top: -6px; inset-inline-start: 38px;
-  padding: 2px 6px;
-  font: 900 12px "Arial Black", sans-serif;
+  top: -4px; inset-inline-start: -4px;
+  font-size: 10px;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .5));
+}
+
+/* Floating +N / −N chip beside the badge. A gain rises and glows; a loss sinks, muted — never
+   celebratory, because a drop should be legible without being punishing. */
+.hub-tier .rk-flash {
+  position: absolute;
+  top: -12px; inset-inline-start: 50%;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  font: 900 11px "Arial Black", sans-serif;
   color: #16220f;
   background: linear-gradient(180deg, #ffe27a, #f0a92a);
   border: 2px solid #16220f;
   box-shadow: 0 2px 0 #10160f;
   pointer-events: none;
-  animation: trFlashUp 2s ease-out forwards;
+  white-space: nowrap;
+  z-index: 8;
+  animation: rkFlashUp 2s ease-out forwards;
 }
-.hub-trophies .tr-flash-down {
+.hub-tier .rk-flash-down {
   color: #f4e9e9;
   background: linear-gradient(180deg, #6e5152, #4a3536);
   border-color: #2a1d1e;
   box-shadow: none;
-  animation: trFlashDown 1.6s ease-out forwards;
+  animation: rkFlashDown 1.6s ease-out forwards;
 }
-@keyframes trFlashUp {
-  0%   { opacity: 0; transform: translateY(8px) scale(.8); }
-  18%  { opacity: 1; transform: translateY(-2px) scale(1.12); }
-  30%  { transform: translateY(0) scale(1); }
-  75%  { opacity: 1; transform: translateY(-6px); }
-  100% { opacity: 0; transform: translateY(-14px); }
+@keyframes rkFlashUp {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(8px) scale(.8); }
+  18%  { opacity: 1; transform: translateX(-50%) translateY(-2px) scale(1.12); }
+  30%  { transform: translateX(-50%) translateY(0) scale(1); }
+  75%  { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-14px); }
 }
-@keyframes trFlashDown {
-  0%   { opacity: 0; transform: translateY(-6px); }
-  20%  { opacity: 1; transform: translateY(0); }
-  70%  { opacity: .9; transform: translateY(4px); }
-  100% { opacity: 0; transform: translateY(10px); }
+@keyframes rkFlashDown {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  20%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  70%  { opacity: .9; transform: translateX(-50%) translateY(4px); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(10px); }
 }
 
 /* Tier promotion — the one moment that earns a real celebration. */
-.hub-trophies.tr-promote .tr-badge { animation: trPromote 1.4s ease-out; }
-@keyframes trPromote {
+.hub-tier.hub-tier-promote { animation: rkPromote 1.4s ease-out; }
+@keyframes rkPromote {
   0%   { transform: scale(1) rotate(0); }
   25%  { transform: scale(1.35) rotate(-8deg); filter: brightness(1.5); }
   55%  { transform: scale(1.1) rotate(6deg); }
   100% { transform: scale(1) rotate(0); }
 }
 
+/* ── TROPHIES (גביעים): the top-row bar, in its ORIGINAL slot ─────────────────
+   Same bar that used to say "XP". Only the label + icon change, plus a gold fill so it reads as the
+   collectible rather than a second ranking. Position is untouched (style.css .hub-xpbar). */
+
+/* Pixel-art trophy, drawn with box-shadow blocks — no image request, crisp at any DPR, and it matches
+   the hub's 8-bit idiom better than an emoji (which renders as a photo-real glyph on iOS). */
+.hub-xp .xp-trophy {
+  position: relative;
+  display: inline-block;
+  width: 9px; height: 9px;
+  margin-inline-end: 3px;
+  vertical-align: -1px;
+  /* one 1px "pixel" scaled to 3px, assembled into a cup: bowl, stem, base */
+  transform: scale(1);
+}
+.hub-xp .xp-trophy::before {
+  content: '';
+  position: absolute; inset: 0;
+  /* 3x3px blocks. Rows: rim, bowl, bowl taper, stem, base. */
+  box-shadow:
+     0px  0px 0 0 #ffe27a,  3px  0px 0 0 #ffe27a,  6px  0px 0 0 #ffe27a,
+     0px  3px 0 0 #ffd049,  3px  3px 0 0 #ffe9a0,  6px  3px 0 0 #ffd049,
+                            3px  6px 0 0 #e0a92a,
+    -1px  9px 0 0 #d99a1e,  3px  9px 0 0 #d99a1e,  7px  9px 0 0 #d99a1e;
+  width: 3px; height: 3px;
+  image-rendering: pixelated;
+}
+/* Gold fill: this is the collectible, so it should not look like the rank meter's cool tones. */
+.hub-xp-bar b.xp-trophy-fill,
+.hub-xp .hub-xp-bar b {
+  background: linear-gradient(90deg, #ffd049, #ff8a1f);
+  box-shadow: 0 0 8px rgba(255, 190, 60, .7);
+}
+/* The count reads as "N גביעים", so the number needs LTR isolation inside the RTL row. */
+.hub-xp .hub-xp-amt { direction: ltr; unicode-bidi: isolate; }
+
 @media (prefers-reduced-motion: reduce) {
-  .hub-trophies .tr-flash,
-  .hub-trophies .tr-flash-down { animation-duration: .01ms; animation-iteration-count: 1; }
-  .hub-trophies.tr-promote .tr-badge { animation: none; }
-  .hub-trophies .tr-bar b { transition: none; }
+  .hub-tier .rk-flash,
+  .hub-tier .rk-flash-down { animation-duration: .01ms; animation-iteration-count: 1; }
+  .hub-tier.hub-tier-promote { animation: none; }
+  .hub-tier.hub-tier-rank .hub-tier-bar b { transition: none; }
 }

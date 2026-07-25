@@ -1,31 +1,27 @@
-// HUB TROPHY LAYER — self-contained, additive. Renders the player's trophy count + tier badge in the
-// hub, and the post-match reveal (including the case the XP reveal never had to handle: the number
-// going DOWN).
+// HUB RANK LAYER — self-contained, additive. Fills the existing tier badge OVER THE HERO (#hub-tier)
+// with the player's RANK: tier icon, tier name, and a small meter inside the badge showing progress to
+// the next tier. Also owns the post-match rank reveal — including the case the XP reveal never had to
+// handle: the number going DOWN.
 //
-// Design: summery/research-trophies/00-DECISION.md. Decision #3 — trophies are the HEADLINE number,
-// the existing XP bar stays as a thin secondary bar underneath. Decision #2 — no relegation, so the
-// tier badge never regresses.
+// ⚠️ TERMINOLOGY: "rank" (דרגה) is the losable ladder drawn here. The word גביעים/"trophies" belongs to
+// the MONOTONIC xp-derived number in the top-row bar (renderHubXp in client.js). See shared/rank.js.
 //
 // ⚠️ The SERVER owns every number. This module reads what the app injects and never computes a delta:
-//     window.SALTIZ_TROPHIES = { trophies, trophyTier, delta, botLevel }
-//   (the CEILING is derived here from botLevel via shared/trophies.js — the app sends the level, not
-//   the ceiling, so the two ends can't disagree about the formula.)
-//   `delta` is what the last match awarded (may be negative, may be 0), echoed by
-//   /football/record-match. Absent on old app builds → the layer stays hidden and the hub looks
-//   exactly as it does today. That graceful degradation is deliberate: the app half only ships in a
-//   new TestFlight build.
+//     window.SALTIZ_RANK = { rankPoints, rankTier, delta, botLevel }
+//   `delta` is what the last match applied (may be negative, may be 0), echoed by
+//   /football/record-match. Absent on old app builds → the badge falls back to the legacy XP-level
+//   ladder that was there before, so the hub never looks broken.
 //
-// Kept OUT of client.js on purpose: the hub is being reworked concurrently, and net-hud.js set the
-// precedent for a self-contained HUD layer.
+// Before this, #hub-tier was driven by XP level (rankTierFromLevel in client.js). Rank is what a tier
+// badge should actually mean, so it now drives it.
 
-// RELATIVE import on purpose (same reason net-hud.js uses one): it resolves in BOTH environments —
-// in the browser this module is served at /hub-trophies.js so `../shared/` → /shared/, and under Node
-// it sits in public/ so `../shared/` → football-mock/shared/. An absolute '/shared/...' would work in
-// the browser but make this file untestable in jsdom.
-import { TIER_MIN, TIER_HE, tierIndexFromTrophies, tierProgress, nextTierAt, atBotCeiling, TROPHY_HE } from '../shared/trophies.js';
+// RELATIVE import so this resolves in BOTH the browser (served at /hub-rank.js → ../shared/ = /shared/)
+// and Node/jsdom (public/hub-rank.js → ../shared/ = football-mock/shared/).
+import {
+  TIER_MIN, TIER_HE, RANK_HE, tierIndexFromRank, tierProgress, nextTierAt, atBotCeiling, BOT_LEVEL_MAX,
+} from '../shared/rank.js';
 
-// Badge art per tier index — same 7 rungs as the server ladder
-// (bronze/silver/gold/platinum/diamond/champion/legend).
+// Badge art per tier index — the 7 rungs of the server ladder.
 const TIER_ART = [
   { ic: '🥉', c1: '#f2b578', c2: '#a6702f' }, // ברונזה
   { ic: '🥈', c1: '#e9eff4', c2: '#98a6b2' }, // כסף
@@ -38,100 +34,88 @@ const TIER_ART = [
 
 const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Trophy count currently drawn on the bar. Tracked so a reveal can animate FROM it, and so we can
-// tell a real change from a repeated poll.
-let shown = null;
-let revealing = false;   // while true the reveal owns the DOM; the poll must not snap it
-let pendingReveal = null; // a match ended -> celebrate (or mourn) the next change
+let shown = null;         // rank points currently drawn
+let revealing = false;    // while true the reveal owns the DOM; the poll must not snap it
+let pendingReveal = false; // a match ended -> animate the next change instead of snapping
 
-export function trophyState() {
-  const s = window.SALTIZ_TROPHIES;
+export function rankState() {
+  const s = window.SALTIZ_RANK;
   if (!s) return null;
-  const trophies = Number(s.trophies);
-  if (!Number.isFinite(trophies)) return null;
+  const rankPoints = Number(s.rankPoints);
+  if (!Number.isFinite(rankPoints)) return null;
   return {
-    trophies: Math.max(0, trophies),
+    rankPoints: Math.max(0, rankPoints),
     delta: Number.isFinite(Number(s.delta)) ? Number(s.delta) : 0,
-    // botLevel must distinguish "level 0" from "not reported". Number(null) is 0 (and Number('') too),
-    // so a null/blank level would otherwise read as difficulty 0 — whose ceiling is 60, which would
-    // show the "raise the difficulty" nudge to literally every player. Check for absence first.
+    // Must distinguish "level 0" from "not reported": Number(null) and Number('') are both 0, and
+    // level 0's ceiling is 60 — which would show the "raise the difficulty" nudge to every player.
     botLevel: (s.botLevel == null || s.botLevel === '' || !Number.isFinite(Number(s.botLevel)))
       ? null
       : Number(s.botLevel),
   };
 }
 
-function host() { return document.getElementById('hub-trophies'); }
+function badge() { return document.getElementById('hub-tier'); }
 
-// Full render. Safe to call repeatedly; skipped while a reveal animates.
-export function renderHubTrophies() {
-  const el = host();
-  if (!el) return;
-  const st = trophyState();
-  if (!st) { el.classList.add('hidden'); setHubFlag(false); return; } // old app build / not in app — invisible
-  if (!revealing) shown = st.trophies;
-  el.innerHTML = markup(st.trophies, st.botLevel);
-  el.classList.remove('hidden');
-  setHubFlag(true);
+// Fills #hub-tier. Returns false when there's no rank data, so client.js can fall back to the legacy
+// XP-level badge instead of leaving it blank.
+export function renderHubRank() {
+  const box = badge();
+  if (!box) return false;
+  const st = rankState();
+  if (!st) return false;
+  if (!revealing) shown = st.rankPoints;
+  paint(box, st.rankPoints, st.botLevel);
+  return true;
 }
 
-// `.hub.has-trophies` is what shifts the XP bar down to make room (see trophies.css). Only set once we
-// actually have data, so an old app build keeps the original hub layout with no empty gap.
-function setHubFlag(on) {
-  const hub = document.querySelector('.hub');
-  if (hub) hub.classList.toggle('has-trophies', !!on);
-}
-
-function markup(trophies, botLevel) {
-  const idx = tierIndexFromTrophies(trophies);
+function paint(box, rankPoints, botLevel) {
+  const idx = tierIndexFromRank(rankPoints);
   const art = TIER_ART[idx];
-  const next = nextTierAt(trophies);
-  const pct = (tierProgress(trophies) * 100).toFixed(1);
-  // The count is forced LTR-isolated: a bare number inside an RTL run renders its sign on the wrong
-  // side (a "-8" reads as "8-").
-  return ''
-    + '<div class="tr-badge" style="--c1:' + art.c1 + ';--c2:' + art.c2 + '">'
-    +   '<span class="tr-ic">' + art.ic + '</span>'
-    + '</div>'
-    + '<div class="tr-main">'
-    +   '<div class="tr-top">'
-    +     '<span class="tr-count"><b>' + trophies + '</b> ' + TROPHY_HE + '</span>'
-    +     '<span class="tr-tier">' + TIER_HE[idx] + '</span>'
-    +   '</div>'
-    +   '<div class="tr-bar"><b style="width:' + pct + '%"></b></div>'
-    +   '<div class="tr-sub">' + subLine(trophies, next, botLevel) + '</div>'
-    + '</div>';
-}
-
-const BOT_LEVEL_MAX = 11; // matches DIFFICULTY_LEVELS / the server's clamp
-
-function subLine(trophies, next, botLevel) {
-  // The bot-ceiling nudge is the whole point of the ceiling rule: without it a solo player just sees
-  // their trophies stop moving and assumes the game is broken.
-  if (botLevel != null && atBotCeiling(trophies, botLevel)) {
-    // At the TOP difficulty there is no higher level to pick, so "raise the difficulty" would be a
-    // dead end. Past 940 only human matches pay, and the copy has to say that instead.
-    return botLevel >= BOT_LEVEL_MAX
-      ? '<span class="tr-nudge">רק משחק מול שחקנים אמיתיים מעלה דרגה מכאן 👥</span>'
-      : '<span class="tr-nudge">העלה את רמת הקושי כדי להמשיך לעלות 🔒</span>';
+  const pct = (tierProgress(rankPoints) * 100).toFixed(1);
+  box.style.setProperty('--c1', art.c1);
+  box.style.setProperty('--c2', art.c2);
+  box.classList.add('hub-tier-rank'); // opts into the rank styling in rank.css
+  box.classList.toggle('hub-tier-capped', botLevel != null && atBotCeiling(rankPoints, botLevel));
+  const lbl = document.getElementById('hub-tier-lbl');
+  const fill = document.getElementById('hub-tier-fill');
+  if (lbl) {
+    // The badge is 50x42px, so it stays MINIMAL — icon + points only. The tier itself is read from the
+    // icon and colour (the badge's existing design intent), and the Hebrew tier name lives in the
+    // tooltip. The number is LTR-isolated: a bare number in an RTL run puts its sign on the wrong
+    // side, so a "-8" would read as "8-".
+    lbl.innerHTML = '<span class="px-ic">' + art.ic + '</span>'
+      + '<span class="px-pts" dir="ltr">' + rankPoints + '</span>';
   }
-  if (next == null) return '<span class="tr-max">הדרגה הגבוהה ביותר</span>';
-  return '<span class="tr-next">עוד ' + Math.max(0, next - trophies) + ' לדרגה הבאה</span>';
+  if (fill) fill.style.width = pct + '%';
+  box.title = tooltip(rankPoints, botLevel);
 }
 
-// Arm the reveal: called when a match result has been posted, so the NEXT change to
-// window.SALTIZ_TROPHIES animates instead of silently snapping.
-export function armTrophyReveal() { pendingReveal = true; }
+// The badge is small, so the detail lives in the tooltip/aria rather than cluttering it.
+function tooltip(rankPoints, botLevel) {
+  const next = nextTierAt(rankPoints);
+  const idx = tierIndexFromRank(rankPoints);
+  const head = RANK_HE + ': ' + TIER_HE[idx] + ' · ' + rankPoints;
+  if (botLevel != null && atBotCeiling(rankPoints, botLevel)) {
+    return head + ' — ' + (botLevel >= BOT_LEVEL_MAX
+      ? 'רק משחק מול שחקנים אמיתיים מעלה דרגה מכאן'
+      : 'העלה את רמת הקושי כדי להמשיך לעלות');
+  }
+  if (next == null) return head + ' — הדרגה הגבוהה ביותר';
+  return head + ' — עוד ' + Math.max(0, next - rankPoints) + ' לדרגה הבאה';
+}
 
-// Poll hook — call alongside the existing XP poll. Detects an injected change and reveals it.
-export function pollTrophies() {
-  const st = trophyState();
+// Arm the reveal: called once a match result has been posted, so the NEXT injected change animates.
+export function armRankReveal() { pendingReveal = true; }
+
+// Poll hook — rank arrives on its own channel, so it needs its own check.
+export function pollRank() {
+  const st = rankState();
   if (!st || revealing) return;
-  if (shown == null) { renderHubTrophies(); return; }
-  if (st.trophies === shown) return;
-  const from = shown, to = st.trophies;
-  if (pendingReveal) { pendingReveal = false; playTrophyReveal(from, to, st.delta); }
-  else renderHubTrophies(); // a change we weren't waiting for (e.g. first load) — just draw it
+  if (shown == null) { renderHubRank(); return; }
+  if (st.rankPoints === shown) return;
+  const from = shown, to = st.rankPoints;
+  if (pendingReveal) { pendingReveal = false; playRankReveal(from, to, st.delta); }
+  else renderHubRank();
 }
 
 function ease(p) { return 1 - Math.pow(1 - p, 3); }
@@ -147,58 +131,51 @@ function tween(dur, upd, done) {
   requestAnimationFrame(frame);
 }
 
-// The post-match moment. A GAIN pops the delta and counts up; a LOSS counts down with a muted,
-// non-celebratory treatment — never confetti on a drop, and never a bare negative number with nothing
-// positive beside it (the XP gain is shown by the existing XP reveal right after).
-export function playTrophyReveal(from, to, delta) {
-  const el = host();
-  if (!el) { shown = to; return; }
+// The post-match moment. A GAIN counts up; a LOSS counts down with a muted treatment — never confetti
+// on a drop. Only a TIER PROMOTION gets a real celebration.
+export function playRankReveal(from, to, delta) {
+  const box = badge();
+  if (!box) { shown = to; return; }
   const down = to < from;
   const amount = delta || (to - from);
-  if (REDUCE || from === to) { shown = to; renderHubTrophies(); flash(amount, down); return; }
+  flash(box, amount, down);
+  if (REDUCE || from === to) { shown = to; renderHubRank(); return; }
   revealing = true;
-  flash(amount, down);
+  const st = rankState();
+  const lvl = st ? st.botLevel : null;
   tween(down ? 700 : 1000, (p) => {
-    const v = Math.round(from + (to - from) * p);
-    shown = v;
-    const st = trophyState();
-    el.innerHTML = markup(v, st ? st.botLevel : null);
-    el.classList.remove('hidden');
+    shown = Math.round(from + (to - from) * p);
+    paint(box, shown, lvl);
   }, () => {
     revealing = false;
     shown = to;
-    renderHubTrophies();
-    const el2 = host();
-    if (el2 && !down) {
-      // A tier promotion is the one moment worth a real celebration.
-      if (tierIndexFromTrophies(to) > tierIndexFromTrophies(from)) el2.classList.add('tr-promote');
-      setTimeout(() => el2.classList.remove('tr-promote'), 1400);
+    renderHubRank();
+    if (!down && tierIndexFromRank(to) > tierIndexFromRank(from)) {
+      box.classList.add('hub-tier-promote');
+      setTimeout(() => box.classList.remove('hub-tier-promote'), 1400);
     }
   });
 }
 
-// The floating "+25 גביעים" / "−8 גביעים" chip above the bar.
-function flash(amount, down) {
-  const el = host();
-  if (!el || !amount) return;
+// Floating "+25 / −8 דרגה" chip beside the badge.
+function flash(box, amount, down) {
+  if (!amount) return; // nothing happened (e.g. a bot match at the ceiling) — so claim nothing
   const chip = document.createElement('div');
-  chip.className = 'tr-flash' + (down ? ' tr-flash-down' : '');
-  // LTR isolate so the sign stays on the left of the digits in the RTL layout.
-  chip.innerHTML = '<span dir="ltr">' + (amount > 0 ? '+' : '−') + Math.abs(amount) + '</span> ' + TROPHY_HE;
-  el.appendChild(chip);
+  chip.className = 'rk-flash' + (down ? ' rk-flash-down' : '');
+  chip.innerHTML = '<span dir="ltr">' + (amount > 0 ? '+' : '−') + Math.abs(amount) + '</span>';
+  box.appendChild(chip);
   setTimeout(() => chip.remove(), down ? 1600 : 2000);
 }
 
-// Exposed for the localhost dev path (no app to inject SALTIZ_TROPHIES) so the reveal can be eyeballed
-// without a device. Never called in the app.
+// LOCALHOST dev path (no app to inject SALTIZ_RANK) so the reveal can be eyeballed without a device.
 export function devSimulate(from, delta) {
-  window.SALTIZ_TROPHIES = { trophies: from, delta: 0, botLevel: 11 };
+  window.SALTIZ_RANK = { rankPoints: from, delta: 0, botLevel: 11 };
   shown = from;
-  renderHubTrophies();
-  armTrophyReveal();
+  renderHubRank();
+  armRankReveal();
   setTimeout(() => {
-    window.SALTIZ_TROPHIES = { trophies: Math.max(0, from + delta), delta, botLevel: 11 };
-    pollTrophies();
+    window.SALTIZ_RANK = { rankPoints: Math.max(0, from + delta), delta, botLevel: 11 };
+    pollRank();
   }, 600);
 }
 

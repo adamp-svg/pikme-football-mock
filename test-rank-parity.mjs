@@ -1,5 +1,5 @@
-// CROSS-REPO PARITY: the game's trophy ladder (shared/trophies.js) must match the server's
-// (pikme-server/data/football-trophies.js) exactly. Run: node test-trophies-parity.mjs
+// CROSS-REPO PARITY: the game's trophy ladder (shared/rank.js) must match the server's
+// (pikme-server/data/football-rank.js) exactly. Run: node test-rank-parity.mjs
 //
 // Why this test exists: the server OWNS every trophy number, but the game has to draw the tier badge
 // and the bar. If the two ladders drift, the hub shows a player as "זהב 480" while the server has
@@ -11,10 +11,10 @@
 
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
-import { TROPHY_TIERS, TIER_MIN, botCeiling } from './shared/trophies.js';
+import { RANK_TIERS, TIER_MIN, botCeiling } from './shared/rank.js';
 
 const require = createRequire(import.meta.url);
-const SERVER_MODULE = '../pikme-server/data/football-trophies.js';
+const SERVER_MODULE = '../pikme-server/data/football-rank.js';
 const serverPath = new URL(SERVER_MODULE, import.meta.url).pathname;
 
 if (!existsSync(serverPath)) {
@@ -30,9 +30,9 @@ function assert(cond, msg) {
   else { console.error('  ✗', msg); failures++; }
 }
 
-console.log('game shared/trophies.js  ==  server data/football-trophies.js:');
-assert(TROPHY_TIERS.join(',') === server.TROPHY_TIERS.join(','),
-  `tier names match (game ${TROPHY_TIERS.join('/')} vs server ${server.TROPHY_TIERS.join('/')})`);
+console.log('game shared/rank.js  ==  server data/football-rank.js:');
+assert(RANK_TIERS.join(',') === server.RANK_TIERS.join(','),
+  `tier names match (game ${RANK_TIERS.join('/')} vs server ${server.RANK_TIERS.join('/')})`);
 assert(TIER_MIN.join(',') === server.TIER_MIN.join(','),
   `tier thresholds match (game ${TIER_MIN.join('/')} vs server ${server.TIER_MIN.join('/')})`);
 
@@ -44,8 +44,8 @@ for (let L = 0; L <= 11; L++) {
 assert(ceilMismatch === null, `botCeiling matches at every difficulty level 0..11${ceilMismatch ? ' — ' + ceilMismatch : ''}`);
 
 // A Hebrew name for every tier the server can return, or the badge renders blank.
-import { TIER_HE } from './shared/trophies.js';
-assert(TIER_HE.length === server.TROPHY_TIERS.length, 'a Hebrew label exists for every server tier');
+import { TIER_HE } from './shared/rank.js';
+assert(TIER_HE.length === server.RANK_TIERS.length, 'a Hebrew label exists for every server tier');
 assert(TIER_HE.every((s) => typeof s === 'string' && s.length > 0), 'no Hebrew label is empty');
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
