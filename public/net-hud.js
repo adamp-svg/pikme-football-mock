@@ -28,7 +28,10 @@ let toastArmed = true; // one toast per bad episode, not a repeating nag
 let toastT = null;
 
 const CSS = `
-.nq-bars { position: fixed; top: 10px; right: 12px; z-index: 6; display: none;
+/* top:58px, not 10px: the clock moved to the centre column, so .match-powers took over the
+   top-right corner (right:18px, 34px tall from top:16px). At top:10 these bars sat on top of the
+   card tiles. Below them is the first clear strip on that edge. */
+.nq-bars { position: fixed; top: 58px; right: 14px; z-index: 6; display: none;
   align-items: flex-end; gap: 3px; height: 16px; pointer-events: none;
   opacity: 0; transition: opacity .25s ease; }
 .nq-bars.nq-on { display: flex; opacity: 1; }
@@ -43,7 +46,7 @@ const CSS = `
 .nq-bars.poor, .nq-bars.stalled, .nq-bars.offline { animation: nq-flash .9s steps(1,end) infinite; }
 @keyframes nq-flash { 0%,60% { opacity: 1; } 61%,100% { opacity: .3; } }
 
-.nq-toast { position: fixed; top: 32px; right: 12px; z-index: 6; direction: rtl;
+.nq-toast { position: fixed; top: 80px; right: 12px; z-index: 6; direction: rtl;
   font-size: 12px; font-weight: 700; color: #ffdede; background: rgba(140,20,24,.9);
   padding: 4px 9px; border-radius: 3px; pointer-events: none;
   opacity: 0; transition: opacity .2s ease; }
