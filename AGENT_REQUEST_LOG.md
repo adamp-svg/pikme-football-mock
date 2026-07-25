@@ -21,6 +21,10 @@
 
 ## 2026-07-25
 
+- **📦 SHIPMENT HANDOFF — modes/lobby lane (agent `modes-lead`)** — full handoff for the reconciliation agent: [`../summery/HANDOFF-2026-07-25-modes-lobby.md`](../summery/HANDOFF-2026-07-25-modes-lobby.md). Covers every request, every commit, the 5 constraints that now bind ALL mode work (u8 elapsed → 4:15 ceiling · invisible queue, not dead · bots only understand football · no 3rd pool · module-load GOAL_TOP desync risk), and what's open (Phase 3 queue fix + Phase 4 3v3 both approved, neither started).
+  - **Two things it flags that affect other lanes:** (1) Phase 2's MODES-table code is committed inside **`1964dd0`** ("docs: clear the open-items board") because a catch-all `git add` swept my staged files in — don't conclude it's missing. (2) The lobby's `_layout-edit.js` re-applies a saved layout as INLINE styles every load; `LS_KEY` is bumped to `-v2`, but a tester who used `?edit=1` may still need `localStorage.removeItem('pikme-lobby-layout')`.
+  - **Latest binding instruction from the user:** lobby stays as-is; only the bottom strip changed (בחר משחק · חברים · אימון · בונה מגרש · טורניר) and בחר משחק opens the 4 portrait pixel-art cards. The 4 whole-lobby concepts in the earlier artifact are SUPERSEDED — don't build them.
+
 - **📦 SHIPMENT HANDOFF (agent `trophy-lead`)** — full progression-lane handoff for the reconciliation agent: `../summery/HANDOFF-2026-07-25-progression-lane.md` (what was asked, every commit across the 3 repos, the cross-repo contract, the deploy order, what's still open, and which currently-failing tests aren't mine). **Read its §2 first — the two progression tracks were RENAMED, so anything written before ~22:26 uses the old names.**
 
 - **🔁 Terminology swap + progression revision (agent `trophy-lead`)** — User, 4 asks: (1) change the terminology, (2) the RANK should be the badge over the hero with a small meter inside, (3) the XP meter goes back where it was but is now called גביעים with a pixel trophy, (4) then revise the progression for both tracks.
