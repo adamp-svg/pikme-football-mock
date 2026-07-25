@@ -12,6 +12,7 @@ import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
 import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
+import { FIELD_SIZES, SIZE_IDS, DEFAULT_SIZE, sizeOf, sizeOfField, canHost } from '/shared/field-sizes.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, hideNetHud, NET_DEBUG } from '/net-hud.js';
@@ -6548,29 +6549,81 @@ requestAnimationFrame(frame);
 // Place bushes / rotatable hard walls / dry walls on a scaled pitch, save to localStorage,
 // then "Play" launches a vs-bots match on that field (server type:'builderMatch').
 const FB_KEY = 'pikme-field-v1';
-const FB_W = 2000, FB_H = 1100;
+// The pitch currently being AUTHORED. Its size is a named record (shared/field-sizes.js) that
+// travels INSIDE the saved field, so a layout can never be reopened at dimensions it wasn't drawn
+// for. FB_W/FB_H are `let` and follow the active size — every derived read (fbToWorld, the percent
+// transform, the joint SVG viewBox, the mirror) picks the new numbers up on the next fbRender().
+let fbSizeId = DEFAULT_SIZE;
+let FB_W = sizeOf(fbSizeId).W, FB_H = sizeOf(fbSizeId).H;
 const FB_WALL = { hl: 88, ht: 16 };   // half-thickness 16 → thin wall (thick 32), same as before. Literal (not FB_GRID/2) to avoid a TDZ if declaration order shifts.
 // Steel-wall corner joint style: 'square' = filled mitre corner, 'round' = disc. Both gapless/no-"+".
 // Literal-returning IIFE (references no later const) so it can't hit a TDZ wherever it lands.
 let fbJointStyle = (() => { try { return localStorage.getItem('pikme-joint-style') || 'square'; } catch (e) { return 'square'; } })();
 const FB_BUSH = { w: 224, h: 160 };
-const FB_GRID = 50;                          // fine grid cell (40 x 22 cells) — snap + overlay
+const FB_GRID = 50;                          // fine grid cell — snap + overlay. Cell COUNT is per-size (s2v2 40x22, sBig 52x30, sHuge 58x34); every size is a whole, even number of cells on both axes so the centre line stays a junction and mirroring is exact.
 const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;            // snaps to grid JUNCTIONS (cell corners)
 const fbSnapCell = (v) => Math.floor(v / FB_GRID) * FB_GRID + FB_GRID / 2; // snaps to CELL CENTRES (the box grid) — used for walls so they line up with crates
-let fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
+let fbField = { version: 2, size: DEFAULT_SIZE, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
 let fbTool = null;   // 'bush' | 'hard' | 'dry' | 'crate' | null (placement tool)
 let fbSel = null;    // { type, i } selected element | null
 let fbDrag = null;   // active pointer drag
 const fbPit = () => document.getElementById('builder-pitch');
 const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.hardWalls : t === 'crate' ? fbField.crates : fbField.dryWalls);
-function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [], crates: j.crates || [] }; } catch (e) {} return { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] }; }
+// THE one place a builder field object is constructed. Every rebuild path goes through it —
+// load, undo/redo restore, clear-all, and the saved-field library's normalizer — because the
+// bug this replaces was three separate `{ version: 1, ... }` literals that each silently DROPPED
+// the size, so a big pitch came back as a 2000x1100 one with its elements still out at x=2500.
+// A field with no `size` was drawn before sizes existed, so it IS s2v2. Never rescale it.
+function fbNorm(j, sizeId) {
+  const size = sizeOf(sizeId != null ? sizeId : (j && j.size)).id;
+  return { version: 2, size, bushes: (j && j.bushes) || [], hardWalls: (j && j.hardWalls) || [], dryWalls: (j && j.dryWalls) || [], crates: (j && j.crates) || [] };
+}
+function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return fbNorm(j); } catch (e) {} return fbNorm(null, DEFAULT_SIZE); }
 function fbSave() { try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {} }
+
+// --- Arena SIZE (shared/field-sizes.js) -----------------------------------------------------
+// Would anything currently placed fall outside `size`? Used to refuse a SHRINK rather than
+// silently clamping or deleting a player's work — the one rule the size design never breaks is
+// that authored coordinates are never rewritten behind the author's back.
+function fbOutOfBounds(size) {
+  const over = (x, y) => x < 0 || y < 0 || x > size.W || y > size.H;
+  for (const b of [...fbField.bushes, ...fbField.crates]) if (over(b.x, b.y) || over(b.x + b.w, b.y + b.h)) return true;
+  for (const w of [...fbField.hardWalls, ...fbField.dryWalls]) for (const p of fbEnds(w)) if (over(p.x, p.y)) return true;
+  return false;
+}
+// Point the builder at a size. `keep` = only re-sync the view to the field's existing size (used by
+// undo/redo and open), so it neither mutates the field nor pushes a history entry.
+// Growing is always allowed; shrinking is refused while anything sits outside the smaller pitch.
+function fbApplySize(id, { keep = false } = {}) {
+  const size = sizeOf(id);
+  if (!keep && size.id !== fbField.size && fbOutOfBounds(size)) {
+    fbFlash(`יש אלמנטים מחוץ למגרש ${size.name} — הזיזו או מחקו אותם קודם`);
+    return false;
+  }
+  fbSizeId = size.id; FB_W = size.W; FB_H = size.H;
+  const root = document.getElementById('builder');
+  if (root) root.style.setProperty('--fb-aspect', `${size.W} / ${size.H}`);
+  const btn = document.getElementById('b-size');
+  if (btn) { btn.textContent = `📐 ${size.name}`; btn.title = `גודל מגרש: ${size.name} · ${size.sub}`; }
+  if (!keep && size.id !== fbField.size) { fbField.size = size.id; fbRender(); fbPush(); }
+  else fbRender();
+  return true;
+}
+// Cycle to the next size in the picker order. Skips nothing — an un-hostable size is still
+// AUTHORABLE, so the gate lives on ▶ שחק, not here.
+function fbCycleSize() {
+  const i = SIZE_IDS.indexOf(fbField.size);
+  fbApplySize(SIZE_IDS[(i + 1 + SIZE_IDS.length) % SIZE_IDS.length]);
+}
+
 // --- Undo / redo (snapshot stack) ---
 let fbHist = [], fbHistIdx = -1;
 function fbSnapshot() { return JSON.stringify(fbField); }
 function fbHistInit() { fbHist = [fbSnapshot()]; fbHistIdx = 0; }
 function fbPush() { fbHist = fbHist.slice(0, fbHistIdx + 1); fbHist.push(fbSnapshot()); if (fbHist.length > 60) fbHist.shift(); fbHistIdx = fbHist.length - 1; fbSave(); fbUpdateHistBtns(); }
-function fbRestore(json) { const j = JSON.parse(json); fbField = { version: 1, bushes: j.bushes || [], hardWalls: j.hardWalls || [], dryWalls: j.dryWalls || [], crates: j.crates || [] }; fbSel = null; fbSave(); fbRender(); fbUpdateHistBtns(); }
+// Undo/redo restores the SIZE too — a size change is an undoable edit like any other, so stepping
+// back past one has to put the canvas back as well, not just the elements on it.
+function fbRestore(json) { const j = JSON.parse(json); fbField = fbNorm(j); fbSel = null; fbApplySize(fbField.size, { keep: true }); fbSave(); fbRender(); fbUpdateHistBtns(); }
 function fbUndo() { if (fbHistIdx > 0) { fbHistIdx--; fbRestore(fbHist[fbHistIdx]); } }
 function fbRedo() { if (fbHistIdx < fbHist.length - 1) { fbHistIdx++; fbRestore(fbHist[fbHistIdx]); } }
 function fbUpdateHistBtns() { const u = document.getElementById('b-undo'), r = document.getElementById('b-redo'); if (u) u.disabled = fbHistIdx <= 0; if (r) r.disabled = fbHistIdx >= fbHist.length - 1; }
@@ -6621,7 +6674,10 @@ const FP_MAX_SLOTS = 30;
 let fbFieldName = ''; // the builder's active field name (shown by the title, persisted)
 function fpNewId() { return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function fpCloneArr(a) { return Array.isArray(a) ? a.map((o) => ({ ...o })) : []; }
-function fpNormField(f) { return { version: 1, bushes: fpCloneArr(f && f.bushes), hardWalls: fpCloneArr(f && f.hardWalls), dryWalls: fpCloneArr(f && f.dryWalls), crates: fpCloneArr(f && f.crates) }; }
+// Deep-copies a field for the saved-field library. Carries `size` through: a saved slot must
+// remember the pitch it was drawn on, or cloning a big field into the builder would reopen it at
+// 2000x1100 with every element stranded outside the canvas.
+function fpNormField(f) { return { version: 2, size: sizeOfField(f).id, bushes: fpCloneArr(f && f.bushes), hardWalls: fpCloneArr(f && f.hardWalls), dryWalls: fpCloneArr(f && f.dryWalls), crates: fpCloneArr(f && f.crates) }; }
 // Saved slots: validated + id-stamped + deep-copied. Corrupt/non-object entries are skipped so a
 // bad row can't crash the list; every entry gets a stable id for identity-safe delete/rename.
 function fpLoadSaves() {
@@ -6935,14 +6991,16 @@ function fbSetZoom(z) {
 }
 let fbTwoFinger = false; // true while a 2-finger pinch/pan gesture is active (suppresses draw)
 function fbCancelDraw() { if (fbDraw) { const arr = fbList(fbDraw.type); if (fbDraw.i >= 0 && fbDraw.i < arr.length) arr.splice(fbDraw.i, 1); fbDraw = null; fbRender(); } fbDrag = null; }
-function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); fbSetName(fbLoadName()); }
+function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbApplySize(fbField.size, { keep: true }); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); fbSetName(fbLoadName()); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
   document.getElementById('field-builder-btn')?.addEventListener('click', () => { unlockAudio && unlockAudio(); showScreen('builder'); openBuilder(); });
   document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => fbSetTool(fbTool === btn.dataset.tool ? null : btn.dataset.tool)));
   document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbRender(); fbPush(); } });
-  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] }; fbSel = null; fbRender(); fbPush(); fbSetName('טיוטה'); });
+  // Clear-all empties the ELEMENTS, not the pitch: you keep authoring at the size you chose.
+  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = fbNorm(null, fbField.size); fbSel = null; fbRender(); fbPush(); fbSetName('טיוטה'); });
+  document.getElementById('b-size')?.addEventListener('click', () => fbCycleSize());
   document.querySelectorAll('#builder [data-mirror]').forEach((btn) => btn.addEventListener('click', () => fbMirror(btn.dataset.mirror)));
   document.getElementById('b-undo')?.addEventListener('click', fbUndo);
   document.getElementById('b-redo')?.addEventListener('click', fbRedo);
@@ -6966,7 +7024,14 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
     if (!document.getElementById('field-name-modal')?.classList.contains('hidden')) fpNameDone(false);
     else if (!document.getElementById('field-picker')?.classList.contains('hidden')) closeFieldPicker();
   });
-  document.getElementById('builder-play')?.addEventListener('click', () => { fbSave(); unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField }); });
+  // ▶ שחק is gated on the size being HOSTABLE, not merely authorable. A match on a non-base size
+  // would render bigger while the sim still used 2000x1100 goal lines, penalty boxes and spawns —
+  // wrong in a way that looks like a physics bug. Refuse loudly instead. See RUNTIME_SIZES.
+  document.getElementById('builder-play')?.addEventListener('click', () => {
+    fbSave();
+    if (!canHost(fbField.size)) { fbFlash(`מגרש ${sizeOf(fbField.size).name} — אפשר לבנות, משחק בקרוב`); return; }
+    unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField });
+  });
   document.getElementById('b-zoom-in')?.addEventListener('click', () => fbSetZoom(fbZoom + 0.25));
   document.getElementById('b-zoom-out')?.addEventListener('click', () => fbSetZoom(fbZoom - 0.25));
   document.getElementById('b-zoom-reset')?.addEventListener('click', () => fbSetZoom(1));

@@ -2012,7 +2012,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    the arena centres it when it fits and scrolls cleanly from the origin when it overflows. */
 .builder-stage { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 6px; }
 /* Uniform scale: aspect-ratio keeps px/world identical on both axes, so CSS rotate() is true. */
-.builder-pitch { position: relative; width: 100%; max-width: 980px; aspect-ratio: 2000 / 1100; max-height: 100%;
+.builder-pitch { position: relative; width: 100%; max-width: 980px; aspect-ratio: var(--fb-aspect, 2000 / 1100); max-height: 100%;
   background: radial-gradient(circle at 50% 50%, #2f7d43, #256a38); border: 3px solid rgba(255,255,255,.5); border-radius: 8px;
   overflow: hidden; touch-action: none; }
 .bp-goal { position: absolute; top: 50%; width: 1.6%; height: 27%; transform: translateY(-50%); background: rgba(255,255,255,.35); }
@@ -2046,7 +2046,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    the pitch covers the centre so seats show only in the surrounding stands ring. */
 /* Fit rule: at zoom 1 the whole stadium must fit inside the stage (max-width caps it so a
    narrow/tall stage shrinks it instead of overflowing); zoom>1 scales both dims to enable pan. */
-.builder-arena { position: relative; height: calc(100% * var(--bz, 1)); width: auto; aspect-ratio: 2000 / 1100; max-width: calc(100% * var(--bz, 1)); margin: auto; border-radius: 22px;
+.builder-arena { position: relative; height: calc(100% * var(--bz, 1)); width: auto; aspect-ratio: var(--fb-aspect, 2000 / 1100); max-width: calc(100% * var(--bz, 1)); margin: auto; border-radius: 22px;
   display: flex; align-items: center; justify-content: center;
   background-color: #16232b;
   background-image:
@@ -2057,7 +2057,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Pitch inset inside the arena so the seat-dot stands wrap it on all sides. */
 /* Pitch keeps EXACT 2000:1100 aspect (uniform world->screen scale => correct placement +
    un-skewed rotated walls); centred at 88% so the seat-bowl stands show as a ring. */
-.builder-arena .builder-pitch { position: relative; inset: auto; width: 92%; height: auto; max-width: 92%; max-height: 92%; aspect-ratio: 2000 / 1100; z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22);
+.builder-arena .builder-pitch { position: relative; inset: auto; width: 92%; height: auto; max-width: 92%; max-height: 92%; aspect-ratio: var(--fb-aspect, 2000 / 1100); z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22);
   /* Brawl-style cell grid (20x11) drawn behind the placed elements. */
   background-image: linear-gradient(rgba(255,255,255,.11) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.11) 1px, transparent 1px), radial-gradient(circle at 50% 50%, #2f7d43, #256a38);
   background-size: 2.5% 4.5454%, 2.5% 4.5454%, 100% 100%; }
