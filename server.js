@@ -24,6 +24,7 @@ import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
 import { opponentKeyFor } from './shared/opponent-key.js';
+import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, botSideScalar } from './shared/bot-buffs.js';
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
@@ -211,6 +212,11 @@ function fillBots(room, rosterOut) {
   // (team,slot); a leftover entry is reused in order, and with no plan we fall back to generating.
   const plan = Array.isArray(room.botPlan) ? room.botPlan.slice() : [];
   const takePlanned = (team, slot) => { let i = plan.findIndex((p) => p.team === team && p.slot === slot); if (i < 0) i = plan.length ? 0 : -1; return i >= 0 ? plan.splice(i, 1)[0] : null; };
+  // Live bot dossier for the in-match settings readout (difficulty + card slots + real buffs).
+  // Kept on the ROOM, not just in `rosterOut`, because the mid-match backfill path calls us with
+  // no rosterOut — without this a bot that replaces a leaver would be missing from the panel.
+  // Pruned against the live sim so a reclaimed slot drops out on its own.
+  room.botRoster = (Array.isArray(room.botRoster) ? room.botRoster : []).filter((b) => room.state.players[b.id]);
   while (Object.keys(room.state.players).length < MAX_PLAYERS) {
     const team = teamCount('A') <= teamCount('B') ? 'A' : 'B';
     const slot = usedSlots(team).has(0) ? 1 : 0;
@@ -224,19 +230,34 @@ function fillBots(room, rosterOut) {
     // A bot gets the EXTREME fixed loadout + cheat buffs only when ITS side is at the top of the
     // ladder: the partner scalar if this team holds a human, else the enemy scalar.
     const teamHasHuman = Object.values(room.state.players).some((p) => !p.isBot && p.team === team);
-    const sideScalar = teamHasHuman ? levelAt(room.diffLevel).partner : levelAt(room.diffLevel).enemy;
+    const sideScalar = botSideScalar(levelAt(room.diffLevel), teamHasHuman);
     let loadout, buffs;
-    if (sideScalar >= 0.95) {
+    if (sideScalar >= EXTREME_SKILL) {
       loadout = extremeBotLoadout();
-      buffs = { cardShot: 1.4, speedBuff: 1.30, cardUtil: 0.65 };
+      buffs = EXTREME_BOT_BUFFS;
     } else {
       loadout = planned ? planned.loadout : botLoadoutForLevel(room.diffLevel);
       buffs = buffsFromLoadout(loadout);
     }
     addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic, buffs });
     room.inputs.set(id, emptyInput());
-    if (rosterOut) rosterOut.push({ id, name: 'Bot', avatar: null, team, cards: loadoutToCards(loadout), cosmetic, loadout, isBot: true });
+    // `buffs` + `skill` + `botLevel` ride along so the settings panel shows what the sim ACTUALLY
+    // applies. An EXTREME bot's buffs are the flat cheat set, not f(cards), so a client that
+    // re-derived them from `loadout` would under-report it by a third.
+    const entry = {
+      id, name: 'Bot', avatar: null, team, cards: loadoutToCards(loadout), cosmetic, loadout, isBot: true,
+      buffs, skill: sideScalar, botLevel: clampLevel(room.diffLevel), partnerSide: teamHasHuman,
+    };
+    room.botRoster.push(entry);
+    if (rosterOut) rosterOut.push(entry);
   }
+}
+
+// Push the bot dossier to everyone in the match. Called after a mid-match backfill, whose bots the
+// original `matchStart` roster could not have contained.
+function broadcastBots(room) {
+  const payload = { type: 'bots', bots: Array.isArray(room.botRoster) ? room.botRoster : [], diffLevel: clampLevel(room.diffLevel) };
+  for (const m of room.members) if (m.inMatch && m.ws.readyState === m.ws.OPEN) send(m.ws, payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +542,7 @@ function leaveCurrentRoom(member) {
     if (room.state.players[member.id]) { removePlayer(room.state, member.id); room.inputs.delete(member.id); }
     fillBots(room);
     if (humansInRoom(room) === 0) endRoom(room);
-    else if (room.phase === 'match') { room.rosterVersion++; broadcastRoster(room); } // a bot backfilled a slot
+    else if (room.phase === 'match') { room.rosterVersion++; broadcastRoster(room); broadcastBots(room); } // a bot backfilled a slot
   }
   if (room.members.size === 0) destroyRoom(room);
   else { if (wasHost) transferHost(room); broadcastLobby(room); } // host disconnect/leave -> hand off to a remaining member
@@ -879,24 +900,12 @@ function sanitizeLoadout(raw, memberCards) {
   return [pick(arr[0]), pick(arr[1]), pick(arr[2])];
 }
 
-// Rarity -> buff percentage ("album matters"). Server derives this from its OWN card
-// record — NEVER a client-sent %. Empty slot => neutral (0% => 1.0 multiplier).
-const RARITY_BUFF_PCT = { legendary: 0.20, epic: 0.12, rare: 0.07, common: 0.03 };
-const pctOf = (slot) => (slot ? (RARITY_BUFF_PCT[slot.r] || 0) : 0);
-// Turn a sanitized loadout into the sim multipliers addPlayer understands.
-// Shot: faster charge = 1/(1-p). Speed: +p. Utility: shorter cooldowns = (1-p).
-function buffsFromLoadout(loadout) {
-  const L = Array.isArray(loadout) ? loadout : [];
-  const shot = pctOf(L[0]), speed = pctOf(L[1]), util = pctOf(L[2]);
-  return { cardShot: 1 / (1 - shot), speedBuff: 1 + speed, cardUtil: 1 - util };
-}
+// Rarity -> buff percentage ("album matters") now lives in shared/bot-buffs.js, imported at the
+// top of this file: the settings panel DISPLAYS these same numbers, and a second hand-copied table
+// is how the readout drifts from the sim. Server still derives them from its OWN card record —
+// never a client-sent %.
 
 // --- Bots get RANDOM card powers roughly matching the human players in the match ------------------
-// Sum of a loadout's 3 slot buff %s (0..0.6) — a player's total "card power".
-function loadoutTotalPct(loadout) {
-  const L = Array.isArray(loadout) ? loadout : [];
-  return pctOf(L[0]) + pctOf(L[1]) + pctOf(L[2]);
-}
 // Average card power across a match's assigned humans — the level bots are sized to. 0 if nobody has cards.
 function humanBuffTarget(assigned) {
   const humans = (assigned || []).filter((a) => a && a[0]);

@@ -35,6 +35,19 @@ export const DIFFICULTY_LEVELS = [
 
 export const DEFAULT_LEVEL = 5; // "normal / normal" — matches the old default feel
 
+// A 0..1 skill scalar -> the word the settings readout shows for that bot. Lives here, beside the
+// T stops it reads, so a retune of the ladder can't leave the labels describing the old numbers.
+// Ordered easiest-first; the first stop the scalar fits into wins.
+const SKILL_WORDS = [
+  [T.veryEasy, 'חלש מאוד'], [T.easy, 'קל'], [T.normal, 'רגיל'], [T.harder, 'חזק'],
+  [T.hard, 'קשה'], [T.veryHard, 'קשה מאוד'], [T.extreme, 'קטלני'],
+];
+export function skillWord(scalar) {
+  const s = Math.max(0, Math.min(1, Number(scalar) || 0));
+  for (const [stop, word] of SKILL_WORDS) if (s <= stop + 1e-9) return word;
+  return 'קטלני';
+}
+
 export function clampLevel(i) {
   i = Math.round(Number(i));
   if (!Number.isFinite(i)) return DEFAULT_LEVEL;

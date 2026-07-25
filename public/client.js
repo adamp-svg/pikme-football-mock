@@ -15,6 +15,7 @@ import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, NET_DEBUG } from '/net-hud.js';
+import { openMatchInfo, closeMatchInfo } from '/match-info.js';
 import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
@@ -2039,8 +2040,10 @@ const MODES = [
     launch: () => sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }),
   },
   {
-    id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש גדול · יותר טירוף',
-    meta: ['3 נגד 3', 'בפיתוח'], hue: ['#8fb6ef', '#4f7fd4'], state: 'dev', soon: 'בקרוב',
+    id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש שלושות · יותר טירוף',
+    meta: ['ראשון ל-3', '6 שחקנים'], hue: ['#8fb6ef', '#4f7fd4'],
+    state: 'live', party: false, format: '3v3',
+    launch: () => sendMsg({ type: 'matchmade', format: '3v3', diffLevel: xpDiffLevel() }),
   },
   {
     id: 'cup', ic: '🏆', name: 'טורניר', sub: 'עונתי · סוללת משחקים',
@@ -3288,6 +3291,11 @@ function connect(name, avatar) {
       slotIds = msg.slots.map((s) => s.id);
       slotTeam = msg.slots.map((s) => s.team);
       cosmeticById = {}; msg.slots.forEach((s) => { cosmeticById[s.id] = s.c || DEFAULT_COSMETIC; }); // per-player look (humans + bots)
+    } else if (msg.type === 'bots') {
+      // Refreshed bot dossier for the settings readout — sent when a mid-match backfill adds a bot
+      // that `matchStart`'s roster could not have contained (e.g. a human left).
+      matchBots = Array.isArray(msg.bots) ? msg.bots : [];
+      if (typeof msg.diffLevel === 'number') matchDiffLevel = msg.diffLevel;
     } else if (msg.type === 'home') {
       homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
     } else if (msg.type === 'roomJoined') {
@@ -3401,6 +3409,9 @@ function enterMatch(msg) {
   knownBlasts = new Set(); knownImpacts = new Set(); knownWalls = new Map(); knownBombs = new Set(); soundEventsReady = false;
   specialBtn.textContent = specialIcon(me.char);
   matchRoster = Array.isArray(msg.players) ? msg.players : [];
+  // The bots in this match, with their difficulty + card slots + the buffs the sim really applies.
+  // Shown in the settings panel; refreshed by the 'bots' control frame after a mid-match backfill.
+  matchBots = matchRoster.filter((p) => p && p.isBot);
   // Pull the WHOLE crowd's card art onto the device at kickoff so it never pops in mid-match
   // (the wire only ever carries compact position/state data — never art). Images cache in
   // _cardImgs for the session and in the browser/WebView HTTP cache across sessions.
@@ -3468,6 +3479,7 @@ function leaveToLobby() {
 
 // ---- Team intro overlay + match roster --------------------------------------
 let matchRoster = [];        // [{id,name,avatar,team,cards}] from matchStart (humans)
+let matchBots = [];          // [{id,team,loadout,buffs,skill,botLevel}] — the bots, for the settings readout
 let audienceReady = false;   // seat layout rebuilt per match (see drawAudience)
 let crowdHypeT = -1e9;        // timestamp of the last goal — the crowd erupts (leaps) then settles
 const teamIntroEl = document.getElementById('team-intro');
@@ -4260,12 +4272,22 @@ function openSettings() {
   document.getElementById('setting-controls')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-mechanics')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-difficulty')?.classList.toggle('hidden', !diffAllowed);
+  // INFO sections (bots + connection) — shown in EVERY game, not tiered like the sliders above:
+  // knowing who you're playing and why it feels laggy is never a training-only concern. Reads
+  // fresh state on each repaint, so the ping ticks and a mid-match bot backfill shows up live.
+  openMatchInfo(() => ({
+    bots: matchBots,
+    diffLevel: matchDiffLevel,
+    myTeam: me && me.team,
+    inMatch: !gameEl.classList.contains('hidden'),
+  }));
   syncSliderUI();
   syncDifficultyUI();
 }
 function closeSettings() {
   playSound('ui', 0.45, 1.06);
   settingsPanel.classList.add('hidden');
+  closeMatchInfo();   // stop the 2Hz repaint while the panel is closed
 }
 pauseBtn.addEventListener('click', openSettings);
 document.getElementById('resume').addEventListener('click', closeSettings);

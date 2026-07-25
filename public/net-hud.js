@@ -99,7 +99,14 @@ export function onPong(rtt) {
 export function onSnapshot(now = performance.now()) { lastSnapAt = now; }
 
 // A fresh socket must not inherit the dead one's samples.
-export function resetNetHud() { monitor.reset(); rttSamples = []; lastSnapAt = null; lastRtt = 0; toastArmed = true; }
+export function resetNetHud() { monitor.reset(); rttSamples = []; lastSnapAt = null; lastRtt = 0; toastArmed = true; lastStats = null; }
+
+// Last frame's numbers, for the settings panel's connection readout (public/match-info.js).
+// A CACHE of what renderNetHud already computed — deliberately NOT a second measurement, so the
+// number the player reads is the same one that drives the warning bars. `null` before the first
+// HUD frame (i.e. outside a match), which the readout renders as "no data" rather than as 0ms.
+let lastStats = null;
+export function netStats() { return lastStats; }
 
 // Call once per HUD frame. `snapRate` is snapshots/sec, `unacked` the pending-input
 // backlog (a growing backlog means our INPUT is not landing, which RTT alone can miss).
@@ -139,6 +146,15 @@ export function renderNetHud({ snapRate, unacked, wsOpen, now = performance.now(
     if (toastT) { clearTimeout(toastT); toastT = null; }
     if (level === 'good') toastArmed = true;   // re-arm only after a FULL recovery
   }
+
+  lastStats = {
+    rtt: sample.rtt, jitter: sample.jitter, snapRate: sample.snapRate,
+    unacked: sample.unacked, gapMs: sample.snapGapMs, wsOpen: sample.wsOpen,
+    level,                        // post-hysteresis: what the bars are showing
+    rawLevel: st.raw.level,       // instantaneous, before the dwell — moves first
+    reason: st.reason,
+    samples: rttSamples.length,   // 0 = no ping round-trip yet, so rtt is not meaningful
+  };
 
   if (e.dbg) {
     e.dbg.textContent = `${Math.round(sample.rtt)}ms ±${Math.round(sample.jitter)} · ${snapRate}/s`
