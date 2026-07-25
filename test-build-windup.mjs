@@ -1,6 +1,6 @@
 // Sim unit tests for the wall-build hold-to-confirm windup.
 // Run: node test-build-windup.mjs   (exits non-zero on any failure)
-import { createState, addPlayer, step } from './shared/sim.js';
+import { createState, addPlayer, step, WALL_BLOCKS } from './shared/sim.js';
 import { DT, BUILD_WINDUP, BUILD_INTERRUPT_KV } from './shared/constants.js';
 
 let fails = 0;
@@ -27,7 +27,8 @@ function holdBuild(s, secs, { release = true } = {}) {
   const s = fresh();
   const before = s.players.p1.buildAmmo;
   holdBuild(s, BUILD_WINDUP + 0.05);
-  ok(s.builtWalls.length === 1, `full windup places a wall (n=${s.builtWalls.length})`);
+  ok(s.builtWalls.length === WALL_BLOCKS, `full windup places a wall of ${WALL_BLOCKS} blocks (n=${s.builtWalls.length})`);
+  ok(new Set(s.builtWalls.map((q) => q.wallId)).size === 1, `the blocks share one wallId (one wall)`);
   ok(s.players.p1.buildAmmo === before - 1, `full windup spends one charge (${s.players.p1.buildAmmo} === ${before - 1})`);
 }
 
@@ -56,7 +57,7 @@ function holdBuild(s, secs, { release = true } = {}) {
   const rest = Math.round(BUILD_WINDUP / DT) + 2;
   for (let i = 0; i < rest; i++) step(s, { p1: inp({ buildHold: true }), p2: inp() }, DT);
   step(s, { p1: inp({ buildHold: false, build: true }), p2: inp() }, DT);
-  ok(s.builtWalls.length === 1, `windup recovers after the hit decays (n=${s.builtWalls.length})`);
+  ok(s.builtWalls.length === WALL_BLOCKS, `windup recovers after the hit decays (n=${s.builtWalls.length})`);
 }
 
 // 4) A bare build edge with no prior hold places nothing (no instant build).

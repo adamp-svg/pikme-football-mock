@@ -5178,9 +5178,12 @@ function drawFragileWall(w) {
   ctx.strokeStyle = 'rgba(219,238,247,.85)'; ctx.strokeRect(-s.L / 2, -s.T / 2, s.L, s.T); ctx.setLineDash([]);
   ctx.restore();
 }
-// One HP indicator per wall: maxHp pips above the centre, the first `hp` filled. A wall is
-// one piece, so this reads as the single health of the whole wall (fragile walls show 1).
+// HP indicator for a wall BLOCK: maxHp pips above its centre, the first `hp` filled.
+// A player wall is 4 abutting blocks that tile into one bar, so we only draw pips on a
+// block that has ALREADY taken damage — a pristine wall stays clean (no 12-pip clutter),
+// and a dinged segment shows exactly which part of the wall is weakened.
 function drawWallPips(w) {
+  if ((w.hp || 1) >= (w.maxHp || 1)) return; // undamaged block → no pips
   const s = wallSlab(w);
   const pipY = s.cy - s.T / 2 - Math.max(2, ws_(9));
   const px0 = s.cx - ((w.maxHp || 1) * Math.max(3, ws_(11))) / 2;

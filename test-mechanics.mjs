@@ -1,6 +1,6 @@
 // Sim unit tests for the arena mechanics (walls, bushes, trampolines, build).
 // Run: node test-mechanics.mjs   (exits non-zero on any failure)
-import { createState, addPlayer, attachBall, step } from './shared/sim.js';
+import { createState, addPlayer, attachBall, step, WALL_BLOCKS } from './shared/sim.js';
 import { DT, BUILD_MAG, BUILD_RELOAD, BUILD_WINDUP, BUILT_WALL, FIELD, SHOOT_CHARGE_TIME } from './shared/constants.js';
 import { ARENA, pointInBush } from './shared/arena.js';
 
@@ -72,14 +72,16 @@ const wall = ARENA.walls[0]; // {x:560,y:250,w:120,h:120}
   const p = s.players.p1;
   p.x = 1000; p.y = 200; p.aimX = 1; p.aimY = 0; // clear of the centre bush + penalty areas
   holdBuild(s, 'p1', { p2: inp() });
-  ok(s.builtWalls.length === 1, `build placed a wall (${s.builtWalls.length})`);
+  // One build = WALL_BLOCKS block-capsules sharing ONE wallId (they tile into a single bar).
+  ok(s.builtWalls.length === WALL_BLOCKS, `build placed a wall of ${WALL_BLOCKS} blocks (${s.builtWalls.length})`);
+  ok(new Set(s.builtWalls.map((q) => q.wallId)).size === 1, `blocks share one wallId (one wall)`);
   ok(p.buildAmmo === BUILD_MAG - 1, `one build charge spent (${p.buildAmmo}/${BUILD_MAG})`);
   const w = s.builtWalls[0];
   ok(w.x > p.x, `wall placed in front (aim +x): wall.x=${w.x.toFixed(0)} > ${p.x}`);
   ok(w.hp === BUILT_WALL.hp, `wall has full HP (${w.hp})`);
-  // immediate second build (full windup again) blocked by cooldown
+  // immediate second build (full windup again) blocked by cooldown → still just the one wall
   holdBuild(s, 'p1', { p2: inp() });
-  ok(s.builtWalls.length === 1, `build cooldown blocks instant re-build (${s.builtWalls.length})`);
+  ok(s.builtWalls.length === WALL_BLOCKS, `build cooldown blocks instant re-build (${s.builtWalls.length})`);
 }
 
 // 7) Build charges TRICKLE back ONE every BUILD_RELOAD seconds (not both at once — avg 1/15s).

@@ -21,7 +21,7 @@ import {
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, SUPER_KICK_MUL, SUPER_QUICK_KB, SUPER_QUICK_KICK_SPEED, SUPER_QUICK_BALL_POP, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
-import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds } from './arena.js';
+import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds, capsuleAABB } from './arena.js';
 
 // Built walls can be built at an ANGLE. Their orientation is quantized to WALL_ANGLE_STEPS
 // steps over a half-turn (a wall is 180°-symmetric) so it round-trips the wire exactly.
@@ -29,7 +29,7 @@ const WALL_ANGLE_STEPS = 16;
 const WALL_ANGLE_QUANT = Math.PI / WALL_ANGLE_STEPS;
 // A player-built wall is ONE piece, but its fragility is sampled at this many sections along
 // its length: fragile (weak) only if EVERY section is in a forbidden zone (see buildWall).
-const WALL_BLOCKS = 4;
+export const WALL_BLOCKS = 4; // one build = this many block-capsules sharing a wallId (tile into one bar)
 
 // Obstacle layout for this state — training rooms override it with a custom
 // arena (state.arena); everything else uses the global mirror-symmetric ARENA.
@@ -973,32 +973,33 @@ function buildWall(state, p) {
   const dist = BUILT_WALL.offset + (p.aimMag || 0) * BUILT_WALL.thick;
   let cx = clamp(p.x + ax * dist, halfW + 2, FIELD.W - halfW - 2);
   let cy = clamp(p.y + ay * dist, halfH + 2, FIELD.H - halfH - 2);
-  const w = Math.round(halfW * 2), h = Math.round(halfH * 2);
-  const x = cx - w / 2, y = cy - h / 2;
-  // A built wall is ONE piece with a SINGLE shared HP. Sample WALL_BLOCKS sections along its
-  // length: it's FRAGILE (weak — hp1, a power kick / bomb smashes the whole thing) ONLY if
-  // EVERY section sits in a forbidden zone (bush/penalty). If any part is on legal ground the
-  // whole wall is SOLID (hp3). So a wall entirely in the box = 1 HP; half in a bush = 3 HP.
-  const nSample = WALL_BLOCKS;
-  const sampleHl = hl / nSample;
+  // ONE build = WALL_BLOCKS (4) independent block-capsules that TILE the wall's length and share a
+  // wallId, so they act as ONE continuous barrier. Each block's durability is decided by ITS OWN
+  // zone: a block whose section sits in a bush/penalty is FRAGILE (hp1 — a power kick / bomb smashes
+  // it), a block on open ground is SOLID (hp3). So an attack crumbles only the restricted part(s);
+  // the solid blocks hold → the wall shields less exactly where it crosses a restricted zone.
   const dirx = Math.cos(angle), diry = Math.sin(angle); // wall's long axis (perp to aim)
-  let allFragile = true;
-  for (let i = 0; i < nSample; i++) {
-    const off = (i - (nSample - 1) / 2) * sampleHl * 2;
-    const sx = cx + dirx * off, sy = cy + diry * off;
-    if (!(wallInBush(state, sx, sy, angle, sampleHl, ht) || wallInPenalty(sx, sy, angle, sampleHl, ht))) { allFragile = false; break; }
+  const wallId = state._nid++;             // shared group id (server-only: grouping + eviction)
+  const blockHl = hl / WALL_BLOCKS;        // each block's half-length (88/4 = 22); span 2·blockHl each
+  for (let i = 0; i < WALL_BLOCKS; i++) {
+    const off = (i - (WALL_BLOCKS - 1) / 2) * (blockHl * 2); // centres spaced = block length → abut, no gap/overlap
+    const bcx = cx + dirx * off, bcy = cy + diry * off;
+    const fragile = wallInBush(state, bcx, bcy, angle, blockHl, ht) || wallInPenalty(bcx, bcy, angle, blockHl, ht);
+    const hp = fragile ? FRAGILE_HP : BUILT_WALL.hp;
+    const box = capsuleAABB(bcx, bcy, angle, blockHl, ht); // per-block AABB (byte-consistent w/ hardWall)
+    state.builtWalls.push({
+      id: state._nid++, wallId, x: box.x, y: box.y, w: box.w, h: box.h,
+      hp, maxHp: hp, fragile, cx: bcx, cy: bcy, angle, hl: blockHl, ht,
+      team: p.team, ttl: BUILT_WALL.ttl,
+    });
   }
-  const hp = allFragile ? FRAGILE_HP : BUILT_WALL.hp;
-  state.builtWalls.push({
-    id: state._nid++, x, y, w, h, hp, maxHp: hp, fragile: allFragile,
-    cx, cy, angle, hl, ht, // capsule (thick segment) — the authoritative collision shape
-    team: p.team, ttl: BUILT_WALL.ttl,
-  });
-  // Cap PLAYER-built walls only (field dry walls are fixed geometry — never evicted).
-  const playerWalls = state.builtWalls.filter((q) => !q.field);
-  if (playerWalls.length > MAX_BUILT_WALLS) {
-    const oldest = playerWalls[0];
-    state.builtWalls = state.builtWalls.filter((q) => q !== oldest);
+  // Cap PLAYER walls by GROUP (wallId): each build is 4 blocks, so evict the WHOLE oldest group —
+  // never a single block (that would leave a mutilated 3-block wall). MAX_BUILT_WALLS = # of walls.
+  const groupIds = [];
+  for (const q of state.builtWalls) { if (!q.field && !groupIds.includes(q.wallId)) groupIds.push(q.wallId); }
+  if (groupIds.length > MAX_BUILT_WALLS) {
+    const oldest = groupIds[0];
+    state.builtWalls = state.builtWalls.filter((q) => q.wallId !== oldest);
   }
   p.buildAmmo -= 1;
   p.buildCd = BUILD_COOLDOWN * (p.cdMul || 1) * (p.cardUtil || 1);
