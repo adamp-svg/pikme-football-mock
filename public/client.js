@@ -585,6 +585,7 @@ const friendsEl = document.getElementById('friends');
 const lobbyEl = document.getElementById('lobby');
 const gameEl = document.getElementById('game');
 const screens = { start: startEl, home: homeEl, friends: friendsEl, lobby: lobbyEl, game: gameEl };
+let sticksReady = false; // set once the touch-stick system is initialised (below); gates refreshSticks() from showScreen
 function showScreen(name) {
   // Home loops the menu theme; the pitch + pre-match lobby keep their own music; anything
   // else (friends, etc.) is silent. Quick-match shows 'home' UNDER the VS overlay, so leave
@@ -599,6 +600,7 @@ function showScreen(name) {
   }
   else if (name !== 'game' && name !== 'lobby') stopMusic();
   for (const k in screens) screens[k].classList.toggle('hidden', k !== name);
+  if (sticksReady) refreshSticks(); // show the always-on joysticks on the pitch, hide them elsewhere
 }
 
 // Home + friends refs.
@@ -1643,13 +1645,13 @@ function startHomeDance() {
     const now = performance.now();
     if (!homeEl.classList.contains('hidden')) {
       drawDancer(homeCharCtx, homeCharCanvas.width, homeCharCanvas.height, now);
-      if (now - lastCardCheck > 700) {            // late album injection (cold cache) -> refresh the hub
+      if (now - lastCardCheck > 700 && !_xpRevealing) {  // while a reveal animates, it OWNS the bar — don't snap it
         lastCardCheck = now;
         const sig = cardsSig();
         if (sig !== _cardsSig) {
           const newXp = currentXpRaw();
           // A match just ended and the app injected MORE xp -> celebrate the gain instead of snapping.
-          if (_awaitXpReveal && !_xpRevealing && _xpShown != null && newXp > _xpShown + 0.5) {
+          if (_awaitXpReveal && _xpShown != null && newXp > _xpShown + 0.5) {
             _cardsSig = sig;                       // consume the signature so we don't also snap-render
             playXpReveal(_xpShown, newXp);
           } else renderHomeCharacter();
@@ -3480,6 +3482,9 @@ const STICK_RATIO = STICK_MAX / 120; // keep travel proportional when the stick 
 const touchL = { id: null, cx: 0, cy: 0, dx: 0, dy: 0, max: STICK_MAX };
 const touchR = { id: null, cx: 0, cy: 0, dx: 0, dy: 0, active: false, max: STICK_MAX };
 let usingTouch = false;
+// Touch-capable device? The always-on joysticks show only here (desktop keeps mouse/keyboard).
+// On localhost we also show them so the layout is previewable in a desktop browser.
+const IS_TOUCH = DEV_LOCAL || ('ontouchstart' in window) || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
 
 // ---- Customisable control layout (Brawl-Stars-style "edit controls") --------
 // Persisted per control: {cx,cy = CENTER as fraction of viewport, size = px, locked}.
@@ -3496,6 +3501,42 @@ function ctlPx(c) {
 function stickSize(c) { const p = ctlPx(c); return p ? p.size : CTL_DEFAULTS[c].size; }
 function stickMax(c) { return stickSize(c) * STICK_RATIO; }
 function stickLocked(c) { const L = ctlLayout[c]; return !!(L && L.locked); }
+
+// ---- Always-on joysticks (Brawl-Stars fixed sticks) -------------------------
+// The move/aim sticks are ALWAYS visible on the pitch at a fixed anchor (not floating
+// to the touch): move bottom-left, aim bottom-right but LEFT of the right-edge bomb/wall
+// column so nothing overlaps. Touch anywhere in that half drives the knob from the anchor.
+const STICK_MARGIN = 26;
+function defaultAnchor(c) {
+  const s = stickSize(c);
+  if (c === 'move') return { x: STICK_MARGIN + s / 2, y: innerHeight - STICK_MARGIN - s / 2, size: s };
+  // aim: keep its right edge clear of the bomb button (which hugs the right edge ~112px in, 82px wide)
+  const x = Math.max(innerWidth * 0.5 + s / 2 + 8, innerWidth - 208 - s / 2);
+  return { x, y: innerHeight - STICK_MARGIN - s / 2, size: s };
+}
+// The live anchor for a stick: a saved LOCKED custom position wins, else the default anchor.
+function stickAnchor(c) {
+  const L = ctlLayout[c];
+  if (L && L.locked) return { x: L.cx * innerWidth, y: L.cy * innerHeight, size: L.size || CTL_DEFAULTS[c].size };
+  return defaultAnchor(c);
+}
+// Park each stick at its anchor with a centred knob while idle; hide off the pitch / on desktop.
+function refreshSticks() {
+  const show = IS_TOUCH && !gameEl.classList.contains('hidden')
+    && (typeof settingsPanel === 'undefined' || settingsPanel.classList.contains('hidden'))
+    && !editingControls;
+  for (const [c, el, touch] of [['move', stickL, touchL], ['aim', stickR, touchR]]) {
+    if (!el) continue;
+    if (!show) { el.classList.add('hidden'); el.classList.remove('active'); continue; }
+    el.classList.remove('hidden');
+    if (touch.id === null) {           // idle -> sit at anchor, knob centred (an active stick is placed by the touch handler)
+      const a = stickAnchor(c), half = a.size / 2;
+      el.style.left = `${Math.round(a.x - half)}px`;
+      el.style.top = `${Math.round(a.y - half)}px`;
+      const k = el.querySelector('.knob'); if (k) k.style.transform = 'translate(0px, 0px)';
+    }
+  }
+}
 
 // Apply the saved layout: size both sticks; position+size the two skill buttons.
 function applyCtlLayout() {
@@ -3532,17 +3573,17 @@ addEventListener('touchstart', (e) => {
     const ad = adBoardAt(t.clientX, t.clientY); if (ad) { openAd(ad); continue; } // board tap, not a stick
     const which = claimStick(t);
     if (which === 'L' && touchL.id === null) {
-      // Locked move stick: snap the base to its fixed anchor (touch anywhere in the
-      // zone still drives it, delta measured from the anchor). Floating: base = touch.
-      const a = stickLocked('move') ? ctlPx('move') : null;
-      touchL.id = t.identifier; touchL.cx = a ? a.x : t.clientX; touchL.cy = a ? a.y : t.clientY;
-      touchL.dx = 0; touchL.dy = 0; touchL.max = stickMax('move');
-      placeStick(stickL, touchL.cx, touchL.cy, 0, 0);
+      // Fixed stick: the base stays at its anchor; touching anywhere in the zone drives the
+      // knob, delta measured from the anchor (Brawl-Stars always-on joystick).
+      const a = stickAnchor('move');
+      touchL.id = t.identifier; touchL.cx = a.x; touchL.cy = a.y;
+      touchL.dx = 0; touchL.dy = 0; touchL.max = a.size * STICK_RATIO;
+      placeStick(stickL, a.x, a.y, 0, 0); stickL.classList.add('active');
     } else if (which === 'R' && touchR.id === null) {
-      const a = stickLocked('aim') ? ctlPx('aim') : null;
-      touchR.id = t.identifier; touchR.cx = a ? a.x : t.clientX; touchR.cy = a ? a.y : t.clientY;
-      touchR.dx = 0; touchR.dy = 0; touchR.active = true; touchR.aimedOut = false; touchR.max = stickMax('aim');
-      placeStick(stickR, touchR.cx, touchR.cy, 0, 0);
+      const a = stickAnchor('aim');
+      touchR.id = t.identifier; touchR.cx = a.x; touchR.cy = a.y;
+      touchR.dx = 0; touchR.dy = 0; touchR.active = true; touchR.aimedOut = false; touchR.max = a.size * STICK_RATIO;
+      placeStick(stickR, a.x, a.y, 0, 0); stickR.classList.add('active');
       beginCharge(); // start charging as soon as you touch the aim stick
     }
   }
@@ -3579,8 +3620,8 @@ function updateStick(stick, el, t) {
 addEventListener('touchend', (e) => {
   for (const t of e.changedTouches) {
     if (t.identifier === touchL.id) {
-      // Left stick is MOVE: just stop.
-      touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.add('hidden');
+      // Left stick is MOVE: just stop. Base stays visible at its anchor (knob recenters).
+      touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.remove('active'); refreshSticks();
     }
     else if (t.identifier === touchR.id) {
       // Right stick is AIM/SHOOT:
@@ -3591,7 +3632,7 @@ addEventListener('touchend', (e) => {
       else if (touchR.aimedOut) cancelCharge();                            // pulled out then back in -> deliberate cancel
       else if (currentCharge() < QUICK_CHARGE) releaseShot();              // a short no-aim TAP -> quick auto-aimed shot
       else cancelCharge();                                                 // a LONG no-aim press does NOTHING (charged shots need aim)
-      touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; touchR.aimedOut = false; stickR.classList.add('hidden');
+      touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; touchR.aimedOut = false; stickR.classList.remove('active'); refreshSticks();
     }
   }
 }, { passive: false });
@@ -3600,10 +3641,16 @@ addEventListener('touchend', (e) => {
 // Reset the sticks so a controller can never get stuck.
 addEventListener('touchcancel', (e) => {
   for (const t of e.changedTouches) {
-    if (t.identifier === touchL.id) { touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.add('hidden'); }
-    else if (t.identifier === touchR.id) { cancelCharge(); touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; stickR.classList.add('hidden'); }
+    if (t.identifier === touchL.id) { touchL.id = null; touchL.dx = 0; touchL.dy = 0; stickL.classList.remove('active'); refreshSticks(); }
+    else if (t.identifier === touchR.id) { cancelCharge(); touchR.id = null; touchR.dx = 0; touchR.dy = 0; touchR.active = false; stickR.classList.remove('active'); refreshSticks(); }
   }
 }, { passive: false });
+
+// The stick system is now initialised: allow showScreen() to drive the always-on sticks,
+// park them at their anchors now, and re-anchor them on viewport resize/rotate.
+sticksReady = true;
+refreshSticks();
+addEventListener('resize', refreshSticks);
 
 // ---- Control-layout editor (training only, Brawl-Stars "edit controls") -----
 let editingControls = false;
@@ -3676,7 +3723,7 @@ for (const puck of cePucks) {
 
 document.getElementById('ce-save')?.addEventListener('click', () => {
   for (const c of ['move', 'aim', 'bomb', 'wall']) ctlLayout[c] = { ...ceDraft[c], locked: true };
-  saveCtlLayout(); applyCtlLayout(); closeControlsEditor();
+  saveCtlLayout(); applyCtlLayout(); closeControlsEditor(); if (sticksReady) refreshSticks();
 });
 document.getElementById('ce-cancel')?.addEventListener('click', closeControlsEditor);
 document.getElementById('ce-reset')?.addEventListener('click', () => {
