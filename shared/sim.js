@@ -16,7 +16,7 @@ import {
   SLOW_PER_STACK, SLOW_STACK_MAX, SLOW_STACK_DECAY, PUSH_MIN_MUL, PUSH_EASE,
   SUPER_BODY_PUSH, SUPER_BODY_STRIP_KB, SUPER_BODY_BALL_POP,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD,
-  WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
+  WALL_BOUNCE, TRAMPOLINE, BUILT_WALL, BUILD_DIST_MAX, BUILD_MAG, BUILD_RELOAD, BUILD_COOLDOWN, MAX_BUILT_WALLS, FRAGILE_HP, FRAGILE_PASS_SPEED,
   BUILD_WINDUP, BUILD_WINDUP_SLOW, BUILD_INTERRUPT_KV,
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, SUPER_SHOT_MUL, SUPER_KICK_MUL, SUPER_QUICK_KB, SUPER_QUICK_KICK_SPEED, SUPER_QUICK_BALL_POP, BLAST_WALL_PASS_MIN, COVER_PAD, VISION_RANGE, BUSH_REVEAL_DIST,
   defaultSettings, chargeMul, clamp,
@@ -179,6 +179,7 @@ export function createState() {
     players: {}, // id -> player
     ball: { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 },
     score: { A: 0, B: 0 },
+    goalsToWin: 0, // first-to-N goals win (0 = timed only). Server sets it per mode (normal 2v2 = 3).
     lastGoal: null, // team key that just scored (for a flash), cleared after freeze
     projectiles: [], // bullets
     bombs: [], // planted bombs (fusing)
@@ -552,7 +553,14 @@ export function step(state, inputs, dt) {
       const inp = inputs[id];
       if (inp) state.players[id].lastSeq = inp.seq;
     }
-    if (state.resetTimer <= 0) { state.resetTimer = 0; state.lastGoal = null; state.pendingReset = false; }
+    if (state.resetTimer <= 0) {
+      state.resetTimer = 0; state.lastGoal = null; state.pendingReset = false;
+      // First-to-N goals: end AFTER the goal celebration (not mid-freeze) so it reads
+      // "גול! → ניצחון!". Timed modes (goalsToWin 0) / training (noClock) skip this.
+      if (!state.noClock && state.goalsToWin && (state.score.A >= state.goalsToWin || state.score.B >= state.goalsToWin)) {
+        state.phase = 'ended';
+      }
+    }
     state.tick++;
     return;
   }
@@ -977,7 +985,7 @@ function buildWall(state, p) {
   const halfW = ca * hl + sa * ht, halfH = sa * hl + ca * ht;
   // Push the aim stick harder to place the wall further out — base offset up to one wall
   // thickness beyond it. Light push (or movement-based aim) keeps the old close placement.
-  const dist = BUILT_WALL.offset + (p.aimMag || 0) * BUILT_WALL.thick;
+  const dist = BUILT_WALL.offset + (p.aimMag || 0) * BUILD_DIST_MAX;
   let cx = clamp(p.x + ax * dist, halfW + 2, FIELD.W - halfW - 2);
   let cy = clamp(p.y + ay * dist, halfH + 2, FIELD.H - halfH - 2);
   // ONE build = WALL_BLOCKS (4) independent block-capsules that TILE the wall's length and share a

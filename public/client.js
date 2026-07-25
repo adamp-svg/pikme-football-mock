@@ -4,7 +4,7 @@
 import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION,
-  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_WINDUP, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
+  BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_DIST_MAX, BUILD_WINDUP, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
@@ -66,8 +66,18 @@ setInterval(() => { snapRate = snapCount; snapCount = 0; }, 1000);
 
 const chosenChar = 'player'; // one player type (physics); look is set by the cosmetic below
 const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' }; // home/picker preview kit colours
-function loadCosmetic() { try { return normalizeCosmetic(localStorage.getItem('pikme_cosmetic')); } catch { return DEFAULT_COSMETIC; } }
-function saveCosmetic(c) { try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } }
+// Cross-device prefs: the app injects window.SALTIZ_COSMETIC / SALTIZ_LOADOUT (server-saved, keyed by
+// phone) BEFORE the game loads; those WIN over localStorage so a fresh device restores your hero/loadout.
+// On change we persist locally, tell the game server, AND post {t:'prefs'} out so the app saves it.
+function loadCosmetic() {
+  try {
+    const inj = window.SALTIZ_COSMETIC;
+    if (inj && typeof inj === 'string') return normalizeCosmetic(inj);
+    return normalizeCosmetic(localStorage.getItem('pikme_cosmetic'));
+  } catch { return DEFAULT_COSMETIC; }
+}
+function saveCosmetic(c) { try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } postPrefs(); }
+function postPrefs() { try { window.ReactNativeWebView?.postMessage(JSON.stringify({ t: 'prefs', cosmetic: myCosmetic, loadout: myLoadout })); } catch { /* not in app */ } }
 let myCosmetic = loadCosmetic();          // this player's chosen "hero:skin"
 // Re-skin the current hero by a card's rarity (keeps hero TYPE, swaps the tier). Mirrors
 // the picker's save path; the home preview (drawDancer) reads myCosmetic live so it updates.
@@ -82,8 +92,14 @@ function setHeroSkinByRarity(rarity) {
 // Card powers: 3 equipped slots (0 Shot / 1 Speed / 2 Utility), each an owned card
 // {r,n} whose RARITY sets the buff strength. Persisted like myCosmetic. null => the
 // slot auto-fills from the album's top-3; the server derives the actual buff %.
-function loadLoadout() { try { const s = localStorage.getItem('pikme-loadout'); const a = s && JSON.parse(s); return Array.isArray(a) ? a : null; } catch { return null; } }
-function saveLoadout(a) { try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } }
+function loadLoadout() {
+  try {
+    const inj = window.SALTIZ_LOADOUT; // server-saved cross-device loadout wins over local
+    if (Array.isArray(inj)) return [0, 1, 2].map((i) => (inj[i] && inj[i].r && inj[i].n != null ? { r: inj[i].r, n: +inj[i].n } : null));
+    const s = localStorage.getItem('pikme-loadout'); const a = s && JSON.parse(s); return Array.isArray(a) ? a : null;
+  } catch { return null; }
+}
+function saveLoadout(a) { try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } postPrefs(); }
 let myLoadout = loadLoadout();            // null => auto-fill top-3; else a saved [{r,n}|null] x3
 let cosmeticById = {};                    // playerId -> "hero:skin", from the roster control frame
 let holdingBall = false;     // am I currently carrying the ball?
@@ -413,7 +429,7 @@ function startHomeMusic() {
 
 // Haptics. The web Vibration API covers Android/desktop; iOS WKWebView ignores
 // it, so we ALSO notify the native RN shell (expo-haptics) via postMessage.
-const VIBE = { hit: 12, playerHit: 28, bomb: [55, 45, 100], goal: [55, 45, 55, 45, 150], concede: 25 };
+const VIBE = { hit: 12, playerHit: 28, bomb: [55, 45, 100], goal: [55, 45, 55, 45, 150], concede: 25, cancel: [15, 40, 15], rearm: 10 };
 function haptic(kind) {
   try { if (navigator.vibrate) navigator.vibrate(VIBE[kind] || 15); } catch { /* unsupported */ }
   try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ t: 'haptic', kind })); } catch { /* not in app */ }
@@ -3187,13 +3203,38 @@ let buildHold = null;      // aim captured at build-button release (drag-to-aim)
 let aimHold = null;        // aim captured at right-stick release (fire direction)
 let chargeStart = null;    // timestamp the hold began — LOCAL charge estimate for the HUD only
 const AIM_DEADZONE_PX = 12; // stick/cursor pull past this = a real shot; inside it = cancel
-const BUILD_DIST_DRAG_PX = 70; // build-button drag past the deadzone maps 0..1 -> place the wall further out
-// How far past the base offset the wall builds (0 at a light drag, 1 at a full drag).
-function buildPushFrac(dx, dy) { return clamp((Math.hypot(dx, dy) - AIM_DEADZONE_PX) / (BUILD_DIST_DRAG_PX - AIM_DEADZONE_PX), 0, 1); }
+// ---- Brawl-Stars-style drag-to-aim: SENSITIVITY (finger travel → max distance) + per-control REACH ----
+// Client-only aim FEEL: the server never reads these, but they matter in real matches too, so they live
+// here (persisted to localStorage) and are NOT part of SETTING_KEYS (which auto-syncs to the server).
+function loadAimNum(k, d) { try { const v = parseFloat(localStorage.getItem(k)); return Number.isFinite(v) ? v : d; } catch { return d; } }
+let aimSensPx = loadAimNum('fbAimSens', 90);                       // drag px past the deadzone that reaches MAX distance (smaller = twitchier)
+let bombMaxPx = loadAimNum('fbBombMax', BOMB_LOB_RANGE);           // bomb lob reach ceiling (server hard-caps at BOMB_LOB_RANGE)
+let wallMaxPx = loadAimNum('fbWallMax', BUILT_WALL.offset + 32);   // wall total reach; default 92 = old offset+thick (feel-preserving)
+// Cancel dead-zone (Brawl: drag back toward centre = cancel) with hysteresis so it can't flip-flop per-frame.
+const CANCEL_ARM_PX = 34; // pull past this = a real, cancellable aim (latches `aimed`)
+const CANCEL_IN_PX  = 18; // then drop back below this = armed-to-cancel
+// Shared drag → 0..1 fraction (after the deadzone, capped by sensitivity). Used by BOTH the bomb lob and the wall build.
+function aimFrac(len) { const s = Math.max(aimSensPx, AIM_DEADZONE_PX + 1); return clamp((len - AIM_DEADZONE_PX) / (s - AIM_DEADZONE_PX), 0, 1); }
+function buildPushFrac(dx, dy) { return aimFrac(Math.hypot(dx, dy)); }
+// Wall aimMag (0..1) the sim consumes: dist = offset + aimMag*BUILD_DIST_MAX, scaled so a full drag reaches wallMaxPx.
+function wallReachFrac(dx, dy) { return clamp(buildPushFrac(dx, dy) * (wallMaxPx - BUILT_WALL.offset) / BUILD_DIST_MAX, 0, 1); }
+// Shared cancel/haptic updater — call from BOTH pointermove handlers after updating drag.dx/dy. Edge-triggered
+// haptic (guarded by drag.wasCancel) so a stream of pointermoves inside the cancel zone buzzes only once.
+function updateDragCancel(drag) {
+  const m = Math.hypot(drag.dx, drag.dy);
+  if (m > CANCEL_ARM_PX) drag.aimed = true;                    // latch: a deliberate aim
+  if (drag.aimed) {
+    if (m < CANCEL_IN_PX) drag.cancelArmed = true;             // pulled back toward centre → will cancel
+    else if (m > CANCEL_ARM_PX) drag.cancelArmed = false;      // pulled back out (hysteresis gap → no flicker)
+  }
+  const nowCancel = !!drag.cancelArmed;
+  if (nowCancel && !drag.wasCancel) haptic('cancel');                       // crossed INTO cancel zone → buzz once
+  else if (!nowCancel && drag.wasCancel && drag.aimed) haptic('rearm');     // pulled back out → light re-arm tick
+  drag.wasCancel = nowCancel;
+}
 
 let specialAim = { x: 0, y: 0 };   // captured lob offset (0..1 of BOMB_LOB_RANGE, true-world dir) for the next special edge
-let bombDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0, aimed: false };
-const MAX_LOB_DRAG_PX = 90;        // screen drag that maps to a full-range lob
+let bombDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0, aimed: false, cancelArmed: false, wasCancel: false };
 
 let buildHolding = false;  // build control currently HELD (windup ramps server-side)
 let buildStart = null;     // timestamp the build hold began — LOCAL windup estimate for the HUD
@@ -3203,7 +3244,7 @@ function currentWindup() { return buildStart === null ? 0 : Math.min(1, (perform
 function cancelBuild() { buildHolding = false; buildStart = null; buildHold = null; }
 
 // Build a wall — like a shot, you can drag to aim (pull-to-build) then release.
-function releaseBuild(aim) { buildQueued = true; if (aim) { buildHold = aim; buildHold.frac = buildPushFrac(aim.x, aim.y); } playSound('ui', 0.5, 0.86); flushInput(); }
+function releaseBuild(aim) { buildQueued = true; if (aim) { buildHold = aim; buildHold.frac = wallReachFrac(aim.x, aim.y); } playSound('ui', 0.5, 0.86); flushInput(); }
 
 const CHARGE_MS = SHOOT_CHARGE_TIME * 1000;
 function beginCharge() { if (!me.playerId) return; if (!holding) { holding = true; chargeStart = performance.now(); } } // no firing/charge (or shot sound) outside a live match — tapping the menu is silent
@@ -3302,32 +3343,34 @@ if (specialBtn) {
     e.preventDefault();
     if (holdingBall || bombCooling()) return; // LOCKED while carrying OR reloading — no drag, no feedback, no restart
     try { specialBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
-    bombDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0, aimed: false };
+    bombDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0, aimed: false, cancelArmed: false, wasCancel: false };
   });
   specialBtn.addEventListener('pointermove', (e) => {
     if (!bombDrag.active || e.pointerId !== bombDrag.id) return;
     bombDrag.dx = e.clientX - bombDrag.cx; bombDrag.dy = e.clientY - bombDrag.cy;
-    if (Math.hypot(bombDrag.dx, bombDrag.dy) > AIM_DEADZONE_PX) bombDrag.aimed = true; // once out, stays "aimed" even if it returns to center
+    updateDragCancel(bombDrag); // latch aim + arm/disarm cancel + edge-haptic
   });
   const endBombDrag = (e) => {
     if (!bombDrag.active || e.pointerId !== bombDrag.id) return;
     const len = Math.hypot(bombDrag.dx, bombDrag.dy);
-    if (len > AIM_DEADZONE_PX) {
-      // A real drag = aimed lob. Map drag magnitude to a 0..1 fraction of the range.
-      const frac = Math.min(1, len / MAX_LOB_DRAG_PX);
+    if (bombDrag.cancelArmed) {
+      // Pulled out then back toward centre = CANCEL. No bomb, no cooldown. (cancel already buzzed.)
+      shake(3, 110);
+    } else if (len > AIM_DEADZONE_PX) {
+      // A real drag = aimed lob. Sensitivity maps drag → fraction; reach caps the world distance.
+      const reach = aimFrac(len) * bombMaxPx;         // world px (≤ bombMaxPx ≤ BOMB_LOB_RANGE)
       let dx = bombDrag.dx / len, dy = bombDrag.dy / len;
       if (flipView()) dx = -dx; // screen -> true-world for team B's mirrored view
-      specialAim = { x: dx * frac, y: dy * frac };
+      const f = reach / BOMB_LOB_RANGE;               // 0..1 fraction the sim consumes (server re-clamps ≤1)
+      specialAim = { x: dx * f, y: dy * f };
       specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
-    } else if (bombDrag.aimed) {
-      // Dragged out of the deadzone at some point, then brought back in before releasing
-      // = cancel. No bomb, no sound, no cooldown.
     } else {
       // No meaningful drag at all = a tap = feet plant (rocket-jump). Snappy, like before.
       specialAim = { x: 0, y: 0 };
       specialQueued = true; playSound('hit', 0.5, 0.82); flashSpecialCooldown();
     }
-    bombDrag.active = false; bombDrag.id = null; bombDrag.dx = 0; bombDrag.dy = 0; bombDrag.aimed = false;
+    bombDrag.active = false; bombDrag.id = null; bombDrag.dx = 0; bombDrag.dy = 0;
+    bombDrag.aimed = false; bombDrag.cancelArmed = false; bombDrag.wasCancel = false;
     flushInput(); // send the special edge (with its lob aim) immediately
   };
   specialBtn.addEventListener('pointerup', endBombDrag);
@@ -3337,27 +3380,33 @@ if (specialBtn) {
 // Build button — press and DRAG to aim the wall (pull-to-build), release to place.
 // A plain tap builds in the direction you're facing. Pointer events cover mouse+touch.
 const buildBtn = document.getElementById('build');
-let buildDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
+let buildDrag = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0, aimed: false, cancelArmed: false, wasCancel: false };
 if (buildBtn) {
   buildBtn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (holdingBall) return; // fence is LOCKED while carrying — no drag, no windup, no exhaust
     try { buildBtn.setPointerCapture(e.pointerId); } catch { /* older webview */ }
-    buildDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0 };
+    buildDrag = { active: true, id: e.pointerId, cx: e.clientX, cy: e.clientY, dx: 0, dy: 0, aimed: false, cancelArmed: false, wasCancel: false };
     beginBuild();
   });
   buildBtn.addEventListener('pointermove', (e) => {
     if (!buildDrag.active || e.pointerId !== buildDrag.id) return;
     buildDrag.dx = e.clientX - buildDrag.cx; buildDrag.dy = e.clientY - buildDrag.cy;
+    updateDragCancel(buildDrag); // latch aim + arm/disarm cancel + edge-haptic (shared with the bomb)
   });
   const endBuildDrag = (e) => {
     if (!buildDrag.active || e.pointerId !== buildDrag.id) return;
-    // Release only COMMITS if the windup is full AND the aim is pulled out of the deadzone;
-    // otherwise it cancels (no wall, no charge). The server also gates on windup.
-    const pulled = Math.hypot(buildDrag.dx, buildDrag.dy) > AIM_DEADZONE_PX;
-    if (pulled && currentWindup() >= 1) releaseBuild({ x: buildDrag.dx, y: buildDrag.dy });
-    else cancelBuild();
+    if (buildDrag.cancelArmed) {
+      cancelBuild(); shake(3, 110); // dragged back toward centre = CANCEL (cancel already buzzed)
+    } else {
+      // Release only COMMITS if the windup is full AND the aim is pulled out of the deadzone;
+      // otherwise it cancels (no wall, no charge). The server also gates on windup.
+      const pulled = Math.hypot(buildDrag.dx, buildDrag.dy) > AIM_DEADZONE_PX;
+      if (pulled && currentWindup() >= 1) releaseBuild({ x: buildDrag.dx, y: buildDrag.dy });
+      else cancelBuild();
+    }
     buildDrag.active = false; buildDrag.id = null; buildDrag.dx = 0; buildDrag.dy = 0;
+    buildDrag.aimed = false; buildDrag.cancelArmed = false; buildDrag.wasCancel = false;
     buildHolding = false; buildStart = null;
   };
   buildBtn.addEventListener('pointerup', endBuildDrag);
@@ -3764,6 +3813,25 @@ for (const puck of cePucks) {
   puck.addEventListener('pointercancel', end);
 }
 
+// Aim-feel sliders (client-only; persist to localStorage, apply in real matches too). Live in the
+// controls editor next to the layout pucks. Not part of SETTING_KEYS — the server never reads them.
+const _aimSliders = [
+  { id: 's-aimSens', vid: 'v-aimSens', key: 'fbAimSens', def: 90,                    get: () => aimSensPx, set: (v) => { aimSensPx = v; } },
+  { id: 's-bombMax', vid: 'v-bombMax', key: 'fbBombMax', def: BOMB_LOB_RANGE,         get: () => bombMaxPx, set: (v) => { bombMaxPx = v; } },
+  { id: 's-wallMax', vid: 'v-wallMax', key: 'fbWallMax', def: BUILT_WALL.offset + 32, get: () => wallMaxPx, set: (v) => { wallMaxPx = v; } },
+];
+function seedAimSlider(s) { const el = document.getElementById(s.id), lab = document.getElementById(s.vid); if (el) el.value = String(s.get()); if (lab) lab.textContent = Math.round(s.get()) + 'px'; }
+for (const s of _aimSliders) {
+  const el = document.getElementById(s.id); if (!el) continue;
+  seedAimSlider(s);
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    if (!Number.isFinite(v)) return;
+    s.set(v);
+    try { localStorage.setItem(s.key, String(v)); } catch { /* private mode */ }
+    const lab = document.getElementById(s.vid); if (lab) lab.textContent = Math.round(v) + 'px';
+  });
+}
 document.getElementById('ce-save')?.addEventListener('click', () => {
   for (const c of ['move', 'aim', 'bomb', 'wall']) ctlLayout[c] = { ...ceDraft[c], locked: true };
   saveCtlLayout(); applyCtlLayout(); closeControlsEditor(); if (sticksReady) refreshSticks();
@@ -3777,6 +3845,8 @@ document.getElementById('ce-reset')?.addEventListener('click', () => {
     for (const p of ['left', 'top', 'right', 'bottom', 'width', 'height', 'fontSize']) el.style[p] = '';
   }
   stickL.style.width = stickL.style.height = ''; stickR.style.width = stickR.style.height = '';
+  // also restore the aim-feel defaults
+  for (const s of _aimSliders) { s.set(s.def); try { localStorage.removeItem(s.key); } catch { /* private mode */ } seedAimSlider(s); }
   closeControlsEditor();
 });
 editBtn?.addEventListener('click', openControlsEditor);
@@ -3823,7 +3893,7 @@ function sampleInput() {
   // A build-button drag aims the wall the same way; overrides aim for this frame.
   // buildDist (0..1) = how far the button was dragged -> the sim builds the wall that much
   // further out (up to one wall thickness). Live during a drag, latched on release.
-  let buildDist = buildHolding && buildDrag.active ? buildPushFrac(buildDrag.dx, buildDrag.dy) : 0;
+  let buildDist = buildHolding && buildDrag.active ? wallReachFrac(buildDrag.dx, buildDrag.dy) : 0;
   if (buildHold) { aimX = flip ? -buildHold.x : buildHold.x; aimY = buildHold.y; buildDist = buildHold.frac || 0; buildHold = null; }
   // #6/#11: the client sends its aim vector (needed for CHARGED shots + the aim line + wall
   // build). For a QUICK shot the SIM decides the aim server-side (goal if carrying, else the
@@ -5391,32 +5461,49 @@ function drawObstacles() {
     // Ghost at the exact angle it'll build: perpendicular to aim, quantized like the sim.
     let ang = Math.atan2(ay, ax) + Math.PI / 2;
     ang = Math.round(ang / (Math.PI / 16)) * (Math.PI / 16);
-    // Match the sim: a harder drag places the wall up to one thickness further out.
-    const dist = BUILT_WALL.offset + buildPushFrac(dx, dy) * BUILT_WALL.thick;
+    // Match the sim: a harder drag pushes the wall further out (scaled to wallMaxPx, capped at BUILD_DIST_MAX).
+    const dist = BUILT_WALL.offset + wallReachFrac(dx, dy) * BUILD_DIST_MAX;
     const cx = rendered.x + ax * dist, cy = rendered.y + ay * dist;
     const L = ws_(BUILT_WALL.len), T = ws_(BUILT_WALL.thick);
+    const canc = buildDrag.cancelArmed; // drag pulled back toward centre → releasing now cancels
     ctx.save();
     const wind = currentWindup(); // 0..1 local estimate
-    ctx.globalAlpha = 0.25 + 0.6 * wind; // faint at start, near-solid at full
+    ctx.globalAlpha = canc ? 0.32 : (0.25 + 0.6 * wind); // faint at start, near-solid at full
     ctx.translate(wx(cx), wy(cy)); ctx.rotate(ang);
-    ctx.fillStyle = wind >= 1 ? '#ffd27a' : '#ffb347';
+    ctx.fillStyle = canc ? '#ff4d4d' : (wind >= 1 ? '#ffd27a' : '#ffb347');
     ctx.fillRect(-L / 2, -T / 2, L, T);
+    if (canc) { // red ✕ over the ghost = will cancel on release
+      ctx.globalAlpha = 0.95; ctx.strokeStyle = 'rgba(255,80,80,1)'; ctx.lineWidth = ws_(5); ctx.lineCap = 'round';
+      const x = ws_(11);
+      ctx.beginPath(); ctx.moveTo(-x, -x); ctx.lineTo(x, x); ctx.moveTo(x, -x); ctx.lineTo(-x, x); ctx.stroke();
+    }
     ctx.globalAlpha = 1; ctx.restore();
     // Wind-up read = a CHARGE RING around the player (same as the shoot meter), not a loading line.
-    drawPlayerChargeRing(wind, 'rgba(255,166,54,0.9)', 'rgba(255,214,64,0.95)');
+    drawPlayerChargeRing(wind, canc ? 'rgba(255,77,77,0.9)' : 'rgba(255,166,54,0.9)', canc ? 'rgba(255,120,120,0.95)' : 'rgba(255,214,64,0.95)');
   }
-  // Bomb-lob aim: a cursor-following ghost target circle at the projected landing spot (THIS is the
-  // aim). No charge-ring on the hero's own body — the user doesn't want a red circle on the hero.
+  // Bomb-lob aim: a trajectory line + landing circle at the projected spot (THIS is the aim).
+  // No charge-ring on the hero's own body — the user doesn't want a red circle on the hero.
   if (bombDrag.active && rendered && !holdingBall) {
     const len = Math.hypot(bombDrag.dx, bombDrag.dy);
-    if (len > AIM_DEADZONE_PX) {
-      const frac = Math.min(1, len / MAX_LOB_DRAG_PX);
+    if (bombDrag.cancelArmed) {
+      // Cancel state: a hollow RED ring + ✕ at the hero's feet — releasing now throws nothing.
+      ctx.save(); ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = 'rgba(255,77,77,1)'; ctx.lineWidth = ws_(4); ctx.lineCap = 'round';
+      const px = wx(rendered.x), py = wy(rendered.y), r = ws_(24);
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.stroke();
+      const x = r * 0.6;
+      ctx.beginPath(); ctx.moveTo(px - x, py - x); ctx.lineTo(px + x, py + x); ctx.moveTo(px + x, py - x); ctx.lineTo(px - x, py + x); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.restore();
+    } else if (len > AIM_DEADZONE_PX) {
+      const reach = aimFrac(len) * bombMaxPx; // sensitivity → fraction, reach caps the world distance
       let dx = bombDrag.dx / len, dy = bombDrag.dy / len;
       if (flipView()) dx = -dx; // screen -> true-world for team B's mirrored view
-      const tx = rendered.x + dx * frac * BOMB_LOB_RANGE;
-      const ty = rendered.y + dy * frac * BOMB_LOB_RANGE;
-      ctx.save(); ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#ff5a4d';
+      const tx = rendered.x + dx * reach, ty = rendered.y + dy * reach;
+      ctx.save();
+      ctx.globalAlpha = 0.35; ctx.strokeStyle = '#ffb347'; ctx.lineWidth = ws_(3); ctx.setLineDash([ws_(6), ws_(6)]);
+      ctx.beginPath(); ctx.moveTo(wx(rendered.x), wy(rendered.y)); ctx.lineTo(wx(tx), wy(ty)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.55; ctx.fillStyle = '#ff5a4d';
       ctx.beginPath(); ctx.arc(wx(tx), wy(ty), ws_(26), 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1; ctx.restore();
     }
@@ -5535,6 +5622,9 @@ function renderFrame() {
   const specialCooling = performance.now() < specialCdUntil;
   specialBtn.classList.toggle('cooling', specialCooling);
   specialBtn.classList.toggle('ready', !specialCooling); // Brawl-style charged-Super pulse
+  // Drag-back-to-centre CANCEL cue (Brawl): red frame + ✕ on the button being aimed.
+  specialBtn.classList.toggle('cancel-armed', bombDrag.active && !!bombDrag.cancelArmed);
+  if (buildBtn) buildBtn.classList.toggle('cancel-armed', buildDrag.active && !!buildDrag.cancelArmed);
   // Radial cooldown ring: fills 0→1 as the bomb recharges; full when ready.
   { const cdMs = bombCdMs(); specialBtn.style.setProperty('--cd', specialCooling && cdMs > 0 ? 1 - (specialCdUntil - performance.now()) / cdMs : 1); }
 

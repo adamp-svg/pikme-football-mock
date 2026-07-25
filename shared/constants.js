@@ -54,7 +54,8 @@ export function chargeMul(frac) {
 export const BULLET_MIN_DIST = 50;
 export const BULLET_FULL_DIST = 300;
 
-export const MATCH_DURATION = 120; // seconds — match ends and returns to lobby
+export const MATCH_DURATION = 120; // seconds — TIME CAP: match ends here even if nobody hit the goal target
+export const GOALS_TO_WIN = 3;     // normal 2v2: first team to this many goals wins (0 = timed only, e.g. goal-brawl)
 export const KICKOFF_FREEZE = 0.7; // brief reset pause at match start
 export const GOAL_RESET = 5;       // post-goal countdown before play resumes
 export const GOAL_FREEZE_HOLD = 2; // of GOAL_RESET, hold in the scoring positions this long before snapping to kickoff
@@ -123,6 +124,8 @@ export function defaultSettings() {
     bulletSpeed: 720,      // full-charge bullet ~5.7x move speed (Colt is 5.5x)
     bulletKnockback: 1500, // full-power bullet knockback (quick shot = 0 push + slow)
     bombPower: 2000,       // base bomb launch — kept modest on purpose; a wall behind and/or STACKING bombs amplify it (see explode)
+    bombReloadSpeed: 1,    // training: how fast the BOMB cooldown recharges (higher = faster; sim divides the cd by it)
+    wallReloadSpeed: 1,    // training: how fast a WALL charge reloads (higher = faster; sim divides BUILD_RELOAD by it)
   };
 }
 
@@ -266,6 +269,10 @@ export const BUILT_WALL = {
   hp: 3,            // hits to destroy: full-charge shot = 1, mid = 2, tap = 3; a bomb = instant
   ttl: 0,           // 0 = permanent until destroyed
 };
+// How far past BUILT_WALL.offset a full drag can push the wall (Brawl-Stars distance control).
+// The client sends buildDist 0..1; the sim maps it to offset + buildDist*BUILD_DIST_MAX.
+// Default client wallMaxPx (=offset+32) reproduces the old offset+thick reach exactly.
+export const BUILD_DIST_MAX = 120; // max extra px at full push → wall reach ceiling = offset+120 = 180
 export const BUILD_MAG = 2;       // wall charges a player can hold
 export const BUILD_RELOAD = 15;   // seconds to regenerate ONE wall charge (trickle) — avg 1 per 15s, or 2 in 30s
 export const BUILD_COOLDOWN = 0.4;// min seconds between placements

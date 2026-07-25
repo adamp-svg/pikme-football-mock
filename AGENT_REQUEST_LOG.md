@@ -2,6 +2,10 @@
 
 > Handoff log so another agent can resume if this session fails.
 > Repo: football-mock | Branch: feat/build-bomb-cancel | Rule: work local, commit everything.
+>
+> 🔧 **GAME OPTIMIZATION / PERFORMANCE / NETCODE / LAG / "make it sharper·smoother·more reactive"
+> / fps / 120Hz / WebRTC work → see [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md)** (prioritized
+> pickup queue). Deep detail: `summery/REACTIVITY_ROADMAP.md` + `summery/WEBRTC_TRANSPORT_PLAN.md`.
 
 ## 2026-07-25
 
@@ -314,3 +318,18 @@
   - `shared/sim.js` damageWall: damage now shares across same-ZONE blocks of a wallId group. SOLID blocks share one hp3 pool; WEAK (bush/penalty) blocks share one hp1 pool. A hit on any solid block drains ALL solid blocks together (they hold, then fall, as one); a hit on the weak zone breaks it off independently without touching the solid health. Field dry walls (no wallId) still damage individually. (This also makes the existing bomb comment at ~L1350 true.)
   - New `test-wall-shared.mjs` (14 checks, end-to-end via REAL shots): tap on solid → all solid blocks -1 (weak untouched); solid zone falls together after hp taps (weak stays); tap on weak → weak zone breaks, solid stays at FULL health; full shot drops the whole solid zone in one hit; all-open wall is one solid unit. Full suite 25/27 (same 2 pre-existing fails).
   - LOCALHOST vs TESTFLIGHT: the reason localhost didn't show the 4-block wall was a STALE local `node server.js` (Node doesn't hot-reload) — restarted `PORT=3012 node server.js` (PID now fresh) so localhost serves the new sim. TestFlight was already correct because its WebView loads the game from Render (live).
+
+- **Controller UI: square buttons + bomb-cd lock + training reload sliders (agent `shoot-mechanics`)**
+  - #1 SQUARE buttons: .special-btn + .build-btn border-radius 50%→10% (match the aim/move sticks); the ::after cooldown ring is now a SQUARE frame (padding + mask-exclude "border" trick, border-radius 12%). style.css.
+  - #2 BOMB never-reloads bug: `flashSpecialCooldown()` restarted the client cd timer on EVERY press → ring never completed. Fixed: added `bombCooling()` (now < specialCdUntil); flashSpecialCooldown guards `if (bombCooling()) return`; ALL press paths (specialBtn pointerdown, 'e' key, right-click) early-return / gated on !bombCooling() → button LOCKED while reloading, no restart. Keyboard/right-click now also start the cd (were missing it). HUD ring + flash both use live bombCdMs().
+  - #3 TRAINING reload-speed: NEW settings bombReloadSpeed + wallReloadSpeed (defaultSettings=1). sim divides specialCd by bombReloadSpeed and BUILD_RELOAD by wallReloadSpeed. server applySettings clamps 0.25..5. client: SETTING_KEYS + SETTING_FMT (×) + reset defaults + two sliders (#s-bombReloadSpeed / #s-wallReloadSpeed, min .25 max 4 step .25) in the training GAME-MECHANICS panel (auto-wired by the generic slider loop). Bomb button ring reflects bombReloadSpeed live; wall ring already follows server buildFrac.
+  - Verified: bomb cd 2.4→1.2 @×2, wall reload 15s→5s @×3; test-mechanics 20/0, test-training 11/0, test-power 2 pre-existing meter fails only. node --check all OK; :3012 restarted clean; markers served.
+
+## Brawl-Stars drag-distance + cancel + sensitivity for WALL & BOMB (single writer)
+- **What**: unified drag-to-aim on both the 🧱 wall-build and 💣 bomb buttons — pull farther = build/throw farther (capped), drag back toward centre = CANCEL with haptic + red-✕ graphics, plus an adjustable sensitivity/reach setting. Researched via 5 subagents (incl. Brawl-Stars web research).
+- **Distance**: `aimFrac(len)` (shared) maps drag→0..1 past the deadzone, scaled by sensitivity `aimSensPx`. Bomb reach = `aimFrac*bombMaxPx` (server still hard-caps at BOMB_LOB_RANGE=250). Wall reach = `offset + aimFrac*(wallMaxPx-offset)`, enabled by new `BUILD_DIST_MAX=120` ceiling.
+- **Cancel**: shared `updateDragCancel(drag)` state machine w/ hysteresis (CANCEL_ARM_PX=34 out / CANCEL_IN_PX=18 back-in), edge-triggered `haptic('cancel')` (guarded by `wasCancel`), `haptic('rearm')` tick when pulled back out. Release keys off `cancelArmed`. Added VIBE `cancel:[15,40,15]`, `rearm:10`.
+- **Graphics**: wall ghost → red + ✕ when cancel-armed (charge ring reddens); bomb ghost → dashed amber trajectory + red landing circle normally, hollow red ring+✕ at feet when cancel-armed. HUD `.cancel-armed` red outline + ✕ on the button (both buttons, CSS).
+- **Sensitivity/reach UI**: 3 sliders in the controls-editor overlay (`s-aimSens` 40–160, `s-bombMax` 80–250, `s-wallMax` 60–180). Client-only, persisted to localStorage (`fbAimSens/fbBombMax/fbWallMax`) — NOT in SETTING_KEYS (server never reads them; they apply in real matches). `ce-reset` restores defaults.
+- **Defaults preserve today's feel exactly**: wallMax=92 (=offset+thick), bombMax=250. Smoke-verified: wall full-drag→92, raised→180 ceiling; bomb full-drag→250, reach-slider→120; sensitivity shortens finger travel. TDZ-safe (`let` + call-time refs only).
+- **Files**: shared/constants.js (+BUILD_DIST_MAX), shared/sim.js (thick→BUILD_DIST_MAX), public/client.js (helpers+handlers+ghosts+sliders), public/index.html (sliders), public/style.css (cancel-armed + ce-sliders). node --check clean; restarted :3012.

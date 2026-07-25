@@ -127,7 +127,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    corner (easiest reach), and it PULSES when off-cooldown so you feel it's ready. */
 .special-btn {
   position: fixed; right: 112px; bottom: 88px;
-  width: 82px; height: 82px; border-radius: 50%;
+  width: 82px; height: 82px; border-radius: 10%; /* SQUARE (rounded) — matches the aim/move sticks */
   background: #d69122; border: 3px solid #ffe49a; color: #1a1200;
   box-shadow: inset 0 -8px #8b5117, 0 8px 20px rgba(0,0,0,.45);
   font-size: 40px; line-height: 1; cursor: pointer;
@@ -147,7 +147,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    forming the up-left arc. Smaller = fewer accidental builds. Tap to build, drag to aim. */
 .build-btn {
   position: fixed; right: 124px; bottom: 182px;
-  width: 58px; height: 58px; border-radius: 50%;
+  width: 58px; height: 58px; border-radius: 10%; /* SQUARE (rounded) — matches the aim/move sticks */
   background: #b06a34; border: 3px solid #e6b483; color: #1a1200;
   box-shadow: inset 0 -6px #6e3d17, 0 8px 20px rgba(0,0,0,.45);
   font-size: 28px; line-height: 1; cursor: pointer;
@@ -162,13 +162,23 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .build-pips i.full { background: #ffd27a; border-color: #a86a1e; }
 /* Old linear reload bar retired in favour of the radial ring below (JS still sets it — harmless). */
 .build-cd { display: none; }
-/* Reload / cooldown RING around the wall (build) + bomb (special) buttons: a gold conic arc that
-   fills as the round reloads / the cooldown recharges. Driven by --cd (0 = empty … 1 = ready). */
+/* Reload / cooldown FRAME around the wall (build) + bomb (special) buttons: a gold conic arc that
+   fills as the reload/cooldown recharges. Driven by --cd (0 = empty … 1 = ready). SQUARE frame
+   (matches the square buttons) via the padding + mask-exclude "border" trick. */
 .build-btn::after, .special-btn::after {
-  content: ""; position: absolute; inset: -4px; border-radius: 50%; pointer-events: none; z-index: 6;
+  content: ""; position: absolute; inset: -4px; border-radius: 12%; pointer-events: none; z-index: 6;
   background: conic-gradient(from -90deg, #ffe49a calc(var(--cd, 0) * 1turn), rgba(8,6,0,.32) 0);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
-          mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  padding: 5px; /* ring thickness */
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+/* Drag-back-to-centre CANCEL cue (Brawl-Stars): red frame + ✕ on the button being aimed. */
+.special-btn.cancel-armed, .build-btn.cancel-armed { outline: 3px solid #ff4d4d; outline-offset: 2px; filter: saturate(1.25) brightness(1.06); }
+.special-btn.cancel-armed::before, .build-btn.cancel-armed::before {
+  content: "✕"; position: absolute; inset: 0; z-index: 7; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  color: #ff4d4d; font-size: 1.35em; font-weight: 900; text-shadow: 0 1px 4px rgba(0,0,0,.7);
 }
 
 /* ---- Control-layout editor (training only, Brawl-Stars style) ---- */
@@ -209,6 +219,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   border-radius: 50%; background: #d69122; border: 2px solid #fff6d1;
   box-shadow: 0 2px 6px rgba(0,0,0,.5); cursor: nwse-resize;
 }
+/* Aim-feel sliders (sensitivity + per-control reach) — sit just above the action bar. */
+.ce-sliders { position: absolute; bottom: 76px; left: 50%; transform: translateX(-50%); width: min(360px, 86vw); display: flex; flex-direction: column; gap: 8px; }
+.ce-slider { display: flex; flex-direction: column; gap: 3px; color: #f0e4b9; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.4); padding: 7px 12px; border-radius: 10px; }
+.ce-slider span { display: flex; justify-content: space-between; }
+.ce-slider b { color: #ffe49a; font-weight: 800; }
+.ce-slider input { width: 100%; }
 /* Bottom action bar */
 .ce-bar { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
 .ce-btn { padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 800; border: 2px solid; cursor: pointer; }

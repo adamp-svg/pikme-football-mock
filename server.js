@@ -15,7 +15,7 @@ import {
 } from './shared/sim.js';
 import {
   TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, GOAL, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD, INTRO_PROMO,
-  MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD,
+  MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD, GOALS_TO_WIN,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
 import { MAIN_FIELD } from './shared/main-field.js';
@@ -78,7 +78,8 @@ const onlineByUser = new Map(); // userId -> member (authenticated connections o
 const challenges = new Map(); // challengeId -> { fromUserId, toUserId }
 let challengeCounter = 0;
 const rooms = new Map();     // roomId -> room
-let publicRoom = null;       // the current forming quick-match room (in lobby/countdown)
+let publicRoom = null;       // the current forming quick-match room (first-to-3), in lobby/countdown
+let publicRoomBrawl = null;  // the current forming goal-brawl room (2-min timed, most goals)
 let memberCounter = 0, roomCounter = 0;
 // Module-level monotonic match counter — never resets, so matchId is globally unique even when a
 // private room CODE is reused by a later room instance (a per-room counter would collide and the
@@ -98,6 +99,7 @@ function makeRoom(id, isPrivate, mode = 'match') {
   return {
     id, isPrivate: !!isPrivate,
     mode,                    // 'match' | 'training' (solo practice vs a penned dummy)
+    goalsToWin: GOALS_TO_WIN, // normal 2v2 = first to 3 goals (2-min cap). goal-brawl overrides to 0 (timed).
     phase: 'lobby',          // lobby | countdown | match
     countdownT: 0, endHoldT: 0, introT: 0, statsSent: false,
     state: createState(),
@@ -316,6 +318,25 @@ function quickMatch(member, diffLevel) {
   broadcastLobby(room);
 }
 
+// קרב על השער — public matchmade 2v2 like quick match, but the classic TIMED format:
+// no first-to-3, just most goals when the 2-minute clock runs out. Its own pool so first-to-3
+// and timed players don't mix.
+function goalBrawl(member, diffLevel) {
+  leaveCurrentRoom(member);
+  if (!publicRoomBrawl || publicRoomBrawl.phase === 'match' || publicRoomBrawl.members.size >= MAX_PLAYERS) {
+    publicRoomBrawl = makeRoom(`brawl-${++roomCounter}`, false);
+    publicRoomBrawl.goalsToWin = 0; // timed only — the distinguishing rule vs quick match
+    rooms.set(publicRoomBrawl.id, publicRoomBrawl);
+  }
+  const room = publicRoomBrawl;
+  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
+  addToRoom(member, room);
+  send(member.ws, { type: 'roomJoined', mode: 'brawl', code: null });
+  if (room.members.size >= MAX_PLAYERS) { startMatch(room); return; }
+  if (room.phase === 'lobby') startCountdown(room);
+  broadcastLobby(room);
+}
+
 // Solo training ground: instant entry, no lobby/countdown, endless clock, and
 // two enemies — a penned roaming dummy by the far goal + a midfield sentry that
 // fires at you. Reuses the whole match render/snapshot pipeline.
@@ -503,6 +524,7 @@ function leaveCurrentRoom(member) {
 function destroyRoom(room) {
   rooms.delete(room.id);
   if (publicRoom === room) publicRoom = null;
+  if (publicRoomBrawl === room) publicRoomBrawl = null;
   // Any joiners still waiting on this (now gone) room's host must be returned to the lobby.
   if (room.pending) {
     for (const p of room.pending.values()) { p.pendingRoom = null; send(p.ws, { type: 'joinRejected', code: room.id, reason: 'closed' }); }
@@ -524,6 +546,7 @@ function startMatch(room) {
 
   room.lobbyBots = []; // reservation consumed — fillBots creates the real match bots
   room.state = createState();
+  room.state.goalsToWin = room.goalsToWin || 0; // first-to-N (normal 2v2 = 3; goal-brawl = 0 = timed)
   setField(room.state, MAIN_FIELD_CLEAN); // play on the main arena (custom field)
   room.botMem = createBotMemory();
   room.inputs.clear();
@@ -570,6 +593,7 @@ function startMatch(room) {
   room.phase = 'match';
   room.rosterVersion++; broadcastRoster(room); // slot->id map for binary snapshots — sent before any snapshot
   if (publicRoom === room) publicRoom = null; // next quick-matchers form a fresh room
+  if (publicRoomBrawl === room) publicRoomBrawl = null; // ditto for goal-brawl matchmakers
   broadcastLobby(room);
 }
 
@@ -1059,6 +1083,7 @@ wss.on('connection', (ws, req) => {
       // loadout validation + bot buff-matching use the CURRENT album (was frozen at join until reconnect).
       if (msg.type === 'setCards') { member.cards = sanitizeCards(msg.cards); member.loadout = sanitizeLoadout(member.loadout, member.cards); return; }
       if (msg.type === 'quickMatch') { quickMatch(member, msg.diffLevel); return; }
+      if (msg.type === 'goalBrawl') { goalBrawl(member, msg.diffLevel); return; }
       if (msg.type === 'training') { startTraining(member); return; }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
