@@ -22,6 +22,7 @@ import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
 import { QUICK_GROUPS, phraseById, REACTION_EMOJI } from '/shared/quick-messages.js';
+import { rosterCounts } from '/shared/roster.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import { mountHeroFx } from '/hero-fx.js';
 import {
@@ -554,18 +555,22 @@ function haptic(kind) {
 function postMatchResult(myT, opT, myScore, opScore) {
   try {
     const result = myScore > opScore ? 'win' : (myScore < opScore ? 'loss' : 'draw');
-    const rosterIds = new Set(matchRoster.map((p) => p.id));
-    const players = (latest && latest.players) || [];
-    const humanOpponents = players.filter((p) => p.team === opT && rosterIds.has(p.id)).length;
-    // XP SCALING by how HUMAN the match is. Humans = snapshot players whose id is in matchRoster.
-    // Factor ramps from 0.2 (I'm the only human — a full lobby of bots) to 1.0 (every other slot
-    // is a human): xpFactor = 0.2 + 0.8 * (otherHumans / otherSlots). The backend multiplies its
-    // base match XP by this, so an all-human match earns XP ~5x faster than a bot-filled one.
-    const totalPlayers = players.length || 4;
-    const humanCount = players.filter((p) => rosterIds.has(p.id)).length; // includes me
-    const otherSlots = Math.max(1, totalPlayers - 1);
-    const humanFrac = Math.max(0, Math.min(1, (humanCount - 1) / otherSlots));
-    const xpFactor = Math.round((0.2 + 0.8 * humanFrac) * 100) / 100; // 0.20 .. 1.00
+    // HOW HUMAN WAS THIS MATCH — one rule, in shared/roster.js, unit-tested by test-roster-humans.mjs.
+    //
+    // ⚠️ FIXED 2026-07-26. This used to build its id set from ALL of `matchRoster`, and `fillBots`
+    // appends bot entries into that same array, so BOTS COUNTED AS HUMANS: a solo-vs-3-bots match
+    // reported { humanOpponents: 2, vsHuman: true, humanCount: 4, xpFactor: 1.00 }. Every bot-economy
+    // control on the server — the roster grade, TROPHY_BOT_FLOOR, botTaper, BOT_RATE, botCeiling,
+    // BOT_DAILY_CAP, the winsVsBot gate — was therefore dead code in production. It now reports
+    // { 0, false, 1, 0.20 } for that match.
+    //
+    // xpFactor stays the wire format (0.2 + 0.8 × humanFrac, 2dp) because pikme-server inverts it back
+    // into the stepped 0.50 / 0.65 / 0.80 / 1.00 grade — do not change the encoding on one side only.
+    const { humanOpponents, vsHuman, humanCount, totalPlayers, xpFactor } = rosterCounts({
+      roster: matchRoster,
+      players: (latest && latest.players) || [],
+      opponentTeam: opT,
+    });
     // TROPHY inputs (the game reports, the SERVER decides — see pikme-server data/football-trophies.js).
     // opponentKey comes from matchStart, computed server-side: it must be stable ACROSS matches for the
     // win-trading cap to work, and member ids are per-connection (`m-<counter>`), so the client cannot
@@ -579,7 +584,7 @@ function postMatchResult(myT, opT, myScore, opScore) {
       opScore,
       durationSec: MATCH_DURATION,
       humanOpponents,               // opponents whose snapshot id is in matchRoster
-      vsHuman: humanOpponents > 0,
+      vsHuman,                      // true iff a real human was on the opposing team
       humanCount,                   // total humans in the match (incl. me)
       totalPlayers,                 // filled slots (humans + bots)
       xpFactor,                     // XP multiplier: 0.2 (all bots) .. 1.0 (all humans)
