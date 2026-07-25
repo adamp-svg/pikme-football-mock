@@ -1006,10 +1006,17 @@ function buildWall(state, p) {
   p.firing = true;
 }
 
-// Chip a built wall's HP. A wall is ONE piece (one capsule, one shared HP), so any hit on it
-// drains the whole wall's HP and it falls as a unit. Caller filters out hp<=0 walls afterwards.
+// Chip a built wall's HP; the caller filters out hp<=0 walls afterwards. A player wall is built
+// as blocks sharing a wallId, split into two ZONES: the SOLID part (open ground, hp3) and the
+// weak part (in a bush/penalty, hp1). Each ZONE acts as ONE unit with a SHARED health pool —
+// damage to any block drains every same-zone block of that group together, so the zone holds
+// and then falls as one. This makes the wall a single unit whose restricted part is a separate
+// weak spot: half in a penalty keeps the SOLID half at full health while the penalty half breaks
+// off first. Field dry walls (no wallId) are single pieces, damaged individually.
 function damageWall(state, w, dmg) {
-  w.hp -= dmg;
+  if (w.wallId == null) { w.hp -= dmg; return; }
+  const zone = !!w.fragile; // share within the same zone (solid<->solid, weak<->weak)
+  for (const q of state.builtWalls) if (q.wallId === w.wallId && !!q.fragile === zone) q.hp -= dmg;
 }
 
 // Chip a built wall's HP; drop it if destroyed. Returns true if a wall absorbed the hit.
