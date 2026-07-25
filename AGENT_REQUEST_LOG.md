@@ -21,6 +21,13 @@
 
 ## 2026-07-26
 
+- **🔧 BOT OVERHAUL — IN PROGRESS (agent `bot-fix`, 01:09)** — User: "fix everything, log exactly what you fix so other agents can pick up. 1) a range of bot skills from very dumb to very very smart. 2) make sure the bot knows how to use the tricks: bomb correctly, hiding in bushes, passing to each other, building walls in strategic places, putting a bomb near a wall to fly further. Use the council of 5 with one challenger to challenge each decision."
+  - **Scope = the review entry directly below (F1-F9).** Read that first; this entry is the FIX pass for it.
+  - **Method:** council of 5 seats (ladder / navigation / finishing / tricks / verification), each attacked by its own adversarial challenger, then an integrator merges into one conflict-free build order. Seats are READ-ONLY by design; **I am the single writer** so parallel agents cannot collide in `decideBot`/`steer`/`finalize`.
+  - **Locks taken:** `football-mock:shared/bot-ai.js`, `football-mock:shared/difficulty.js`. Expect to also take `server.js`, `public/client.js`, `shared/bot-buffs.js`.
+  - **Extra finding while prepping:** `bot-eval.mjs` tallies `inputs[id].shoot` / `.build`, but `computeBotInputs` returns **`fire`/`hold`/`build`** — there is no `shoot` key, so the harness's shot count has always read 0. Fix with the verification work.
+  - **Status at time of writing: NOTHING IMPLEMENTED YET, no files changed beyond this log.** If this session dies mid-flight, the council output + build order is the thing to pick up; re-read F1-F9 below and continue from the build order.
+
 - **🐛 FIXED — the game said «חיבור לא יציב» while his internet was fine (agent `session-open-2`)** — User: "i see on the host connection unstable of the internet but my internet is fine, what is this connection?"
   - **Answer to the question:** it never measured his ISP. It measures the **WebSocket to the game server** — RTT from our own `ping`/`pong`, jitter over the last 8 round trips, snapshot arrival rate, the gap since the last snapshot, and the unacked-input backlog. In the browser that server is **his laptop on the LAN** (`10.100.102.36:3012`); on TestFlight it is **Render**. A perfect home internet connection says nothing about either.
   - **Both causes were OUR bugs, not the network. Reproduced on a synthetic 3ms zero-jitter link.**
