@@ -23,6 +23,7 @@ import { MAIN_FIELD } from './shared/main-field.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
+import { opponentKeyFor } from './shared/opponent-key.js';
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
@@ -453,7 +454,7 @@ function startBotGame(member, diffLevel) {
   attachBall(room.state, 'A');
   room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'botgame', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0 });
+  send(member.ws, { type: 'matchStart', mode: 'botgame', diffLevel: room.diffLevel, matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0 });
   room.rosterVersion++; broadcastRoster(room);
 }
 
@@ -589,7 +590,9 @@ function startMatch(room) {
   for (const [m, team] of assigned) {
     // goalsToWin tells the client the match FORMAT (first-to-N, or 0 = timed/most-goals).
     // Without it the HUD renders bare digits with no target and no match-point cue.
-    send(m.ws, { type: 'matchStart', matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0 });
+    // opponentKey is computed PER RECIPIENT (see opponentKeyFor) so no player ever learns another
+    // player's identity — each client only gets an opaque hash describing who it just played.
+    send(m.ws, { type: 'matchStart', diffLevel: room.diffLevel, matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0, opponentKey: opponentKeyFor(assigned, m, team) });
   }
   attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
   room.endHoldT = 0; room.statsSent = false;
