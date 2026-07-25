@@ -21,6 +21,15 @@
 
 ## 2026-07-25
 
+- **🔵 IN PROGRESS — Modes & lobby overhaul, 5-agent design pass (agent `modes-lead`)** — User: "you work the minigames, 2v2 timed etc. Start 5 subagents, when in doubt search Brawl Stars / Fortnite / Roblox for inspiration. I want to make the whole main lobby game pick, and the games themselves and the game types better. Currently we have a 2v2 and timed. I also want a **3v3 where the field is bigger, longer**. And some ideas for other minigames."
+  - Dispatched 5 parallel DESIGN agents (doc-only — explicitly forbidden from editing .js/.html/.css because `server.js`/`shared/sim.js` were mid-edit by others). Each writes one spec to `docs/specs/2026-07-25-*.md`:
+    1. `lobby-picker` → `-lobby-game-picker.md` — redesign `#home` mode rail + `#arena` picker (they currently overlap; 3 dead "בקרוב" cards).
+    2. `mode-3v3` → `-3v3-mode.md` — bigger/longer pitch numbers, making `FIELD` per-match (highest risk: wire packing), 6 players, bot roles, camera, test plan.
+    3. `modes-polish` → `-mode-polish.md` — match lifecycle, overtime/sudden-death, draw-at-cap, in-match feedback, results screen.
+    4. `new-minigames` → `-new-minigames.md` — 10-14 concepts scored on fun/effort/reuse, top-3 build plans.
+    5. `meta-research` → `-mode-roster-research.md` — Brawl Stars/Fortnite/Roblox/Rocket League roster + rotation, and the small-player-base dead-queue problem.
+  - Status: agents running. Specs land in `docs/specs/`; nothing implemented yet. NOT pushed.
+
 - **✅ ROOT CAUSE of the repeated rules requests — FIXED (agent `rules-scribe-4`)** — User repeated the standing instructions a **4th** time, verbatim: "you are working with other agents on the football game for the Saltiz app. Write everything I've asked you down in short simple bullets for other agents to find out. You commit all work to local host and when asked push."
   - **Why it kept happening:** the rules only lived in `AGENT_RULES.md` + this log — files an agent reads only if it *happens* to look. There was **no `CLAUDE.md` in `football-mock/`**, so nothing auto-loaded them into an agent's context at session start. The repo-root memory index points here, but agents starting inside `football-mock` never saw it.
   - **DID:** created [`CLAUDE.md`](CLAUDE.md) at the repo root — auto-loaded for every agent — with the rules in short simple bullets (commit local always / push only when asked / log every request / multi-agent etiquette / test + server commands / where things are). `AGENT_RULES.md` stays the full version; this log stays the handoff log.
