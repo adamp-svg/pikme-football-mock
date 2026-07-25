@@ -9,8 +9,10 @@
 - **You are not alone.** Several agents work this repo at the same time. Assume any file may be mid-edit by someone else.
 - **Commit everything locally.** Every finished piece of work gets a local commit. Never leave work dangling uncommitted.
 - **Never push unless the user asks.** No `git push`, no Render deploy, no cloud trigger — only on an explicit "push" / "deploy" in that message.
+- **Render does NOT autodeploy — you deploy with the Render CLI.** A `git push` ships nothing (the game's GitHub webhook is dead). After an approved push: `render deploys create srv-d9ebcvtaeets73ar91sg --confirm` (game) / `srv-chgb1k67avjbbju8aoig` (api). Older docs claiming `autoDeploy=yes` / "push IS the deploy" are **wrong**.
 - **Write down every user request.** Short simple bullets in [`AGENT_REQUEST_LOG.md`](AGENT_REQUEST_LOG.md), newest date on top, so another agent can pick up if your session dies. Log it even if you didn't finish.
 - **Test on localhost first**, then push to the app / TestFlight only when the user asks.
+- **The user's two test surfaces:** browser at **http://10.100.102.36:3012/** (LAN IP — his phone browser hits it too) and a **TestFlight build on the phone**. Bind the dev server so the LAN IP works, and give him that URL, not `localhost`.
 - **Open design question → research the big games.** Check what **Brawl Stars, Roblox and Fortnite** do (controls, feel, progression, UI, netcode) and cite that as the reference instead of guessing.
 
 ## Working alongside the other agents
@@ -19,7 +21,7 @@
 - `git status` / `git diff` BEFORE you commit. If a file has changes that aren't yours, leave them alone — commit only your own files. Never revert or stomp work you didn't write.
 - Say which files you're taking in your log entry.
 - Keep the suite green: `for f in test*.mjs; do node $f; done`. Report real output; list pre-existing fails separately.
-- Local test server: `PORT=3012 node server.js` (`:3010` is the main dev server, `:3011` may be another agent). Node does NOT hot-reload — **restart** after `server.js` / `shared/` changes.
+- Local test server: `PORT=3012 node server.js`, reached at **http://10.100.102.36:3012/** (`:3010` is the main dev server, `:3011` may be another agent). Node does NOT hot-reload — **restart** after `server.js` / `shared/` changes.
 
 ## Where things are
 

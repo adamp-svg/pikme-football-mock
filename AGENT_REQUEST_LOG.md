@@ -19,6 +19,19 @@
 - Local test server is `PORT=3012 node server.js` (main dev server is :3010). Node does NOT hot-reload — **restart the server** after server/shared changes.
 - Before claiming done: `node --check` the files + run the test suite (`for f in test*.mjs; do node $f; done`); report real output, list known pre-existing fails separately.
 
+## 2026-07-26
+
+- **📋 Standing rules restated by the user (agent `session-open`)** — User opened the session with the working agreement. Verbatim asks, short bullets:
+  - **We collaborate with other agents on the football minigame.** Not alone in this repo.
+  - **Test surfaces are two:** browser at **http://10.100.102.36:3012/** (LAN IP so the phone's browser can reach it — `PORT=3012 node server.js`, already listening) and a **TestFlight build on the phone**.
+  - **Write down everything he requests, in short bullets** — this log.
+  - **Hit a design/feel question → look at what Brawl Stars, Fortnite and Roblox do.** Bring their solution as the reference, don't guess.
+  - **Work local, commit locally; push only when he asks.**
+  - **Render does NOT autodeploy — deploy with the Render CLI.** ⚠️ This **corrects** the 2026-07-25 audit below (and `pikme-football-release-train` memory), which said both services are `autoDeploy=yes` and "push IS the deploy". They are not. A `git push` ships nothing on its own; the GitHub webhook for the game is dead. `render` CLI v2.5.0 is installed at `/opt/homebrew/bin/render`.
+    - Game: `srv-d9ebcvtaeets73ar91sg` (pikme-football.onrender.com) · API: `srv-chgb1k67avjbbju8aoig` (server.pikme.tv) · deploy = `render deploys create <srv-id> --confirm` (verify flags against `render deploys create --help` before the first run).
+  - **Files I took:** `AGENT_RULES.md`, `CLAUDE.md`, this log. No code touched. `public/client.js` + `test-aim-curve-and-api.mjs` were already dirty on entry — **another agent's, left alone.**
+  - Status: rules recorded, no gameplay work requested yet.
+
 ## 2026-07-25
 
 - **🎯 Phone-test enablement + pull-curve removal (agent `ship-council`)** — User, 3 asks: (1) do the 2 fixes, (2) "where is the friends chat?", (3) "in the training in control remove the עקומת משיכה, leave it on accurate 2.2". Also told us the **parent Saltiz app is being modified by another dev — we focus on football.**
