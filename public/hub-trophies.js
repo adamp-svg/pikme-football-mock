@@ -7,7 +7,9 @@
 // tier badge never regresses.
 //
 // ⚠️ The SERVER owns every number. This module reads what the app injects and never computes a delta:
-//     window.SALTIZ_TROPHIES = { trophies, trophyTier, delta, botCeiling, botLevel }
+//     window.SALTIZ_TROPHIES = { trophies, trophyTier, delta, botLevel }
+//   (the CEILING is derived here from botLevel via shared/trophies.js — the app sends the level, not
+//   the ceiling, so the two ends can't disagree about the formula.)
 //   `delta` is what the last match awarded (may be negative, may be 0), echoed by
 //   /football/record-match. Absent on old app builds → the layer stays hidden and the hub looks
 //   exactly as it does today. That graceful degradation is deliberate: the app half only ships in a
