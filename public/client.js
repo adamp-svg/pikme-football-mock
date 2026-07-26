@@ -7576,16 +7576,18 @@ const FB_MATCH_TEAM = 2;
 function fbUpdateCap() {
   const el = document.getElementById('b-cap'); if (!el) return;
   const c = spawnCounts(fbField.spawns), cap = spawnCapacity(fbField.spawns);
-  const ballTx = fbField.ball ? ' ⚽' : '';
+  // No ⚽ chip any more: the ball's kickoff spot is not field data, so there is nothing per-field to
+  // advertise. The rule is stated UNCONDITIONALLY in the tooltip instead of only on fields that happen
+  // to carry a legacy ball point — it applies to every field, so every field should say so.
   const rule = '\nיותר נקודות משחקנים = בכל משחק נבחרות נקודות אחרות (רנדומלי). פחות = השאר מתחילים במערך הקבוע.'
-    + (fbField.ball ? '\n⚽ הכדור תמיד מתחיל במרכז המגרש. אחרי ספיגה — אצל שחקן של הקבוצה שספגה.' : '');
+    + '\n⚽ הכדור תמיד מתחיל במרכז המגרש. אחרי ספיגה — אצל שחקן של הקבוצה שספגה.';
   if (!c.A && !c.B) {
-    el.textContent = '👥 מערך ברירת מחדל' + ballTx;
+    el.textContent = '👥 מערך ברירת מחדל';
     el.title = 'לא הוצבו נקודות פתיחה — השחקנים מסתדרים לפי המערך הקבוע של המשחק' + rule;
     el.classList.remove('cap-warn'); return;
   }
   const short = cap < FB_MATCH_TEAM;
-  el.textContent = `👥 ${cap} נגד ${cap}${ballTx}` + (short ? ` · משחק ${FB_MATCH_TEAM}נגד${FB_MATCH_TEAM}` : (cap > FB_MATCH_TEAM ? ' · רנדומלי' : ''));
+  el.textContent = `👥 ${cap} נגד ${cap}` + (short ? ` · משחק ${FB_MATCH_TEAM} נגד ${FB_MATCH_TEAM}` : (cap > FB_MATCH_TEAM ? ' · רנדומלי' : ''));
   el.classList.toggle('cap-warn', short || c.A !== c.B);
   el.title = `נקודות פתיחה: קבוצה A ${c.A} · קבוצה B ${c.B}`
     + (c.A !== c.B ? ' — לא מאוזן: הקיבולת נקבעת לפי הצד הקטן' : '')

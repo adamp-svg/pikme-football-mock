@@ -1,12 +1,14 @@
-// Authored START POSITIONS + BALL SPOT for a builder field.
+// Authored START POSITIONS for a builder field, and THE formation formula both the match and the
+// builder read.
 //
 // WHY THIS FILE EXISTS
-// Until now every kickoff position came from one formula (`spawnPos` in sim.js): a fixed fy band
-// per slot, mirrored per team. A field author could sculpt the whole pitch but not say WHERE the
-// players stand when the whistle blows, and the ball always started glued to one team in the
-// middle. Both are layout decisions, so they belong in the layout — which means they travel inside
-// the saved field, get sanitized on the server like every other authored coordinate, and fall back
-// to the formula when a field doesn't declare them (every pre-existing field, forever).
+// Until now every kickoff position came from one formula living privately in sim.js. A field author
+// could sculpt the whole pitch but not say WHERE the players stand when the whistle blows — and,
+// worse, the builder had no way to DRAW the formula, so a field with no authored slots showed an
+// empty pitch while the match quietly used invisible positions. So the formula moved here
+// (`formationSlot`): the match and the builder now compute start spots from the same code, and
+// authored slots are an override that travels inside the saved field and is sanitized on the server
+// like every other authored coordinate.
 //
 // THE MODEL
 //   field.spawns = [{ x, y, team: 'A'|'B' }]   — start slots. Team is STORED, not derived from the
@@ -14,10 +16,11 @@
 //                                                left), but an author may drag a slot across the
 //                                                halfway line on purpose (a high press) and that
 //                                                choice must survive a save.
-//   field.ball   = { x, y } | null              — where the ball starts each kickoff. Authored =>
-//                                                the ball sits there LOOSE (Brawl-Stars Brawl Ball:
-//                                                both teams race for it) instead of being handed to
-//                                                one team. Absent => today's behaviour, untouched.
+//
+// THE BALL IS NOT IN THE MODEL. Per the user's rule (2026-07-26) it always starts at the CENTRE
+// spot, and after a goal it starts attached to a player of the team that CONCEDED — one rule for
+// every field and format, decided by attachBall() in sim.js. `normBall` below is kept only to
+// sanitize a `field.ball` point from a pre-rule save; nothing in the sim consults its result.
 //
 // CAPACITY — "how many players does this map hold?" — is min(#A, #B): a map with 3 A-slots and 1
 // B-slot can only seat 1v1 fairly, and claiming 3 would spawn two B players on one spot.
@@ -64,6 +67,42 @@ export function normBall(ball, size) {
   const S = sizeOf(size && size.id ? size.id : size);
   if (!ball || typeof ball !== 'object' || !finite(ball.x) || !finite(ball.y)) return null;
   return { x: clamp(ball.x, S.W), y: clamp(ball.y, S.H) };
+}
+
+// THE DEFAULT FORMATION — the single source of truth for "where does a player start?".
+//
+// This used to live as a private `spawnPos` inside sim.js, which meant the arena builder could not
+// show it: a field with no authored slots displayed an EMPTY pitch while the match quietly used the
+// hidden formula. An author could not see, let alone adjust, where players actually stand (user,
+// 2026-07-26: "put the players position, like the one in the arena builder, in the correct place").
+// It lives here now so the builder seeds real, draggable markers from the same maths the sim uses —
+// what you see is what you get — and so the two can never drift apart.
+//
+// Size-aware: the fractions are relative, so a bigger stadium spreads the same shape.
+//   fy  1 player  -> centre lane. 2 -> .36/.64 (the long-standing 2v2 kickoff, unchanged).
+//       3+        -> evenly across .18….82
+//   fx  0.15 of the pitch from your OWN goal, and the CENTRE lane starts 0.05 further upfield
+//       because it contests the kickoff. Flat for 1v1 and 2v2, so neither changes.
+export function formationSlot(team, slot, n, size) {
+  const S = sizeOf(size && size.id ? size.id : size);
+  const k = Math.max(1, n | 0);
+  const i = Math.min(Math.max(slot | 0, 0), k - 1);
+  let fy;
+  if (k === 1) fy = 0.5;
+  else if (k === 2) fy = i === 0 ? 0.36 : 0.64;
+  else fy = 0.18 + (0.64 * i) / (k - 1);
+  const centred = k > 2 ? 1 - Math.abs((2 * i) / (k - 1) - 1) : 0;
+  const fx = 0.15 + 0.05 * centred;
+  const x = team === 'A' ? S.W * fx : S.W * (1 - fx);
+  return { x, y: S.H * fy };
+}
+
+/** The whole default formation for a team size, as authorable {x,y,team} slots. */
+export function defaultSpawns(n, size) {
+  const k = Math.max(1, n | 0);
+  const out = [];
+  for (const team of TEAMS) for (let i = 0; i < k; i++) out.push({ ...formationSlot(team, i, k, size), team });
+  return out;
 }
 
 export function spawnCounts(spawns) {

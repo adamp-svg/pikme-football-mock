@@ -1,4 +1,4 @@
-// Authored START SLOTS + BALL SPOT (shared/field-spawns.js + the sim/server paths that consume them).
+// Authored START SLOTS (shared/field-spawns.js + the sim/server paths that consume them).
 //
 // What this pins down:
 //   1. A field that declares NOTHING must produce byte-identical spawns/ball to before the feature.
@@ -8,7 +8,9 @@
 //   3. MORE slots than players => a RANDOM subset, never the same two every match, never one marker
 //      handed to two slots (the bug a per-slot `pool[rnd*len]` would ship).
 //   4. FEWER slots than players => authored spots used, remaining slots fall back to the formula.
-//   5. The ball starts on its authored spot, LOOSE (owner null) — including after a goal.
+//   5. An authored BALL spot is ignored: since 2026-07-26 the kickoff is centre, and post-goal it
+//      goes to the conceding team. test-kickoff-rule.mjs owns that rule; §5 here guards the old
+//      per-field override staying dead.
 //   6. Both normalizers clamp to the field's own size and cap the per-team count.
 import { createState, addPlayer, setField, attachBall, step } from './shared/sim.js';
 import { normSpawns, normBall, spawnCapacity, spawnCounts, planSpawns, teamForX, MAX_SPAWNS_PER_TEAM } from './shared/field-spawns.js';
@@ -105,15 +107,22 @@ console.log('\n== 4. fewer slots than players => formula fills the rest ==');
   ok(new Set(pts).size === 3, '3v3 on a 1-slot map: three distinct start spots');
 }
 
-console.log('\n== 5. authored ball spot ==');
+console.log('\n== 5. an authored ball spot is IGNORED (superseded 2026-07-26) ==');
+// This section used to assert the opposite: a field could name the kickoff spot and the ball started
+// there, loose. The user replaced that with one rule for every field and format — centre at kickoff,
+// conceding team after a goal (see test-kickoff-rule.mjs, which owns the rule). These three cases are
+// kept, inverted, so a future re-introduction of the per-field override fails loudly here too.
 {
   const spawns = [{ x: 250, y: 550, team: 'A' }, { x: 1750, y: 550, team: 'B' }];
   const { st } = mkMatch(withSpawns(spawns, { x: 700, y: 250 }), { seed: 2 });
-  attachBall(st, 'A');
-  ok(near(st.ball.x, 700) && near(st.ball.y, 250), 'ball starts on the authored spot, not the centre');
-  ok(st.ball.owner === null, 'ball starts LOOSE — both teams race for it (Brawl-Ball kickoff)');
+  attachBall(st);
+  ok(near(st.ball.x, FIELD.W / 2) && near(st.ball.y, FIELD.H / 2), 'match start centres the ball, ignoring the authored spot');
+  ok(st.ball.owner === null, 'and it starts loose — both teams race for it');
   ok(st.ball.vx === 0 && st.ball.vy === 0, 'ball starts still');
-  // Post-goal kickoff must return it there too (the reset path, not just match start).
+  attachBall(st, 'A');
+  const holder = st.players[st.ball.owner];
+  ok(!!holder && holder.team === 'A', 'a concede hands it to the conceding team, not to the authored spot');
+  // Post-goal kickoff must follow the same rule through the real reset path, not just at match start.
   st.resetTimer = 0;
   // Park the bodies away from the goal mouth so nobody intercepts the shot on the way in.
   for (const id in st.players) { st.players[id].x = FIELD.W / 2; st.players[id].y = 60; }
@@ -122,7 +131,8 @@ console.log('\n== 5. authored ball spot ==');
   for (let i = 0; i < 600 && st.score.A === 0; i++) step(st, {}, 1 / 60);
   ok(st.score.A === 1, 'scored (setup for the reset check)');
   for (let i = 0; i < 600; i++) step(st, {}, 1 / 60);
-  ok(near(st.ball.x, 700, 40) && near(st.ball.y, 250, 40), 'post-goal kickoff puts the ball back on the authored spot');
+  const kicker = st.players[st.ball.owner];
+  ok(!!kicker && kicker.team === 'B', 'post-goal kickoff gives it to B (who conceded), not the authored spot');
 }
 
 console.log('\n== 6. normalizers ==');

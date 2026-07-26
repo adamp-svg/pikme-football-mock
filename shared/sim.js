@@ -22,7 +22,7 @@ import {
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds, capsuleAABB, wallPlacement } from './arena.js';
-import { normSpawns, normBall, planSpawns } from './field-spawns.js';
+import { normSpawns, planSpawns, formationSlot } from './field-spawns.js';
 
 // Built walls can be built at an ANGLE, quantized over a half-turn (a wall is 180°-symmetric)
 // so it round-trips the wire exactly. The steps live with the placement formula in arena.js
@@ -163,25 +163,15 @@ function earnPower(p, amt) {
   if (p.powerMeter >= 1) { p.power = true; p.powerT = OVERCHARGE_TTL; p.powerMeter = 0; p.powerUses = SUPER_USES; }
 }
 
-// Spawn spots — each team near its OWN goal (A defends left, B defends right).
+// Spawn spots — each team near its OWN goal (A defends left, B defends right). `n` = players per team.
 //
-// `n` = players per team. 2v2 is special-cased to the exact original 0.36/0.64 pair so the format
-// everyone plays today is untouched; 3+ spreads evenly across a 0.18..0.82 band. Without this,
-// `slot === 0 ? .36 : .64` put EVERY slot past the first on the same spot — 3v3 spawned two
-// players inside each other.
+// The maths lives in shared/field-spawns.js (`formationSlot`), NOT here, so the ARENA BUILDER can
+// render the very same slots as draggable markers. It used to be duplicated in this file, which is
+// why a field with no authored spawns showed an EMPTY pitch in the builder while the match used an
+// invisible formula. Keep it delegated: two copies drift, and the drift is silent.
 function spawnPos(team, slot, n = 2) {
-  const k = Math.max(1, n | 0);
-  const i = Math.min(Math.max(slot | 0, 0), k - 1);
-  let fy;
-  if (k === 1) fy = 0.5;
-  else if (k === 2) fy = i === 0 ? 0.36 : 0.64; // unchanged 2v2 kickoff
-  else fy = 0.18 + (0.64 * i) / (k - 1);        // 3 -> .18/.50/.82 ; 5 -> .18/.34/.50/.66/.82
-  // Depth stagger: the CENTRE lane starts a touch further upfield (it contests the kickoff), the
-  // wings sit deeper. Flat for 2v2, so again nothing changes there.
-  const centred = k > 2 ? 1 - Math.abs((2 * i) / (k - 1) - 1) : 0; // 1 at the middle lane, 0 at the wings
-  const fx = 0.15 + 0.05 * centred;
-  const x = team === 'A' ? FIELD.W * fx : FIELD.W * (1 - fx);
-  return { x, y: FIELD.H * fy };
+  // FIELD is already the active size, so pass it as the size.
+  return formationSlot(team, slot, n, { W: FIELD.W, H: FIELD.H });
 }
 
 // (Re)draw which AUTHORED start slots this match uses (shared/field-spawns.js). Called by setField,
@@ -195,7 +185,7 @@ export function planFieldSpawns(state) {
     : null;
 }
 
-// Where this player STARTS: the authored slot this match drew for them, else the formula above.
+// Where this player STARTS: the authored slot this match drew for them, else the formation above.
 // One place, so addPlayer and every kickoff can never disagree about a spawn spot.
 function startPos(state, team, slot) {
   if (state.fieldSpawns && state.fieldSpawns.length && !state.spawnPlan) planFieldSpawns(state); // lazy: setField may have run before teamSize
@@ -204,10 +194,8 @@ function startPos(state, team, slot) {
   return s ? { x: s.x, y: s.y } : spawnPos(team, slot, state.teamSize);
 }
 
-// The ball's kickoff spot: the authored one, else the centre spot.
-function ballStart(state) {
-  return state.ballSpawn ? { x: state.ballSpawn.x, y: state.ballSpawn.y } : { x: FIELD.W / 2, y: FIELD.H / 2 };
-}
+// There is no ballStart(): the kickoff spot is not authorable. attachBall() below owns it —
+// centre when nobody has conceded, otherwise a player of the conceding team.
 
 // --- Optional DETERMINISTIC randomness -------------------------------------------------
 // The sim has three genuinely random moments (a strip's left/right detach side, and a
@@ -248,10 +236,10 @@ export function createState() {
     bombs: [], // planted bombs (fusing)
     builtWalls: [], // player-built destructible walls { id, x, y, w, h, hp, maxHp, team, ttl }
     fieldDryWalls: [], // field-builder DRY-WALL templates (dryWallSeeds); reseeded into builtWalls each kickoff
-    // Authored kickoff data from the field builder (shared/field-spawns.js). Empty/null => the
-    // formation formula + centre ball, i.e. every field that doesn't declare them behaves as before.
+    // Authored PLAYER start slots from the field builder (shared/field-spawns.js). Empty => the
+    // formation formula, i.e. a field that doesn't declare them behaves as before.
+    // There is deliberately no ballSpawn: the kickoff spot is a fixed rule, not field data.
     fieldSpawns: [],   // [{x,y,team}] start slots the layout offers
-    ballSpawn: null,   // {x,y} the ball starts on (loose), or null for the centre spot
     spawnPlan: null,   // { A:[pt|null × teamSize], B:[...] } — this match's draw from fieldSpawns
     blasts: [], // short-lived explosion visuals
     impacts: [], // short-lived bullet collision events for synchronized VFX
@@ -272,23 +260,40 @@ function ballRadius(state) {
 
 // Attach the ball to a player of `team` (kickoff possession). Positions it in
 // front of that player.
+// KICKOFF BALL. The rule, set by the user on 2026-07-26:
+//   • no `team`  -> the ball sits LOOSE in the MIDDLE of the pitch. Every match now starts this way,
+//                   on every field, so both sides race for the first touch.
+//   • a `team`   -> the ball is handed to that team. Used for the restart after they CONCEDE.
+//
+// Two deliberate changes from the previous behaviour:
+//   1. An AUTHORED ball spot no longer overrides this. It used to win on every path, which meant a
+//      built field could not honour "the conceding team restarts with it". The user chose one
+//      consistent rule over the per-field override, so state.ballSpawn is no longer consulted here.
+//   2. The holder is the team's CENTRE-MOST player, not `players.find(...)` — that returned whoever
+//      JOINED first, so a kickoff could be handed to a defender parked on the wing while the striker
+//      stood on the centre spot. Picking by distance to the centre lane makes the restart look like a
+//      kickoff instead of a random pass-back.
 export function attachBall(state, team) {
-  // AUTHORED ball spot wins: the layout said where the ball starts, so it starts THERE and LOOSE —
-  // both teams race for it (Brawl Stars' Brawl Ball kickoff) instead of one side kicking off with it.
-  // Every caller (match start, post-goal kickoff, training's reset-ball) goes through here, so the
-  // author's spot can't be honoured on one path and ignored on another.
-  if (state.ballSpawn) {
-    const b = ballStart(state);
-    state.ball.owner = null; state.ball.pickupCd = 0; state.ball.lastTouch = null;
-    state.ball.prevPlayer = null; state.ball.lastPlayer = null;
-    state.ball.x = b.x; state.ball.y = b.y; state.ball.vx = 0; state.ball.vy = 0; clearKick(state.ball);
-    return;
-  }
-  const holder = Object.values(state.players).find((p) => p.team === team);
   state.ball.pickupCd = 0;
-  state.ball.lastTouch = team;
   state.ball.prevPlayer = null; state.ball.lastPlayer = null; // fresh kickoff: no assist carries over
-  if (!holder) { state.ball.owner = null; return; }
+  const centre = { x: FIELD.W / 2, y: FIELD.H / 2 };
+  const loose = () => {
+    state.ball.owner = null; state.ball.lastTouch = null;
+    state.ball.x = centre.x; state.ball.y = centre.y;
+    state.ball.vx = 0; state.ball.vy = 0; clearKick(state.ball);
+  };
+  if (!team) return loose();
+
+  // Centre-most player of the conceding side: smallest |y - centreY|, tie-broken by proximity to the
+  // halfway line so a 3v3 hands it to the midfielder rather than a deep centre-back.
+  let holder = null, best = Infinity;
+  for (const p of Object.values(state.players)) {
+    if (p.team !== team) continue;
+    const d = Math.abs(p.y - centre.y) * 2 + Math.abs(p.x - centre.x);
+    if (d < best) { best = d; holder = p; }
+  }
+  if (!holder) return loose();          // team has no players (all bots removed) -> centre, not nowhere
+  state.ball.lastTouch = team;
   state.ball.owner = holder.id;
   state.ball.lastPlayer = holder.id;
   const off = radiusOf(holder, state) + ballRadius(state);
@@ -362,14 +367,16 @@ function repositionKickoff(state, ballTeam) {
     p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.powerUses = 0; p.launchGlide = 0; p.buildWindup = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
-  const bs = ballStart(state); // authored ball spot, else the centre
-  state.ball = { x: bs.x, y: bs.y, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
+  state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
   state.projectiles = [];
   state.bombs = [];
   state.builtWalls = []; // built defences don't survive a kickoff...
   seedFieldWalls(state);  // ...but field DRY WALLS respawn fresh each point
   state.impacts = [];
-  if (ballTeam) attachBall(state, ballTeam);
+  // ALWAYS, not `if (ballTeam)`: attachBall IS the kickoff rule, and it handles a missing team by
+  // leaving the ball loose in the centre. Calling it unconditionally means there is exactly one
+  // function that decides where a kickoff ball goes, on every path.
+  attachBall(state, ballTeam);
 }
 
 // (Re)seed the field's dry walls into builtWalls as fresh, full-HP destructible walls.
@@ -389,11 +396,12 @@ export function seedFieldWalls(state) {
 export function setField(state, field) {
   state.arena = buildArenaFromField(field);
   state.fieldDryWalls = dryWallSeeds(field);
-  // Authored kickoff data travels with the layout. Re-normalized here (not trusted as-is) so a
+  // Authored start slots travel with the layout. Re-normalized here (not trusted as-is) so a
   // hand-edited save or an old field can't put a spawn outside the pitch, and the per-match draw is
   // made right away — state.teamSize is already set by the time any caller reaches setField.
+  // `field.ball` from a pre-2026-07-26 save is intentionally IGNORED, not normalized: the ball's
+  // kickoff spot is the centre on every field (attachBall).
   state.fieldSpawns = normSpawns(field && field.spawns, field && field.size);
-  state.ballSpawn = normBall(field && field.ball, field && field.size);
   planFieldSpawns(state);
   // reseed builtWalls to just the field walls (drop any player walls from before)
   state.builtWalls = state.builtWalls.filter((w) => !w.field);
