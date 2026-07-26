@@ -1,0 +1,97 @@
+id,category,current_role
+play,lobby-navigation,Quick Match and primary play
+shop,lobby-navigation,Shop
+news,lobby-navigation,News
+rank,lobby-navigation,Rank entry
+friends,lobby-navigation,Friends and play with friends
+club,lobby-navigation,Clubs
+settings,lobby-navigation,Settings
+cards,lobby-navigation,Card collection
+arena,lobby-navigation,Mode and arena selection
+training,lobby-navigation,Training
+field-builder,lobby-navigation,Field builder
+tournament,lobby-navigation,Tournament and best result
+best-loadout,lobby-navigation,Equip best cards
+hero-outfit,lobby-navigation,Hero appearance
+back,lobby-navigation,Back and leave
+close,lobby-navigation,Close and remove
+bomb,gameplay-hud,Bomb special
+build-wall,gameplay-hud,Wall build power
+power-kick,gameplay-hud,Kick and shot power
+speed,gameplay-hud,Speed power
+defense,gameplay-hud,Defense power
+hidden,gameplay-hud,Bush stealth cue
+move-joystick,gameplay-hud,Movement control
+aim,gameplay-hud,Aim and target
+sound-on,gameplay-hud,SFX enabled
+sound-off,gameplay-hud,SFX muted
+music,gameplay-hud,Music
+controls-edit,gameplay-hud,Control layout editor
+reset-ball,gameplay-hud,Reset training ball
+bot,gameplay-hud,Bot and difficulty
+network,gameplay-hud,Connection quality
+warning,gameplay-hud,Warning and error
+field-library,field-builder,Saved fields and copy
+undo,field-builder,Undo
+redo,field-builder,Redo
+mirror-sides,field-builder,Mirror left and right
+mirror-top,field-builder,Mirror top and bottom
+mirror-diagonal,field-builder,Mirror diagonally
+square-joint,field-builder,Square wall joint
+round-joint,field-builder,Round wall joint
+field-size,field-builder,Field size
+zoom-in,field-builder,Zoom in
+zoom-out,field-builder,Zoom out
+fit-view,field-builder,Fit or reset view
+hard-wall,field-builder,Hard steel wall material
+weak-wall,field-builder,Weak dry wall material
+bush,field-builder,Bush material
+crate,field-builder,Crate material
+spawn-red,builder-social,Red team spawn
+spawn-blue,builder-social,Blue team spawn
+ball-placement,builder-social,Ball start position
+move-tool,builder-social,Move builder object
+eraser,builder-social,Erase builder object
+clear-all,builder-social,Clear field
+save,builder-social,Save
+rename,builder-social,Rename
+delete,builder-social,Delete
+load,builder-social,Load
+add,builder-social,Add friend or club
+search,builder-social,Search
+chat,builder-social,Chat and message
+share-field,builder-social,Share field
+invite,builder-social,Invite player
+accept,builder-social,Accept and approve
+decline,economy-ranks,Decline and reject
+coins,economy-ranks,Coins
+gem,economy-ranks,Gems
+gift,economy-ranks,Reward and starter pack
+season-star,economy-ranks,Season feature
+skin,economy-ranks,Skin and appearance category
+power,economy-ranks,Power category
+season-pass,economy-ranks,Season pass
+rank-bronze,economy-ranks,Bronze rank
+rank-silver,economy-ranks,Silver rank
+rank-gold,economy-ranks,Gold rank
+rank-platinum,economy-ranks,Platinum rank
+rank-diamond,economy-ranks,Diamond rank
+rank-champion,economy-ranks,Champion rank
+rank-legend,economy-ranks,Legend rank
+lock,economy-ranks,Locked content
+hello,reactions-system,Hello reaction
+goal-celebration,reactions-system,Goal reaction
+champion-reaction,reactions-system,Champion reaction
+laugh,reactions-system,Laugh reaction
+fire,reactions-system,Fire reaction
+thumbs-up,reactions-system,Thumbs up reaction
+stadium,reactions-system,Stadium and shared arena
+goal-net,reactions-system,Goal mode
+notification,reactions-system,Notification and unread
+online,reactions-system,Online state
+pause,reactions-system,Pause
+resume,reactions-system,Resume
+confirm,reactions-system,Confirm
+cancel,reactions-system,Cancel
+refresh,reactions-system,Refresh and retry
+timer,reactions-system,Match timer

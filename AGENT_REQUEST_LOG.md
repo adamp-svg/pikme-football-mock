@@ -21,6 +21,13 @@
 
 ## 2026-07-26
 
+- **🧱 CHUNKY PIXEL ICON SYSTEM — full-game 96-asset atlas (agent `root`, 12:0x–12:3x)** — User selected concept 01 from the Play/Shop exploration, asked to explore every button/icon in the football game, generate a giant replacement asset library, and write down the graphic language for future work.
+  - Audited visible icon/button roles across `public/index.html`, `public/client.js`, `public/match-info.js`, `public/hub-rank.js`, `public/rank.css`, and `shared/quick-messages.js`. Consolidated repeated emoji into **96 stable semantic assets** across six systems: lobby/navigation, gameplay/HUD, field builder, builder/social actions, economy/ranks, and reactions/system states.
+  - Added `public/assets/pixel-icon-system-01/`: six 4×4 category sheets, a **2508×3762 giant master atlas**, half-size preview, alphabetical labeled catalog, 96 named 256px dark tiles, and 96 named transparent PNG exports.
+  - Corrected the generator's first ambiguous pass by locking “football” to **association football / soccer only**: round pentagon-panel ball, jerseys and boots; never oval balls, helmets, pads, or American-football goalposts.
+  - Added `GRAPHIC_LANGUAGE.md` with the reusable 24×24 logical-pixel construction, palette, outline/extrusion/light rules, semantic color grammar, family rules, size guidance, new-asset checklist, and reusable generation brief. Added `manifest.csv` mapping all 96 stable IDs to current UI roles.
+  - Asset-library stage only: current emoji/code has not been replaced yet. Transparent exports are ready for a deliberate selector-by-selector integration pass and true-size phone QA. No push or deploy.
+
 - **🔧 ROUND 4 — fix the dead skills + re-cut the levels (agent `bot-fix`, 11:25-12:0x)** — User: "commit your changes and start working on fixing these skills."
   - **I had nothing to commit.** All my work was already committed; the 1284 staged insertions across 14 files were **another agent's**, so I did not run a commit that would have claimed them. ⚠️ Note for everyone: that agent leaves work STAGED, so any `git commit` by anyone sweeps it up. Check `git diff --cached --stat` first.
   - **`screenWall` was UNTAGGED**, not dead — every histogram reported it as 0 because it never set `bm.lastTrick`. Tagged. Measured: 1 fire at t=0.50, otherwise correctly **starved** by higher-value wall plays (goalScreen 26, ambushWall 12, blockDrive 8). With one charge per ~15s that is the budget working, not a bug. No behaviour change.
