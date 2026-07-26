@@ -5,6 +5,70 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 0000000000. ROUND 11 (2026-07-26 20:2x-21:2x, agent `chase-press`) — THE FIVE "LEVEL 5 AND ABOVE" ASKS
+
+The user, after watching round 10 and asking two yes/no questions (did you make high levels always
+power their shot? no. did you make them shoot the enemy away from the ball? no), asked for five things
+and defined the level gate himself: **"when I say 5 and above I mean randomly from level 1 very few
+times, to almost always level 5 and above."**
+
+Commits `87b5044` (the five), `2c73caa` (three tunings the ladder forced), `d39be3a` (watch page).
+Tests: `test-bot-level5.mjs` (13, every one checking BOTH ends of the ramp).
+
+### The ramp — and why a probability is allowed here at all
+
+`levelChance(sk, p, mem, key)`: L0 never · L1 ~7% · L2 ~28% · L3 ~50% · L4 ~72% · L5 ~94% · L6+ always,
+deterministic over `seededNoise(bot hash + behaviour key + time bucket)`.
+**This is not `decisionHz`/`mistakeP`.** Those were stochastic HANDICAPS — a coin flip inserted between
+deciding and acting. This is a frequency ramp on an ABILITY, the shape of `toolNotice` and `preChargeP`,
+both of which ship and both of which rank.
+
+### What shipped
+
+| # | ask | what changed | measured |
+|---|---|---|---|
+| 1 | full power at L5+ | `maxCharge` ramps 0.71 -> 1.00 by L5 for every persona; `readyCharge` banks part of a wind-up with no target | a L10 bullet leaves at 1.00, a L1 bullet never above 0.74. **343px of knockback drift instead of 250px** |
+| 2 | push them back further | the push travels along the BULLET's line, so the press target shifts toward the goal the carrier attacks, scaled by persona `guardGoal` | goal-side occupancy **86.6% at L10 vs 54.5% at L1** |
+| 3 | shoot the ball when an enemy is nearer | `ballPush`: a bullet along me->ball, when that line is goalward | bullet-vs-loose-ball strikes **0.68 -> 4.6/match** (the mechanic had 10-65 chances a match at 0% taken) |
+| 4 | bomb yourself loose when stuck | either a hard wedge OR the no-progress ratchet (`bm.noProgressT` = the user's "moving with no purpose") | `cornerEscape` was 0.11/match because it needed a corner AND an enemy AND the ball; now ~2 escapes/match |
+| 5 | more bomb travel at L5+ | the RE-ARM interval only (`mobilityGap` x 0.54 at L5+) | bomb-trick movement **0 -> 12 jump-ticks/60s** from L1 to L5 |
+
+### THE LADDER CAUGHT A REGRESSION, AND THIS IS THE ROUND'S REAL LESSON
+
+First measurement of the five asks: **goals rho 0.70 -> 0.30, felt range 48% -> 18%** of the arena's
+scoring rate, the t=0.82 anchor firing **118 shots/match** against the top tier's 56 and losing 5.5s of
+possession. Root cause, measured across tiers: **ball advance per carrier release collapsed from
+29-41px to 6-12px.**
+
+**Why: a permanently banked charge converts every gate that OPENS into a shot.** A wound-up bot used to
+lose most gates before the charge arrived (that is what `windupBudget` and the 1.4s ramp meant in
+practice). Bank the charge and it takes them all — bullets/match 74 -> 232 — so the pitch fills with
+bullets, every released ball gets knocked around, and nobody can keep possession. Nothing about the
+shooting GATES changed; only how often they could be satisfied.
+
+Three tunings, each measured, all in `2c73caa`:
+1. **Bullet cadence** — a bot may not open a new BULLET wind-up more than ~1.4/s. Ball releases exempt.
+2. **Bank HALF a wind-up** (`readyCharge` 0.42-0.60 of the ceiling, was 0.74-1.00). The shot is still
+   full power; it still needs ~0.4s of top-up, which is also the visible tell the research doc wanted.
+3. **Ask #3 is a DEFENSIVE play** — restricted to our own half or a real pass, which is the case
+   `SKILL_CATALOGUE` T4/T5 measured as valuable. Unrestricted, both teams simply ping-pong the ball.
+
+After: shots/match 232 -> 95-123, advance/release 6-12 -> 21px, notClosing 39.5-41.4%, touches 22.9-24.4.
+
+### Two things worth knowing
+
+- **`pointInBush` still hides ENEMIES on the wrong geometry.** Round 10 removed the BALL's fog; enemy
+  visibility still reads the DEFAULT arena's three boxes on every layout. It cost an hour here: a test
+  fixture put an enemy at (900, 550) — inside the default centre bush — and `visibleEnemies` came back
+  empty on an EMPTY field, so the branch under test could never fire. Any fixture must stay out of
+  (850..1150, 430..670) until that is fixed.
+- **Ask #5's distance gates encode physics and must not be loosened.** Lowering `JUMP_MIN_D` 430->300
+  and `JUMP_NO_CANNON_D` 620->430 made a bot take a 450px trip by bomb instead of walking round a 600px
+  wall, and never arrive: `test-bot-stall.mjs` case 4 went 5.90s -> never. A jump only pays if it beats
+  walking (400px walked vs 653px launched per fuse+glide). Frequency belongs in the re-arm interval.
+
+---
+
 ## 000000000. ROUND 10 (2026-07-26 18:3x-19:5x, agent `chase-press`) — THE OBJECTIVE, AND PERSONALITIES THAT ARE VISIBLE
 
 The user, watching level 10: *"they still sometimes struggle to get the objective."* Then four asks
