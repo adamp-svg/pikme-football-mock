@@ -9,13 +9,15 @@
 //      host a 2900x1700 pitch while the sim still ran 2000x1100 goal lines, penalty boxes and
 //      spawns underneath it — wrong in a way that reads as a physics bug, not a rejected request.
 //
-// Needs a live server:  PORT=3013 node server.js
+// BOOTS ITS OWN SERVER (boot-test-server.mjs). This used to say "needs a live server: PORT=3013" and
+// was then reported as a pre-existing failure for whole sessions whenever nobody had one up — the code
+// was fine, the fixture was missing. Set PORT= to aim at a specific running server on purpose.
 import { WebSocket } from 'ws';
 import { FIELD_SIZES, RUNTIME_SIZES, canHost } from './shared/field-sizes.js';
 import { FIELD } from './shared/constants.js';
+import { bootServer } from './boot-test-server.mjs';
 
-const PORT = process.env.PORT || 3013;
-const URL = `ws://localhost:${PORT}`;
+const { url: URL } = await bootServer();
 let failed = 0;
 const ok = (cond, msg) => { console.log(`   ${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed++; };
 

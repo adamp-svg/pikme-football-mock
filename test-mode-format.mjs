@@ -6,12 +6,14 @@
 //      room always played first-to-3 no matter which card was tapped.
 // Both are only observable now that matchStart carries `goalsToWin`.
 //
-// Needs a live server:  PORT=3013 node server.js
+// BOOTS ITS OWN SERVER (boot-test-server.mjs). This used to say "needs a live server: PORT=3013" and
+// was then reported as a pre-existing failure for whole sessions whenever nobody had one up — the code
+// was fine, the fixture was missing. Set PORT= to aim at a specific running server on purpose.
 import { WebSocket } from 'ws';
 import { GOALS_TO_WIN } from './shared/constants.js';
+import { bootServer } from './boot-test-server.mjs';
 
-const PORT = process.env.PORT || 3013;
-const URL = `ws://localhost:${PORT}`;
+const { url: URL } = await bootServer();
 let failed = 0;
 
 function client(name) {

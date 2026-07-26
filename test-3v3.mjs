@@ -10,14 +10,18 @@
 //
 // 2v2 must be untouched — its kickoff is asserted to be the exact original 0.36/0.64 pair.
 //
-// Needs a live server:  PORT=3015 node server.js
+// BOOTS ITS OWN SERVER (boot-test-server.mjs), because this test decodes REAL binary snapshots and an
+// agent's long-running server encodes with the wire.js it loaded at startup, not the one on disk. It
+// was reported red for exactly that reason once: a :3015 server older than the wall-AABB widening kept
+// writing 12-byte wall records and the fresh decoder overran the DataView. Set PORT= to aim at a
+// specific running server on purpose (`PORT=3012 node test-3v3.mjs` proves the LAN surface is current).
 import { WebSocket } from 'ws';
 import { GOALS_TO_WIN, FIELD, MAX_PLAYERS } from './shared/constants.js';
 import { createState, addPlayer } from './shared/sim.js';
 import { assignRoles, createBotMemory } from './shared/bot-ai.js';
+import { bootServer } from './boot-test-server.mjs';
 
-const PORT = process.env.PORT || 3015;
-const URL = `ws://localhost:${PORT}`;
+const { url: URL } = await bootServer();
 let failed = 0;
 const ok = (label, cond, extra = '') => { if (!cond) failed++; console.log(`  ${cond ? '✅' : '❌'} ${label}${extra ? ` — ${extra}` : ''}`); };
 

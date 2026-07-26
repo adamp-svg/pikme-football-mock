@@ -10,17 +10,21 @@
 // Also pins the 3v3/5v5 seams that already exist: the format table drives the win rule, and the
 // VS column renders N rows per side instead of a hardcoded 2.
 //
-// Needs a live server:  PORT=3014 node server.js
+// BOOTS ITS OWN SERVER (boot-test-server.mjs). It used to connect to whatever was on :3014, and that is
+// how this test produced the worst outcome available: a FALSE GREEN. It was cited as covering a change
+// to the bot loadout generator while passing against a :3014 process started hours before that generator
+// existed — Node had cached the old module, so the assertion "the lobby previews the bots WITH cards"
+// exercised code nobody had edited. Set PORT= to aim at a specific running server on purpose.
 import { WebSocket } from 'ws';
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { GOALS_TO_WIN } from './shared/constants.js';
+import { bootServer } from './boot-test-server.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3014;
-const URL = `ws://localhost:${PORT}`;
+const { url: URL } = await bootServer();
 let failed = 0;
 const ok = (label, cond, extra = '') => { if (!cond) failed++; console.log(`  ${cond ? '✅' : '❌'} ${label}${extra ? ` — ${extra}` : ''}`); };
 
