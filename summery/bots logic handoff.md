@@ -33,6 +33,23 @@ against the *current* branch's aim, so a stale commitment reads as perfectly con
 Latched today, do not un-latch: `bm.passTo`, `bm.shootTgt`, the wall normal in `finalize()`,
 `bm.cornerLatch`, `bm.detourSide`, `bm.pincer`, `bm.deflect`, `bm.cata`.
 
+### 1b. The sibling defect: a TARGET recomputed from your own live position
+
+Same family, different mechanism, and it produced the "the friend goes the other way" report.
+`receivePass` moved a receiver "90px toward the carrier to show for the ball" — but that target was
+**re-derived from the receiver's OWN live position every tick**, i.e. 90px behind wherever it had just
+got to, re-issued ~50 times a second for the whole 1.4s call. A carrot on a stick: the receiver never
+checked back 90px, it **retreated continuously, up to ~210px**, and the pass latch dutifully followed
+it backwards. (It was already ahead of the carrier on **88%** of those ticks, so the whole manoeuvre
+was wrong to begin with.)
+
+**The tell:** a relative offset (`p.x - dir * k`) written into a target that is recomputed each tick is
+a treadmill, not a destination. Either latch the spot **or** budget the total ground it may give up —
+the fix here is `RECV_GIVE_MAX = 20`, a cap on cumulative retreat per call, because latching an
+absolute spot measured WORSE (completion 86% → 70%, ladder rho −0.10). This file has now hit the
+recomputed-target trap four times: the wall-cannon "pad" (0 arrivals of 449), `deflectSetup`'s stand
+spot, `blockDrive`'s arm-on-arrival gate, and this.
+
 ---
 
 ## 2. THE DESIGN LAW: a behaviour made equally reliable for every tier FLATTENS THE LADDER
@@ -79,10 +96,14 @@ ability off for low tiers, and never hand a skill-independent ability to everyon
    flip.** Same story: `test-bot-cannon`'s agreement gate reads 63-88% across seed bases on identical
    code, and `test-bot-ladder`'s spread gate was calibrated on an arena that scores **2.2× more goals**
    (1.55/match vs 0.72), making a 0.60 *differential* arithmetically unreachable on the real one.
-5. **A/B RUNS CONFOUNDED BY OTHER AGENTS.** Three agents edited `shared/bot-ai.js` concurrently and at
-   least two A/Bs were silently ruined (one tripled its shot count between "before" and "after").
-   **Build both arms from `git archive HEAD shared`, differ by one line, and prove the OFF arm
-   reproduces the pristine baseline first.**
+5. **A/B RUNS CONFOUNDED BY OTHER AGENTS — and a frozen base is not a safe answer either.** Three
+   agents edited `shared/bot-ai.js` concurrently; at least two A/Bs were silently ruined (one tripled
+   its shot count between "before" and "after"). Build both arms from `git archive HEAD shared`,
+   differ by one line, and prove the OFF arm reproduces the pristine baseline first.
+   **But then re-measure on the INTEGRATED tree before you ship.** One fix measured 90% → 92% on its
+   own frozen base and **86% → 70% on the combined HEAD** once three other agents' commits landed; it
+   was withdrawn and rebuilt. **Four individually correct measurements can integrate into a
+   regression** — the last measurement of the day must be on the tree that ships.
 6. **UNSEEDED RUNS.** Identical code has reported wall-pinning from 0.27% to 0.51%. Always seed.
 
 ---
@@ -133,6 +154,13 @@ Additions to §4's refuted list. **Do not re-propose these without new evidence:
 
 ## 6. WHAT IS ACTUALLY STILL WRONG (in the order a player would notice)
 
+0. **"The friend goes the other way" is mostly the FLOW FIELD, and that part is correct.** Of the
+   raw 22% of support ticks moving away from their own attack, **87-91% is the nav field routing
+   around a capsule** (`bot-support.mjs` splits on `bm.wp`). Of the remainder: holding shape behind
+   the carrier 7-12%, MIN_SEP 1-2%, past-the-outlet-line ~0%. So **read `awayNoDetour%`, never raw
+   `away%`** — the raw number cannot fall below ~23% while walls exist, and chasing it means fighting
+   the pathfinder. `receivePass` picks a TARGET; `steer()` picks the PATH; only the second one owns
+   the remaining number.
 1. **At high skill the ball sits loose ~71-79% of the match**, `notClosingPct` ~45%, and ~3.6-5×/match
    nobody reaches it for 4 seconds. **A bot walking away from a loose ball looks identical to a bot
    standing still**, which is why "they're idle" keeps getting reported after every idle fix. Strong
