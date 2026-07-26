@@ -4,3 +4,6 @@ node_modules
 .DS_Store
 harness.mjs
 fields/
+
+# Agent worktrees + local agent config (never commit: .claude/worktrees holds full repo checkouts)
+.claude/
