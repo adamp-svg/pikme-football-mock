@@ -1763,6 +1763,26 @@ function decideBot(p, role, state, mem, sk, dt) {
           // (d) genuinely nothing on — STOP grinding into the blocker and work an angle instead.
           // Slide along the wall toward whichever post is more open; the ladder re-tests every
           // tick, so as soon as a lane appears (a) fires. Never a dead end.
+          //
+          // MEASURED AND REFUTED — DO NOT RE-PROPOSE: "route the carrier to a precomputed SHOOT
+          // SPOT instead of sliding". This rung looks like the perfect consumer for a per-arena
+          // plan, because it is reached exactly when no part of the mouth is open and 54.8% of
+          // MAIN_FIELD has no lane to any of the three aim points. The plan (shared/arena-plan.js)
+          // answers correctly — over every no-shot cell inside 1150px it names a reachable spot for
+          // 21-31% of them at t=0.05, 71-81% at 0.50 and 98-100% at 0.93, mean walk 124-302px.
+          // It still measured NEGATIVE, on 4 paired seed bases x 12 matches x 60s, isolated to this
+          // one line (skill 0.93): goals/match 1.77 -> 0.98 (4/4 seeds down), ball loose 68.8% ->
+          // 73.0% (4/4), worst jam 1.23s -> 2.37s (4/4), touches 23.3 -> 21.7 (4/4). It bought only
+          // backward releases 24.8% -> 13.6%. At skill 0.50 every delta was inside noise.
+          // THE CAUSE, and it is the same one as §4's wall-cannon pad (which reached its computed
+          // spot 0 times out of 449): A CARRIER HAS NO TIME. Instrumented over 6 matches, routing
+          // episodes lasted 0.28s and closed 303px -> 283px — 0% of them ever arrived. Possession
+          // in this game is under a second, so any plan that asks the BALL-CARRIER to walk
+          // somewhere is spending possession it does not have, and the walk replaces both driving
+          // at the goal and releasing. test-arena-plan.mjs §9 keeps measuring the arrival rate so a
+          // future version of this idea has to clear that bar first.
+          // The plan is consulted where a bot DOES have time instead: the off-ball outlet chooser
+          // in the support branch below. Same data, a consumer with a clock that allows it.
           bm.workAngle = bm.workAngle || (p.y < GY ? 1 : -1);
           if (mem.t > (bm.workFlip || 0)) { bm.workFlip = mem.t + 1.2; bm.workAngle *= -1; }
           // Same movement either way — but name it for what it IS, so the histogram can tell
@@ -2069,6 +2089,23 @@ function decideBot(p, role, state, mem, sk, dt) {
         }
       }
       tgt = { x: ahead, y: bestY };
+      // MEASURED AND REFUTED — DO NOT RE-PROPOSE: "prefer an outlet the PER-ARENA PLAN says you
+      // could SHOOT from" (shared/arena-plan.js `shootSpotsFor`). The gap is real — this chooser
+      // scores an outlet on openness and a clean PASS LANE and never asks whether the receiver
+      // could shoot, and 54.8% of MAIN_FIELD has no lane to any part of the mouth — and unlike the
+      // carrier version (see the release ladder's (d) rung) an off-ball bot HAS the time to get
+      // there. It still lost, on HEAD + this change only, 4-6 paired seed bases x 12 matches x 60s:
+      //   skill 0.93 (48 matches/arm): goals/match 1.90 -> 1.54 (**4 of 4 seeds DOWN**),
+      //     wall-pinning 0.27% -> 0.51%, worst single jam 0.68s -> 2.16s (one seed 6.87s)
+      //   skill 0.50 (60 matches/arm): goals 0.93 -> 0.83, pinning 0.41% -> 0.70% (4/5 worse),
+      //     worst jam 1.71s -> 3.76s (seeds with 7.4s and 9.1s)
+      // It DID buy exactly what round 7 wanted — advance/release +15px (4/4) and backward releases
+      // 27.6% -> 17.7% (4/4) at the top — but `clearForward` already delivers that, and the price is
+      // the symptom the user personally reported and round 5 spent a whole session fixing (worst jam
+      // 15.65s -> 0.73s). A named POINT target near the attacking geometry wedges bots; the x=ahead
+      // vertical line does not. Guarding the goal line (|sp.x - egX| < 200, added after a 16.58s jam)
+      // reduced but did not remove it.
+      // The plan module and its tests are kept, deliberately UNWIRED — see its header.
       // TACTIC 10 — COOPERATIVE PUSH (hard/extreme): rocket-jump into the open attacking outlet so
       // the carrier can hit a fast one-two (the pass arrives via the pass-to-mate logic below). We
       // signal mem.push so the carrier prioritises the pass. A bomb-jump into space, no enemy near.
