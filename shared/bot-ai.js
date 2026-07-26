@@ -1434,37 +1434,6 @@ function decideBot(p, role, state, mem, sk, dt) {
     // ===== TEAMMATE CARRIES: I support (open a passing lane / trail for rebound) =====
     const ahead = egX - (team === 'A' ? 300 : -300);
 
-    // ---- NEW SKILL: BODY SCREEN — wall off the defender chasing our carrier ------------------
-    // The player sees their team-mate stop running for a pass and instead step IN FRONT of the
-    // defender hunting them. It works because steer() has NO body avoidance at all: it reacts to
-    // other players only when they are bomb-launched or moving > 700px/s, and the nav occupancy
-    // grid is built from WALLS only. So a parked body is a genuine obstacle — separatePlayers
-    // (sim.js:354) is a hard symmetric push with no pass-through rule.
-    // Measured: time-to-press 1.68s unscreened vs 6.67s screened; one fixture recorded NO CONTACT
-    // IN 10s. Costs no ammo, no bomb, no wall charge — it is the cheapest teamwork in the game.
-    // FAIRNESS: pure movement, nothing a human could not do, and legible — you see the body coming
-    // and can side-step it. NB sim.js:370 biases the shove 65/35 (SUPER_BODY_PUSH) toward whichever
-    // side is in super, so a screener without super loses the duel to a super chaser.
-    if (!isOnBall && sk.toolSkill >= 0.70 && !bm.bombHold && !bm.buildHold) {
-      let chaser = null, cd = 1e9;
-      for (const e of visibleEnemies) { const d = hyp(e.x - carrier.x, e.y - carrier.y); if (d < cd) { cd = d; chaser = e; } }
-      // ARM ONCE on entry (the `if (!bm.buildHold)` pattern). Re-arming every tick while a chaser
-      // stayed in range would make the hold a dead variable and the screen effectively permanent.
-      if (chaser && cd < 300 && mem.t > (bm.screenUntil || 0) && mem.t > (bm.nextScreenAt || 0)) {
-        bm.screenUntil = mem.t + 1.1; bm.nextScreenAt = mem.t + 2.6;
-      }
-      if (chaser && mem.t < (bm.screenUntil || 0)) {
-        const [sx, sy] = unit(chaser.x - carrier.x, chaser.y - carrier.y);
-        const standOff = radOf(state) * 2 + 8; // just in front of the carrier, in the chaser's path
-        // NB no bm.screening flag: the spec had one, and a challenger showed it was set and never
-        // cleared, so after its first screen a bot permanently lost the MIN_SEP 320 spacing rule.
-        // Returning early here already bypasses MIN_SEP for exactly the screening ticks.
-        bm.lastTrick = 'bodyScreen';
-        return finalize(p, { x: carrier.x + sx * standOff, y: carrier.y + sy * standOff },
-          { x: chaser.x - p.x, y: chaser.y - p.y },
-          { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
-      }
-    }
     // TACTIC 9 — OFF-BALL CATCH-UP ROCKET-JUMP (hard/extreme): if we're lagging far behind the
     // play with a clear lane and no enemy on us, plant a bomb and rocket-jump toward the play so
     // the teammate isn't left alone (directly counters "the bot lags/hides instead of helping").
@@ -1516,7 +1485,16 @@ function decideBot(p, role, state, mem, sk, dt) {
     if (bm.deflect && (mem.t > bm.deflect.until || isOnBall)) bm.deflect = null;
     if (!isOnBall && sk.toolSkill >= 0.70 && buildReady && !bm.buildHold && !spLive && mem.t > (bm.nextBuildAt || 0)) {
       const distCG = hyp(egX - carrier.x, GY - carrier.y);
-      const blocked = visibleEnemies.some((e) => Math.abs(e.x - egX) < PENALTY.depth + 40 && Math.abs(e.y - GY) < GOAL.width / 2 + 60);
+      // WHY THIS PREDICATE CHANGED — measured over 8 matches at t=0.82. The old test was
+      // "an enemy is standing in their own box near the goal", a PROXY for "our carrier's direct
+      // finish is blocked". Of 7463 support-with-mate-carrying ticks, the range condition held on
+      // 914 but the proxy held on 29, and the play ARMED 0 times. The proxy is really asking for a
+      // KEEPER — and no bot in this game ever plays keeper, so the trigger could not occur.
+      // Test the actual intent instead: is the carrier's lane to the goal genuinely shut? That is
+      // one exact segment test (laneClear is segment-vs-AABB, not sampled) and it is true exactly
+      // when banking a shot off a wall is worth setting up. The wall BUDGET still limits how often
+      // this can spend a charge (nextBuildAt 8s, and goalScreen/blockDrive/ambushWall outrank it).
+      const blocked = !laneClear(carrier.x, carrier.y, egX, GY, state, team, { enemies: true, viewer: p });
       if (!bm.deflect && distCG < 760 && distCG > 240 && blocked) {
         const dirToGoal = egX > FIELD.W / 2 ? 1 : -1;
         const Wx = egX - dirToGoal * (PENALTY.depth + 34);
@@ -1546,6 +1524,45 @@ function decideBot(p, role, state, mem, sk, dt) {
         return finalize(p, { x: Wx - nx * reach, y: Wy - ny * reach }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
       }
     }
+    // PRECEDENCE: the BODY SCREEN sits here, BELOW the deflect set-piece, and that order is
+    // load-bearing. It was originally first, and it starved the set-piece completely: measured,
+    // on 47 of 47 ticks where the deflect was available the screen latch was already active and
+    // returned early. A screen is a delaying tactic that costs nothing and there is always
+    // another chance at one; the set-piece is rare (0.6% of support ticks), spends a scarce wall
+    // charge and creates a goal chance. Cheap-and-always-available must not pre-empt
+    // rare-and-valuable — the same rule the wall plays already follow among themselves.
+    // ---- NEW SKILL: BODY SCREEN — wall off the defender chasing our carrier ------------------
+    // The player sees their team-mate stop running for a pass and instead step IN FRONT of the
+    // defender hunting them. It works because steer() has NO body avoidance at all: it reacts to
+    // other players only when they are bomb-launched or moving > 700px/s, and the nav occupancy
+    // grid is built from WALLS only. So a parked body is a genuine obstacle — separatePlayers
+    // (sim.js:354) is a hard symmetric push with no pass-through rule.
+    // Measured: time-to-press 1.68s unscreened vs 6.67s screened; one fixture recorded NO CONTACT
+    // IN 10s. Costs no ammo, no bomb, no wall charge — it is the cheapest teamwork in the game.
+    // FAIRNESS: pure movement, nothing a human could not do, and legible — you see the body coming
+    // and can side-step it. NB sim.js:370 biases the shove 65/35 (SUPER_BODY_PUSH) toward whichever
+    // side is in super, so a screener without super loses the duel to a super chaser.
+    if (!isOnBall && sk.toolSkill >= 0.70 && !bm.bombHold && !bm.buildHold) {
+      let chaser = null, cd = 1e9;
+      for (const e of visibleEnemies) { const d = hyp(e.x - carrier.x, e.y - carrier.y); if (d < cd) { cd = d; chaser = e; } }
+      // ARM ONCE on entry (the `if (!bm.buildHold)` pattern). Re-arming every tick while a chaser
+      // stayed in range would make the hold a dead variable and the screen effectively permanent.
+      if (chaser && cd < 300 && mem.t > (bm.screenUntil || 0) && mem.t > (bm.nextScreenAt || 0)) {
+        bm.screenUntil = mem.t + 1.1; bm.nextScreenAt = mem.t + 2.6;
+      }
+      if (chaser && mem.t < (bm.screenUntil || 0)) {
+        const [sx, sy] = unit(chaser.x - carrier.x, chaser.y - carrier.y);
+        const standOff = radOf(state) * 2 + 8; // just in front of the carrier, in the chaser's path
+        // NB no bm.screening flag: the spec had one, and a challenger showed it was set and never
+        // cleared, so after its first screen a bot permanently lost the MIN_SEP 320 spacing rule.
+        // Returning early here already bypasses MIN_SEP for exactly the screening ticks.
+        bm.lastTrick = 'bodyScreen';
+        return finalize(p, { x: carrier.x + sx * standOff, y: carrier.y + sy * standOff },
+          { x: chaser.x - p.x, y: chaser.y - p.y },
+          { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+      }
+    }
+
     if (bm.giveGo && mem.t < bm.giveGo.until) {
       // GIVE-AND-GO: I just gave the ball — break goal-side into space for the return,
       // but stay balanced (a modest run ahead of the carrier, not abandoning shape).
@@ -1942,6 +1959,8 @@ function decideBot(p, role, state, mem, sk, dt) {
           // fallback: opportunistic screen wall at our current position (aim toward the carrier)
           if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, dist: 0, until: mem.t + BUILD_WINDUP + 0.1 };
           aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
+          bm.lastTrick = 'screenWall'; // was UNTAGGED, so every trick histogram reported it as dead
+                                       // when it may simply have been invisible. Measure, then judge.
         } else if (canShoot && seeC && lane && distC < COVER_STRIP) { shoot = true; charge = 1; if (distC < 260) closeShot = true; }
       }
     }
