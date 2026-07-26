@@ -52,6 +52,18 @@
 .build-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
 .special-btn > .saltiz-icon { --si-size: 56px; vertical-align: 0; }  /* 56*12=672, 56*8=448 — whole px */
 .build-icon > .saltiz-icon  { --si-size: 40px; vertical-align: 0; }  /* 40*12=480, 40*8=320 — whole px */
+/* …and these two DROP `image-rendering: pixelated`, which is why their black outlines looked broken
+   and see-through on a real phone (reported: "some black parts are transparent").
+   The art is ANTI-ALIASED, not crisp 1:1 pixel art — the outline edges carry alpha values of 1-11.
+   `pixelated` forces nearest-neighbour, so at iPhone DPR 3 (a 56px box painted into ~168 device px)
+   every one of those near-invisible edge pixels is magnified into a hole, and the outline reads as a
+   dotted ring with the orange button showing through. Smooth resampling resolves them back into a
+   continuous edge. Verified with a DPR-3 A/B capture of both buttons, not by eye.
+   Scoped to these two on purpose: they are the only icons big enough for it to matter, and the same
+   A/B on the lobby rail showed no meaningful difference — so the rest of the pack keeps codex's
+   intended crisp rendering. If the art is ever redrawn as true pixel art, delete this block. */
+.special-btn > .saltiz-icon,
+.build-icon > .saltiz-icon { image-rendering: auto; }
 .builder-title .saltiz-icon,
 .builder-btn .saltiz-icon,
 .bact .saltiz-icon,
