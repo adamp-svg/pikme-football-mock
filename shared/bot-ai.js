@@ -1298,6 +1298,11 @@ function decideBot(p, role, state, mem, sk, dt) {
   let tgt = { x: p.x, y: p.y };
   let aim = { x: p.aimX, y: p.aimY };
   let shoot = false, charge = 0, special = false, build = false, closeShot = false, forceRelease = false;
+  // WHICH ENEMY this tick's BULLET is for. Every branch that asks for a bullet names its target so
+  // finalize() can LATCH the wind-up to it — measured, the wind-up outliving its branch was the
+  // whole of the ">45deg off every enemy" bullet population. Null for a ball release (that is the
+  // pass latch's job) and null when no bullet is wanted.
+  let shootTgt = null;
 
   // --- If mid bomb-hold, STAND on the plant until the fuse blows (staying within
   // BOMB_CENTER_R is what makes the rocket-jump/tackle actually fire). Aim tracks the
@@ -2130,7 +2135,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       for (const e of visibleEnemies) { const d = hyp(e.x - carrier.x, e.y - carrier.y); if (d < 130 && d < md) { md = d; mark = e; } }
       if (mark && laneClear(p.x, p.y, mark.x, mark.y, state, team, { enemies: false }) && mem.t > (bm.nextMarkAt || 0)) {
         const [ax, ay] = leadAim(p.x, p.y, mark.x, mark.y, mark.vx || 0, mark.vy || 0, bulletSpeed, sk);
-        aim = { x: ax, y: ay }; shoot = true; charge = 0.8; bm.lastTrick = 'clearMarker'; bm.nextMarkAt = mem.t + 0.7 * (sk.cdMul || 1); if (md < 160) closeShot = true;
+        aim = { x: ax, y: ay }; shoot = true; shootTgt = mark.id; charge = 0.8; bm.lastTrick = 'clearMarker'; bm.nextMarkAt = mem.t + 0.7 * (sk.cdMul || 1); if (md < 160) closeShot = true;
       }
     }
 
@@ -2178,7 +2183,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         aim = { x: ax, y: ay };
       }
       // a FULL-charge bullet strips the ball even INSIDE the box (only knockback is cut there)
-      if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; charge = 1; if (distC < 260) closeShot = true; }
+      if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; shootTgt = c.id; charge = 1; if (distC < 260) closeShot = true; }
       // bomb tackle-steal: only if the blast will actually REACH the carrier at detonation
       // (predict them forward by the fuse), no teammate is caught, and the carrier isn't
       // deep in its box (reduced knockback blunts the tackle there).
@@ -2368,7 +2373,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         let kShoot = false;
         if (canShoot && seeC && lane && distC < COVER_STRIP * 0.6) { kShoot = true; }
         bm.lastTrick = 'goalKeep';
-        return finalize(p, tgt, aim, { shoot: kShoot, charge: 1, special: false, build: false, closeShot: distC < 260 }, state, mem, bm, sk, dt);
+        return finalize(p, tgt, aim, { shoot: kShoot, tgtId: kShoot ? c.id : null, charge: 1, special: false, build: false, closeShot: distC < 260 }, state, mem, bm, sk, dt);
       }
 
       // ===== SUPPORT cover — skilled bots run a BUSH-AMBUSH + WALL-TRAP (lurk->wall->strip) =====
@@ -2431,7 +2436,7 @@ function decideBot(p, role, state, mem, sk, dt) {
           const [ax, ay] = leadAim(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed, sk);
           aim = { x: ax, y: ay };
         }
-        if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; charge = 1; bm.lastTrick = 'ambushStrip'; if (distC < 260) closeShot = true; }
+        if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; shootTgt = c.id; charge = 1; bm.lastTrick = 'ambushStrip'; if (distC < 260) closeShot = true; }
         else if (!shoot && !bm.charging && bombReady && seeC && distC > BOMB_CENTER_R
                  && (!mate || hyp(mate.x - p.x, mate.y - p.y) > BOMB.radius + radOf(state))
                  && distC < BOMB_CENTER_R + BOMB.radius && mem.t > (bm.nextBombAt || 0)) {
@@ -2498,7 +2503,7 @@ function decideBot(p, role, state, mem, sk, dt) {
           aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
           bm.lastTrick = 'screenWall'; // was UNTAGGED, so every trick histogram reported it as dead
                                        // when it may simply have been invisible. Measure, then judge.
-        } else if (canShoot && seeC && lane && distC < COVER_STRIP) { shoot = true; charge = 1; if (distC < 260) closeShot = true; }
+        } else if (canShoot && seeC && lane && distC < COVER_STRIP) { shoot = true; shootTgt = c.id; charge = 1; if (distC < 260) closeShot = true; }
       }
     }
 
@@ -2618,7 +2623,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     }
   }
 
-  return finalize(p, tgt, aim, { shoot, charge, special, build, closeShot, forceRelease }, state, mem, bm, sk, dt);
+  return finalize(p, tgt, aim, { shoot, tgtId: shootTgt, charge, special, build, closeShot, forceRelease }, state, mem, bm, sk, dt);
 }
 
 // ---- F2 FIX: how long may a wind-up run before we give up on it? ----
@@ -2770,6 +2775,52 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
     const s = steer(p, navTgt.x, navTgt.y, state, bm, sk, mem.t); mvx = s[0]; mvy = s[1];
   }
 
+  // ---- BULLET WIND-UP TARGET LATCH — "the enemy shoots the other way" ----------------------
+  // MEASURED FIRST (`bot-aim.mjs`, MAIN_FIELD, 16 matches x 60s, the reported level-10 pair
+  // partner 0.42 vs enemy 0.93, three seed bases): 6.3 / 8.7 / 9.2 % of every BULLET fired left
+  // the barrel more than 45deg off EVERY enemy on the pitch. All of them were ONE fault:
+  //   * 14/16, 17/17 and 22/23 had a DIFFERENT ball owner at FIRE time than at ARM time;
+  //   * every single one fired on a tick when NO enemy carried the ball (loose 14-21, our own team
+  //     2, enemy-held ZERO) — and all five bullet branches in this file live under "an enemy
+  //     carries" (press strip / cover strip / keeper strip / ambush strip), the sixth being
+  //     `clearMarker` under "my MATE carries", so on those ticks NO branch could have asked for a
+  //     shot at all;
+  //   * outcome: 0 of them hit a player, 87% hit a wall.
+  // `bm.charging` outlives the branch that opened it, the branch is not re-selected, `shoot` goes
+  // false — and the aim is then re-derived by whatever branch DOES run. The loose-ball branch aims
+  // at the ENEMY GOAL, so a full-charge strip bullet gets fired down the pitch. That is exactly the
+  // pass-latch bug of §5.2 in the other weapon: the bullet was the other committed action that did
+  // not latch its target.
+  // FIX: while a bullet wind-up is live and no branch re-asked for it this tick, the aim keeps
+  // tracking the enemy it was ARMED at — lead-aimed while visible, dead-reckoned off `bm.seen`
+  // while not — and the wind-up is CANCELLED when that target is gone. It is a LATCH, NOT a wider
+  // tolerance: `fire` still needs the aim inside `tol`, so the shot is not released until it has
+  // converged on the latched target. §000's failure mode is untouched — nothing here re-arms
+  // `bm.reactUntil` (that still requires `!bm.charging`) and nothing tightens `tol`, so a close
+  // juking target cannot be pushed back into "never shoots".
+  // perceivedPos()'s anti-omniscience GHOST is deliberately preserved: firing at a last-seen spot
+  // is correct behaviour, so the memory branch below dead-reckons it exactly the way perceivedPos
+  // does instead of cancelling. (The audit found 0 ghost bullets in 255 anyway — every wide bullet
+  // was the stale wind-up, not the fog.)
+  let latchDead = false;
+  {
+    const bc = bm.charging;
+    if (bc && !bc.ball && bc.tgtId && !btn.shoot) {
+      const q = state.players[bc.tgtId];
+      if (!q || q.team === p.team) latchDead = true;         // left the match / somehow ours
+      else if (botCanSee(p, q, state, sk)) {
+        const [lx, ly] = leadAim(p.x, p.y, q.x, q.y, q.vx || 0, q.vy || 0, state.settings.bulletSpeed || 720, sk);
+        aimVec = { x: lx, y: ly };
+      } else {
+        const sn = bm.seen, memS = (sk && sk.memoryS) || LOST_SIGHT_MEMORY;
+        if (sn && sn.id === bc.tgtId && mem.t - sn.t <= memS) {
+          const adv = clamp(mem.t - sn.t, 0, memS);          // same dead-reckoning as perceivedPos
+          aimVec = { x: sn.x + sn.vx * adv - p.x, y: sn.y + sn.vy * adv - p.y };
+        } else latchDead = true;                             // no sight and no memory -> can't land
+      }
+    }
+  }
+
   // desired aim angle
   const [dax, day] = unit(aimVec.x, aimVec.y);
   const desired = Math.atan2(day, dax);
@@ -2879,11 +2930,14 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
       const fireAt = isBallRelease
         ? clamp(wantCharge, 0.02, 1) - 0.01
         : (wantCharge >= FULL_CHARGE ? FULL_CHARGE + 0.01 : Math.max(0.02, wantCharge - 0.02));
-      bm.charging = { target: wantCharge, fireAt, tol: closeShot ? 0.85 : 0.45, ball: isBallRelease, until: mem.t + windupBudget(p, fireAt) };
+      // `tgtId` is the LATCH (see the bullet latch above): the enemy this bullet is for. Ball
+      // releases never carry one — the release path is the pass latch's, not this one's.
+      bm.charging = { target: wantCharge, fireAt, tol: closeShot ? 0.85 : 0.45, ball: isBallRelease, until: mem.t + windupBudget(p, fireAt), tgtId: isBallRelease ? null : (btn.tgtId || null) };
     }
   } else if (shoot && bm.charging) {
     bm.charging.target = wantCharge; // keep the freshest target while winding up
     if (closeShot) bm.charging.tol = 0.85;
+    if (!bm.charging.ball && btn.tgtId) bm.charging.tgtId = btn.tgtId; // re-target: the branch changed its mind
   }
   // WATCHDOG FORCE-RELEASE. Setting shoot=true alone does NOT get the ball out: `fire` needs both
   // p._charge >= fireAt AND the aim inside c.tol, and it was the TOLERANCE that stalled — a close,
@@ -2901,8 +2955,16 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   if (bm.charging) {
     const c = bm.charging;
     const lostBall = c.ball && state.ball.owner !== p.id;
+    // MEASURED AND REJECTED — the mirror of `lostBall`. A BULLET wind-up still live when this bot
+    // PICKS THE BALL UP is no longer a bullet (`fire` while carrying is a KICK), so cancelling it
+    // looks like the same bug from the ball's end. It is not this agent's to cancel: 3 seed bases x
+    // 16 matches said it removes 12.7 RELEASES per match at the reported level 10 (rel/match 21.6 ->
+    // 10.8) — a third of every shot in the match — because the release it kills is a real kick with
+    // the carry branch's own aim, and the bot then has to re-charge from zero. Releases belong to the
+    // pass latch's owner; if that path is genuinely mis-aimed the fix is to CONVERT the charge to a
+    // release (re-derive fireAt/tol), not to throw the shot away. Do not re-add it here.
     const dryBullet = !c.ball && p.ammo <= 0;
-    if (lostBall || dryBullet || mem.t > c.until) {
+    if (lostBall || dryBullet || latchDead || mem.t > c.until) {
       bm.charging = null; // cancel: release trigger without firing
     } else if ((p._charge || 0) >= c.fireAt && dThetaAbs <= c.tol) {
       fire = true;
