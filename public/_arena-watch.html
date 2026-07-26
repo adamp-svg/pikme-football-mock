@@ -136,14 +136,21 @@
   .notes b { color: var(--ink); font-weight: 650; }
   .notes code { font-family: var(--mono); font-size: 11.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   .fig { font-family: var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+  .prov { font-family: var(--mono); font-size: 12px; line-height: 1.75; color: var(--ink-dim);
+    background: var(--panel-2); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 12px 14px; margin: 0 0 12px; overflow-x: auto; }
+  .prov b { color: var(--ink); }
+  .prov .live { color: var(--ok); font-weight: 700; }
+  .prov .warn { color: var(--crit); font-weight: 700; }
+  .prov .k { display: inline-block; min-width: 15ch; color: var(--ink-faint); }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 
 <div class="wrap">
   <header>
     <div>
-      <h1>Arena Watch <em>— level 10 bots, 2v2, on a pitch that keeps changing</em></h1>
-      <p class="sub">The real <code>shared/sim.js</code> and <code>shared/bot-ai.js</code> from <code>football-mock</code>, bundled and run in this page — a fresh random seed and (optionally) a freshly generated layout every match. Every named play the bots run is announced in words, and the panel on the right keeps score of which skills from the catalogue have actually appeared.</p>
+      <h1>Arena Watch <em>— level 10 bots, 2v2 and 3v3, on a pitch that keeps changing</em></h1>
+      <p class="sub">The real <code>shared/sim.js</code> and <code>shared/bot-ai.js</code> from <code>football-mock</code>, bundled and run in this page — a fresh random seed and (optionally) a freshly generated layout every match. Switch between the two formats the game actually matchmakes: <b>2v2</b> on the main arena and <b>3v3</b> on its own wider layout. Every named play the bots run is announced in words, and the panel on the right keeps score of which skills from the catalogue have actually appeared.</p>
     </div>
     <div class="src" id="srcline">difficulty level 10 · enemy skill 0.93</div>
   </header>
@@ -159,13 +166,20 @@
       </div>
     </div>
     <div class="grp">
+      <span class="lbl">Format</span>
+      <div class="seg" role="group" aria-label="team format">
+        <button id="fmt2" aria-pressed="true">2v2</button>
+        <button id="fmt3" aria-pressed="false">3v3</button>
+      </div>
+    </div>
+    <div class="grp">
       <span class="lbl">Pitch</span>
       <select id="arena">
-        <option value="main">ראשי — the layout that ships</option>
+        <option value="main" selected>ראשי — the layout that ships</option>
         <option value="threes">שלושות — the 3v3 layout</option>
         <option value="classic">קלאסי — the old default arena</option>
         <option value="empty">ריק — bare pitch</option>
-        <option value="random" selected>Random layout (new every match)</option>
+        <option value="random">Random layout (new every match)</option>
       </select>
     </div>
     <div class="grp">
@@ -185,7 +199,7 @@
 
   <main>
     <div class="stage">
-      <canvas id="cv" width="1600" height="880" aria-label="Top view of a 2v2 bot match"></canvas>
+      <canvas id="cv" width="1600" height="880" aria-label="Top view of an all-bot match, 2v2 or 3v3"></canvas>
       <div class="under">
         <div class="key">
           <span><i style="background:var(--teamA)"></i>team A → right</span>
@@ -214,7 +228,7 @@
         </div>
       </div>
 
-      <div class="card"><h2>The four bots <span id="skillline"></span></h2><div id="bots"></div></div>
+      <div class="card"><h2><span id="botsline">The four bots</span> <span id="skillline"></span></h2><div id="bots"></div></div>
 
       <div class="card"><h2>Play by play</h2><ul id="log"></ul></div>
 
@@ -234,10 +248,24 @@
       <li><b>Most tricks work; a few are unreachable.</b> The bank shot (<code>goalBank</code>) fired <b>zero</b> times in 28 matches, the full catapult combo <span class="fig">0.07</span> times a match, the cannon pass (a mate's bomb flinging the carrier, ball attached) <span class="fig">0.04</span>, and a bomb used to clear a loose ball <span class="fig">0.2</span>. Bots also cannot fire a quick tap at all — <code>aimed: fire</code> at <code>bot-ai.js:3124</code> makes every bot bullet an aimed shot — so slow stacks and the ⅓ super are player-only.</li>
       <li><b>Passing is technically sound and tactically catchable.</b> <span class="fig">80%</span> of releases leave below <code>FULL_CHARGE</code> (0.70), and a kick under that threshold is caught outright by any field defender in the lane. The pass charge is sized by <code>dist / 950</code>, which only reaches full power at 665 px — past the 558 px where the same kick stops reaching the receiver.</li>
       <li><b>What changing the pitch really costs.</b> Layout-driven skills simply vanish: no fragile-wall snipes and no walls shot down at all on the 3v3 layout or two of the three generated ones, because fragile walls only exist where a wall can be built over a bush. The bots never notice the difference.</li>
+      <li><b>3v3 is not 2v2 with an extra bot.</b> It is a separate matchmade format (<code>server.js</code> <code>FORMATS['3v3']</code>) with <code>teamSize: 3</code> and its own arena, because the main pitch's dense centre does not survive six players. The coordinator still assigns exactly one ball-chaser per side, so the third bot is a second support — watch what <code>MIN_SEP</code> (320 px) does to the shape.</li>
     </ul>
+
+    <h2 id="provhead">How current is this page?</h2>
+    <p><b>This page is a snapshot, and it says so on purpose.</b> A published artifact is served under a
+    CSP that blocks every external host, so it cannot fetch <code>shared/sim.js</code> from the server at
+    load time — the code it runs is the code that was bundled into it. The stamp below is the exact
+    identity of that bundle, so you can always tell whether what you are watching is current:</p>
+    <div id="prov" class="prov">reading build stamp…</div>
+    <p>To refresh it: <code>node scripts/build-arena-watch.mjs out.html --from=HEAD</code> and redeploy
+    from the same file path (that keeps the URL). <code>--check out.html</code> answers "has the bundled
+    code changed since?" with an exit code, which is what a hook or a scheduled job can act on. The
+    <b>always-current</b> view is the in-repo twin at <code>/_arena-watch.html</code> on the dev server:
+    it imports <code>/shared</code> live, so it reflects the tree after a restart.</p>
   </div>
 </div>
 
+<script type="application/json" id="build-stamp">{"source":"live","commit":"a232e9a","subject":"fix(bots): a gap a body fits is not a gap a carrier fits, and don't fly into stone","commitAt":"2026-07-26T18:58:49+03:00","builtAt":"2026-07-26T16:11:21.165Z","fingerprint":null,"modules":["sim.js","constants.js","arena.js","field-spawns.js","field-sizes.js","bot-ai.js","difficulty.js","main-field.js","field-3v3.js"],"dirtyShared":[]}</script>
 <script type="module">
 import * as m0 from '/shared/sim.js';
 import * as m1 from '/shared/constants.js';
@@ -267,7 +295,25 @@ window.SALTIZ = { req: (n) => __m[n] };
 
   const LEVEL = 10;                                    // "bots level 10", as the user asked
   const LV = DIFFICULTY_LEVELS[LEVEL];
-  const IDS = [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]];
+
+  // ---------- the two formats the game actually matchmakes ----------
+  // Mirrors server.js FORMATS: `quick` is teamSize 2 on the main arena, `3v3` is teamSize 3 with its
+  // OWN layout (FIELD_3V3) because MAIN_FIELD's dense centre does not survive six players. The pitch
+  // select below can still override the arena — that is the "the arena can change" case — but the
+  // DEFAULT pairing is what a real match uses.
+  const TEAM_FORMATS = {
+    '2v2': { teamSize: 2, arena: 'main', word: 'four' },
+    '3v3': { teamSize: 3, arena: 'threes', word: 'six' },
+  };
+  let fmtKey = '2v2';
+  const TSof = () => TEAM_FORMATS[fmtKey].teamSize;
+  // A0,A1,[A2],B0,B1,[B2] — same order the old fixed 2v2 list used, so every loop below is unchanged.
+  const makeIds = (ts) => {
+    const out = [];
+    for (const team of ['A', 'B']) for (let i = 0; i < ts; i++) out.push([team + i, team, i]);
+    return out;
+  };
+  let IDS = makeIds(2);
   const REACH = 0.468 * ((1400) * 1 - 18);             // ballRollPx(state, 1): a full kick's roll
   const hyp = Math.hypot;
 
@@ -337,6 +383,9 @@ window.SALTIZ = { req: (n) => __m[n] };
     giveGo: 'give-and-go: passed and broke forward',
     clearForward: 'cleared it up the pitch rather than dribble nowhere',
     fetchBall: 'was nearest the loose ball and went for it',
+    chaseCommit: 'committed to the loose ball the moment it came free',
+    pressIntercept: 'is pressing where the carrier is GOING, not where it is',
+    secondPress: 'nobody was pressing, so it went too — second man up',
     zigzag: 'is zig-zagging past the marker',
     dodge: 'sidestepped the incoming shot',
     workAngle: 'is working an angle for a shot',
@@ -408,7 +457,10 @@ window.SALTIZ = { req: (n) => __m[n] };
 
   // ---------- state ----------
   const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
-  let s = null, mem = null, seed = 1, arenaKey = 'random', arenaLabel = '', mirror = true;
+  // Opens on the pairing the game actually ships (2v2 on the main arena) rather than on a generated
+  // layout: this page is asked "what does a real bot fight look like?" first and "does it survive a
+  // pitch it was never tuned against?" second — the Pitch select is one click away.
+  let s = null, mem = null, seed = 1, arenaKey = 'main', arenaLabel = '', mirror = true;
   let running = true, speed = 1, acc = 0, last = 0;
   let stat = null, log = [], lastTag = {}, tagAt = {}, session = { tags: {}, ev: {} }, matches = 0;
   const ov = { reach: true, vision: false, blind: true, aim: true };
@@ -421,10 +473,15 @@ window.SALTIZ = { req: (n) => __m[n] };
     const field = key === 'random' ? randomField(seed) : FIELDS[key]();
     arenaLabel = ARENA_NAMES[key] + (key === 'random' ? ' #' + (seed % 9999) : '');
     s = createState();
+    // teamSize FIRST: sim.js plans the kickoff formation per slot (planSpawns / spawnPos read it),
+    // and setField's authored-spawn draw caps its per-team slot count against it. Setting it after
+    // addPlayer would spawn six bots into a 2v2 formation.
+    s.teamSize = TSof();
     s.resetTimer = 0.6;              // a short kickoff beat, same as the game's
     s.goalsToWin = 0;                // timed match: play the clock out, then roll a new one
     setField(s, field);
     s.rng = makeRng(seed);
+    IDS = makeIds(TSof());
     for (const [id, team, slot] of IDS) addPlayer(s, id, { name: id, char: 'player', team, slot, isBot: true });
     attachBall(s, s.rng() < 0.5 ? 'A' : 'B');
     mem = createBotMemory('normal');
@@ -434,7 +491,7 @@ window.SALTIZ = { req: (n) => __m[n] };
       goalShots: 0, goalShort: 0, releases: 0, weak: 0, ev: {},
     };
     log = []; lastTag = {}; tagAt = {};
-    push('info', 'new match', `${arenaLabel} · seed ${seed} · ${s.arena.walls.length} obstacles, ${s.arena.bushes.length} bushes`);
+    push('info', 'new match', `${fmtKey} · ${arenaLabel} · seed ${seed} · ${s.arena.walls.length} obstacles, ${s.arena.bushes.length} bushes`);
     paintChrome();
   }
 
@@ -523,7 +580,11 @@ window.SALTIZ = { req: (n) => __m[n] };
       if (tag && tag !== lastTag[id] && s.elapsed - (tagAt[id + tag] || -9) > 1.6) {
         tagAt[id + tag] = s.elapsed;
         session.tags[tag] = (session.tags[tag] || 0) + 1;
+        // An unnamed tag is announced AS a gap, not silently swallowed: `shared/bot-ai.js` gains new
+        // plays faster than this page does (three landed the day it was written), and a page whose
+        // job is to say what the bots are doing should admit when it no longer knows a word.
         if (PLAYS[tag]) push('play', id, PLAYS[tag]);
+        else push('info', id, `ran a play this page has no words for yet: ${tag}`);
       } else if (tag && tag !== lastTag[id]) {
         session.tags[tag] = (session.tags[tag] || 0) + 1;
       }
@@ -749,7 +810,8 @@ window.SALTIZ = { req: (n) => __m[n] };
     el('mBlind').textContent = (stat.blindTicks * DT).toFixed(1) + ' s';
     el('arenaline').textContent = `${arenaLabel} · seed ${seed} · worst blind spell ${stat.blindWorst.toFixed(1)}s · ${stat.weak}/${stat.releases} kicks under full charge`;
     el('skillline').textContent = `A ${skillsOf().A} · B ${skillsOf().B}`;
-    el('srcline').innerHTML = `level ${LEVEL} — ${LV.name} · enemy ${LV.enemy} (${skillWord(LV.enemy)})<br>real sim.js + bot-ai.js, bundled`;
+    el('botsline').textContent = `The ${TEAM_FORMATS[fmtKey].word} bots`;
+    el('srcline').innerHTML = `level ${LEVEL} — ${LV.name} · enemy ${LV.enemy} (${skillWord(LV.enemy)}) · ${fmtKey}<br>real sim.js + bot-ai.js, bundled`;
 
     const bots = IDS.map(([id, team]) => {
       const p = s.players[id]; if (!p) return '';
@@ -815,6 +877,18 @@ window.SALTIZ = { req: (n) => __m[n] };
     });
   }
   el('arena').addEventListener('change', (e) => { arenaKey = e.target.value; reset(); });
+  // Switching format also moves the pitch to that format's real arena — a 3v3 on MAIN_FIELD is not a
+  // thing the game ships. The select stays live afterwards, so any pitch can still be forced.
+  function setFormat(key) {
+    fmtKey = key;
+    el('fmt2').setAttribute('aria-pressed', String(key === '2v2'));
+    el('fmt3').setAttribute('aria-pressed', String(key === '3v3'));
+    arenaKey = TEAM_FORMATS[key].arena;
+    el('arena').value = arenaKey;
+    reset();
+  }
+  el('fmt2').addEventListener('click', () => setFormat('2v2'));
+  el('fmt3').addEventListener('click', () => setFormat('3v3'));
   el('mirrorOn').addEventListener('click', () => {
     mirror = true; el('mirrorOn').setAttribute('aria-pressed', 'true'); el('mirrorOff').setAttribute('aria-pressed', 'false');
     mem.teamSkill = skillsOf();
@@ -828,6 +902,47 @@ window.SALTIZ = { req: (n) => __m[n] };
   window.addEventListener('resize', () => { fit(); paintChrome(); });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintChrome);
   new MutationObserver(paintChrome).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ---------- provenance: say exactly which code this page is running ----------
+  // The stamp is injected by scripts/build-arena-watch.mjs. A standalone build records the commit and
+  // a sha256 over the bundled module sources; the in-repo dev page records `live` instead, because it
+  // imports /shared off the server and therefore has no fixed identity to record.
+  (function provenance() {
+    const host = el('prov');
+    if (!host) return;
+    const tag = document.getElementById('build-stamp');
+    if (!tag) { host.innerHTML = '<span class="warn">no build stamp</span> — this file was produced by hand, or by a builder older than the stamp.'; return; }
+    let st;
+    try { st = JSON.parse(tag.textContent); } catch { host.innerHTML = '<span class="warn">build stamp is not readable JSON</span>'; return; }
+    const row = (k, v) => `<div><span class="k">${k}</span>${v}</div>`;
+    const esc = (v) => String(v == null ? '—' : v).replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'));
+    const when = (iso) => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (isNaN(d)) return esc(iso);
+      const mins = Math.round((Date.now() - d.getTime()) / 60000);
+      const ago = mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago`
+        : mins < 60 * 48 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} days ago`;
+      return `${d.toISOString().replace('T', ' ').slice(0, 16)}Z <span class="k">(${ago})</span>`;
+    };
+    if (st.source === 'live') {
+      host.innerHTML = row('code', '<span class="live">LIVE</span> — imported from <b>/shared</b> on the dev server at page load')
+        + row('always current', 'yes, after a server restart (Node does not hot-reload)')
+        + row('page generated', when(st.builtAt))
+        + row('repo was at', `${esc(st.commit)} — ${esc(st.subject)}`);
+      return;
+    }
+    const dirty = (st.dirtyShared || []).length;
+    host.innerHTML = row('code', `<b>snapshot</b> — bundled from <b>${esc(st.source)}</b>, cannot change after publish`)
+      + row('commit', `${esc(st.commit)} — ${esc(st.subject)}`)
+      + row('committed', when(st.commitAt))
+      + row('page built', when(st.builtAt))
+      + row('shared/ sha256', `<b>${esc(String(st.fingerprint).slice(0, 16))}</b>…  <span class="k">(${(st.modules || []).length} modules)</span>`)
+      + row('modules', esc((st.modules || []).join(' · ')))
+      + (dirty
+        ? row('⚠︎ uncommitted', `<span class="warn">${esc(st.dirtyShared.join(', '))}</span> — bundled from a dirty tree, so this bundle matches no commit`)
+        : row('uncommitted', 'none — this bundle is reproducible from the commit above'));
+  })();
 
   fit(); paintChrome(); reset(); requestAnimationFrame(frame);
 })();
