@@ -104,6 +104,18 @@ ability off for low tiers, and never hand a skill-independent ability to everyon
    own frozen base and **86% → 70% on the combined HEAD** once three other agents' commits landed; it
    was withdrawn and rebuilt. **Four individually correct measurements can integrate into a
    regression** — the last measurement of the day must be on the tree that ships.
+   **THE METHOD THAT ACTUALLY WORKS — A/B `HEAD` against `HEAD` minus YOUR OWN hunks**
+   (`git apply -R` of your commit; it applies clean if nobody touched your lines). That measures your
+   marginal effect on the tree that ships and it **cannot go stale while you measure**, unlike a frozen
+   base. The `git archive` advice above is only for reaching an OLD revision (bisecting); using it as
+   your A/B baseline is what quietly encouraged three agents to freeze three different bases. Re-run
+   that way, the wall fix reproduced and the defect was WORSE than first reported: commit aim drift up
+   to **156°** on `catapultWall` and **206px** of placement error, against 0° / 44px shipped.
+7. **A TEST THAT ONLY FAILS IN A SCRATCH CHECKOUT.** `test-rank-parity.mjs` requires the sibling repo
+   `../pikme-server/data/football-rank.js` and deliberately refuses to self-disable ("a check that
+   turns itself off is not a check"). It is **6/6 PASS in the real working tree** and a hard fail in any
+   `git archive` scratch copy. It was reported as a new pre-existing failure; it was the LOCATION, not
+   the revision. Before calling a test flaky, check whether it needs something outside the repo.
 6. **UNSEEDED RUNS.** Identical code has reported wall-pinning from 0.27% to 0.51%. Always seed.
 
 ---
