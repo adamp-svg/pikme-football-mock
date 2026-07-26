@@ -991,16 +991,15 @@ export function interceptPoint(me, carrier, state, sk) {
   // and over-leading walks the presser into space (the "recomputed target treadmill" family).
   const tau = clamp(dist / mySpd, 0, 0.9) * (sk && sk.leadGain != null ? sk.leadGain : 1);
   const cvx = carrier.vx || 0, cvy = carrier.vy || 0;
-  let x = carrier.x + cvx * tau, y = carrier.y + cvy * tau;
-  // Cut the lane: shade the intercept ~15% toward the goal the carrier is attacking, so the presser
-  // ends up between the ball and the net rather than behind it. Skipped when they are standing still
-  // (nothing to cut off) so a stationary carrier is still approached directly.
-  const movingFast = hyp(cvx, cvy) > 40;
-  if (movingFast) {
-    const egX = enemyGoalX(carrier.team);
-    x += (egX - carrier.x) * 0.15;
-    y += (GY - carrier.y) * 0.15;
-  }
+  const x = carrier.x + cvx * tau, y = carrier.y + cvy * tau;
+  // MEASURED AND REMOVED — "shade the point 15% toward the goal the carrier is attacking, to cut the
+  // lane". It reads well and it is wrong whenever the presser is ALREADY goal-side: the shading then
+  // points AWAY from the carrier, so the bot backs off instead of closing. Caught by
+  // test-bot-newskills.mjs's super-body-strip fixture, which passed on the baseline and failed with
+  // the shading in: a super bot 115px from a standing carrier hovered at 115-133px, never made body
+  // contact, and the "strip" the test saw was the carrier simply kicking the ball away 1.6s later.
+  // The velocity lead is the part with evidence behind it; a lane-cut term needs its own measurement
+  // before it goes back in, and it would have to be perpendicular to the approach, not along it.
   return { x: clamp(x, 20, FIELD.W - 20), y: clamp(y, 20, FIELD.H - 20) };
 }
 

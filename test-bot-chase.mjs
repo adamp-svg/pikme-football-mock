@@ -97,7 +97,8 @@ const loose = (s, x, y, vx = 0, vy = 0) => { s.ball.owner = null; s.ball.x = x; 
   const ip = interceptPoint(s.players.A0, s.players.B0, s, { leadGain: 1 });
   ok(ip.y > 300 + 40, `intercept leads the carrier down its run (y ${ip.y.toFixed(0)} vs carrier 300)`);
   const ipNoLead = interceptPoint(s.players.A0, { ...s.players.B0, vx: 0, vy: 0 }, s, { leadGain: 1 });
-  ok(Math.abs(ipNoLead.y - 300) < 25, 'a standing carrier is approached directly, not led');
+  ok(Math.abs(ipNoLead.y - 300) < 2 && Math.abs(ipNoLead.x - 1000) < 2,
+    'a standing carrier is approached directly, not led');
 }
 
 // ---------------------------------------------------------------- 5. somebody always presses
