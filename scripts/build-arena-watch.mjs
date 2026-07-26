@@ -85,6 +85,22 @@ function fingerprint(mods) {
   for (const [name, src] of mods) { h.update(name); h.update('\0'); h.update(src); h.update('\0'); }
   return h.digest('hex');
 }
+// The portable one, for the per-module hashes the PAGE has to be able to recompute. Kept
+// behaviourally identical to `fnvHash()` in arena-watch.template.html — if you change one, change
+// both, or the page's update check will report every module as changed.
+//
+// ⚠️ OVER BYTES, NOT OVER A DECODED STRING. Hashing text makes the answer depend on how the
+// transport labelled its charset: a server that serves `/shared/x.js` without `charset=utf-8` hands
+// the browser a differently-decoded string for identical bytes, and every module reads as changed.
+// (server.js does send it — `.js: text/javascript; charset=utf-8` — but the page can be served by
+// anything, and a false "BEHIND" on a correct build is the worst failure this check has.) These
+// modules contain non-ASCII: Hebrew strings and the — in comments.
+function fnv1a(bytes) {
+  const b = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes, 'utf8');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
 const FP = fingerprint(seen);
 
 // ---- --check: is a previously built file still current? ----------------------------------------
@@ -203,6 +219,16 @@ const stamp = {
   builtAt: new Date().toISOString(),
   fingerprint: FP,
   modules: [...seen.keys()],
+  // PER-MODULE hashes, so the page's "Check for a newer build" button can fetch /shared/<name> —
+  // which only resolves when the page is served BY the game server, never inside the artifact
+  // sandbox — and name the modules that differ instead of just saying "something changed".
+  //
+  // ⚠️ FNV-1a, NOT sha256, and that is deliberate: the browser side of this comparison has to
+  // compute the same value, and `crypto.subtle` is undefined outside a secure context. The dev
+  // server is plain HTTP on a LAN IP (http://10.100.102.36:3012 — the user's own test surface), so
+  // WebCrypto is unavailable exactly where the button is meant to work. This hash needs to detect
+  // change, not resist an attacker.
+  moduleHashes: Object.fromEntries([...seen].map(([n, src]) => [n, fnv1a(src)])),
   // Only meaningful for a worktree build: which shared modules were uncommitted when it was bundled.
   dirtyShared: FROM === 'worktree' ? dirtyShared : [],
 };

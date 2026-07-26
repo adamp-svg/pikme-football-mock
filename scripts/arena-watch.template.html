@@ -139,6 +139,12 @@
   .prov .live { color: var(--ok); font-weight: 700; }
   .prov .warn { color: var(--crit); font-weight: 700; }
   .prov .k { display: inline-block; min-width: 15ch; color: var(--ink-faint); }
+  .provbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -4px 0 12px; }
+  .rout { font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--ink-dim); }
+  .rout b { color: var(--ink); }
+  .rout .live { color: var(--ok); font-weight: 700; }
+  .rout .warn { color: var(--crit); font-weight: 700; }
+  .rout code { font-family: var(--mono); font-size: 11.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 
@@ -253,11 +259,20 @@
     load time — the code it runs is the code that was bundled into it. The stamp below is the exact
     identity of that bundle, so you can always tell whether what you are watching is current:</p>
     <div id="prov" class="prov">reading build stamp…</div>
+    <div class="provbar">
+      <button id="recheck">Check for a newer build</button>
+      <span id="recheckOut" class="rout" role="status" aria-live="polite"></span>
+    </div>
     <p>To refresh it: <code>node scripts/build-arena-watch.mjs out.html --from=HEAD</code> and redeploy
     from the same file path (that keeps the URL). <code>--check out.html</code> answers "has the bundled
     code changed since?" with an exit code, which is what a hook or a scheduled job can act on. The
     <b>always-current</b> view is the in-repo twin at <code>/_arena-watch.html</code> on the dev server:
     it imports <code>/shared</code> live, so it reflects the tree after a restart.</p>
+    <p>The button below asks <em>this page's own origin</em> for <code>/shared</code> and compares each
+    module against what was bundled. Served by the game server it tells you exactly which modules have
+    moved on; in the published sandbox it cannot reach anything external — that is the CSP, not a bug —
+    so it says so and hands you the rebuild command. There is no honest way to make a published
+    snapshot pull new code by itself.</p>
   </div>
 </div>
 
@@ -926,6 +941,74 @@
       + (dirty
         ? row('⚠︎ uncommitted', `<span class="warn">${esc(st.dirtyShared.join(', '))}</span> — bundled from a dirty tree, so this bundle matches no commit`)
         : row('uncommitted', 'none — this bundle is reproducible from the commit above'));
+  })();
+
+  // ---------- "Check for a newer build" ----------
+  // WHAT THIS CAN AND CANNOT DO, because the honest version of this button is the whole point.
+  // A published artifact is served under a CSP that blocks every EXTERNAL host, so this page can
+  // never reach pikme-football.onrender.com or a LAN dev server — a true "refetch the latest code"
+  // button is impossible there, and one that pretended otherwise would just fail silently.
+  // What IS allowed is a SAME-ORIGIN request. So the check asks its own origin for /shared/<module>:
+  //   · served by the game server (`/_arena-watch.html` on :3012, or prod) -> it resolves, and this
+  //     compares the live file against what was bundled, naming each module that differs;
+  //   · inside the artifact sandbox (or opened from file://) -> it cannot resolve, and the button
+  //     says so and hands over the exact rebuild command instead of failing mutely.
+  // FNV-1a, not sha256: `crypto.subtle` is undefined outside a secure context and the dev server is
+  // plain HTTP on a LAN IP. Must stay identical to `fnv1a()` in scripts/build-arena-watch.mjs.
+  // Over BYTES, never a decoded string — otherwise a response without `charset=utf-8` decodes the
+  // same bytes differently and every module falsely reads as changed (these files carry Hebrew).
+  function fnvHash(bytes) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, '0');
+  }
+  (function updateCheck() {
+    const btn = el('recheck'), out = el('recheckOut');
+    if (!btn || !out) return;
+    const tag = document.getElementById('build-stamp');
+    let st = null;
+    try { st = tag ? JSON.parse(tag.textContent) : null; } catch { st = null; }
+    if (st && st.source === 'live') {
+      btn.disabled = true;
+      out.innerHTML = '<span class="live">already live</span> — this copy imports <code>/shared</code> at load, so a reload IS the refetch.';
+      return;
+    }
+    const CMD = 'node scripts/build-arena-watch.mjs out.html --from=HEAD';
+    btn.addEventListener('click', async () => {
+      const hashes = (st && st.moduleHashes) || null;
+      if (!hashes) { out.innerHTML = '<span class="warn">this build has no per-module hashes</span> — rebuild with a current builder first.'; return; }
+      btn.disabled = true; out.textContent = 'asking this page\'s own origin for /shared…';
+      const names = Object.keys(hashes);
+      const changed = [], missing = [];
+      try {
+        for (const n of names) {
+          const r = await fetch(`/shared/${n}`, { cache: 'no-store' });
+          if (!r.ok) throw new Error(`${n}: HTTP ${r.status}`);
+          const live = fnvHash(new Uint8Array(await r.arrayBuffer()));
+          if (live !== hashes[n]) changed.push(n);
+        }
+      } catch (e) {
+        // The expected path in the artifact sandbox — not an error worth apologising for.
+        // The raw network message is deliberately NOT shown unless it carries information: in the
+        // sandbox it is always the browser's generic one, and printing it reads as a malfunction
+        // when nothing malfunctioned. An HTTP status, by contrast, is worth surfacing.
+        const status = /HTTP \d+/.exec(String((e && e.message) || ''));
+        out.innerHTML = `<b>No live source at this origin.</b> This page is a published snapshot, and its
+          sandbox reaches no external host — so it cannot pull code from the game server. That is the design, not a fault.
+          <br>Rebuild and redeploy from the same file path to refresh it: <code>${CMD}</code>
+          <br>Or watch the always-current twin at <code>/_arena-watch.html</code> on the dev server.
+          ${status ? `<br><span class="k">the origin answered ${status[0]}</span>` : ''}`;
+        btn.disabled = false; btn.textContent = 'Check again';
+        return;
+      }
+      if (!changed.length && !missing.length) {
+        out.innerHTML = `<span class="live">CURRENT</span> — all ${names.length} bundled modules match the live <code>/shared</code> on this origin.`;
+      } else {
+        out.innerHTML = `<span class="warn">BEHIND</span> — the live source differs in <b>${changed.join(', ')}</b>.
+          <br>Reload <code>/_arena-watch.html</code> to run the live code, or rebuild the snapshot: <code>${CMD}</code>`;
+      }
+      btn.disabled = false; btn.textContent = 'Check again';
+    });
   })();
 
   fit(); paintChrome(); reset(); requestAnimationFrame(frame);
