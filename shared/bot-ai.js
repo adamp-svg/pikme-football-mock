@@ -17,7 +17,8 @@
 //   - live tuning (bulletSpeed/bombPower/shotPower) comes from state.settings.
 
 import {
-  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
+  FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE,
+  BOMB_WALL_DIST, BOMB_WALL_COS, BOMB_WALL_CANNON_STATIC, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, SUPER_USES, BUILD_WINDUP,
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, FRAGILE_PASS_SPEED, CHARGE_MIN_MUL, BALL_MIN_SPEED,
   CHARACTERS, DEFAULT_CHAR, clamp,
@@ -802,7 +803,8 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
       // difficulty as mechanical power: harder bots charge full sooner + cool down faster
-      // BREAK THE CARD/SKILL DOUBLE-DIP. RARITY_BY_LEVEL (server.js) hands a bot its best CARDS at
+      // BREAK THE CARD/SKILL DOUBLE-DIP. RARITY_BY_LEVEL (shared/bot-buffs.js — it lived in server.js
+      // until the CARD_POWER_BAND change moved it beside the rarity->buff table) hands a bot its best CARDS at
       // exactly the levels where this skill vector also spikes, and the sim multiplies the two:
       // a L9 bot ran chargeRate 2.05 x cardShot 1.25 = 2.56x and cdMul 0.55 x cardUtil 0.80 = 0.44,
       // so difficulty grew ~quadratically while the player's own power grows only with their album.
@@ -828,35 +830,117 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
   return out;
 }
 
-// WALL-BOMB CANNON spot — "put a bomb near a wall to FLY FURTHER" (user-requested trick).
-// Grounded in the sim's ACTUAL rule (sim.js wallCannonMul + explode):
-//   * the bomb is planted at the bot's FEET, so the launch direction falls back to its AIM,
-//   * a wall boosts the launch only if it lies within BOMB_WALL_DIST (150px) of the BOMB and
-//     inside a ±35° cone (BOMB_WALL_COS 0.82) OPPOSITE the launch — i.e. wall BEHIND the bot,
+// ==================== WALL-BOMB CANNON: "put a bomb near a wall to FLY FURTHER" ==============
+// The sim's ACTUAL rule (sim.js wallCannonMul + explode):
+//   * a wall boosts the launch only if it lies within BOMB_WALL_DIST (150px) of the BOMB and inside
+//     a ±35° cone (BOMB_WALL_COS 0.82) OPPOSITE the launch — i.e. the wall is BEHIND the bomb,
 //   * closer wall = stronger: mul = 1 + (1 - d/150) * (peak - 1); steel peaks at 1.55×,
-//   * a static wall AHEAD in the launch cone CANCELS the jump entirely (jumpBlocked).
-// So the stand point is `STAND` px along +dir from the wall's nearest FACE (not its centre —
-// the old code used the centre and a fixed 130px, which on a 120px wall left the bomb 70px out
-// for a weak 1.29× instead of ~1.4×). Was also reading the GLOBAL ARENA, so it aimed at walls
-// that do not exist on a field-builder arena (F9). Returns the spot + the multiplier it earns.
-const CANNON_STAND = 52; // ⇒ mul ≈ 1 + (1-52/150)*0.55 ≈ 1.36× on steel, and clear of the wall body
-function staticCannonSpot(px, py, dirx, diry, state = null) {
-  let best = null, bd = 1e9;
+//   * a static wall AHEAD in the launch cone CANCELS the jump outright (explode's jumpBlocked),
+//   * the planter only gets the self-launch at all while it is within BOMB_CENTER_R (95px) of the
+//     bomb — and useSpecial LOBS the bomb up to BOMB_LOB_RANGE along the (sax,say) drag.
+//
+// WHY THIS IS NOT A "WALK TO A PAD" ANY MORE. The previous version computed a stand-pad 52px off a
+// wall face and walked there. Measured over 12 matches at skill 0.82: 449 bot-ticks reached "a pad
+// exists" and ZERO ever reached "I am standing on it" — 17 walk episodes made a MEDIAN OF 9px of
+// progress toward a pad 87px away over 26 ticks, when a 158px/s bot should cover 68px. It cannot
+// work: steer() judges a direction blocked when a clearance ray (LOOK 120px) drops under 2px, so a
+// target 52px off a wall face reads as inside an obstacle, the wall-detour branch commits to a
+// tangent, and the bot orbits. 65% of the abandoned episodes then ended on `bombCooldown` because
+// coopPush (a feet plant with nothing behind it) had spent the charge — tag counts coopPush 118-150
+// vs cannonSetup 9-14. Net effect: 5% of self-launches were wall-boosted, i.e. exactly the ~7%
+// chance rate. Every wall-cannon in the game was an accident.
+//
+// So: DON'T MOVE THE BOT — MOVE THE BOMB. Lob it BACKWARDS into the gap between us and the wall
+// (wall → bomb → bot, flying away from the wall). Costs no extra bomb charge and no walking, and
+// it also EXTENDS reach: a wall up to 150+85 = 235px away can still be turned into a cannon.
+// Candidates are all < BOMB_CENTER_R so the planter keeps its on-centre self-launch.
+// MEASURED OPPORTUNITY (8 matches, 11200 sampled bot positions, flight dir toward the ball) — this
+// is the ceiling any wall-cannon rate has to live under, and it is why the two levers below exist:
+//   a wall would cannon a plain FEET plant:            6.3% of positions
+//   ...allowing a <= 85px LOB BACK:                   10.4%
+//   ...also allowing +-20deg of FLIGHT ROTATION:      16.2%   (+-30deg buys only 18.4%)
+// The pre-fix game measured 5-7% of self-launches boosted, i.e. exactly the feet-plant chance rate.
+const CANNON_LOB = [0, 35, 60, 85]; // 0 = the plain feet plant, i.e. the baseline each lob must beat
+// Angling the jump is the second lever: a rocket-jump that flies 20deg off still covers the ground it
+// was meant to cover. Capped at 20deg (~137px of lateral error over a 400px launch) and only taken
+// when it EARNS the deviation — otherwise the bot would twist its flight line for a 1.02x nothing.
+const CANNON_ROT = [0, 0.175, -0.175, 0.349, -0.349]; // rad: 0, +-10deg, +-20deg
+const CANNON_ROT_MIN_MUL = 1.15;
+
+// ---- TOOL USE IS A RATE, NOT A CLIFF (see test-bot-partner.mjs for the measurement) -------------
+// Both bomb-for-MOBILITY plays used to be gated on `sk.toolSkill >= 0.72`. skillVec interpolates
+// toolSkill as 0.32 at t=0, 0.58 at t=0.25 (`easy`), 0.85 at t=0.50 (`normal`), so that gate opens
+// only above t~0.38 and EXCLUDES `easy`. DIFFICULTY_LEVELS gives the human's PARTNER veryEasy or easy
+// on SEVEN of the twelve levels (0,1,3,4,6,8,11), so on most of the ladder the bot standing next to
+// the player never planted a bomb at all: measured 0.21-0.29 plants and 0.04-0.13 rocket-jumps per
+// match at partner skill 0.25, against 5.42 and 4.00 at 0.50. A 20x cliff on one threshold.
+// (The branch comment recorded this gate being lowered 0.9 -> 0.72 for exactly this reason; 0.72 was
+// still one tier too high.) A weak bot should use its tools RARELY AND BADLY, not never — so the gate
+// now admits `easy` and the RE-ARM INTERVAL carries the difficulty. veryEasy (0.32) stays out on
+// purpose: level 0 is אימון, tutorial fodder.
+const TOOL_MOBILITY_MIN = 0.45;
+// A weak bot NOTICES the opportunity only some of the time — that is what carries the difficulty now
+// the cliff is gone. Probability ramps from 0 at TOOL_MOBILITY_MIN to 1 at 0.95, so `easy` (0.58)
+// takes ~26% of the chances it gets and `hard`/`extreme` (0.97/1.00) take all of them, exactly as
+// before. Deterministic — seededNoise over a per-bot hash and a ~1.3Hz time bucket, no RNG in the
+// sim path — so replays stay reproducible.
+// A SKILL-SCALED RE-ARM was tried first and rejected on measurement: stretching the interval to 7.5s
+// at easy still produced 5.92 bombs/match vs `normal`'s 6.67, because these branches are limited by
+// how often their preconditions line up, not by the timer. It flattened the ladder instead of ranking it.
+function toolNotice(sk, p, mem) {
+  const pr = clamp(((sk.toolSkill || 0) - TOOL_MOBILITY_MIN) / 0.50, 0, 1);
+  if (pr >= 1) return true;
+  return seededNoise(Math.floor(mem.t * 1.3) + idHash(p.id) * 0.011) < pr * 2 - 1;
+}
+
+// Mirrors sim.js wallCannonMul for STATIC stone (the strong peak, 1.55×). Built walls also cannon,
+// weakly and only while intact, and are deliberately ignored: a bot must not plan a launch around a
+// wall an opponent can shoot down between the plant and the blast.
+function cannonMulAt(state, bx, by, dx, dy) {
+  let mul = 1;
   for (const w of arenaOf(state).walls) {
-    // nearest point of the wall box to the bot — the face we want at our back
-    const fx = clamp(px, w.x, w.x + w.w), fy = clamp(py, w.y, w.y + w.h);
-    const sx = fx + dirx * CANNON_STAND, sy = fy + diry * CANNON_STAND; // stand on the LAUNCH side
-    if (sx < 60 || sx > FIELD.W - 60 || sy < 60 || sy > FIELD.H - 60) continue; // never a spot off-pitch
-    // the wall must end up BEHIND the launch (cone opposite dir) once we are standing there
-    const bwx = fx - sx, bwy = fy - sy, bwd = hyp(bwx, bwy) || 1;
-    if ((bwx / bwd) * -dirx + (bwy / bwd) * -diry < 0.82) continue; // BOMB_WALL_COS
-    if (bwd > 150) continue;                                        // BOMB_WALL_DIST
-    // and nothing indestructible AHEAD in the launch cone, or the sim cancels the jump outright
-    if (indestructibleBlocks(sx, sy, sx + dirx * 160, sy + diry * 160, state)) continue;
-    const d = hyp(sx - px, sy - py);
-    if (d < bd && d < 210) { bd = d; best = { x: sx, y: sy, mul: 1 + (1 - bwd / 150) * 0.55 }; } // short hop only
+    const np = nearestOnWall(w, bx, by);
+    const vx = np.x - bx, vy = np.y - by, d = hyp(vx, vy);
+    if (d < 1 || d > BOMB_WALL_DIST) continue;
+    if ((vx / d) * -dx + (vy / d) * -dy > BOMB_WALL_COS) {
+      const m = 1 + (1 - d / BOMB_WALL_DIST) * (BOMB_WALL_CANNON_STATIC - 1);
+      if (m > mul) mul = m;
+    }
   }
-  return best;
+  return mul;
+}
+// Mirrors explode()'s jumpBlocked: a static wall AHEAD in the launch cone kills the jump entirely,
+// so a candidate that trips it is strictly worse than not lobbing at all.
+function launchCancelled(state, bx, by, dx, dy) {
+  for (const w of arenaOf(state).walls) {
+    const np = nearestOnWall(w, bx, by);
+    const vx = np.x - bx, vy = np.y - by, wd = hyp(vx, vy);
+    if (wd < 1) return true;                       // bomb inside the wall — no jump
+    if (wd > BOMB_WALL_DIST) continue;
+    if ((vx / wd) * dx + (vy / wd) * dy > BOMB_WALL_COS) return true;
+  }
+  return false;
+}
+// Where should a bot at `p` planting for a rocket-jump along (dx,dy) put the bomb, and which way
+// should it actually fly? Returns { x, y, dx, dy, mul }: the plant anchor (its own feet when no wall
+// helps), the flight direction to commit to, and the multiplier the sim will give it.
+function cannonPlant(p, dx, dy, state) {
+  let best = null;
+  for (const rot of CANNON_ROT) {
+    const cs = Math.cos(rot), sn = Math.sin(rot);
+    const ax = dx * cs - dy * sn, ay = dx * sn + dy * cs;
+    for (const L of CANNON_LOB) {
+      const bx = p.x - ax * L, by = p.y - ay * L;  // lob BACKWARDS, opposite the flight
+      // useSpecial clamps the lob into the field; a clamped lob would land somewhere we did not
+      // model, so only consider anchors that are comfortably in-bounds.
+      if (bx < 24 || bx > FIELD.W - 24 || by < 24 || by > FIELD.H - 24) continue;
+      if (launchCancelled(state, bx, by, ax, ay)) continue;
+      const mul = cannonMulAt(state, bx, by, ax, ay);
+      if (rot !== 0 && mul < CANNON_ROT_MIN_MUL) continue; // never twist the flight line for nothing
+      if (!best || mul > best.mul + 1e-6) best = { x: bx, y: by, dx: ax, dy: ay, mul, back: L };
+    }
+  }
+  return best || { x: p.x, y: p.y, dx, dy, mul: 1, back: 0 };
 }
 
 // Decide one bot's input: role tactics -> desired {move target, aim, buttons},
@@ -982,9 +1066,12 @@ function decideBot(p, role, state, mem, sk, dt) {
     if ((bm.stuck || 0) > stuckLim && nearCorner && foeNear < 170 && hyp(b.x - p.x, b.y - p.y) < 220
         && (p.specialCd || 0) <= 0 && mem.t > (bm.nextBombAt || 0)) {
       const [ex, ey] = unit(FIELD.W / 2 - p.x, GY - p.y);   // rocket toward the open pitch centre
-      bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + ex * 400, aimY: p.y + ey * 400 };
+      // Wedged in a corner is exactly where a wall IS behind you, so this is the highest-yield place
+      // to use the cannon lob — and the escape needs every px of launch it can get.
+      const cp = cannonPlant(p, ex, ey, state);
+      bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 400, aimY: p.y + cp.dy * 400 };
       bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.stuck = 0; bm.lastTrick = 'cornerEscape';
-      return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+      return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
     }
   }
 
@@ -1179,32 +1266,27 @@ function decideBot(p, role, state, mem, sk, dt) {
     // TACTIC 9 — OFF-BALL CATCH-UP ROCKET-JUMP (hard/extreme): if we're lagging far behind the
     // play with a clear lane and no enemy on us, plant a bomb and rocket-jump toward the play so
     // the teammate isn't left alone (directly counters "the bot lags/hides instead of helping").
-    // Gate is toolSkill >= 0.72 (not 0.9): the PARTNER side of the ladder never exceeds 0.97 and
-    // most levels put the partner at 0.25-0.85, so a 0.9 gate meant the bot on the HUMAN's team
-    // essentially never used its tools — the "my team-mate does nothing" half of the complaint.
-    if (!isOnBall && sk.toolSkill >= 0.72 && bombReady && mem.t > (bm.nextBombAt || 0)) {
+    // Gated on TOOL_MOBILITY_MIN + toolNotice (a skill-scaled chance of spotting the opportunity)
+    // rather than a hard toolSkill cliff — see the comment on those two: the previous 0.72 cliff
+    // muted the human's PARTNER on 7 of the 12 difficulty levels.
+    if (!isOnBall && sk.toolSkill >= TOOL_MOBILITY_MIN && bombReady
+        && mem.t > (bm.nextBombAt || 0) && toolNotice(sk, p, mem)) {
       const dPlay = hyp(carrier.x - p.x, carrier.y - p.y);
       const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(e.x - p.x, e.y - p.y)), 1e9);
       if (dPlay > 620 && foeNear > 300 && laneClear(p.x, p.y, carrier.x, carrier.y, state, team, { enemies: false })) {
         const [ex, ey] = unit(carrier.x - p.x, carrier.y - p.y);
-        // ---- "PUT A BOMB NEAR A WALL TO FLY FURTHER" (explicitly requested) -------------------
-        // sim.js wallCannonMul: a wall within BOMB_WALL_DIST (150px) of the BOMB, inside a ±35°
-        // cone OPPOSITE the launch, multiplies the self-launch — steel peaks at 1.55x. So the
-        // geometry has to be wall → bomb → bot, flying AWAY from the wall, and nothing
-        // indestructible ahead or the sim cancels the jump outright. staticCannonSpot() finds such
-        // a pad; if one is a short hop away we detour ONTO it first and launch from there instead
-        // of from where we happen to stand. Restored as a MOBILITY play only — never as the
-        // tackle-steal, which is what got the old wall-cannon nudge deleted (it rocket-jumped the
-        // planter AWAY from the loose ball, for a measured 0% steal rate).
-        const pad = sk.toolSkill >= 0.8 ? staticCannonSpot(p.x, p.y, ex, ey, state) : null;
-        if (pad && hyp(pad.x - p.x, pad.y - p.y) > 34) {
-          bm.lastTrick = 'cannonSetup'; // walk onto the pad, keep facing the launch direction
-          return finalize(p, { x: pad.x, y: pad.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
-        }
-        bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + ex * 500, aimY: p.y + ey * 500 };
+        // "PUT A BOMB NEAR A WALL TO FLY FURTHER" (explicitly requested) — see cannonPlant above:
+        // lob the bomb backwards into the gap between us and a stone wall so the sim's wallCannonMul
+        // boosts the launch. A MOBILITY play only, never the tackle-steal: relocating the plant on a
+        // tackle rocket-jumps the planter AWAY from the loose ball (measured 0% steal on hard), which
+        // is why the old wall-cannon nudge was deleted from that path and must stay deleted.
+        const cp = cannonPlant(p, ex, ey, state);
+        // aimX/aimY is the point the bombHold branch edges toward, and that displacement is what sets
+        // the sim's radial launch direction — so it MUST be cp.dx/dy, not the raw ex/ey.
+        bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
         bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
-        bm.lastTrick = pad ? 'wallCannonJump' : 'catchUpJump'; // on the pad => the boosted launch
-        return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+        bm.lastTrick = cp.mul > 1.05 ? 'wallCannonJump' : 'catchUpJump';
+        return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
       }
     }
     // TACTIC 2 — COORDINATED DEFLECT SET-PIECE (hard/extreme). When our carrier is near the
@@ -1262,15 +1344,21 @@ function decideBot(p, role, state, mem, sk, dt) {
       // TACTIC 10 — COOPERATIVE PUSH (hard/extreme): rocket-jump into the open attacking outlet so
       // the carrier can hit a fast one-two (the pass arrives via the pass-to-mate logic below). We
       // signal mem.push so the carrier prioritises the pass. A bomb-jump into space, no enemy near.
-      if (sk.toolSkill >= 0.72 && bombReady && mem.t > (bm.nextBombAt || 0)) { // see note above on partner-side reach
+      if (sk.toolSkill >= TOOL_MOBILITY_MIN && bombReady
+          && mem.t > (bm.nextBombAt || 0) && toolNotice(sk, p, mem)) { // rate, not a cliff — see TOOL_MOBILITY_MIN
         const dOut = hyp(ahead - p.x, bestY - p.y);
         const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(ahead - e.x, bestY - e.y)), 1e9);
         if (dOut > 620 && foeNear > 260 && laneClear(p.x, p.y, ahead, bestY, state, team, { enemies: false })) {
           const [ex, ey] = unit(ahead - p.x, bestY - p.y);
-          bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + ex * 500, aimY: p.y + ey * 500 };
-          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'coopPush';
+          // Same wall-cannon lob as the catch-up jump: this is the OTHER mobility jump, and it is
+          // the one that was quietly winning the race for the bomb charge (118-150 commits vs the
+          // cannon's 9-14) while planting at its feet with nothing behind it.
+          const cp = cannonPlant(p, ex, ey, state);
+          bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
+          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+          bm.lastTrick = cp.mul > 1.05 ? 'wallCannonJump' : 'coopPush';
           (mem.push || (mem.push = {}))[team] = { x: ahead, y: bestY, by: p.id, until: mem.t + 2.4 };
-          return finalize(p, { x: p.x, y: p.y }, { x: ex, y: ey }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+          return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
         }
       }
     }
@@ -1622,20 +1710,21 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   if (opts.hold) bm.charging = null; // standing on a bomb plant — never charge a shot
   const isBallRelease = state.ball.owner === p.id;
 
-  // Bomb aim offset: useSpecial() throws along the (sax,say) VECTOR direction, distance =
-  // min(hypot(sax,say),1) × BOMB_LOB_RANGE. We build (sax,say) along the bot's aim, so for a
-  // bot the lob direction equals its aim. Every bomb this bot plants today (cornered-finish rocket-jump, tackle-steal,
-  // double-bomb join) is a FEET plant: bm.bombHold.x/y (the intended plant anchor) is set to
-  // the bomber's OWN position at commit time, so the offset is naturally 0 — exactly the
-  // "feet/rocket-jump bomb stays 0,0" rule. The one case where the anchor differs from the
-  // bomber's feet is the wall-cannon nudge (a wall-backed spot a short hop away): there this
-  // becomes a genuine aimed offset toward that spot, capped at BOMB_LOB_RANGE.
+  // Bomb lob offset: useSpecial() throws the bomb along the (sax,say) VECTOR, distance =
+  // min(hypot(sax,say),1) × BOMB_LOB_RANGE. bm.bombHold.x/y IS the intended plant anchor, so the
+  // offset is simply (anchor - feet): zero for a feet plant (tackle-steal, double-bomb join), and a
+  // real backwards lob for the wall-cannon.
+  // FIXED: this used to take the DISTANCE from the anchor but the DIRECTION from `aimVec`, so any
+  // branch that asked for a lob would have thrown the bomb along its AIM instead of at the anchor —
+  // i.e. the wall-cannon would have lobbed FORWARD, away from the wall it was trying to use. It was
+  // latent only because every branch then set the anchor to the bomber's own feet (distance 0).
   let sax = 0, say = 0;
   if (special && bm.bombHold) {
-    const dist = hyp(bm.bombHold.x - p.x, bm.bombHold.y - p.y);
+    const ox = bm.bombHold.x - p.x, oy = bm.bombHold.y - p.y;
+    const dist = hyp(ox, oy);
     if (dist > 1) {
       const frac = Math.min(1, dist / BOMB_LOB_RANGE);
-      const [ux, uy] = unit(aimVec.x, aimVec.y);
+      const [ux, uy] = unit(ox, oy);
       sax = ux * frac; say = uy * frac;
     }
   }

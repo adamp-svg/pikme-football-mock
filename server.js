@@ -26,7 +26,7 @@ import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
 import { opponentKeyFor } from './shared/opponent-key.js';
-import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, botSideScalar } from './shared/bot-buffs.js';
+import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, botSideScalar, botLoadoutForLevel } from './shared/bot-buffs.js';
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
@@ -1031,53 +1031,16 @@ function randomBotLoadout(params) {
 function extremeBotLoadout() { return [{ r: 'legendary', n: 1 }, { r: 'legendary', n: 2 }, { r: 'legendary', n: 3 }]; }
 
 // --- Level-based bot cards: a bot's cards reflect ITS OWN level (0..11), not the humans' -----
-// Smooth ramp: weak bots pull mostly commons and can have empty slots; strong bots pull epics/
-// legendaries and fill up; the top levels are GUARANTEED legendaries. `min`/`max` = card count
-// range, `w` = per-slot rarity weights (relative), `leg` = guaranteed legendary slots.
-// TUNABLE: endpoints are fixed (L0-1 ~rare legendary, L10-11 = 3 legendaries); the curve between
-// is free to adjust. Indexed by difficulty level 0..11.
-const RARITY_BY_LEVEL = [
-  { min: 0, max: 2, w: { common: 80, rare: 18, epic: 2,  legendary: 0 },   leg: 0 }, // L0
-  { min: 1, max: 2, w: { common: 72, rare: 22, epic: 4,  legendary: 2 },   leg: 0 }, // L1  ~2% legendary
-  { min: 1, max: 3, w: { common: 55, rare: 30, epic: 12, legendary: 3 },   leg: 0 }, // L2
-  { min: 2, max: 3, w: { common: 42, rare: 33, epic: 18, legendary: 7 },   leg: 0 }, // L3
-  { min: 2, max: 3, w: { common: 30, rare: 33, epic: 25, legendary: 12 },  leg: 0 }, // L4
-  { min: 2, max: 3, w: { common: 20, rare: 30, epic: 34, legendary: 16 },  leg: 0 }, // L5
-  { min: 3, max: 3, w: { common: 12, rare: 26, epic: 40, legendary: 22 },  leg: 0 }, // L6
-  { min: 3, max: 3, w: { common: 6,  rare: 20, epic: 44, legendary: 30 },  leg: 0 }, // L7  ~1 legendary
-  { min: 3, max: 3, w: { common: 0,  rare: 14, epic: 46, legendary: 40 },  leg: 1 }, // L8  >=1 guaranteed
-  { min: 3, max: 3, w: { common: 0,  rare: 6,  epic: 40, legendary: 54 },  leg: 2 }, // L9  >=2 guaranteed
-  { min: 3, max: 3, w: { common: 0,  rare: 0,  epic: 0,  legendary: 100 }, leg: 3 }, // L10 3 legendaries
-  { min: 3, max: 3, w: { common: 0,  rare: 0,  epic: 0,  legendary: 100 }, leg: 3 }, // L11 3 legendaries
-];
-// Weighted rarity pick from a level's relative weights.
-function weightedRarity(w) {
-  const total = (w.common || 0) + (w.rare || 0) + (w.epic || 0) + (w.legendary || 0);
-  if (total <= 0) return 'common';
-  let r = Math.random() * total;
-  if ((r -= w.common || 0) < 0) return 'common';
-  if ((r -= w.rare || 0) < 0) return 'rare';
-  if ((r -= w.epic || 0) < 0) return 'epic';
-  return 'legendary';
-}
-// A bot loadout drawn purely from ITS level. Places any guaranteed legendaries, rolls a card
-// count in [min,max], fills the rest by weighted rarity, then applies the same "no empty slot if
-// holding > rare" rule as randomBotLoadout. Card NUMBERS are random across the full 1..50 album.
-// Same [s0,s1,s2] shape, so buffsFromLoadout consumes it directly (display == gameplay).
-function botLoadoutForLevel(level) {
-  const spec = RARITY_BY_LEVEL[clampLevel(level)];
-  const out = [null, null, null];
-  const slots = shuffle([0, 1, 2]);
-  let placed = 0;
-  for (let i = 0; i < Math.min(3, spec.leg); i++) out[slots[placed++]] = { r: 'legendary', n: randomCardNum() };
-  const count = Math.max(spec.leg, spec.min + Math.floor(Math.random() * (spec.max - spec.min + 1)));
-  for (; placed < Math.min(3, count); placed++) out[slots[placed]] = { r: weightedRarity(spec.w), n: randomCardNum() };
-  // "Make sense" rule: no empty slot if holding a card stronger than RARE — fill empties with commons.
-  const strongRank = CARD_RARITIES.indexOf('rare');
-  const topRank = out.reduce((m, s) => (s ? Math.max(m, CARD_RARITIES.indexOf(s.r)) : m), -1);
-  if (topRank > strongRank) for (let s = 0; s < 3; s++) if (!out[s]) out[s] = { r: 'common', n: randomCardNum() };
-  return out;
-}
+// `botLoadoutForLevel` + the RARITY_BY_LEVEL ramp + the per-level CARD_POWER_BAND now live in
+// shared/bot-buffs.js, beside the rarity→buff table they have to agree with. Two hand-copied
+// rarity tables is the exact drift that module exists to stop, and the band needed unit tests
+// (test-bot-cards.mjs) that a server-local function could not have.
+//
+// ⚠️ DEAD CODE ABOVE, verified unreachable, safe to delete — the "size bots to the humans' album"
+// subsystem this superseded: `humanBuffTarget`, `botLoadoutParamsFromHumans`, `randomBotBuffs`,
+// `randomBotLoadout`, `pickRarityPct`, `RARITY_PCT_STEPS`, `PCT_TO_RARITY`, and the write-only
+// `room.botBuffTarget` / `room.botLoadoutParams` (set in startMatch, read by nothing). Left in place
+// only to keep this diff off a file other agents are working in — see OPEN_ITEMS.md hygiene.
 // A loadout -> the compact [{r,n,c,w}] card list the roster/album UI expects.
 function loadoutToCards(loadout) {
   return (Array.isArray(loadout) ? loadout : []).filter(Boolean).map((s) => ({ r: s.r, n: s.n, c: 1, w: 0 }));
