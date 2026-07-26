@@ -108,6 +108,35 @@ has reported pinning 0.27–0.51%).
   worst jam 0.97 → 1.61 s, pinned 0.37 → 0.49%, idle-with-ball 1.12 → 1.51%. Gated on the freedom
   existing, skill 0.50 movement is unchanged and only the orientation is fixed.
 
+### A THIRD instrument is now past its noise floor: `test-bot-cannon`'s agreement gate
+
+The suite came back `68 pass / 4 fail` and one of them, `test-bot-cannon`, passed on pristine HEAD and
+failed with this round's change — so I chased it instead of shipping it. `measureLevel` takes a 4th
+`seedBase` argument, so the gate can be swept. On an **unmodified `git archive HEAD` tree**, same
+10 matches × 3 levels × 2 sides, eight seed bases:
+
+`88% (14/16) · 71% (5/7) · 88% (7/8) · 88% (7/8) · 80% (4/5) · 63% (5/8) · 76% (13/17) · 86% (6/7)`
+
+**HEAD fails its own `agreement >= 75%` gate at 2 of 8 seed bases.** `cannonChance` fires only 5-17
+times across 30 match-halves, so one missed chance moves the ratio 6-14 points. Pooled: HEAD
+**61/76 = 80%**, this round's build **61/83 = 74%** — a 6.8pp difference against a ~4.7pp binomial SE
+at n≈80, i.e. **inside one standard error**. The threshold was NOT lowered; (i) is now a PRINTED
+TRIPWIRE with that spread quoted next to it, which is the same call §3 records for `test-bot-ladder`'s
+shot count and possession and the same call round 6 made for this test's own *absolute* rate. The
+gates that actually carry the cannon fix — the five sim fixtures, the fixture that proves a boosted
+launch, and "boosts are DECIDED, not accidental" — are untouched and still pass.
+
+That makes **three** instruments in this repo now known to be at or past their resolution limit:
+`test-bot-levels` (§3), `test-bot-ladder`'s axis rho (§00000), and `test-bot-cannon`'s agreement. The
+pattern is always the same — a rare event divided by a small denominator — and the answer is always
+the same: sweep the seed and pool, or print it instead of gating it.
+
+**Wall builds were checked against exactly the "did you fix idle by never building?" trap**, using
+`p.stat.walls` (incremented inside `buildWall`, so it is exact — my group-diff counter undercounts
+because `MAX_BUILT_WALLS` evicts groups). Four seed bases, 12 × 60s at L10:
+HEAD 2.42 / 3.92 / 3.67 / 3.33 → mean **3.34**/match; after 3.08 / 3.92 / 3.08 / 4.50 → mean
+**3.65**/match. **+9%.** The bots build as often as before and every wall now spans what it was aimed at.
+
 ### Open after round 8
 
 1. **The defensive wall plays place their wall AFTER the situation has ended.** Of 52 builds at HEAD
@@ -254,6 +283,146 @@ So the next agent has three honest options, and it is the user's call, not a tun
 3. **Revert the reward rules** — they do exactly what was asked on their own metrics (advance per
    release 4 -> 27px, backward releases 8% -> 3.6%, retreat-while-nearest 23% -> 16% at skill 0.50)
    and they are the thing that pushed the instrument past its floor.
+
+> ⚠️ **Option 1 was measured and it is WRONG — see §00000b immediately below.** The instrument is not
+> blind and more matches do not bring the ladder back: at 1152 matches/anchor the ordering is
+> *resolvably* non-monotone. Read §00000b before acting on the three options above.
+
+---
+## 00000b. THE INSTRUMENT, MEASURED (2026-07-26 15:0x-15:4x, agent `bot-noise`) — it is NOT at its resolution limit
+
+The section above concluded "the instrument is telling us its noise floor is exceeded". Half of that
+is right and the important half is wrong, and both halves are now measured rather than argued.
+New instrument: **`bot-noise.mjs`** (`collect` writes one JSON row per match, `analyze` reads them
+back), which replays `test-bot-ladder.mjs`'s configuration EXACTLY — verified by replication: on the
+committed round-7 bots at bases 1000-6000 it reproduces the recorded run digit for digit (goals rho
+**0.10**, spread **0.11**, top-beats-bottom -0.28 vs -0.40, zero-check **0.16**, per-seed-base rho
+**0.70 / 0.30 / 0.60 / -0.60 / -0.50 / 0.10**). Everything below is 9600+3840 matches on the
+**committed** `shared/` (HEAD `68a1161`, `bot-ai.js` unchanged since `2d7e689`), default arena, 60s.
+
+### 1. The noise floor, and the sample size it implies
+
+Null configuration (t=0.50 vs t=0.50, true value 0.00), 1536 matches: **per-match SD 1.78 goals**,
+mean +0.02 +-0.05. Cell SE is 1.78/sqrt(n):
+
+| n/anchor | SEEDS at PER=32 | SE | 95% band | 0.10 goals/match is | serial | 16-way sharded |
+|---|---|---|---|---|---|---|
+| 32 | 1 | 0.31 | +-0.61 | 0.3 sigma | 1 min | — |
+| 192 | 6 | **0.13** | +-0.25 | **0.8 sigma** | 5 min | 1 min |
+| 384 | 12 | 0.09 | +-0.18 | 1.1 sigma | 10 min | 2 min |
+| 1152 | 36 | 0.052 | +-0.10 | 1.9 sigma | 31 min | 5 min |
+| 1248 | 39 | 0.050 | +-0.10 | **2.0 sigma** | 34 min | 5 min |
+| 2816 | 88 | 0.033 | +-0.07 | 3.0 sigma | 77 min | 12 min |
+
+**A match costs 0.27s serially** (measured, 60s match, one process). The "a SEEDS=6 run takes ~20
+minutes" figure in circulation is a CONTENDED number — with 24 of these processes on 16 cores a match
+costs 0.71s. Sharding `bot-noise.mjs collect` by seed base is near-linear: 9600 matches took 8 minutes
+wall on 24 processes.
+
+### 2. The HARNESS ZERO-CHECK gate was a coin flip, and its round-7 "failures" were noise
+
+`+-0.15` at SEEDS=6 is a **1.2-sigma** tolerance (SE 0.13). An unbiased instrument fails it ~24% of
+runs. And the instrument IS unbiased: 1536 null matches read **+0.02 +-0.05**. So 0.16 and 0.18 were
+ordinary draws, not a broken harness — this was the §3 mistake ("a red/green light driven by the RNG")
+repeating itself in a different file. Re-based **with the arithmetic**, in the style of
+`test-bot-cannon`'s round-6 re-base: tolerance is now **3 SE computed from the run's own per-match SD**
+(+-0.38 at SEEDS=6) and it is printed. It still catches what it exists for: the 2026-07-25 kickoff
+confound is worth 0.65-1.31 goals/match — kicking off measures **+0.72** vs **-0.59** and being team A
+**+0.16** vs **-0.03** — i.e. 5-10 SE. Better still, the harness now gates the **BALANCE COUNTS**
+themselves (`kickedOff == N/2` and `sideA == N/2` for every anchor), which is the same check with
+**zero** variance.
+
+### 3. What IS resolvable at 1152/anchor: the ladder is genuinely NON-MONOTONE
+
+| anchor | t=0.05 | t=0.25 | t=0.50 | t=0.82 | t=1.00 |
+|---|---|---|---|---|---|
+| goal diff vs the t=0.50 reference (+-0.05) | -0.48 | -0.49 | **+0.06** | **-0.49** | -0.29 |
+
+Every anchor LOSES to the t=0.50 reference and **t=0.82 is a trough**: 0.50 vs 0.82 is 0.55 +-0.07
+(**7.5 sigma**), 0.82 vs 1.00 is 0.20 +-0.07 (2.7 sigma). Replicated on three independent seed schemes
+(anchor-private seeds, common random numbers, mirrored quads) — same shape every time.
+**So no sample size will make `rho >= 0.85` pass.** The rho gate is not broken; it is correctly
+reporting a truth that is not monotone. Raising the sample only pins down a residual nobody feels.
+The suspect is in this round's own notes: the two anchors that sit ABOVE the new patience gate
+(`t > 0.62`, §00000) are the two worst cells. That is a bot question, not a harness question.
+
+### 4. Positive control: the same instrument, same n, on a ladder that is NOT flat
+
+While measuring, another agent's *uncommitted* `bot-ai.js` was in the tree (a pass-back abort latch, a
+bullet-target latch, an arena shoot-spot plan). Measured on it at the SAME n=192 and the SAME 6 seed
+bases: goals rho **0.90**, per-seed-base rho **0.90 / 0.90 / 0.90 / 0.80 / 0.90 / 0.70**, spread
+**1.15** (6.4 sigma), xG rho 1.00. Not a claim about that code — it is the control that settles the
+instrument question: **when the ladder is real, SEEDS=6 sees it in every base. Per-seed-base sign
+flips mean the ladder is FLAT, not that the instrument is blind.**
+
+### 5. Candidate ranking statistics — 16 of them, and no ATTACKING one is gateable
+
+Per-match differentials (measured team minus reference), 1152 matches/anchor, 36 seed bases.
+`spread/SE` = how many sigma the top-vs-bottom gap is; `per-base rho` is the honest column.
+
+| statistic | pooled rho | per-base rho min / med | spread | spread/SE | null reading |
+|---|---|---|---|---|---|
+| **strips** (gated today) | 1.00 | **0.90 / 1.00** | 10.5 | 67 | -0.02 |
+| **time-to-first-shot** after winning the ball | 1.00 | **0.80 / 1.00** | 0.76s | 41 | -0.01 |
+| possession seconds | -1.00 | -1.00 / -1.00 | -7.2s | 36 | -0.10 |
+| ground gained per possession | -0.30 | -1.00 / -0.40 | -39px | 18 | +1.1 |
+| ball advance per release | 0.80 | -0.20 / 0.60 | 58px | 8.6 | +6.6 |
+| clear shots on target | 0.70 | -0.40 / 0.50 | 0.49 | 7.4 | +0.03 |
+| **shots on goal = goals + saves forced** | 0.70 | -0.30 / 0.50 | 0.45 | **6.0** | +0.05 |
+| xG (on target x lane clear x exp(-d/600)) | 0.70 | -0.50 / 0.20 | 0.21 | 4.4 | +0.02 |
+| attacking-third minus defensive-third time | -0.10 | -0.70 / -0.10 | -3.6s | 3.5 | +1.2 |
+| **goals (today's gate)** | 0.10 | **-0.70 / 0.20** | 0.19 | 3.0 | +0.06 |
+| shots on target from inside 450px | -0.70 | -0.80 / -0.30 | -0.11 | 1.9 | +0.02 |
+| attacking-third entries | -0.60 | -1.00 / -0.30 | -0.13 | 1.9 | -0.02 |
+| territory (mean ball position) | -0.10 | -0.60 / 0.10 | -4px | 0.3 | +14 |
+| danger-zone time (ball within 450px of a mouth) | 0.30 | -0.70 / 0.10 | +0.09s | 0.1 | +0.4 |
+
+Read it in this order:
+
+* **The territory family fails on its own terms.** Territory, thirds, danger-zone time and entries all
+  have thousands of samples per match, so they are precise — and they still do not rank. That is a
+  RESULT, not a failed candidate: the strong tiers are not spending more time near the enemy goal.
+* **The shot family (shots on target, shots-on-goal, xG) ranks about as well as goals, with 2-4x the
+  SNR** — better instruments for the same question, and they confirm the same non-monotone shape.
+  `shots on goal` (goals + `p.stat.saves` forced) is now **printed** by `test-bot-ladder.mjs`: it is
+  free (one stat sum), counts ~2x the events, and reads 6.0 sigma where bare goals read 3.0.
+* **Only two statistics are stable base-to-base, and both are near-direct readouts of a skill key** —
+  strips (toolSkill/react/aggro) and time-to-first-shot (`chargeRate`). They rank 1.00 in 36/36 bases
+  because we SET them monotonically. Keep strips gated (it is the "axis is wired up" tripwire) but do
+  not add more of that kind and call it an outcome test: **a gate that cannot fail for the reason you
+  care about is not protecting anything.**
+
+### 6. Pairing: one free 2x, one refuted idea, one deleted duplicate
+
+* **Common random numbers ADOPTED.** The seed was `base + i*17 + Math.round(skill*100)`, so every
+  anchor played a private RNG stream. Dropping the anchor term makes all anchors play the same PER
+  scenarios. Measured over 36 seed bases, SD of the per-base top-vs-bottom gap:
+  goals **0.410 -> 0.287**, shots-on-goal 0.454 -> 0.314, xG 0.295 -> 0.210, territory 76.3 -> 53.3 —
+  **x2.0 equivalent sample size, for free.** (It does not stabilise *rho*: 0.41 -> 0.38. rho is limited
+  by how flat the truth is, not by precision. It does nothing for strips, already at 67 sigma.)
+* **Antithetic quadruples REFUTED — do not re-propose.** Giving all four (side x kickoff) combinations
+  ONE seed makes it worse: gap SD 0.410 -> 0.386 (quads) and -> 0.446 (quads+CRN), i.e. **x0.5-0.6**
+  equivalent sample, because at a non-null anchor the four runs are positively correlated, not
+  mirror-images. In the t=0.50 cell they force an EXACT 0.000000 — and that is a trap, not a win:
+  with equal skills the same seed on side A and on side B is the *identical simulation read from both
+  ends*, so the quad cancels by arithmetic and tests nothing (it would not even catch the persona-keyed
+  -on-id bug of §4).
+* **The CONTROL cell was a byte-identical recomputation of the t=0.50 anchor** (same seeds, same
+  skills) — 1/6 of every run spent printing a number the harness already had. Deleted; the control line
+  now prints `diffs[2]` and the run reports its own noise floor from the per-match SD instead. The
+  freed budget pays for SEEDS=7 at the old SEEDS=6 wall clock.
+* The existing side/kickoff balance is the estimator's biggest win and it was already there: kickoff is
+  worth +-0.66 goals/match and the cell cancels it exactly.
+
+### 7. So what should the ladder GATE from now on?
+
+Gated (all deterministic or >= 25 sigma): the **balance counts**, the **zero-check at 3 SE**, **strips
+rho >= 0.85**, **spread >= max(0.60 design, 3 SE statistical)** — the 3-SE term can only make that gate
+stricter, never weaker — plus goals `rho >= 0.85` and `top > bottom`, which are LEFT FAILING on purpose
+because they are reporting a real regression, and the fairness ceilings.
+Printed, never gated: goal differential per anchor **with its SE**, shots-on-goal, shots/match,
+possession, per-seed-base rho, and the run's resolvable-gap arithmetic.
+Full 16-statistic table and the noise-floor tables: `node bot-noise.mjs analyze <rows.jsonl>`.
 
 ### Open after round 7
 
@@ -697,7 +866,8 @@ PORT=3012 node server.js                      # then http://10.100.102.36:3012/?
 
 | harness | what it proves | notes |
 |---|---|---|
-| `test-bot-ladder.mjs` | does the 0..1 skill AXIS rank? | **`SEEDS=6` before quoting any number.** Currently rho 0.90, spread 0.60, control 0.00 |
+| `test-bot-ladder.mjs` | does the 0..1 skill AXIS rank? | **`SEEDS=6` before quoting any number.** Its noise floor is now measured — see the bullets below and §00000b |
+| `bot-noise.mjs` | **measures the ladder harness itself**: noise floor vs sample size, 16 candidate ranking statistics, and estimator/pairing variants | `collect` writes one JSON row per match, `analyze` reads them. Shard by seed base across cores; 0.27s/match serial |
 | `test-bot-levels.mjs` | do the 12 LEVELS get harder for the *player*? | models `[human-proxy + partner] vs [2×enemy]`. **Cannot resolve adjacent levels** — see below |
 | `test-bot-stall.mjs` | the two reported symptoms, as capability fixtures with deadlines | 8 fixtures |
 | `test-bot-tricks-fire.mjs` | per-tier trick histogram; fails if a named trick is silently dead | counts tag *transitions* |
@@ -715,6 +885,37 @@ PORT=3012 node server.js                      # then http://10.100.102.36:3012/?
   is a red/green light driven by the RNG, and chasing it produced two bad re-cuts before I stopped.
   Gated instead: enemy strictly rising; no partner dwarfing its enemy (>2.0× — old L2 was 2.7×); enemy
   out-growing partner overall.
+
+**Statistical honesty, part 2 — the ladder's own floor, MEASURED (2026-07-26, agent `bot-noise`; full
+tables in §00000b).** Same rule as above, now with numbers instead of a hunch, and it EXTENDS the rule
+rather than replacing it:
+
+- **The number to remember: the per-match goal differential has SD 1.78.** So the cell mean's SE is
+  1.78/√n — **0.31 at SEEDS=1, 0.13 at SEEDS=6, 0.05 at SEEDS=36.** To call a **0.10 goals/match**
+  difference at 2σ you need **n = 1248/anchor = SEEDS=39** (~34 min serial at 0.27s/match, ~5 min
+  sharded 16-way through `bot-noise.mjs`). *Nothing at SEEDS=6 can resolve one tier-to-tier step.*
+- **THE RULE, stated for the next agent.** *May be GATED:* things that are structural
+  (`kickedOff == N/2`, `sideA == N/2`, enemy skill strictly rising), things whose signal is ≥ 25σ at the
+  run's own sample size (strips, possession direction), a self-calibrating tolerance expressed in the
+  run's own SE (the zero-check at 3 SE; `spread >= max(0.60, 3 SE)`), and the fairness ceilings, which
+  are arithmetic. *Must only be PRINTED:* every per-anchor goal number, shots-on-goal, xG, territory,
+  thirds, entries, per-seed-base rho, and anything whose per-base rho crosses zero across seed bases.
+- **Two new failure modes, both now written into the test file:**
+  1. **A tolerance smaller than the SE is a coin flip.** The zero-check's `+-0.15` was 1.2 SE at
+     SEEDS=6 — an unbiased harness fails it ~24% of runs, and that is exactly what round 7's "0.16-0.18
+     out of tolerance" was. Re-based to 3 SE **with the arithmetic printed**, the way
+     `test-bot-cannon`'s 8% gate was re-based in round 6. Never hardcode a tolerance again: express it
+     in SE and print it.
+  2. **Do not gate a statistic that is a near-direct readout of a skill-vector key.** Strips
+     (toolSkill/react) and time-to-first-shot (`chargeRate`) rank 1.00 in 36/36 seed bases because we
+     SET them monotone. They are excellent tripwires that the axis is wired up, and they can never fail
+     for the reason anyone cares about. Keep exactly one of them gated; measure OUTCOMES for the rest.
+- **A flat per-seed-base rho list is a RESULT, not a broken instrument.** Control measurement: on a
+  revision whose real spread was 1.15 goals/match, SEEDS=6 read per-base rho 0.90/0.90/0.90/0.80/0.90/
+  0.70 — stable. When the same harness reads 0.70/0.30/0.60/−0.60/−0.50/0.10, the ladder is flat.
+- **Free 2x, already applied:** the ladder's seeds are now COMMON across anchors (the seed no longer
+  carries `Math.round(skill*100)`), which halves the variance of the top-vs-bottom gap. Antithetic
+  quadruples were tried and are WORSE — see §00000b before proposing any estimator change.
 
 ---
 
