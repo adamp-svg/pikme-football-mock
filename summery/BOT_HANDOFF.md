@@ -53,6 +53,12 @@ recorded a phantom third test failure that only existed in the scratch copy.
 
 ### THE SAME MISTAKE IN A SECOND COSTUME — never describe a WINDOW as the whole
 
+> **The whole section in one line: every one of these is a REFERENCE WITHOUT A COORDINATE.** A base
+> without a revision · a log without its tail · a sample without its n · a diff without its content ·
+> a file position without its version · a quote without its sha. The fix is always the same shape —
+> **attach the coordinate**, and state it in what you report. (`wall-windup`'s synthesis, and it is
+> better than the six worked examples below it.)
+
 Both failures above are one habit: **measuring a bounded slice and reporting it as the population.** A
 frozen base is a window in TIME; `head -n` is a window in a LOG; and 6 matches of `bot-passes.mjs` is a
 window in SAMPLE. All three burned this session inside a few hours:
