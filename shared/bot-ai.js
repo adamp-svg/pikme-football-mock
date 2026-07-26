@@ -163,7 +163,12 @@ export function skillVec(t) {
 }
 // Resolve the skill vector a TEAM's bots should use. Priority: per-team numeric scalar
 // (mem.teamSkill[team]) → whole-mem numeric scalar (mem.skill) → legacy string tier.
-function memSkillVec(mem, team) {
+// `id` (optional) allows a PER-BOT override. The real game only ever needs per-team skill (a
+// human's team contains exactly one bot — the partner), but measuring PLAYER-FELT difficulty needs
+// a mixed team: a human-proxy at a fixed skill alongside the level's partner. Without this the
+// level table can only be judged on enemy strength, which is not what the player experiences.
+function memSkillVec(mem, team, id) {
+  if (id && mem.botSkill && typeof mem.botSkill[id] === 'number') return skillVec(mem.botSkill[id]);
   if (mem.teamSkill && typeof mem.teamSkill[team] === 'number') return skillVec(mem.teamSkill[team]);
   if (typeof mem.skill === 'number') return skillVec(mem.skill);
   return BOT_SKILL[mem.skill] || BOT_SKILL[DEFAULT_SKILL];
@@ -848,11 +853,10 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
   for (const team of teams) {
     const role = mem.teams[team];
     if (!role) continue;
-    const teamSk = memSkillVec(mem, team); // per-team difficulty (enemy vs partner may differ)
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
-      // PERSONALITY: same level, different temperament, keyed to a stable hash of the bot id.
-      const sk = withPersona(teamSk, p.slot, mem.personaRot || 0);
+      // PERSONALITY: same level, different temperament, keyed to the SLOT so the two teams mirror.
+      const sk = withPersona(memSkillVec(mem, team, p.id), p.slot, mem.personaRot || 0);
       // difficulty as mechanical power: harder bots charge full sooner + cool down faster
       // BREAK THE CARD/SKILL DOUBLE-DIP. RARITY_BY_LEVEL (shared/bot-buffs.js — it lived in server.js
       // until the CARD_POWER_BAND change moved it beside the rarity->buff table) hands a bot its best CARDS at

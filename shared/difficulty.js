@@ -17,24 +17,6 @@ export const T = {
   extreme:  1.00,   // cheat tier
 };
 
-// enemy = the all-bot opposing team; partner = the bot(s) on the human's team.
-export const DIFFICULTY_LEVELS = [
-  { id: 0,  name: 'אימון',   hint: 'אויב חלש · שותף חלש',   enemy: T.veryEasy, partner: T.veryEasy }, // tutorial
-  { id: 1,  name: 'שלב 1',   hint: 'אויב חלש · שותף קל',    enemy: T.veryEasy, partner: T.easy },
-  { id: 2,  name: 'שלב 2',   hint: 'אויב קל · שותף חזק',    enemy: T.easy,     partner: T.harder },
-  { id: 3,  name: 'שלב 3',   hint: 'אויב קל · שותף קל',     enemy: T.easy,     partner: T.easy },
-  { id: 4,  name: 'שלב 4',   hint: 'אויב קל · שותף חלש',    enemy: T.easy,     partner: T.veryEasy },
-  { id: 5,  name: 'שלב 5',   hint: 'רגיל · שותף רגיל',      enemy: T.normal,   partner: T.normal },
-  { id: 6,  name: 'שלב 6',   hint: 'רגיל · שותף קל',        enemy: T.normal,   partner: T.easy },
-  { id: 7,  name: 'שלב 7',   hint: 'קשה · שותף רגיל',       enemy: T.harder,   partner: T.normal },
-  { id: 8,  name: 'שלב 8',   hint: 'קשה · שותף קל',         enemy: T.hard,     partner: T.easy },
-  { id: 9,  name: 'שלב 9',   hint: 'קשה מאוד · שותף רגיל',  enemy: T.veryHard, partner: T.normal },
-  { id: 10, name: 'שלב 10',  hint: 'קטלני · שותף קשה',      enemy: T.extreme,  partner: T.hard },
-  { id: 11, name: 'קטלני',   hint: 'קטלני · שותף קל',       enemy: T.extreme,  partner: T.easy },
-];
-
-export const DEFAULT_LEVEL = 5; // "normal / normal" — matches the old default feel
-
 // A 0..1 skill scalar -> the word the settings readout shows for that bot. Lives here, beside the
 // T stops it reads, so a retune of the ladder can't leave the labels describing the old numbers.
 // Ordered easiest-first; the first stop the scalar fits into wins.
@@ -47,6 +29,46 @@ export function skillWord(scalar) {
   for (const [stop, word] of SKILL_WORDS) if (s <= stop + 1e-9) return word;
   return 'קטלני';
 }
+
+// enemy = the all-bot opposing team; partner = the bot(s) on the human's team.
+//
+// RE-CUT 2026-07-26 against MEASURED player-felt difficulty (test-bot-levels.mjs), which models
+// what a player actually meets: [human-proxy + partner] vs [two enemies], scored by the player
+// side's goal differential. The previous table was cut when the underlying skill ladder was
+// INVERTED, and it showed:
+//     L2 (enemy 0.25 / partner 0.68) was the EASIEST LEVEL IN THE GAME at +0.75 goals/match —
+//     easier than L0 (+0.22) — because its partner helped the player more than its enemy hurt.
+//     L1 (-0.03) was harder than L3 (+0.09) and L4 (+0.19); L9 (+0.16) was easier than L8 (-0.38).
+//     Spearman(level, felt) was -0.66 with a +0.78 backwards cliff at L2.
+// The enemy column being sorted proved nothing, because a level sets TWO scalars and the partner
+// was swinging 0.05 -> 0.68 -> 0.05 underneath it.
+//
+// THE RULE THIS TABLE NOW FOLLOWS: both sides improve as you climb — your team-mate genuinely gets
+// better, which is what progression should feel like — but the ENEMY improves FASTER, so the net
+// is monotonically harder. Enemy +~0.086/level, partner +~0.057/level.
+// bot-buffs.js EXTREME_SKILL (0.95) gates the fixed strong bot loadout, so only L11's enemy now
+// sits above that line; L10 previously did too, which is part of why 10 and 11 felt identical.
+// The partner ARCS: it rises to a competent 0.50 by the middle of the ladder and then eases back,
+// while the enemy keeps climbing to 1.00. A first attempt had both rise together (+0.086/level
+// enemy, +0.057 partner) and MEASURED almost flat — the whole felt range across all 12 levels was
+// 0.54 goals/match, because a better team-mate kept cancelling a better enemy. The arc is what
+// gives the late levels their teeth: your team-mate is good, but the opposition outgrows them.
+const LEVEL_PAIRS = [
+  // [enemy, partner]
+  [0.05, 0.10], [0.13, 0.18], [0.22, 0.26], [0.31, 0.34],
+  [0.40, 0.42], [0.49, 0.48], [0.58, 0.50], [0.67, 0.50],
+  [0.76, 0.48], [0.85, 0.45], [0.93, 0.42], [1.00, 0.38],
+];
+const LEVEL_NAMES = ['אימון', 'שלב 1', 'שלב 2', 'שלב 3', 'שלב 4', 'שלב 5',
+                     'שלב 6', 'שלב 7', 'שלב 8', 'שלב 9', 'שלב 10', 'קטלני'];
+// The hint is GENERATED from the scalars, never hand-written. Hand-written hints had already
+// drifted from the numbers they describe, and a retune silently leaves them lying.
+export const DIFFICULTY_LEVELS = LEVEL_PAIRS.map(([enemy, partner], id) => ({
+  id, name: LEVEL_NAMES[id], enemy, partner,
+  hint: `אויב ${skillWord(enemy)} · שותף ${skillWord(partner)}`,
+}));
+
+export const DEFAULT_LEVEL = 5; // "normal / normal" — matches the old default feel
 
 export function clampLevel(i) {
   i = Math.round(Number(i));
