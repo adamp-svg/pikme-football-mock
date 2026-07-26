@@ -900,6 +900,18 @@ const DEV_LOCAL = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostna
 const DEV_HOST = DEV_LOCAL || /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?)/.test(location.hostname);
 // ?diff=N pins the bot difficulty for this page load. Read from the URL ONLY (never persisted),
 // and only honoured on a private host, so a public deployment cannot be handed an easy-bot farm.
+// ---- ?watch=1 — WATCH the bots instead of playing them --------------------------------------
+// Requested: "I don't want to play it, I want to watch a real life simulation for all bots."
+// Joins a bot-only room (server: startSpectate) and renders it with the real client: real arena,
+// real physics, real server-side AI, all four players bots. Combine with ?diff=N to pick the level.
+// URL-only and DEV_HOST-gated, exactly like DIFF_PIN below — a public visitor cannot spin up rooms.
+// No client-side "spectator" plumbing is needed beyond this: matchStart arrives with playerId null,
+// and flushInput() already refuses to send without one.
+let SPECTATING = false;   // set by enterMatch when the server says this is a watch-only room
+const WATCH = (() => {
+  try { return /[?&]watch=1\b/.test(location.search); } catch { return false; }
+})();
+
 const DIFF_PIN = (() => {
   if (!DEV_HOST) return null;
   const raw = new URLSearchParams(location.search).get('diff');
@@ -3396,6 +3408,9 @@ function connect(name, avatar) {
     pingIv = setInterval(sendPing, 1000);   // 1s: enough RTT samples for a usable jitter figure
     loadFriends(); // register friends → server replies friendsPresence → bulb reflects online friends
     startThreadPoll();
+    // ?watch=1 — go straight into a bot-only match. Sent right after `join` because the server
+    // handles a socket's messages in order, so the member exists by the time this lands.
+    if (WATCH && DEV_HOST) ws.send(JSON.stringify({ type: 'spectate', diffLevel: DIFF_PIN != null ? DIFF_PIN : diffLevel }));
   };
   // If the socket drops (network / server restart / WebView backgrounding), the
   // game would otherwise freeze forever — so fall back to the home menu and retry.
@@ -3413,7 +3428,10 @@ function connect(name, avatar) {
   };
   ws.onmessage = (e) => {
     if (typeof e.data !== 'string') { // compact binary snapshot
-      if (!me.playerId) return; // ignore stray snapshots while in the lobby
+      // Ignore stray snapshots while in the lobby — but a SPECTATOR legitimately has no playerId
+      // (server sends matchStart with playerId: null), and this one guard was enough to leave the
+      // pitch completely empty while the arena and HUD rendered fine.
+      if (!me.playerId && !SPECTATING) return;
       const snap = decodeSnapshot(new DataView(e.data), slotIds, slotTeam, rosterVersion);
       if (!snap) return; // roster seam / stale rosterVersion — wait for the matching roster
       processSnapshotSounds(snap);
@@ -3423,7 +3441,7 @@ function connect(name, avatar) {
       { const meP = snap.players && snap.players.find((p) => p.id === me.playerId); mySuper = !!(meP && meP.power); } // SUPER ready → charge fills 2× (mirrors sim)
       snaps.push({ tRecv: performance.now(), snap });
       if (snaps.length > 60) snaps.shift();
-      reconcile(snap);
+      if (me.playerId) reconcile(snap);   // nothing to reconcile without a local player
       return;
     }
     const msg = JSON.parse(e.data);
@@ -3553,6 +3571,27 @@ function connect(name, avatar) {
 // --------------------------------------------------------------------------
 function enterMatch(msg) {
   me = { playerId: msg.playerId, team: msg.team, char: chosenChar };
+  // SPECTATING: there is no local player, so hide the controls that would pretend otherwise.
+  // Everything else — HUD, score, clock, cards, sounds — is exactly what a player sees.
+  if (msg.spectate) {
+    SPECTATING = true;
+    document.body.classList.add('spectate');
+    if (!document.getElementById('spectate-css')) {
+      const st = document.createElement('style');
+      st.id = 'spectate-css';
+      st.textContent = '.spectate #stickL,.spectate #stickR,.spectate #special,.spectate #build,'
+        + '.spectate #controls-edit-btn,.spectate #stealth{display:none!important}'
+        + '.spectate #watch-tag{position:fixed;left:8px;bottom:8px;z-index:60;font:600 11px/1.4 ui-monospace,monospace;'
+        + 'color:#fff;background:rgba(0,0,0,.55);padding:4px 8px;border-radius:6px;pointer-events:none}';
+      document.head.appendChild(st);
+    }
+    if (!document.getElementById('watch-tag')) {
+      const t = document.createElement('div');
+      t.id = 'watch-tag';
+      t.textContent = `WATCHING BOTS · level ${msg.diffLevel} · camera follows the ball`;
+      document.body.appendChild(t);
+    }
+  }
   clearRoomRequests(); hideRoomWait();   // #14: drop any host/joiner room UI as the match starts
   if (msg.settings) { Object.assign(settings, msg.settings); syncSliderUI(); }
   // apply this room's bot difficulty LEVEL. ONLY quick-match derives it from player XP (fair
@@ -5030,8 +5069,11 @@ function resize() {
 // terraces horizontally, + top/bottom touchline terraces vertically). The side
 // terraces sit off-pitch, so walking to an edge pans the camera to reveal them.
 function updateCamera() {
-  const cx = rendered ? rendered.x : FIELD.W / 2;
-  const cy = rendered ? rendered.y : FIELD.H / 2;
+  // Spectating has no local player, so the ball is the subject — which is also what a broadcast
+  // camera does. The goal-lead and terrace clamps below then work unchanged off that point.
+  const spec = WATCH && latest && latest.ball;
+  const cx = spec ? latest.ball.x : (rendered ? rendered.x : FIELD.W / 2);
+  const cy = spec ? latest.ball.y : (rendered ? rendered.y : FIELD.H / 2);
   // Req1 — GOAL-LEAD: as the player approaches either goal line, push the camera target
   // PAST the player toward that goal so more of the goal + net is revealed. The lead ramps
   // up over the final LEAD_ZONE of the pitch and is bounded by the CAM_BACK clamp below, so

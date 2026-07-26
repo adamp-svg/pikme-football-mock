@@ -611,6 +611,41 @@ function startBotGame(member, diffLevel) {
   room.rosterVersion++; broadcastRoster(room);
 }
 
+// ---- SPECTATE: an ALL-BOT match a human can WATCH ------------------------------------------
+// Requested: "I don't want to play it, I want to watch a real life simulation for all bots."
+// Same room lifecycle as startBotGame, with three deliberate differences:
+//   * NO human player is added to the sim, so fillBots fills EVERY slot and the match is bot-vs-bot
+//     with the real server-side AI, the real arena and the real physics;
+//   * goalsToWin 0 — endless, so a watcher is not thrown back to the lobby after three goals;
+//   * matchStart carries playerId: null. That single null is what makes the client a spectator:
+//     flushInput() already bails on `!me.playerId`, so no input can reach the room, and checkAfk
+//     skips a member with no player (`if (!p) continue`), so the watcher is never turned into a bot.
+// The member still JOINS the room, so it receives exactly the snapshots a player would.
+function startSpectate(member, diffLevel) {
+  leaveCurrentRoom(member);
+  const room = makeRoom(`watch-${++roomCounter}`, false, 'botgame');
+  rooms.set(room.id, room);
+  addToRoom(member, room);
+  room.state = createState();
+  room.state.goalsToWin = 0;                       // endless — this is a demo, not a match
+  setField(room.state, MAIN_FIELD_CLEAN);
+  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
+  room.inputs.clear();
+  room.botCounter = 0;
+  member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
+  const matchId = `${room.id}-${++matchSeq}`;
+  const roster = [];
+  room.phase = 'match';
+  fillBots(room, roster);                          // no humans in the sim -> every slot is a bot
+  attachBall(room.state, room.state.rng && room.state.rng() < 0.5 ? 'B' : 'A');
+  room.endHoldT = 0; room.statsSent = false;
+  send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
+  send(member.ws, { type: 'matchStart', mode: 'botgame', spectate: true, diffLevel: room.diffLevel, matchId,
+    playerId: null, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings,
+    players: roster, arena: MAIN_FIELD_CLEAN, goalsToWin: 0 });
+  room.rosterVersion++; broadcastRoster(room);
+}
+
 // A challenge accept drops both players into a fresh private room on opposite teams
 // and starts the normal countdown → match. Reuses the private-room lifecycle.
 function startChallengeMatch(a, b) {
@@ -1213,6 +1248,7 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'training') { startTraining(member, msg.diffLevel); return; }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field, msg.diffLevel); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
+      if (msg.type === 'spectate') { startSpectate(member, msg.diffLevel); return; }
       if (msg.type === 'resetBall') { // training only: recenter the ball on demand
         const r = member.room;
         if (r && r.mode === 'training' && r.phase === 'match') attachBall(r.state, member.team);
