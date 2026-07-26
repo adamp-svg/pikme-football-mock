@@ -1243,6 +1243,11 @@ function callPass(p, mate, bm, mem, team) {
 const PASS_COOLDOWN = 1.0;   // seconds before this bot may call another pass (stops hot-potato)
 const PASS_GAIN = 40;        // px closer to the enemy goal the receiver must be
 const PASS_MARK = 130;       // don't pass to a mate with a defender this close
+// ...and the LATCH aborts once the ball would travel BACKWARDS: cos of the pass bearing measured
+// off the direction to the enemy goal. -0.17 ~= 100deg, i.e. square balls (the normal outlet, and
+// ~58% of every release in this game) are fine and only a genuinely backward kick is refused.
+// A DISTANCE version of this gate cost 81% of all passes — see the abort site for that autopsy.
+const PASS_BACK_COS = -0.17;
 function passWorthIt(p, mate, bm, mem, team, state, egX, visibleEnemies) {
   if (mem.t <= (bm.nextPassAt || 0)) return false;
   if (hyp(egX - mate.x, GY - mate.y) > hyp(egX - p.x, GY - p.y) - PASS_GAIN) return false;
@@ -1580,6 +1585,49 @@ function decideBot(p, role, state, mem, sk, dt) {
     // TOLERANCE that stalled passes at close range.
     // It sits BELOW the finish block on purpose: a real shot at goal outranks a pass, always.
     if (bm.passTo && (mem.t > bm.passTo.until || !state.players[bm.passTo.id])) bm.passTo = null;
+    // ---- ABORT A PASS THAT HAS TURNED BACKWARDS ------------------------------------------------
+    // The latch is deliberately a LIVE aim: it re-derives at the receiver's led position every
+    // tick. That is what made passes complete, and it is also how a forward pass rots into a
+    // backward one — `passWorthIt` checks the geometry ONCE, at the call, and the receiver keeps
+    // moving for the ~0.3-1.1s of wind-up that follows. MEASURED at the reported level 10 (partner
+    // 0.42 vs enemy 0.93, 12 x 60s): 208 of 281 releases were [passLatch] at a mean **76 degrees
+    // off the enemy goal**, and on the ones past 90deg the receiver was geometrically behind the
+    // carrier 56% of the time — the ball being kicked backwards is the "shoots the other way"
+    // report. So the gate is re-checked EVERY tick and the latch drops when the pass has become a
+    // backward one, falling through to the finish / outlet / forward-clearance ladder below.
+    //
+    // THE TEST IS THE PASS BEARING, AND THAT CHOICE IS MEASURED. The obvious version — "abort once
+    // the receiver is further from the enemy goal than I am" — was written first and it DESTROYED
+    // PASSING: latched pass releases fell 197 -> 37 per 12 matches at skill 0.42 (-81%) and total
+    // releases 270 -> 104, because the common case is not a receiver drifting back, it is the
+    // CARRIER DRIVING FORWARD past its own outlet during the wind-up. That trips a distance test
+    // every time while the pass itself is still a perfectly good square ball.
+    // The bearing test cannot make that mistake: it asks only "would this ball travel backwards",
+    // which is exactly what the player is complaining about, and it is scale-free. It also cannot
+    // fight `passWorthIt`, whose radial gate is provably < 90deg at the call (if |R-G| < |P-G| then
+    // (R-P)·(G-P) > |R-P|^2/2 > 0), so a called pass NEVER starts out aborted.
+    if (bm.passTo) {
+      const rx0 = state.players[bm.passTo.id];
+      const [gux, guy] = unit(egX - p.x, GY - p.y);
+      const [rux, ruy] = unit(rx0.x - p.x, rx0.y - p.y);
+      if (rux * gux + ruy * guy < PASS_BACK_COS) {
+        bm.passTo = null;
+        // and cancel the CALL, so the receiver stops running to meet a ball that is not coming
+        if (mem.pass && mem.pass[team] && mem.pass[team].from === p.id) mem.pass[team] = null;
+        // ...AND HAND THE CARRIER A FRESH DECISION, WHICH IS THE WHOLE DIFFERENCE BETWEEN THIS
+        // WORKING AND WRECKING THE MATCH. Without these two lines the abort does not "fall through
+        // to the forward options", it falls through to the LAST rung: `bm.carryT` has been running
+        // for the whole wind-up so `carryT > CARRY_IDLE` is already true, and `bm.charging` still
+        // holds the pass's low `fireAt`, so the release ladder fires a FORWARD CLEARANCE on the very
+        // next tick. MEASURED at skill 0.42, 12 x 60s x 3 seed bases: advance/release 76 -> ~200px,
+        // touches 18 -> 9, the ball loose 69% -> 85% of the match and 320px from the nearest player.
+        // Neither half of this change did that alone (the abort on its own: touches 17.9, loose
+        // 69.7%). It was the interaction, and it is what a bad pass SHOULD cost: nothing. A player
+        // who looks up, sees the pass is not on and keeps dribbling has not lost a thing.
+        bm.carryT = 0;
+        bm.charging = null;
+      }
+    }
     if (bm.passTo && !shoot) {
       const rx = state.players[bm.passTo.id];
       const full = settings.shotPower || 1850;
@@ -2021,14 +2069,59 @@ function decideBot(p, role, state, mem, sk, dt) {
     // committed side, so it doesn't dither); otherwise close a little toward the carrier to shorten
     // the pass. Above the body screen, because a screen while the ball is on its way to me is the
     // wrong job; below the deflect set-piece, which is rarer and worth more.
+    // "THE FRIEND SOMETIMES GOES THE OTHER WAY" — MEASURED, AND THIS BRANCH OWNED A THIRD OF IT.
+    // At the reported level 10 (partner 0.42 vs enemy 0.93, 12 x 60s, bot-support.mjs): 28.7% of the
+    // partner's support move-ticks were spent actively running AWAY from the goal its own team was
+    // attacking, and [receivePass] was 60% of the ticks the flow field was NOT merely routing round a
+    // wall — with the receiver ALREADY AHEAD OF THE CARRIER on 88% of them.
+    //
+    // TWO causes, and the second one is the real bug.
+    //  1. "show for it" stepped 90px ALONG the pass line TOWARD the carrier, which shortens the pass
+    //     (good) by giving up ground (bad) whenever the receiver is the furthest-forward player.
+    //  2. THAT TARGET WAS RECOMPUTED FROM THE LIVE POSITION EVERY TICK, so it was a carrot on a
+    //     stick: 90px behind wherever the receiver had got to, re-issued ~50x a second for the whole
+    //     1.4s call. The receiver therefore did not check back 90px, it RETREATED CONTINUOUSLY — up
+    //     to ~210px at walking pace, which is what the player sees as "he ran the other way".
+    // The latch above then re-aims at the receiver's LED position, so the pass FOLLOWS the receiver
+    // backwards and the kick goes the wrong way too: both reported symptoms are one bug, seen from
+    // the two ends.
+    //
+    // FIX: the rendezvous point is chosen ONCE per call and held as an ABSOLUTE spot, so a check-back
+    // is a bounded 90px step that the receiver arrives at and stops; and the spot may never lose
+    // ground toward the enemy goal.
+    // WHY THE ORDER MATTERS (measured, and it cost most of this session): the never-backwards rule
+    // ALONE — a two-line clamp on the old per-tick target — cost **86% -> 72% of passes reaching a
+    // team-mate at skill 0.93 and 37% of all pass releases**. Closing straight along the pass line is
+    // ANGULARLY STATIONARY from the carrier's point of view, so the carrier's slewing aim converges
+    // and `fire` passes its |dTheta| <= tol gate; clamping one axis of a target that is re-derived
+    // every tick makes the receiver sweep sideways forever, the aim never settles, and the wind-up
+    // times out. LATCHING THE SPOT FIRST makes the same clamp nearly free (84%, and MORE releases
+    // than before). A bounded run is what a human does; an unbounded one is what broke the aim.
     const call = mem.pass && mem.pass[team];
     if (call && call.to === p.id && mem.t < call.until && state.players[call.from] && !bm.bombHold && !bm.buildHold) {
       const from = state.players[call.from];
       const [lx, ly] = unit(p.x - from.x, p.y - from.y);
-      let want = { x: p.x - lx * 90, y: p.y - ly * 90 };                     // show for it
-      if (!laneClear(from.x, from.y, p.x, p.y, state, team, { margin: 6, viewer: p })) {
+      const fwd = egX >= ogX ? 1 : -1;                                       // +x for A, -x for B
+      let want;
+      if (bm.recvSpot && bm.recvSpot.until === call.until) want = bm.recvSpot; // one decision per call
+      else {
+        // the side stays LATCHED PER BOT, as it always was ("a committed side, so it doesn't
+        // dither"). Re-deciding it per tick — even scored on which lane is more open, which is the
+        // kind of thing that usually scales with tier — measured EXACTLY NEUTRAL here (84%/90%
+        // completion either way), so it is not worth the code or the dither risk.
         const side = (bm.recvSide = bm.recvSide || ((idHash(p.id) & 1) ? 1 : -1));
-        want = { x: clamp(p.x - ly * 190 * side, 80, FIELD.W - 80), y: clamp(p.y + lx * 190 * side, 80, FIELD.H - 80) };
+        want = { x: p.x - lx * 90, y: p.y - ly * 90 };                       // check back for it
+        if (!laneClear(from.x, from.y, p.x, p.y, state, team, { margin: 6, viewer: p }))
+          want = { x: clamp(p.x - ly * 190 * side, 80, FIELD.W - 80), y: clamp(p.y + lx * 190 * side, 80, FIELD.H - 80) };
+        if ((want.x - p.x) * fwd < 0) want.x = p.x;                          // NEVER give up ground
+        // If the clamp ate the whole run the receiver is directly in FRONT of the carrier — the case
+        // where checking back really is running the wrong way. Show SIDEWAYS instead: a frozen
+        // off-ball bot reads as broken, which is what this branch exists to prevent.
+        if (hyp(want.x - p.x, want.y - p.y) < 35) {
+          want = { x: clamp(p.x - ly * 110 * side, 80, FIELD.W - 80), y: clamp(p.y + lx * 110 * side, 80, FIELD.H - 80) };
+          if ((want.x - p.x) * fwd < 0) want.x = p.x;
+        }
+        bm.recvSpot = { x: want.x, y: want.y, until: call.until };
       }
       bm.lastTrick = 'receivePass';
       bm.nextPassAt = mem.t + PASS_COOLDOWN * 0.75;   // take a touch before you give it back
