@@ -18,7 +18,7 @@
 
 import {
   FIELD, GOAL, PENALTY, BOMB, BOMB_CENTER_R, BOMB_COMBINE_RADIUS, BOMB_LOB_RANGE,
-  BOMB_WALL_DIST, BOMB_WALL_COS, BOMB_WALL_CANNON_STATIC, BUILT_WALL, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
+  BOMB_WALL_DIST, BOMB_WALL_COS, BOMB_WALL_CANNON_STATIC, BUILT_WALL, BUILD_DIST_MAX, BUSH_REVEAL_DIST, VISION_RANGE, BALL_VISION,
   BALL_RADIUS, WALL_BOUNCE, WALL_RESTITUTION, FULL_CHARGE, QUICK_CHARGE, OVERCHARGE_TTL, SUPER_USES, BUILD_WINDUP,
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, FRAGILE_PASS_SPEED, CHARGE_MIN_MUL, BALL_MIN_SPEED,
   CHARACTERS, DEFAULT_CHAR, clamp,
@@ -108,10 +108,15 @@ export const BOT_SKILL = {
   // Buffed 2026-07-22 (bots "not strong enough"): faster reaction, tighter aim, higher charge-rate
   // (reach fire charge sooner -> shoot more, dribble less), more aggression + quicker tools + turn.
   // Kept fair: non-extreme still no wallhack (visionMul is open-carrier tracking only); only extreme cheats.
-  easy:    { react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20, memoryS: 0.55 },
-  normal:  { react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12, memoryS: 0.90 },
-  hard:    { react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.40, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05, memoryS: 1.50 },
-  extreme: { react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 1.60, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, memoryS: 2.20, preChargeP: 0.55, cheatFlub: 0.34, flubMag: 0.10 },
+  // `t` is the tier's own position on the RAW 0..1 difficulty axis, and it is here so the LEGACY
+  // string path (memSkillVec's `BOT_SKILL[mem.skill]` fallback, used by a stale client that still
+  // sends { botDifficulty }) carries the same gating scalar skillVec() now exposes. Without it
+  // every t-gated behaviour below would read `undefined` on that path and silently never fire.
+  // The values mirror SKILL_ANCHORS' own stops, so the two paths agree by construction.
+  easy:    { t: 0.25, react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20, memoryS: 0.55 },
+  normal:  { t: 0.50, react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12, memoryS: 0.90 },
+  hard:    { t: 0.82, react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.40, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05, memoryS: 1.50 },
+  extreme: { t: 1.00, react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 1.60, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, memoryS: 2.20, preChargeP: 0.55, cheatFlub: 0.34, flubMag: 0.10 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -119,7 +124,7 @@ export const DEFAULT_SKILL = 'normal';
 // t = 0 tutorial-weak, ~0.25 easy, 0.5 normal, ~0.82 hard, 1.0 extreme. Lets each SIDE of a
 // match carry its own continuous difficulty (see computeBotInputs' per-team skill), so enemy
 // and partner can be tuned independently and matched to game progression.
-const VERY_EASY = { react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30, memoryS: 0.35 };
+const VERY_EASY = { t: 0.00, react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30, memoryS: 0.35 };
 const SKILL_ANCHORS = [
   { t: 0.00, v: VERY_EASY },
   { t: 0.25, v: BOT_SKILL.easy },
@@ -135,6 +140,15 @@ export function skillVec(t) {
   const f = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0;
   const out = {};
   for (const k of SKILL_KEYS) out[k] = a.v[k] + (b.v[k] - a.v[k]) * f;
+  // ---- THE GATING AXIS (design §4) --------------------------------------------------------
+  // The RAW scalar, which skillVec used to drop on the floor. EVERY behaviour gate used to read
+  // `toolSkill`, and toolSkill SATURATES: measured 0.372 -> 0.850 across L0-L5, then only
+  // 0.850 -> 1.000 across the remaining SIX levels (L5..L11 spread 0.150; L5->L8 just 0.120).
+  // That is why an L5 and an L8 bot ran the *identical* 14-tag repertoire — a player genuinely
+  // could not tell them apart. `t` over the same L5..L11 window spreads 0.500, 3.3x wider, so a
+  // new behaviour gated on it can actually land on one level and not the one below.
+  // Do NOT re-gate anything on toolSkill; that axis is full.
+  out.t = t;
   // The remaining bounded advantages RAMP IN from t=0.92 instead of snapping on at 0.95. The old
   // discrete snap is why level 9 -> 10 read as a cliff: one step and the bot gained x-ray, permanent
   // super and a pre-charged shot all at once. The knee stays above 0.92 so level 9 (T.veryHard) keeps
@@ -893,6 +907,53 @@ function toolNotice(sk, p, mem) {
   return seededNoise(Math.floor(mem.t * 1.3) + idHash(p.id) * 0.011) < pr * 2 - 1;
 }
 
+// ============================ THE FOUR NEW BEHAVIOUR GATES ==================================
+// All on `sk.t`, the RAW difficulty scalar skillVec now exposes — NEVER on toolSkill, which
+// saturates at 0.85 by L5 and therefore cannot rank anything above it (see skillVec's comment
+// and the design doc §2.2/§4). Enemy-side coverage, arithmetic from DIFFICULTY_LEVELS:
+//
+//   gate   behaviour                          enemy levels        partner levels
+//   0.50   B1a super discipline (hold)        L5–L11              L2, L5, L7, L9, L10
+//   0.68   B2  goalkeeper                     L7–L11              L2, L10
+//   0.82   B1b super body-strip / B3 far wall L8–L11              L10
+//   0.92   B4  pincer                         L9–L11              —
+//
+// so a player climbing the ladder meets a new, NAMEABLE behaviour at L5, L7, L8 and L9 instead
+// of seven levels of "slightly faster reactions". That spread IS the feature.
+const T_SUPER_HOLD = 0.50;  // B1a — protect the overcharge for the one kick a keeper can't catch
+const T_KEEPER     = 0.68;  // B2  — play a real goalkeeper instead of chasing
+const T_SUPER_BODY = 0.82;  // B1b — spend the overcharge as a body-strip on contact
+const T_FAR_WALL   = 0.82;  // B3  — push the built wall out with buildDist
+const T_PINCER     = 0.92;  // B4  — break MIN_SEP and trap the carrier from two sides
+// Default 0 (not 0.5): an unknown/legacy skill object must get NO new behaviour rather than
+// silently landing in the middle of the ladder. Every real path supplies `t` (skillVec sets it;
+// BOT_SKILL's tiers carry their own).
+const skT = (sk) => (sk && typeof sk.t === 'number' ? sk.t : 0);
+
+// ---- B1b — how close a super bot will walk in for a BODY STRIP instead of shooting ----------
+// A bot moves ~142px/s (CHARACTERS.player.speed 158 x settings.speedMul 0.9), so 220px is ~1.5s
+// of closing — comfortably inside OVERCHARGE_TTL (4s), which is what stops this from being a
+// commitment the bot cannot honour before its ring expires.
+const SUPER_BODY_CLOSE = 220;
+
+// ---- B3 — DISTANT WALL: turn "where the wall should be" into the sim's buildDist ------------
+// The sim reads `p.aimMag = clamp(inp.buildDist, 0, 1)` and places the wall at
+// BUILT_WALL.offset(60) + buildDist * BUILD_DIST_MAX(120), i.e. up to 180px out. finalize() never
+// emitted buildDist, so EVERY bot wall in the game landed at 60px — inside the bot's own body —
+// while a player can push theirs to 180. It is the only implemented player-vs-bot capability gap
+// and it costs zero sim work (design §4 A1 / B3).
+// TELL: the wall appears a clear body-length IN FRONT of the bot instead of at its feet, after
+// the same BUILD_WINDUP ghost telegraph players already see.
+// COUNTER: a built wall is hp3 and one full-charge shot destroys it; or walk round it; and
+// BUILD_RELOAD is 15s per charge, so a spent wall is 15s of free lane.
+function wallReach(sk) { return skT(sk) >= T_FAR_WALL ? BUILT_WALL.offset + BUILD_DIST_MAX : BUILT_WALL.offset; }
+// The buildDist that puts the wall on (wx,wy) when building along the unit aim (nx,ny). Clamped
+// into the tier's reach, so below the gate this is exactly 0 — today's at-your-feet wall.
+function wallPush(p, wx, wy, nx, ny, sk) {
+  const along = (wx - p.x) * nx + (wy - p.y) * ny;
+  return clamp((clamp(along, BUILT_WALL.offset, wallReach(sk)) - BUILT_WALL.offset) / BUILD_DIST_MAX, 0, 1);
+}
+
 // Mirrors sim.js wallCannonMul for STATIC stone (the strong peak, 1.55×). Built walls also cannon,
 // weakly and only while intact, and are deliberately ignored: a bot must not plan a launch around a
 // wall an opponent can shoot down between the plant and the blast.
@@ -949,6 +1010,7 @@ function decideBot(p, role, state, mem, sk, dt) {
   const bm = bmemOf(mem, p.id);
   bm.lastTrick = null; // reset each tick — it's a per-tick behaviour tag, not sticky state
                        // (histogramming a sticky tag over-counted ~9x and hid the real behaviour)
+  bm.slideAngle = false; // ditto: "the release ladder fell through to (d)" is a per-tick fact
   const b = state.ball;
   const team = p.team, egX = enemyGoalX(team), ogX = ownGoalX(team);
   const isOnBall = role.onBall === p.id;
@@ -1127,6 +1189,22 @@ function decideBot(p, role, state, mem, sk, dt) {
     // A KEEPER = a defender parked in the box in front of the goal — they CATCH a full kick.
     const keeper = blocker && Math.abs(egX - blocker.x) < PENALTY.depth && blocker.y > PEN_TOP && blocker.y < PEN_BOT ? blocker : null;
 
+    // ===== B1a — SUPER DISCIPLINE, the carrier half (gate t >= 0.50) ========================
+    // Overcharge is the ONLY kick a keeper cannot catch (KEEPER_BREAK_ROLL) and it dies on a 4s
+    // TTL, so WHEN you spend it is a real skill — a human learns it, a bot should too. Below the
+    // gate the bot just dumps it on the next full shot: the documented Brawl Stars bot tell
+    // ("fires the Super right after respawn"), tagged `superDump` in finalize so the bottom of
+    // the ladder is measurable too. At or above the gate the carrier stops throwing the meter
+    // away on a PASS while a finish is still plausibly in reach.
+    // BOUNDED, so this can never become the "stands with the ball" bug: only inside super-finish
+    // reach, only while the ring is actually lit, and the carry watchdog (CARRY_HOLD_MAX) still
+    // force-releases over the top of it.
+    // TELL: the pulsing red overcharge ring — p.power is on the wire (wire.js packFlags bit 64)
+    // and the client draws the ring for EVERY player — stays lit as the bot drives at goal.
+    // COUNTER: shoot it first (a hit costs it nothing but breaks the approach), wall the lane,
+    // or simply wait: OVERCHARGE_TTL is 4s.
+    const superKeep = !!p.power && skT(sk) >= T_SUPER_HOLD && distGoal < FINISH_RANGE + 260;
+
     // TACTIC 2 (shooter side) — if a mate has set up a DEFLECT wall (mem.setPiece) and we have a
     // clear lane to it, shoot FULL at the wall so the ball banks off it into the net.
     const sp = mem.setPiece && mem.setPiece[team];
@@ -1168,7 +1246,9 @@ function decideBot(p, role, state, mem, sk, dt) {
     }
 
     // 2) marked & not shooting -> PASS to a better mate (direct, or BANK around a blocker); sets give-and-go
-    if (!shoot && mate && nfd < 260) {
+    if (!shoot && superKeep && mate && nfd < 260) {
+      bm.lastTrick = 'superHold'; // B1a: keep the overcharge, take it to the goal yourself
+    } else if (!shoot && mate && nfd < 260) {
       const mateBetter = hyp(egX - mate.x, GY - mate.y) < distGoal - 30;
       if (mateBetter) {
         const full = settings.shotPower || 1850;
@@ -1212,8 +1292,9 @@ function decideBot(p, role, state, mem, sk, dt) {
         const gy = clamp(p.y, goalBlock.y, goalBlock.y + goalBlock.h);
         aim = { x: gx - p.x, y: gy - p.y }; shoot = true; charge = 1; bm.carryT = 0;
         closeShot = true; bm.lastTrick = 'smashWall';
-      } else if (mate && laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
+      } else if (mate && !superKeep && laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
         // (c) can't shoot at all (indestructible stone, or out of range) → give it to the mate
+        //     ...unless B1a is protecting an overcharge that is still inside finishing reach.
         const full = settings.shotPower || 1850;
         charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
         const [pax, pay] = leadAim(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, full * clamp(charge, 0.33, 1), sk);
@@ -1225,7 +1306,10 @@ function decideBot(p, role, state, mem, sk, dt) {
         // as soon as a lane appears (a) fires. Never a dead end.
         bm.workAngle = bm.workAngle || (p.y < GY ? 1 : -1);
         if (mem.t > (bm.workFlip || 0)) { bm.workFlip = mem.t + 1.2; bm.workAngle *= -1; }
-        bm.lastTrick = 'workAngle';
+        // Same movement either way — but name it for what it IS, so the histogram can tell
+        // "I have nothing on" apart from "I am carrying an overcharge to the goal".
+        bm.slideAngle = true;
+        bm.lastTrick = superKeep ? 'superHold' : 'workAngle';
       }
     }
     // WATCHDOG — the last line of defence, and no branch above can defeat it. If the ball has
@@ -1244,7 +1328,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     // The goalward target is the nearest point of the MOUTH (not the centre), so a carrier out
     // by the post walks in at the near post instead of cutting across the face of the goal.
     tgt = { x: egX, y: clamp(p.y, GOAL_TOP + postIn, GOAL_BOT - postIn) };
-    if (bm.lastTrick === 'workAngle') { // (d): slide across the blocker's face, not into it
+    if (bm.slideAngle) { // (d): slide across the blocker's face, not into it
       tgt = { x: p.x + (egX - p.x) * 0.12, y: clamp(p.y + bm.workAngle * 260, 120, FIELD.H - 120) };
     }
     if (nearFoe && nfd < 300) {
@@ -1256,7 +1340,15 @@ function decideBot(p, role, state, mem, sk, dt) {
       if (bm.zigSign == null || mem.t - (bm.zigAt || 0) > ZIG_PERIOD) { bm.zigSign = (bm.zigSign || 1) * -1; bm.zigAt = mem.t; }
       const amp = 140 + 200 * sk.toolSkill;                 // hard weaves wider
       tgt = { x: p.x + gx * 240 + perpx * amp * bm.zigSign, y: p.y + gy * 240 + perpy * amp * bm.zigSign };
-      bm.lastTrick = 'zigzag';
+      // MEASUREMENT FIX — and it is why a chunk of the "12 dead behaviours" looked dead.
+      // zigzag is a MOVEMENT decision that used to OVERWRITE whatever the SHOT decision above
+      // had already tagged, and it fires whenever a foe is within 300px — which is exactly the
+      // situation of every keeper/blocker finish. So overFinish / cornerFinish / goalBank /
+      // postFinish / smashWall / watchdogRelease were relabelled 'zigzag' on the very ticks they
+      // fired. Verified on a scripted super-carrier vs an in-box keeper: `zigzag 42, overFinish 0`
+      // before this line changed, `overFinish 42` after. The weave still happens — the tag is now
+      // a FALLBACK so it reports the play instead of erasing it.
+      if (!bm.lastTrick) bm.lastTrick = 'zigzag';
     }
     if (!shoot && !special) aim = { x: egX - p.x, y: GY - p.y };
 
@@ -1298,29 +1390,50 @@ function decideBot(p, role, state, mem, sk, dt) {
     const spLive = mem.setPiece && mem.setPiece[team];
     // 0.70, not 0.80: most levels put the human's PARTNER at skill 0.25-0.50 => toolSkill
     // 0.58-0.85, so the showpiece set-piece never fired on the player's own team.
+    //
+    // WHY IT NEVER FIRED — measured, not guessed. Instrumenting every conjunct over 6 matches x
+    // 60s x 3 tiers: the preconditions HELD on 49 / 32 / 81 ticks (range + a foe parked in their
+    // box), the bot started walking on all of them, and it reached the 46px stand tolerance
+    // ZERO times at every tier. Two compounding causes, both the same shape as the deleted
+    // walk-to-a-cannon-pad: (1) the stand spot was recomputed from the carrier's LIVE position
+    // every tick — `Wy` flips to the other side of GY the instant the carrier crosses the
+    // centre line, so the target teleported mid-walk; (2) a 46px bullseye at ~142px/s inside a
+    // window that closes as soon as `distCG` leaves 240..760.
+    // Fixes, in order of how much they matter: LATCH the chosen wall point for 2.5s so it stops
+    // moving; commit from anywhere on the build ray inside `wallReach` (B3 — the sim always
+    // allowed a 180px drag, bots just never sent one) with a real lateral tolerance instead of
+    // a point; and give the walk a deadline so it can never loop forever.
+    if (bm.deflect && (mem.t > bm.deflect.until || isOnBall)) bm.deflect = null;
     if (!isOnBall && sk.toolSkill >= 0.70 && buildReady && !bm.buildHold && !spLive && mem.t > (bm.nextBuildAt || 0)) {
       const distCG = hyp(egX - carrier.x, GY - carrier.y);
       const blocked = visibleEnemies.some((e) => Math.abs(e.x - egX) < PENALTY.depth + 40 && Math.abs(e.y - GY) < GOAL.width / 2 + 60);
-      if (distCG < 760 && distCG > 240 && blocked) {
+      if (!bm.deflect && distCG < 760 && distCG > 240 && blocked) {
         const dirToGoal = egX > FIELD.W / 2 ? 1 : -1;
         const Wx = egX - dirToGoal * (PENALTY.depth + 34);
         const Wy = clamp(GY + (carrier.y > GY ? 150 : -150), 160, FIELD.H - 160);
         const [inx, iny] = unit(Wx - carrier.x, Wy - carrier.y); // incoming travel dir C->W
         const [gx2, gy2] = unit(egX - Wx, GY - Wy);              // desired out dir W->goal
         const [nx, ny] = unit(gx2 - inx, gy2 - iny);             // mirror normal (face normal = build aim)
-        const standX = Wx - nx * BUILT_WALL.offset, standY = Wy - ny * BUILT_WALL.offset;
         if (!pointInBush(Wx, Wy) && Math.abs(Wx - egX) > PENALTY.depth + 8) {
-          if (hyp(p.x - standX, p.y - standY) < 46) {
-            if (!bm.buildHold) bm.buildHold = { x: nx, y: ny, until: mem.t + BUILD_WINDUP + 0.1 };
-            aim = { x: nx, y: ny };
-            bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'deflectSetup';
-            (mem.setPiece || (mem.setPiece = {}))[team] = { x: Wx, y: Wy, by: p.id, until: mem.t + 3.0 };
-            return finalize(p, { x: standX, y: standY }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
-          }
-          tgt = { x: standX, y: standY };                        // walk onto the build spot first
-          aim = { x: nx, y: ny };
-          return finalize(p, tgt, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+          bm.deflect = { x: Wx, y: Wy, nx, ny, until: mem.t + 2.5 }; // LATCH: it stops moving now
         }
+      }
+      if (bm.deflect) {
+        const { x: Wx, y: Wy, nx, ny } = bm.deflect;
+        const reach = wallReach(sk);
+        const along = (Wx - p.x) * nx + (Wy - p.y) * ny;          // how far up the build ray the wall sits
+        const lat = Math.abs((Wx - p.x) * -ny + (Wy - p.y) * nx); // how far OFF the ray we are
+        aim = { x: nx, y: ny };
+        if (along >= BUILT_WALL.offset - 22 && along <= reach + 8 && lat < 52) {
+          const dist = wallPush(p, Wx, Wy, nx, ny, sk);
+          if (!bm.buildHold) bm.buildHold = { x: nx, y: ny, dist, until: mem.t + BUILD_WINDUP + 0.1 };
+          else bm.buildHold.dist = dist;
+          bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'deflectSetup'; bm.deflect = null;
+          (mem.setPiece || (mem.setPiece = {}))[team] = { x: Wx, y: Wy, by: p.id, until: mem.t + 3.0 };
+          return finalize(p, { x: p.x, y: p.y }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+        }
+        // walk onto the build ray, standing back by the tier's full reach
+        return finalize(p, { x: Wx - nx * reach, y: Wy - ny * reach }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
       }
     }
     if (bm.giveGo && mem.t < bm.giveGo.until) {
@@ -1386,6 +1499,29 @@ function decideBot(p, role, state, mem, sk, dt) {
     // shared objective / belief) exactly as before. EXTREME keeps its live x-ray aim.
     const pc = perceivedPos(bm, c, seeC, sk, mem);
     const lane = laneClear(p.x, p.y, c.x, c.y, state, team, { enemies: false });
+
+    // ===== B1b — SUPER BODY-STRIP (gate t >= 0.82) ==========================================
+    // MECHANICS §5: while in super, body contact with an enemy BALL-CARRIER knocks the ball
+    // loose (resolveSuperBodyStrip — carrier shoved SUPER_BODY_STRIP_KB, ball pops loose). A
+    // skilled bot therefore does NOT burn the whole meter on an overcharge bullet when the
+    // carrier is already close enough to run down: it walks through them. That costs ONE of
+    // SUPER_USES instead of the entire meter, and it works with the bullet lane blocked.
+    // This is "better execution of the same verbs" (move at a body), not a new ability — a
+    // human with a lit ring does exactly this.
+    // TELL: a bot with the red overcharge ring walking straight at you is announcing the strip.
+    // COUNTER: don't dribble into it — pass, or shoot it first (a hit breaks the approach), or
+    // wall it off; and the ring expires on OVERCHARGE_TTL (4s), so waiting it out is real.
+    // Self-limiting: only while the ring is lit, only on a carrier this bot can actually SEE,
+    // only inside SUPER_BODY_CLOSE (a ~1.5s run, well under the 4s TTL), and never through
+    // indestructible stone (a wall the bot cannot walk through is not a path).
+    if (p.power && skT(sk) >= T_SUPER_BODY && seeC && distC < SUPER_BODY_CLOSE
+        && !indestructibleBlocks(p.x, p.y, c.x, c.y, state)) {
+      const lead = clamp(distC / 400, 0, 0.35);           // run at where they WILL be, not where they are
+      bm.lastTrick = 'superBodyStrip';
+      return finalize(p, { x: c.x + (c.vx || 0) * lead, y: c.y + (c.vy || 0) * lead },
+        { x: c.x - p.x, y: c.y - p.y }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+    }
+
     if (isOnBall) {
       tgt = { x: c.x, y: c.y };
       if (pc) {
@@ -1414,7 +1550,12 @@ function decideBot(p, role, state, mem, sk, dt) {
         bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'bombTackle';
         // Signal a TWO-BOMB stack: tell a NEARBY support bot to drop a second bomb on the same
         // spot so the blasts COMBINE (bigger strip/knockback on the carrier).
-        (mem.stack || (mem.stack = {}))[team] = { x: pcx, y: pcy, by: p.id, until: mem.t + BOMB.fuse * 0.7 };
+        // WINDOW: the PHYSICAL deadline is the first bomb's detonation — a second bomb only
+        // combines if it already exists when the first blows. The old BOMB.fuse * 0.7 (1.21s)
+        // was an arbitrary fraction UNDER that deadline and it is a large part of why doubleBomb
+        // never once fired (measured: 0 plants, 243 wasted approach ticks over 18 matches).
+        // BOMB.fuse - 0.25 keeps a safety margin for the plant tick and buys back 0.28s.
+        (mem.stack || (mem.stack = {}))[team] = { x: pcx, y: pcy, by: p.id, until: mem.t + BOMB.fuse - 0.25 };
       }
     } else {
       // TWO-BOMB JOIN: the presser just committed a tackle bomb — rush in and plant a SECOND
@@ -1422,22 +1563,151 @@ function decideBot(p, role, state, mem, sk, dt) {
       // the usual mate-safety spacing). Skilled bots only.
       // Only a support bot ALREADY near the stack joins — no cross-map sprint that abandons
       // cover (that starved the ambush/mark plays). Occasional, opportunistic set-piece.
+      // WHY IT NEVER FIRED (measured, 6 matches x 60s x 3 tiers, instrumented predicates):
+      // the join REACHED the branch often (21 / 202 / 30 eligible ticks) and planted ZERO times.
+      // Every single one went down the "walk to the stack first" leg. The arithmetic: the window
+      // was BOMB.fuse * 0.7 = 1.21s, the mean distance at signal time was 550px, and a bot moves
+      // ~142px/s (CHARACTERS.player.speed 158 x speedMul 0.9) — ~3.9s of walking for a 1.2s
+      // window, and the plant tolerance was BOMB_COMBINE_RADIUS * 0.6 = 126px when the sim's
+      // combine test is the FULL 210px radius. `bombReady` was never the blocker (0 ticks lost
+      // to cooldown). Three root-cause fixes: the window now runs to the real deadline (above),
+      // the plant fires anywhere genuinely INSIDE the combine radius, and the bot only commits
+      // to an approach it can actually finish — instead of burning 243 ticks walking at a bomb
+      // that blew up before it arrived.
+      // DON'T WALK — LOB. The join was still 0-for-everything after the window fix: measured
+      // again, the branch was ADMITTED on 20 ticks at t=1.00 and 0 at t=0.50/0.82, and all 20
+      // went down the walk leg. The reason is structural and no threshold can fix it — the
+      // off-ball SEPARATION floor below holds a support bot at >= MIN_SEP (320px) from the
+      // carrier, the stack point IS the carrier's predicted spot, and 1.475s of window buys
+      // ~157px of walking. The bot can never be standing there. But it does not have to be:
+      // useSpecial LOBS a bomb up to BOMB_LOB_RANGE (250px) along the (sax,say) drag, and
+      // finalize already turns `bm.bombHold.x/y` into exactly that lob vector — it is the same
+      // mechanism the wall-cannon uses. So the support THROWS the second bomb onto the stack
+      // from where it already stands. A lobbed bomb gives no self-launch, which is correct here:
+      // this play is about combining the blasts on the carrier, not about flying.
       const stk = mem.stack && mem.stack[team];
+      const JOIN_PLANT_R = BOMB_COMBINE_RADIUS * 0.9;      // anywhere inside the radius combines; 0.6 was a needless bullseye
       if (stk && stk.by !== p.id && mem.t < stk.until && bombReady && sk.toolSkill >= 0.75 && !bm.bombHold
-          // 2.2x, not 1.3x: at 1.3 the gate is 273px while the off-ball SEPARATION floor below
-          // holds a support bot at >= 320px from the carrier, so the join radius sat entirely
-          // inside the forbidden zone and the two-bomb stack was geometrically impossible.
-          // The branch walks to the plant point first, so a wider gate just means it can start.
-          && hyp(stk.x - p.x, stk.y - p.y) < BOMB_COMBINE_RADIUS * 2.2) {
-        const dS = hyp(stk.x - p.x, stk.y - p.y);
-        {
-          if (dS > BOMB_COMBINE_RADIUS * 0.6) {
-            return finalize(p, { x: stk.x, y: stk.y }, { x: stk.x - p.x, y: stk.y - p.y }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
-          }
-          bm.lastTrick = 'doubleBomb'; bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
-          return finalize(p, { x: p.x, y: p.y }, { x: stk.x - p.x, y: stk.y - p.y }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
-        }
+          // Reach = how far the LOB carries plus how far off-centre the bomb may still land and
+          // combine. No walking, so no "can I get there in time" question to get wrong.
+          && hyp(stk.x - p.x, stk.y - p.y) < BOMB_LOB_RANGE + JOIN_PLANT_R) {
+        // Anchor the throw ON the stack; finalize clamps the drag to BOMB_LOB_RANGE, so an
+        // anchor further out simply becomes a max-length lob along the same line. Deliberately
+        // NO bm.bombHold: that is the "stand on your plant for the fuse" state, which exists to
+        // earn the rocket-jump. Here it would walk the support bot into its own blast.
+        bm.lastTrick = 'doubleBomb'; bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+        return finalize(p, { x: p.x, y: p.y }, { x: stk.x - p.x, y: stk.y - p.y },
+          { shoot: false, charge: 0, special: true, build: false, lob: { x: stk.x, y: stk.y } }, state, mem, bm, sk, dt);
       }
+      // The two off-ball defensive commitments below (B4 pincer, B2 keeper) both want THIS bot,
+      // and so does the wall game. Precedence, and the reason for it:
+      //   1. a WALL I can actually raise right now  — a wall is worth more than a body, and both
+      //      of the revived showpieces (blockDrive/ambushWall, goalScreen) live below;
+      //   2. B4 PINCER — only when our presser is already tight, i.e. the trap is really on;
+      //   3. B2 KEEPER — the fallback when the carrier is a threat and nothing else is on.
+      const ogSign = ogX === 0 ? 1 : -1;
+      const screenPlaneX = ogX + ogSign * (PENALTY.depth + 20); // solid hp3 ground just OUTSIDE our box
+      const iGoalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
+      const buildNow = buildReady && mem.t > (bm.nextBuildAt || 0);
+      // "I could put a wall somewhere useful THIS SECOND" — the wall-trap stand band, or near
+      // enough to the goal-screen plane to raise it. Anything looser and the keeper would eat
+      // the two build plays it is supposed to coexist with.
+      // The screen clause is a TIME test, not a distance one, because that is the actual
+      // question: can I raise a wall BEFORE the carrier gets here? A wall costs the walk onto
+      // the plane plus BUILD_WINDUP; the carrier needs its remaining distance at carry speed.
+      // Distance thresholds could not express this and the two plays starved each other —
+      // measured with a plain "am I near the plane" test, goalScreen went from 7 fires at
+      // t=0.50 (the tier with no keeper) to 0 at t=0.82 and t=1.00, with `liningUp` holding on
+      // 1 of 826 fallback ticks because the keeper had already returned on all the others.
+      const chSpeed = (CHARACTERS[p.char] || CHARACTERS[DEFAULT_CHAR]).speed * (settings.speedMul || 1);
+      const carrySpeed = chSpeed * (settings.carrySpeedMul || 1);
+      const screenY0 = clamp(GY + (c.y - GY) * 0.45, GY - GOAL.width / 2, GY + GOAL.width / 2);
+      const screenStand = { x: screenPlaneX - ogSign * wallReach(sk), y: screenY0 };
+      const tArrive = Math.abs(c.x - ogX) / Math.max(1, carrySpeed);
+      const tBuild = hyp(p.x - screenStand.x, p.y - screenStand.y) / Math.max(1, chSpeed) + BUILD_WINDUP;
+      const wallPlayOn = buildNow && ((iGoalSide && distC > 130 && distC <= 380)
+        || (tArrive > tBuild + 0.3 && Math.abs(p.y - GY) < GOAL.width / 2 + 200));
+
+      // ===== B4 — PINCER (gate t >= 0.92, OUR OWN HALF ONLY) ==================================
+      // assignRoles deliberately holds the off-ball bot at MIN_SEP = 320px from the carrier so
+      // both bots never crowd the ball — correct as a default, and it stays the default. At the
+      // top three levels only, in our own half only, and only while our presser is ALREADY tight
+      // on the carrier, the support bot breaks that floor and closes the ESCAPE LANE: ahead of
+      // the carrier along its heading, on the flank the presser is NOT on, so the two visibly
+      // converge from two sides instead of stacking on one.
+      // TELL: the two bots split and converge — the one bot behaviour that is obvious at a
+      // glance, even at minimap scale.
+      // COUNTER: release early. A pincer beats dribbling and loses to a first-touch pass, which
+      // is exactly the skill we want teens to learn.
+      // HARD-LIMITED, because this is the one skill that can feel unfair (design §4 B4): own
+      // half only, a SEEN carrier only, a 2.0s engagement, a cdMul-scaled 6s cooldown between
+      // attempts (so at most ~25% duty cycle), and it ABORTS the instant the carrier stops
+      // being the carrier — which is what makes "pass it" a real counter and not a slogan.
+      const pressTight = !!mate && hyp(mate.x - c.x, mate.y - c.y) < 260;
+      const ownHalf = Math.abs(c.x - ogX) < FIELD.W * 0.5;
+      if (skT(sk) >= T_PINCER && seeC && ownHalf && pressTight && !bm.pincer && mem.t > (bm.nextPincerAt || 0)) {
+        // LATCH the whole play at engagement: the victim, the escape lane, and which flank is
+        // ours. Two reasons, both found by tracing rather than reasoning:
+        //  * the VICTIM, because `c` is re-read from the live carrier every tick — abort on
+        //    "the carrier changed" alone and the trap silently re-targets the RECEIVER the
+        //    instant the trapped player passes, so "release early" stops being a counter at all;
+        //  * the LANE, because a carrier's instantaneous velocity is not a heading. Traced on a
+        //    pinned carrier it swung between (+64,-111) and (-112,-61) at ~128px/s, flipping the
+        //    chosen flank every few ticks: the bot jittered for 3s and closed nothing. A pincer
+        //    is a commitment to one side; committing is also what makes it READABLE.
+        // Below 40px/s there is no heading to read, so the honest guess is "at our goal".
+        const cSpd = hyp(c.vx || 0, c.vy || 0);
+        const [hx, hy] = cSpd > 40 ? unit(c.vx, c.vy) : unit(ogX - c.x, GY - c.y);
+        let perpX = -hy, perpY = hx;
+        if (mate && ((mate.x - c.x) * perpX + (mate.y - c.y) * perpY) > 0) { perpX = -perpX; perpY = -perpY; } // take the OTHER flank
+        bm.pincer = { id: c.id, until: mem.t + 2.0, hx, hy, px: perpX, py: perpY };
+        bm.nextPincerAt = mem.t + 6.0 * (sk.cdMul || 1);
+      }
+      if (bm.pincer && (mem.t > bm.pincer.until || b.owner !== bm.pincer.id || !seeC)) bm.pincer = null;
+      if (bm.pincer) {
+        const q = bm.pincer; // the lane is latched; the POINT still tracks the carrier's live spot
+        tgt = { x: clamp(c.x + q.hx * 150 + q.px * 120, 60, FIELD.W - 60), y: clamp(c.y + q.hy * 150 + q.py * 120, 60, FIELD.H - 60) };
+        if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y };
+        bm.lastTrick = 'pincer';
+        // returns early ON PURPOSE — this is the one behaviour allowed past the MIN_SEP floor
+        return finalize(p, tgt, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+      }
+
+      // ===== B2 — GOALKEEPER (gate t >= 0.68) =================================================
+      // sim.js already HAS a keeper rule and no bot has ever played it deliberately: a defender
+      // inside its OWN penalty box CATCHES a weak-or-full kick (test-power.mjs pins both halves
+      // of it — a full kick at a defender in its own box is a save, and only an overcharge kick
+      // breaks through, KEEPER_BREAK_ROLL 0.45). Bots only shadow and mark. So when the enemy
+      // carrier is bearing down on our goal and none of ours is goal-side, the support bot stops
+      // chasing and takes the line: it stands ON the carrier's shot line, deep enough inside the
+      // box for the save rule to apply, and slides with them.
+      // TELL: it stops chasing and stands on its line, sliding side to side — a completely
+      // different silhouette of movement from every other bot behaviour.
+      // COUNTER: already implemented and symmetric. The bot's own cornerFinish predicts a
+      // keeper's slide and shoots the corner it is moving away from; a player does the same, or
+      // breaks it with overcharge, or drags it off its line with a pass. Nothing new to learn —
+      // it teaches an existing mechanic.
+      const keepThreat = Math.abs(c.x - ogX) < FIELD.W * 0.42;                       // a real threat, not midfield
+      const mateGoalSide = !!mate && Math.abs(mate.x - ogX) < Math.abs(c.x - ogX) - 60;
+      if (skT(sk) >= T_KEEPER && seeC && keepThreat && !mateGoalSide && !wallPlayOn) bm.keepUntil = mem.t + 0.8;
+      if ((bm.keepUntil || 0) > mem.t && b.owner === c.id && !wallPlayOn) {
+        // Stand where the carrier's shot must pass: intersect (carrier -> goal centre) with the
+        // keeper plane, then clamp into the mouth and the box. 0.45 * PENALTY.depth is WELL
+        // inside the box, so the sim's catch actually applies rather than being a near miss.
+        const lineX = ogX + ogSign * PENALTY.depth * 0.45;
+        const f = Math.abs(lineX - ogX) / Math.max(1, Math.abs(c.x - ogX));
+        const lineY = clamp(GY + (c.y - GY) * (1 - f), GOAL_TOP + 12, GOAL_BOT - 12);
+        tgt = { x: lineX, y: clamp(lineY, PEN_TOP + 30, PEN_BOT - 30) };
+        if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y };
+        // A keeper is not a statue: if the carrier walks right onto it, it still strips. Kept
+        // narrow (0.6 x the plain-cover range) so the behaviour still READS as "holding the
+        // line" rather than "chasing", which is the whole point of the tell.
+        let kShoot = false;
+        if (canShoot && seeC && lane && distC < COVER_STRIP * 0.6) { kShoot = true; }
+        bm.lastTrick = 'goalKeep';
+        return finalize(p, tgt, aim, { shoot: kShoot, charge: 1, special: false, build: false, closeShot: distC < 260 }, state, mem, bm, sk, dt);
+      }
+
       // ===== SUPPORT cover — skilled bots run a BUSH-AMBUSH + WALL-TRAP (lurk->wall->strip) =====
       const other = enemies.find((e) => e.id !== c.id);
       const shadowX = c.x + (ogX - c.x) * 0.58, shadowY = c.y + (GY - c.y) * 0.58;
@@ -1461,12 +1731,22 @@ function decideBot(p, role, state, mem, sk, dt) {
         // a capsule ACROSS the carrier's lane to OUR goal (aim ALONG the lane => capsule spans it),
         // then burst out and strip. Stand on the lane, goal-side of the carrier.
         const [lux, luy] = unit(ogX - c.x, GY - c.y);
+        // B3 — DISTANT WALL. The stand spot is UNCHANGED (c + lane*150) at every tier; what the
+        // reach buys is WHERE the capsule lands along that same aim: 60px out below the gate
+        // (inside the bot's own body, which is every bot wall in the game today) and 180px out
+        // at t >= 0.82, i.e. a clear body-length further down the carrier's lane. Same verb,
+        // better execution — a player has always been able to drag their wall out this far.
+        const reach = wallReach(sk);
+        const wallPt = { x: c.x + lux * (150 + reach), y: c.y + luy * (150 + reach) };
         // Windup model: HOLD buildHold for BUILD_WINDUP before the build edge actually
         // commits a wall (a bare build:true edge is now a no-op — see sim.js buildWindup).
         // Only ARM the deadline once — this branch keeps re-selecting itself every tick
         // while the trap is still live, and re-stamping `until` from `mem.t` each time
-        // would perpetually push completion out of reach.
-        if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, until: mem.t + BUILD_WINDUP + 0.1 };
+        // would perpetually push completion out of reach. `dist` DOES refresh each tick: the
+        // bot is still walking, and the drag it commits should match where it actually stands.
+        const trapDist = wallPush(p, wallPt.x, wallPt.y, lux, luy, sk);
+        if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, dist: trapDist, until: mem.t + BUILD_WINDUP + 0.1 };
+        else bm.buildHold.dist = trapDist;
         aim = { x: lux, y: luy };
         tgt = { x: c.x + lux * 150, y: c.y + luy * 150 };
         bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = ambush ? 'ambushWall' : 'blockDrive';
@@ -1493,25 +1773,50 @@ function decideBot(p, role, state, mem, sk, dt) {
         else { const bush = nearestBushCenter(shadowX, shadowY, 300, state); tgt = bush || { x: shadowX, y: shadowY }; }
         if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y };
         const liningUp = Math.abs(c.y - GY) < GOAL.width / 2 + 240 && Math.abs(c.x - ogX) < FIELD.W * 0.4;
-        const goalSide = Math.abs(p.x - ogX) < Math.abs(c.x - ogX);
         // TACTIC 1 — DEFENSIVE GOAL-SCREEN: build a VERTICAL wall across our goal mouth, just
         // OUTSIDE the box (so it's a solid hp3 wall, never a fragile in-box one). Aim horizontal
         // => capsule spans vertically across the mouth. Move onto the plane first, then build.
-        const sign = ogX === 0 ? 1 : -1;
-        const planeX = ogX + sign * (PENALTY.depth + 20);
-        const screenY = clamp(GY + (c.y - GY) * 0.45, GY - GOAL.width / 2, GY + GOAL.width / 2);
-        const screenSpot = { x: planeX - sign * BUILT_WALL.offset, y: screenY };
-        const noScreenYet = !state.builtWalls.some((w) => Math.abs((w.cx != null ? w.cx : w.x) - planeX) < 130 && Math.abs((w.cy != null ? w.cy : w.y) - GY) < GOAL.width / 2 + 50);
-        if (sk.toolSkill > 0.6 && buildReady && liningUp && goalSide && noScreenYet && mem.t > (bm.nextBuildAt || 0)) {
+        //
+        // WHY IT NEVER FIRED — measured, not guessed (6 matches x 60s x 3 tiers, with every
+        // conjunct instrumented). `liningUp` and the old `goalSide` are ANTI-CORRELATED: the
+        // first wants the carrier bearing down on our goal, the second wanted THIS bot to be
+        // ALREADY between them and the goal — and the support bot is behind the play at exactly
+        // that moment. Individually they held on 716/1729, 347/1977 and 180/3112 cover ticks;
+        // together, 0 / 0 / 4. And on the 4 the bot was a mean 241px off the build plane against
+        // an 85px tolerance, with the preconditions flipping again the next tick, so it never
+        // walked there either. Total fires across the whole ladder: zero.
+        // Two root-cause fixes, no threshold-lowering:
+        //   (a) `goalSide` becomes "there is ROOM to get goal-side". Getting between the carrier
+        //       and the goal is the JOB of this play; requiring it up front was circular.
+        //   (b) the play LATCHES for 2.4s once chosen, so the bot commits to the walk instead of
+        //       re-deciding 60 times a second — the same fault that killed the old walk-to-a-pad
+        //       wall-cannon, which the bot lane fixed the same way.
+        // B3 also pays off here: at t >= 0.82 the wall can be raised from `wallReach` back, so
+        // the bot has ~120px less ground to cover before it can commit.
+        const screenRoom = Math.abs(c.x - ogX) > PENALTY.depth + 120; // still time to get in front
+        const screenY = screenY0;
+        // B3 pays off twice here. The wall still lands on screenPlaneX — OUTSIDE the box, so it
+        // is a solid hp3 wall and not a fragile in-box one — but at t >= 0.82 the BUILDER may
+        // stand a full 180px back, which at this plane means standing INSIDE its own box while
+        // the wall goes up outside it. That is ~120px less ground to cover before it can commit,
+        // and it is the difference between a play that reaches its build and one that does not.
+        const screenSpot = screenStand;
+        const noScreenYet = !state.builtWalls.some((w) => Math.abs((w.cx != null ? w.cx : w.x) - screenPlaneX) < 130 && Math.abs((w.cy != null ? w.cy : w.y) - GY) < GOAL.width / 2 + 50);
+        if (bm.screenUntil && (mem.t > bm.screenUntil || !noScreenYet)) bm.screenUntil = 0;
+        if (sk.toolSkill > 0.6 && buildReady && liningUp && screenRoom && noScreenYet && mem.t > (bm.nextBuildAt || 0)) bm.screenUntil = mem.t + 2.4;
+        if (bm.screenUntil && buildReady) {
           tgt = screenSpot;
-          if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 85) { // near the plane -> raise the screen
-            if (!bm.buildHold) bm.buildHold = { x: sign, y: 0, until: mem.t + BUILD_WINDUP + 0.1 };
-            aim = { x: sign, y: 0 }; shoot = false; special = false;
-            bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'goalScreen';
+          bm.lastTrick = 'goalScreen'; // tagged for the WALK too: this is a committed play now
+          if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 85) { // on the plane -> raise the screen
+            const dist = wallPush(p, screenPlaneX, screenY, ogSign, 0, sk);
+            if (!bm.buildHold) bm.buildHold = { x: ogSign, y: 0, dist, until: mem.t + BUILD_WINDUP + 0.1 };
+            else bm.buildHold.dist = dist;
+            aim = { x: ogSign, y: 0 }; shoot = false; special = false;
+            bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.screenUntil = 0;
           }
-        } else if (buildReady && liningUp && goalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)) {
+        } else if (buildReady && liningUp && iGoalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)) {
           // fallback: opportunistic screen wall at our current position (aim toward the carrier)
-          if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, until: mem.t + BUILD_WINDUP + 0.1 };
+          if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, dist: 0, until: mem.t + BUILD_WINDUP + 0.1 };
           aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
         } else if (canShoot && seeC && lane && distC < COVER_STRIP) { shoot = true; charge = 1; if (distC < 260) closeShot = true; }
       }
@@ -1718,9 +2023,12 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   // branch that asked for a lob would have thrown the bomb along its AIM instead of at the anchor —
   // i.e. the wall-cannon would have lobbed FORWARD, away from the wall it was trying to use. It was
   // latent only because every branch then set the anchor to the bomber's own feet (distance 0).
+  // `btn.lob` is the SAME payload without the stand-on-it commitment: a pure throw, used by the
+  // two-bomb join, which wants the bomb over there and the bot right here.
+  const lobAt = bm.bombHold || (btn.lob || null);
   let sax = 0, say = 0;
-  if (special && bm.bombHold) {
-    const ox = bm.bombHold.x - p.x, oy = bm.bombHold.y - p.y;
+  if (special && lobAt) {
+    const ox = lobAt.x - p.x, oy = lobAt.y - p.y;
     const dist = hyp(ox, oy);
     if (dist > 1) {
       const frac = Math.min(1, dist / BOMB_LOB_RANGE);
@@ -1775,7 +2083,13 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
     if (lostBall || dryBullet || mem.t > c.until) {
       bm.charging = null; // cancel: release trigger without firing
     } else if ((p._charge || 0) >= c.fireAt && dThetaAbs <= c.tol) {
-      fire = true; bm.charging = null; // wound up enough + on target -> release
+      fire = true;
+      // B1 — the LOW end of super discipline, named so it is measurable. Below T_SUPER_HOLD
+      // nothing protects the meter, so the first full shot spends it: that is the documented
+      // Brawl Stars bot tell ("fires the Super right after respawn"), kept on purpose as the
+      // bottom rung of the ladder. This TAGS the behaviour, it does not cause it.
+      if (p.power && c.fireAt >= FULL_CHARGE && skT(sk) < T_SUPER_HOLD) bm.lastTrick = 'superDump';
+      bm.charging = null; // wound up enough + on target -> release
     } else {
       hold = true; // keep charging
     }
@@ -1799,8 +2113,15 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   // re-selecting itself each tick (buildReady stays true until the wall actually commits)
   // and re-supplies the same aim vector via aimVec, so the wall's orientation stays
   // consistent for the whole hold without needing to be forced here.
-  let buildHold = false;
+  let buildHold = false, buildDist = 0;
   if (bm.buildHold) {
+    // B3 — the wall's push distance. Read BEFORE the hold is cleared, because the build EDGE
+    // and the payload are the same tick: the sim does `p.aimMag = clamp(inp.buildDist, 0, 1)`
+    // and places the capsule at BUILT_WALL.offset + aimMag * BUILD_DIST_MAX. finalize() never
+    // emitted this field, so every bot wall in the game landed at the 60px minimum while
+    // players drag theirs to 180. Below T_FAR_WALL every branch supplies 0, i.e. exactly the
+    // old behaviour, so this cannot change what the low tiers do.
+    buildDist = clamp(bm.buildHold.dist || 0, 0, 1);
     if (mem.t >= bm.buildHold.until) { build = true; bm.buildHold = null; }
     else { buildHold = true; build = false; }
   }
@@ -1810,7 +2131,7 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
     moveX: mvx, moveY: mvy, aimX: ax, aimY: ay,
     // Bots always shoot deliberately AT a target (goal/enemy/mate), so a bot shot is an AIMED
     // shot — it must push/strip. Without this, every bot bullet degrades to a no-push quick shot.
-    hold, fire, aimed: fire, special, build, buildHold,
+    hold, fire, aimed: fire, special, build, buildHold, buildDist,
     sax, say,
   };
 }
