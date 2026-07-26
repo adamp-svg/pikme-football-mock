@@ -1056,7 +1056,7 @@ function renderHubXp() {
   // name + a pixel-art trophy, because "XP" read like a second ranking next to the rank badge.
   // The RANK (losable) is the badge over the hero. See shared/rank.js for the terminology note.
   el.innerHTML = '<div class="hub-xp-top"><span class="hub-xp-lvl">רמה <b>' + level + '</b></span>'
-    + '<span class="hub-xp-amt"><i class="xp-trophy" aria-hidden="true"></i>'
+    + '<span class="hub-xp-amt"><span class="saltiz-icon si-trophy" aria-hidden="true"></span>'
     + '<span dir="ltr">' + fmtCompact(into) + ' / ' + fmtCompact(span) + '</span>'
     + ' ' + TROPHIES_HE + '</span></div>'
     + '<div class="hub-xp-bar"><b style="width:' + (pct * 100).toFixed(1) + '%"></b></div>';
@@ -1084,8 +1084,9 @@ function setXpBar(xp) {
   const level = levelFromXp(xp), base = 50 * level * (level - 1), span = 100 * level;
   const into = Math.max(0, xp - base), pct = span ? Math.max(0, Math.min(1, into / span)) : 0;
   lvlB.textContent = level;
-  // Keep the pixel trophy: this is the גביעים bar, and textContent alone would strip the icon.
-  amt.innerHTML = '<i class="xp-trophy" aria-hidden="true"></i>'
+  // Keep the trophy: this is the גביעים bar, and textContent alone would strip the icon. It is now
+  // the icon pack's real cup (si-trophy) instead of the hand-built box-shadow one in rank.css.
+  amt.innerHTML = '<span class="saltiz-icon si-trophy" aria-hidden="true"></span>'
     + '<span dir="ltr">' + fmtCompact(into) + ' / ' + fmtCompact(span) + '</span>'
     + ' ' + TROPHIES_HE;
   bar.style.width = (pct * 100).toFixed(1) + '%';

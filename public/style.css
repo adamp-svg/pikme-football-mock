@@ -2095,8 +2095,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Body: actions rail (left) · field (center) · materials rail (right). dir:ltr fixes L/R order. */
 /* Rails pulled in toward the centre with a side gap that matches the main lobby (its side
    buttons sit ~10% in from the edge), and never inside the landscape notch/rounded corners. */
+/* Side padding is the SAFE AREA and nothing more (user, 2026-07-26: "it should be wider to fit the
+   screen, up to the safe area"). It used to be max(10%, safe-area): on an 844x303 landscape phone
+   that is 84px PER SIDE — 168px, a fifth of the screen — spent on empty margin, and the pitch was
+   measured at 264x145. 8px is a floor for phones that report no inset at all. */
 .builder-body { flex: 1; min-height: 0; display: flex; flex-direction: row; align-items: stretch; gap: 8px; direction: ltr;
-  padding: 4px max(10%, env(safe-area-inset-right)) 2px max(10%, env(safe-area-inset-left)); }
+  padding: 4px max(8px, env(safe-area-inset-right)) 2px max(8px, env(safe-area-inset-left)); }
 /* WRAPPING column: the rail is one column on a tall screen and splits into a SECOND column when the
    buttons don't fit, instead of scrolling them out of sight. That conditional behaviour is exactly
    what `flex-flow: column wrap` + a bounded height gives for free — and it is why the two new tools
@@ -2113,10 +2117,17 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .builder-zoom button { width: 38px; height: 38px; border: none; border-radius: 9px; background: rgba(20,32,24,.92); color: #eaf2ec; font: 900 18px "Arial Black", sans-serif; box-shadow: 0 3px 0 #070b08; cursor: pointer; }
 .builder-zoom button:active { transform: translateY(2px); box-shadow: 0 1px 0 #070b08; }
 /* Extra top/bottom inset keeps back/play (top) and clear/save (bottom) a bit off the screen edges. */
-.builder-top { display: flex; align-items: center; justify-content: space-between; padding: max(14px, env(safe-area-inset-top)) 12px 6px; gap: 8px; }
+/* Vertical padding trimmed (14/6 -> 6/3). Measured: the pitch is HEIGHT-limited, not width-limited
+   — at 844x303 it renders 294x162, i.e. exactly the arena's 1.81 aspect with 275px of horizontal
+   slack to spare. So every px returned here becomes ~1.8px of pitch WIDTH as well. The two bars were
+   spending 110px of a 303px viewport. Kept as max(…, safe-area-inset-top) so a notched phone in
+   landscape still clears the island; only the arbitrary floor shrank. Button sizes are deliberately
+   NOT touched — .builder-btn is shared with the back pill on every sub-page. */
+.builder-top { display: flex; align-items: center; justify-content: space-between; padding: max(6px, env(safe-area-inset-top)) 12px 3px; gap: 8px; }
 /* Bottom bar mirrors the top bar layout: clear-all (left) under back, save (right) under play. */
-.builder-bottom { display: flex; align-items: center; justify-content: space-between; padding: 6px 12px max(14px, env(safe-area-inset-bottom)); gap: 8px; }
-.builder-title { font-weight: 800; font-size: 16px; }
+.builder-bottom { display: flex; align-items: center; justify-content: space-between; padding: 3px 12px max(6px, env(safe-area-inset-bottom)); gap: 8px; }
+/* 16px -> 12px: the heading is orientation, not content, and every px it gives back is arena. */
+.builder-title { font-weight: 800; font-size: 12px; }
 .builder-btn { border: none; border-radius: 10px; padding: 8px 14px; font-weight: 800; font-size: 14px; color: #fff; flex: none; }
 .builder-back { background: #33413a; }
 .builder-play { background: #2fbf5e; }
@@ -2188,7 +2199,20 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .bact { background: #33413a; }
 #b-clear { background: #6e2b2b; }
 .builder-sep { width: 1px; align-self: stretch; background: rgba(255,255,255,.15); margin: 0 2px; }
-.builder-hint { flex: 1; min-width: 0; text-align: center; font-size: 11px; opacity: .7; padding: 0 8px; }
+/* The long "קיר: גרור לצייר קו…" instruction line is gone from the markup — it was 481x42px of
+   permanent explanation in a 303px-tall viewport (user: "remove the explanation text, it takes too
+   much screen space"). The ELEMENT stays, because it is not decoration: fbFlash() writes build
+   errors into it (red) and the save handler writes «נשמר ✓» (green), and fbFlash() early-returns if
+   it is missing — deleting it would have silently killed save confirmation.
+   It is now an absolutely-positioned overlay, so an empty hint costs ZERO layout and a flash cannot
+   reflow the bar mid-drag. `bottom` clears the bottom bar; pointer-events:none keeps it from eating
+   taps aimed at נקה הכל / שמור. */
+.builder-hint {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 68px; z-index: 8;
+  max-width: 78%; text-align: center; font-size: 11px; font-weight: 800; opacity: .95;
+  pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.builder-hint:not(:empty) { padding: 4px 10px; border-radius: 8px; background: rgba(8,14,10,.82); }
 /* Pitch markings must never intercept taps (placement/selection happen on the pitch). */
 .bp-goal, .bp-mid { pointer-events: none; }
 /* Wall resize handles (drag an end to lengthen/shorten + rotate). */
@@ -2232,7 +2256,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .setting-empty { opacity: .55; font-size: 13px; padding: 10px; text-align: center; }
 
 /* Keep builder rows clear of the iPhone notch/rounded corners (landscape safe-area). */
-.builder-top, .builder-bottom, .builder-palette { padding-left: max(10%, env(safe-area-inset-left)); padding-right: max(10%, env(safe-area-inset-right)); }
+/* Was max(10%, …) here too — the same 168px tax on the bars as on the body. Safe area only. */
+.builder-top, .builder-bottom, .builder-palette { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
 
 /* Power-slot page: album (all tiers) on the LEFT, equipped slots on the RIGHT (RTL: first=right). */
 #cards .cards-split { flex-direction: row; gap: 10px; align-items: stretch; overflow: hidden; min-height: 0; }

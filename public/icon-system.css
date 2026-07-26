@@ -28,8 +28,30 @@
 .club-cta-ic .saltiz-icon,
 .club-feat-ic .saltiz-icon { --si-size: 1.35em; }
 .shop-thumb .saltiz-icon { --si-size: 1.2em; }
-.special-btn > .saltiz-icon,
-.build-icon > .saltiz-icon { --si-size: 72%; vertical-align: 0; }
+/* The two in-match ability buttons (💣 bomb / 🧱 wall). Both were visibly wrong; two separate causes,
+   measured in a real browser rather than guessed:
+   1. THE WALL WAS INVISIBLE. `.build-icon` (index.html) carries only `pointer-events:none`, so it is a
+      shrink-to-fit flex item with no width of its own. Its only child was sized `72%` — a percentage
+      resolved against that zero width — so the sprite computed to 0x0 and the button rendered as a
+      plain brown square. Measured: .build-icon 0x28, its icon 0x0. It needs an explicit box.
+   2. THE BOMB HAD BLEED. A percentage size gives a fractional box (the bomb measured 54.7px). With
+      `background-size: 1200% 800%` the sheet is scaled to 12x/8x the box, so a fractional box puts
+      every cell edge on a half pixel and the neighbouring cells leak in — those stray dark lines
+      across the bomb were the edges of adjacent sprites, not art.
+   Integer px sizes keep 12x and 8x whole, so cell boundaries land exactly. Both buttons already
+   centre their content with flex, so a fixed-size box sits dead centre. */
+/* גביעים (trophies) bar. `tournament` IS the gold cup with a football in it, so this is a semantic
+   ALIAS onto the same cell rather than a second drawing — the trophies bar wants a trophy, not a
+   "tournament entry", and a future re-cut of the sheet should be able to point them at different art
+   without hunting through client.js. Replaces the hand-built box-shadow cup in rank.css. */
+.si-trophy { background-position: 100.000000% 0.000000%; }
+/* 14px, not an em-relative size: integer keeps the 12x/8x sheet scale on whole pixels (see the note
+   on the ability buttons below). margin matches the 3px the old .xp-trophy had. */
+.hub-xp-amt > .saltiz-icon { --si-size: 14px; margin-inline-end: 3px; vertical-align: -3px; }
+
+.build-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
+.special-btn > .saltiz-icon { --si-size: 56px; vertical-align: 0; }  /* 56*12=672, 56*8=448 — whole px */
+.build-icon > .saltiz-icon  { --si-size: 40px; vertical-align: 0; }  /* 40*12=480, 40*8=320 — whole px */
 .builder-title .saltiz-icon,
 .builder-btn .saltiz-icon,
 .bact .saltiz-icon,

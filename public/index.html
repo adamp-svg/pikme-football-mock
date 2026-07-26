@@ -209,7 +209,11 @@
     <!-- Bottom bar MIRRORS the top bar: clear-all sits under ‹ back (left), save under play (right). -->
     <div class="builder-bottom">
       <button id="b-clear" class="builder-btn builder-clear">✕ נקה הכל</button>
-      <span class="builder-hint">קיר: גרור לצייר קו (בכל זווית) · שיח: גרור מלבן · 🏁 הקש להצבת נקודת פתיחה (הקשה חוזרת מחליפה קבוצה) · ⚽ מקום התחלת הכדור · 🩹 מחק בגרירה · שיקוף: צד / עליון / אלכסון</span>
+      <!-- Intentionally EMPTY. This is the builder's transient message surface, not a caption:
+           fbFlash() writes build errors here and #b-save writes «נשמר ✓». The permanent instruction
+           line that used to live here was 481x42px of screen in a 303px-tall viewport. Keep the
+           element — fbFlash() early-returns without it, which would kill save confirmation. -->
+      <span class="builder-hint"></span>
       <button id="b-save" class="builder-btn builder-save">💾 שמור</button>
     </div>
   </div>
