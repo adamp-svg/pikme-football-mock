@@ -637,6 +637,12 @@ function steer(bot, tgtx, tgty, state, bmem, sk, now = 0) {
   const c0 = clearAt(bot.x, bot.y);
   const LOOK = 120, SAMP = [0.34, 0.67, 1.0], HIT_PAD = 2, GRAZE_R = 22, W_BLOCK = 2.2, W_GRAZE = 0.6, W_HITFRAC = 0.6;
   const BODY_LOOK = 96, W_BODY = 1.1;
+  // Carrying: how much MORE room the glued ball needs than the body, and what that costs a
+  // direction. W_CARRY sits below W_BLOCK (2.2) on purpose — popping the ball is worse than a graze
+  // (0.6) and better than walking into stone, so a carrier detours but never freezes.
+  const carrying = state.ball.owner === bot.id;
+  const ballGlueExtra = BALL_RADIUS * (state.settings.ballSizeMul || 1);
+  const W_CARRY = 1.4;
   let best = null, bestScore = -1e9, safest = null, safeD = 1e9;
   for (const [dx, dy] of DIRS) {
     const interest = dx * tox + dy * toy;            // -1..1
@@ -653,6 +659,22 @@ function steer(bot, tgtx, tgty, state, bmem, sk, now = 0) {
     const dBlock = hitFrac < 0 ? 0 : 1 - W_HITFRAC * hitFrac;
     const graze = clamp((GRAZE_R - (cMin - Math.min(0, c0))) / GRAZE_R, 0, 1);
     let danger = W_BLOCK * dBlock + W_GRAZE * graze;
+    // ---- A GAP A BODY FITS THROUGH IS NOT A GAP A CARRIER FITS THROUGH ------------------------
+    // The ball is glued at feet + aim x (radius + ballR) and sim.js:919 pops it LOOSE the instant
+    // that spot touches stone, with a lockout so the carrier cannot re-collect. Every clearance test
+    // above is sized to the BODY (r), so a dribbler happily threads a 70px gap and arrives without
+    // the ball — measured at 7.7% of the legs the nav grid calls walkable. This adds a soft cost for
+    // the extra ballR of room the carried ball needs, so a carrier prefers the wider way round while
+    // a body still uses every gap it fits. Soft on purpose: a hard block would strand a carrier in
+    // MAIN_FIELD's crate corridors, and finalize() already rotates the aim as the reactive backstop.
+    if (carrying) {
+      let cCarryMin = 1e9;
+      for (const s of SAMP) {
+        const c = clearAt(bot.x + dx * LOOK * s, bot.y + dy * LOOK * s) - ballGlueExtra;
+        if (c < cCarryMin) cCarryMin = c;
+      }
+      danger += W_CARRY * clamp((ballGlueExtra - cCarryMin) / ballGlueExtra, 0, 1);
+    }
     // dynamic threats accumulate separately and are added at their own weight, so "a wall is
     // that way" and "a bomb is about to go off" are no longer indistinguishable.
     let dyn = 0;
@@ -1062,6 +1084,10 @@ const CANNON_LOB = [0, 35, 60, 85]; // 0 = the plain feet plant, i.e. the baseli
 // when it EARNS the deviation — otherwise the bot would twist its flight line for a 1.02x nothing.
 const CANNON_ROT = [0, 0.175, -0.175, 0.349, -0.349]; // rad: 0, +-10deg, +-20deg
 const CANNON_ROT_MIN_MUL = 1.15;
+// How far along the flight line to check for stone before committing a launch. Measured glide is
+// 653px on open ground and 869px with a wall backing the bomb (BOT_HANDOFF round 6, feature 4), so
+// 660 is the honest "a plain jump goes about this far" number rather than a new invented constant.
+const CANNON_FLIGHT_PROBE = 660;
 
 // ---- TOOL USE IS A RATE, NOT A CLIFF (see test-bot-partner.mjs for the measurement) -------------
 // Both bomb-for-MOBILITY plays used to be gated on `sk.toolSkill >= 0.72`. skillVec interpolates
@@ -1216,8 +1242,20 @@ function launchCancelled(state, bx, by, dx, dy) {
 // Where should a bot at `p` planting for a rocket-jump along (dx,dy) put the bomb, and which way
 // should it actually fly? Returns { x, y, dx, dy, mul }: the plant anchor (its own feet when no wall
 // helps), the flight direction to commit to, and the multiplier the sim will give it.
-function cannonPlant(p, dx, dy, state) {
+// Will a launch along (dx,dy) from (x,y) actually FLY, or does it end against stone? The flight is
+// a body travelling `dist` px, so the test is the sim's own wall geometry over that segment — walls
+// only (`enemies: false`): a body in the way is a tackle, not a blocked jump.
+// WHY IT MATTERS HERE and not at the call site: cannonPlant may ROTATE the flight line (CANNON_ROT)
+// to find a wall to cannon off, so the direction the bot ends up flying is not the direction the
+// caller lane-tested. A rotated launch straight into a capsule spends a bomb charge and 1.725s of
+// standing still to travel nothing.
+function launchPathClear(state, x, y, dx, dy, dist, team) {
+  const L = clamp(dist, 60, CANNON_FLIGHT_PROBE);
+  return laneClear(x, y, x + dx * L, y + dy * L, state, team, { enemies: false });
+}
+function cannonPlant(p, dx, dy, state, wantDist) {
   let best = null;
+  const probe = wantDist != null ? wantDist : CANNON_FLIGHT_PROBE;
   for (const rot of CANNON_ROT) {
     const cs = Math.cos(rot), sn = Math.sin(rot);
     const ax = dx * cs - dy * sn, ay = dx * sn + dy * cs;
@@ -1227,12 +1265,20 @@ function cannonPlant(p, dx, dy, state) {
       // model, so only consider anchors that are comfortably in-bounds.
       if (bx < 24 || bx > FIELD.W - 24 || by < 24 || by > FIELD.H - 24) continue;
       if (launchCancelled(state, bx, by, ax, ay)) continue;
+      if (!launchPathClear(state, p.x, p.y, ax, ay, probe, p.team)) continue; // don't fly into stone
       const mul = cannonMulAt(state, bx, by, ax, ay);
       if (rot !== 0 && mul < CANNON_ROT_MIN_MUL) continue; // never twist the flight line for nothing
       if (!best || mul > best.mul + 1e-6) best = { x: bx, y: by, dx: ax, dy: ay, mul, back: L };
     }
   }
-  return best || { x: p.x, y: p.y, dx, dy, mul: 1, back: 0 };
+  // THE FALLBACK IS SCREENED TOO. It used to be returned unconditionally, so when every candidate
+  // was rejected the caller planted a launch the sim refuses (or one that flies into a wall) — the
+  // one code path in this function that was not asking the geometry any questions. `null` now means
+  // "there is no launch here", and every caller already treats a missing plant as "just walk".
+  if (best) return best;
+  if (launchCancelled(state, p.x, p.y, dx, dy)) return null;
+  if (!launchPathClear(state, p.x, p.y, dx, dy, probe, p.team)) return null;
+  return { x: p.x, y: p.y, dx, dy, mul: 1, back: 0 };
 }
 
 // ==================== MOBILITY: IS A ROCKET-JUMP ACTUALLY FASTER THAN WALKING? ================
@@ -1280,7 +1326,8 @@ function mobilityJump(p, bm, mem, state, sk, tgt, visibleEnemies, bombReady, tag
   }
   if (!laneClear(p.x, p.y, tgt.x, tgt.y, state, p.team, { enemies: false })) return null;
   const [ex, ey] = unit(tgt.x - p.x, tgt.y - p.y);
-  const cp = cannonPlant(p, ex, ey, state);
+  const cp = cannonPlant(p, ex, ey, state, d);
+  if (!cp) return null;                                     // every launch from here ends on stone
   if (cp.mul < 1.05 && d < JUMP_NO_CANNON_D) return null;   // no boost and not far enough: walk
   bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
   bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
@@ -1470,10 +1517,12 @@ function decideBot(p, role, state, mem, sk, dt) {
       const [ex, ey] = unit(FIELD.W / 2 - p.x, GY - p.y);   // rocket toward the open pitch centre
       // Wedged in a corner is exactly where a wall IS behind you, so this is the highest-yield place
       // to use the cannon lob — and the escape needs every px of launch it can get.
-      const cp = cannonPlant(p, ex, ey, state);
-      bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 400, aimY: p.y + cp.dy * 400 };
-      bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.stuck = 0; bm.lastTrick = 'cornerEscape';
-      return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+      const cp = cannonPlant(p, ex, ey, state, 420);
+      if (cp) {
+        bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 400, aimY: p.y + cp.dy * 400 };
+        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.stuck = 0; bm.lastTrick = 'cornerEscape';
+        return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+      }
     }
   }
 
@@ -1485,11 +1534,14 @@ function decideBot(p, role, state, mem, sk, dt) {
   if (bm.fly && mem.t - bm.fly.at > 0.7) bm.fly = null;
   if (bm.fly && b.owner !== p.id && !bm.bombHold && (p.specialCd || 0) <= 0) {
     const cp = cannonPlant(p, bm.fly.x, bm.fly.y, state);
-    bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
-    bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
-    bm.lastTrick = cp.mul > 1.05 ? 'kickFlyCannon' : 'kickAndFly';
-    bm.fly = null;
-    return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+    if (cp) {
+      bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
+      bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+      bm.lastTrick = cp.mul > 1.05 ? 'kickFlyCannon' : 'kickAndFly';
+      bm.fly = null;
+      return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+    }
+    bm.fly = null;   // no launch available from here — drop the play rather than stand on a fuse
   }
 
   if (b.owner === p.id) {

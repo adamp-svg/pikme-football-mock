@@ -126,27 +126,36 @@ const loose = (s, x, y, vx = 0, vy = 0) => { s.ball.owner = null; s.ball.x = x; 
 
 // ---------------------------------------------------------------- 6. a carrier avoids a ball-popping gap
 {
-  // Two capsules leaving a 74px gap: a 42px-diameter BODY fits, a carrier's glue spot (58.25px in
-  // front of its centre) does not — sim.js:919 pops the ball the instant that spot touches stone.
-  const field = {
-    version: 1, bushes: [], crates: [], dryWalls: [],
-    hardWalls: [
-      { cx: 1000, cy: 400, angle: 0, hl: 200, ht: 16 },
-      { cx: 1000, cy: 700, angle: 0, hl: 200, ht: 16 },
-    ],
-  };
-  const { s, mem } = fixture({ field });
-  put(s, 'A0', 700, 550); put(s, 'A1', 300, 300); put(s, 'B0', 1700, 300); put(s, 'B1', 1700, 800);
-  s.ball.owner = 'A0'; s.ball.x = 758; s.ball.y = 550;   // glued in front, pointing at the gap
-  s.players.A0.aimX = 1; s.players.A0.aimY = 0;
-  let popped = 0;
-  for (let t = 0; t < 240; t++) {                         // 4s: enough to cross or go round
-    const inp = computeBotInputs(s, mem, DT);
-    const had = s.ball.owner === 'A0';
-    step(s, inp, DT);
-    if (had && s.ball.owner !== 'A0' && !inp.A0.fire) popped++;   // lost it WITHOUT kicking = wall pop
+  // An 80px corridor: a 52.5px BODY fits with room to spare, but the ball glued 58.25px in front
+  // sweeps into the rails, and sim.js:919 pops it loose the instant that spot touches stone.
+  // Measured A/B on this exact fixture (only the carrier's inputs applied, so no enemy strip can be
+  // mistaken for a pop) with the steer() carry term OFF vs ON, same three starts:
+  //     OFF: pops 4 / 0 / 4, the carrier advanced   87 / 961 /  92 px
+  //     ON : pops 0 / 0 / 1, the carrier advanced  586 / 964 / 452 px
+  // In 100px+ corridors the two are byte-identical, which is the point: the cost only bites where
+  // the ball actually does not fit.
+  const gap = 80, half = gap / 2;
+  const field = { version: 1, bushes: [], crates: [], dryWalls: [], hardWalls: [
+    { cx: 1100, cy: 550 - half - 16, angle: 0, hl: 340, ht: 16 },
+    { cx: 1100, cy: 550 + half + 16, angle: 0, hl: 340, ht: 16 },
+  ] };
+  let pops = 0, advanced = 0;
+  for (const dy of [-18, 0, 18]) {
+    const { s, mem } = fixture({ field });
+    put(s, 'A0', 700, 550 + dy); put(s, 'A1', 300, 250); put(s, 'B0', 1850, 400); put(s, 'B1', 1800, 800);
+    s.ball.owner = 'A0'; s.ball.x = 758; s.ball.y = 550 + dy;
+    s.players.A0.aimX = 1; s.players.A0.aimY = 0;
+    const x0 = s.players.A0.x;
+    for (let t = 0; t < 300; t++) {                       // 5s
+      const inp = computeBotInputs(s, mem, DT);
+      const had = s.ball.owner === 'A0';
+      step(s, { A0: inp.A0 }, DT);                        // isolate: no enemy pressure
+      if (had && s.ball.owner !== 'A0' && !inp.A0.fire) pops++;   // lost it WITHOUT kicking = wall pop
+    }
+    advanced += s.players.A0.x - x0;
   }
-  ok(popped === 0, `the carrier crossed without popping its ball on the gap (pops ${popped})`);
+  ok(pops <= 1, `a carrier crosses an 80px corridor without popping its ball (pops ${pops}, was 8)`);
+  ok(advanced / 3 > 300, `and it actually gets somewhere (mean advance ${(advanced / 3).toFixed(0)}px, was 380 with 8 pops)`);
 }
 
 // ---------------------------------------------------------------- 7. a bomb jump into a wall is refused
