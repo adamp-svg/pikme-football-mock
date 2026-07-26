@@ -60,9 +60,37 @@ ok('the client also self-limits (courtesy, not the rule)', /_chatCoolUntil/.test
 console.log('\nvisible to EVERYONE, drawn over the sender');
 ok('server loops the whole room', /for \(const m of r\.members\)/.test(server.slice(server.indexOf("msg.type === 'chat'"))));
 ok('client routes the relay to a bubble', /onChatMessage\(msg\.pid, msg\.id\)/.test(client));
-ok('bubble is drawn per player in the draw loop', /drawChatBubble\(dp\)/.test(client));
+ok('a bubble is drawn per player, in the full-res pass', /for \(const p of players\)/.test(client) && /chatBubbles\.get\(p\.id\)/.test(client));
 ok('one bubble per player — a new message replaces, never stacks', /chatBubbles\.set\(pid,/.test(client));
 ok(`bubble lasts ~2.2s per the asset spec`, CHAT_BUBBLE_MS >= 1800 && CHAT_BUBBLE_MS <= 2600, String(CHAT_BUBBLE_MS));
+
+console.log('\nHUD chrome is not the pitch');
+// Tapping the chat button used to ALSO grab a joystick and start aiming, because the exclusion was a
+// hand-listed set of five elements that every new control had to remember to join.
+const gi = client.indexOf('HUD CHROME IS NOT THE PITCH');
+const stickGuard = gi < 0 ? '' : client.slice(gi, gi + 900);
+ok('the guard is a RULE (closest over controls), not a hand-listed set', /closest\(/.test(stickGuard) && /'button, a, input/.test(stickGuard));
+ok('it covers the chat sheet', /chat-sheet/.test(stickGuard));
+ok('it covers the HUD by ID (#hud) — `.hud` matched nothing and the score kept claiming sticks',
+  /#hud/.test(stickGuard));
+ok('a plain <button> is covered, so any FUTURE HUD button is too', /button/.test(stickGuard));
+ok('it still requires an Element (a touch with no target must not throw)', /instanceof Element/.test(stickGuard));
+
+console.log('\nwords are normal text, not pixel-buffer text');
+// The world is rendered into a low-res buffer and blown up x ART_PX with nearest-neighbour, so ANY
+// text drawn in that pass comes out chunky. Bubbles must draw in the full-res pass after the blit.
+const iBlit = client.indexOf('mainCtx.drawImage(worldBuf');
+const iBubbles = client.indexOf('drawChatBubbles(view);');
+ok('bubbles draw AFTER the world buffer is blitted (full-res space)', iBlit > 0 && iBubbles > iBlit, `blit@${iBlit} bubbles@${iBubbles}`);
+ok('bubbles are NOT drawn inside the world player loop', !/drawChatBubble\(dp\)/.test(client));
+const fn = client.slice(client.indexOf('function drawChatBubbles(view)'), client.indexOf('function drawChatBubbles(view)') + 2200);
+ok('words use a normal UI sans, not the chunky CELEB_FONT', /system-ui/.test(fn) && !/CELEB_FONT/.test(fn));
+ok('word text is smoothed', /imageSmoothingEnabled = true/.test(fn));
+ok('emotes keep nearest-neighbour (they ARE pixel art)', /imageSmoothingEnabled = false/.test(fn));
+ok('sizes scale with dpr so it is not tiny on a retina phone', /\* dpr/.test(fn));
+// `view` is a LOCAL of the frame function; reading it as a free variable threw
+// "view is not defined" on the first bubble and the game showed an error banner.
+ok('view is passed in, not read as a free variable', /function drawChatBubbles\(view\)/.test(client));
 
 console.log('\nthe button sits with its cluster siblings');
 const html = R('public/index.html');

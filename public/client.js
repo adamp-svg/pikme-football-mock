@@ -4676,7 +4676,17 @@ addEventListener('touchstart', (e) => {
   if (!settingsPanel.classList.contains('hidden')) return; // paused: ignore game touches
   if (editingControls) return; // the layout editor owns all touches while open
   for (const t of e.changedTouches) {
-    if (specialBtn.contains(t.target) || pauseBtn.contains(t.target) || (buildBtn && buildBtn.contains(t.target)) || (leaveLobbyBtn && leaveLobbyBtn.contains(t.target)) || (editBtn && editBtn.contains(t.target))) continue; // buttons aren't sticks
+    // HUD CHROME IS NOT THE PITCH. This used to be a hand-listed set of five elements, so every new
+    // HUD control had to remember to add itself — and the quick-chat button did not, which is why
+    // tapping it also grabbed a stick and started aiming a shot (user, 2026-07-26: "when a user
+    // presses the chat, or settings it should not try to focus the shoot").
+    // Now it is a RULE: anything that is a real control, or lives inside a HUD panel, is never a
+    // stick. `closest` walks up from the touch target, so a tap on an icon INSIDE a button counts too.
+    if (t.target instanceof Element && t.target.closest(
+      'button, a, input, select, textarea, label, [role="button"], [role="dialog"],'
+      + '#hud, #chat-sheet, #settings, #controls-editor, .chat-sheet, .settings,'
+      + '.controls-editor, .match-powers, .train-diff'
+    )) continue;
     const ad = adBoardAt(t.clientX, t.clientY); if (ad) { openAd(ad); continue; } // board tap, not a stick
     const which = claimStick(t);
     if (which === 'L' && touchL.id === null) {
@@ -5016,37 +5026,53 @@ function onChatMessage(pid, id) {
   chatBubbles.set(pid, { id, until: performance.now() + CHAT_BUBBLE_MS });
 }
 
-// Draw the bubble ABOVE a player's head, in the same art-pixel space as the hero.
-function drawChatBubble(p) {
-  const e = chatBubbles.get(p.id);
-  if (!e) return;
-  if (performance.now() > e.until) { chatBubbles.delete(p.id); return; }
-  const item = chatById(e.id);
-  if (!item) return;
-  const cx = wx(p.x);
-  const top = wy(p.y) - ws_(58);          // clear of the hero + its name/health furniture
-  ctx.save();
-  if (item.kind === 'emote') {
-    const S = ws_(26), c = CHAT_SHEET.cell;
-    // A dark plate behind it so a dark emote still reads against the pitch.
-    roundRectPath(cx - S * 0.62, top - S * 0.62, S * 1.24, S * 1.24, S * 0.28);
-    ctx.fillStyle = 'rgba(10,16,11,.78)'; ctx.fill();
-    if (chatSheetImg.complete && chatSheetImg.naturalWidth) {
+// Draw every live bubble above its player, in FULL-RES screen space.
+//
+// Called after the world buffer has been blitted, so `ctx` is mainCtx and one art pixel is ART_PX
+// device pixels. wx()/wy() return world-buffer coords, hence the x ART_PX. Words are ordinary
+// anti-aliased text at a normal weight — deliberately NOT the chunky CELEB_FONT and not inside the
+// pixelated buffer. Emotes keep nearest-neighbour sampling, because they ARE pixel art.
+function drawChatBubbles(view) {
+  const players = (view && view.players) || [];
+  const now = performance.now();
+  for (const p of players) {
+    const e = chatBubbles.get(p.id);
+    if (!e) continue;
+    if (now > e.until) { chatBubbles.delete(p.id); continue; }
+    const item = chatById(e.id);
+    if (!item) continue;
+    // Fade the last 300ms so a bubble leaves rather than blinks out.
+    const left = e.until - now;
+    const a = left < 300 ? Math.max(0, left / 300) : 1;
+    const cx = wx(p.x) * ART_PX;
+    const top = (wy(p.y) - ws_(52)) * ART_PX;
+    ctx.save();
+    ctx.globalAlpha = a;
+    if (item.kind === 'emote') {
+      const S = 30 * dpr, c = CHAT_SHEET.cell;
+      ctx.imageSmoothingEnabled = false;           // pixel art: keep the blocks hard
+      roundRectPath(cx - S * 0.62, top - S * 0.62, S * 1.24, S * 1.24, S * 0.26);
+      ctx.fillStyle = 'rgba(10,16,11,.72)'; ctx.fill();
+      if (chatSheetImg.complete && chatSheetImg.naturalWidth) {
+        ctx.drawImage(chatSheetImg, item.col * c, item.row * c, c, c, cx - S / 2, top - S / 2, S, S);
+      }
+    } else {
+      // Normal small UI text, smoothed.
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(chatSheetImg, item.col * c, item.row * c, c, c, cx - S / 2, top - S / 2, S, S);
+      const fs = 13 * dpr;
+      ctx.font = '600 ' + fs + 'px system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const padX = 9 * dpr, h = 22 * dpr;
+      const w = ctx.measureText(item.text).width + padX * 2;
+      roundRectPath(cx - w / 2, top - h / 2, w, h, 8 * dpr);
+      ctx.fillStyle = 'rgba(10,16,11,.82)'; ctx.fill();
+      ctx.lineWidth = Math.max(1, 1.5 * dpr);
+      ctx.strokeStyle = 'rgba(240,228,185,.55)'; ctx.stroke();
+      ctx.fillStyle = '#fff4ca';
+      ctx.fillText(item.text, cx, top + 0.5 * dpr);
     }
-  } else {
-    ctx.font = '900 ' + Math.round(ws_(13)) + 'px ' + CELEB_FONT;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const w = ctx.measureText(item.text).width + ws_(14);
-    const h = ws_(22);
-    roundRectPath(cx - w / 2, top - h / 2, w, h, ws_(7));
-    ctx.fillStyle = 'rgba(10,16,11,.82)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(240,228,185,.5)'; ctx.lineWidth = Math.max(1, ws_(1.5)); ctx.stroke();
-    ctx.fillStyle = '#fff4ca';
-    ctx.fillText(item.text, cx, top + ws_(0.5));
+    ctx.restore();
   }
-  ctx.restore();
 }
 
 // (roundRectPath already exists further down — reused, not redefined.)
@@ -6868,7 +6894,6 @@ function renderFrame() {
       }
       if (alpha < 1) { ctx.save(); ctx.globalAlpha = alpha; drawPlayer(dp); ctx.restore(); }
       else drawPlayer(dp);
-      chatBubbles.size && drawChatBubble(dp);   // above the head; skipped entirely when nobody has spoken
       // "spotted!" pop when a bushed enemy is first revealed to me
       if (!isMe && dp.team !== me.team && spotStart[p.id]) {
         const el = (performance.now() - spotStart[p.id]) / 1000;
@@ -6887,6 +6912,11 @@ function renderFrame() {
   mainCtx.imageSmoothingEnabled = false;
   mainCtx.drawImage(worldBuf, 0, 0, wbW, wbH, 0, 0, canvas.width, canvas.height);
   drawHUD(); // HUD/overlays draw crisp, in full-res screen space
+  // Chat bubbles draw HERE, not in the world loop: the world is rendered into a low-res buffer and
+  // blown up x ART_PX with nearest-neighbour, so a word drawn there comes out chunky (user: "make the
+  // player words appear as normal small text, currently it is also pixelated"). In this pass the
+  // canvas is full device resolution, so the text is as crisp as the DOM HUD.
+  if (chatBubbles.size) drawChatBubbles(view);
   drawCelebration(); // comic goal/win/lose word, on top of everything
   const specialCooling = performance.now() < specialCdUntil;
   specialBtn.classList.toggle('cooling', specialCooling);
