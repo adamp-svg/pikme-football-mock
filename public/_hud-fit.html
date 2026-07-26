@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>in-match HUD fit harness</title>
+<!-- DEV HARNESS (not linked from the game). The top HUD now carries BOTH teams' power cards flanking
+     the clock/score, so it has to survive 2v2 / 3v3 / 5v5 without touching the corner buttons (⚙ at
+     left:62, 🎛️ at left:110, ‹ לובי at left:12/top:58) or the joysticks. Renders the real markup
+     against the real style.css:  /_hud-fit.html?n=3
+     chrome --headless --window-size=844,390 --screenshot=hud.png "http://localhost:3012/_hud-fit.html?n=3"
+     The badge reports the rails' bounding boxes + whether either one overlaps a corner button. -->
+<link rel="stylesheet" href="/style.css" />
+<style>
+  html, body { height: 100%; margin: 0; background: linear-gradient(#2f7d43, #256a38); }
+  #hudbadge { position: fixed; z-index: 200; bottom: 4px; left: 4px; font: 900 10px monospace;
+    padding: 3px 7px; border-radius: 6px; background: #123; color: #7CFC7C; white-space: pre; }
+  #hudbadge.bad { background: #521; color: #ff8a8a; }
+</style>
+</head>
+<body>
+  <div id="game" class="screen">
+    <div id="hud">
+      <div class="score"><span class="team-a" id="scoreA">2</span><span class="dash">–</span><span class="team-b" id="scoreB">1</span></div>
+      <div class="score-fmt" id="score-fmt">ראשון ל-3</div>
+      <div class="timer" id="timer">1:24</div>
+      <div class="match-powers" id="match-powers"></div>
+      <div class="match-powers match-powers-foe" id="match-powers-foe"></div>
+      <div class="net" id="net">32ms</div>
+    </div>
+    <button id="pause-btn" class="pause-btn">⚙</button>
+    <button id="edit-controls-btn" class="edit-controls-btn">🎛️</button>
+    <button id="leave-lobby-btn" class="leave-lobby-btn">‹ לובי</button>
+  </div>
+  <div id="hudbadge">…</div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const n = Math.max(1, Math.min(9, +q.get('n') || 2));
+const RAR = ['legendary', 'epic', 'rare', 'common'];
+// Same DOM fillPowerRail() builds: [who] + 3 card frames per player row.
+function rail(el, names, foe) {
+  el.innerHTML = '';
+  names.forEach((nm, i) => {
+    const row = document.createElement('div');
+    row.className = 'mpwr-row' + (!foe && i === 0 ? ' mpwr-me' : '');
+    const who = document.createElement('span'); who.className = 'mpwr-who'; who.textContent = nm;
+    const cards = document.createElement('span'); cards.className = 'mpwr-cards';
+    for (let c = 0; c < 3; c++) {
+      const d = document.createElement('div');
+      d.className = 'mpwr rarity-' + RAR[(i + c) % RAR.length];
+      d.textContent = String(10 + c);
+      d.style.font = '900 9px monospace'; d.style.color = '#cfe';
+      cards.appendChild(d);
+    }
+    row.append(who, cards); el.appendChild(row);
+  });
+}
+const mine = ['אני', ...Array.from({ length: n - 1 }, (_, i) => 'ד' + (i + 1))];
+const foe = Array.from({ length: n }, () => '🤖');
+rail(document.getElementById('match-powers'), mine, false);
+rail(document.getElementById('match-powers-foe'), foe, true);
+document.getElementById('hud').dataset.teamSize = String(n);
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  const r = (s) => document.querySelector(s).getBoundingClientRect();
+  const mineR = r('#match-powers'), foeR = r('#match-powers-foe'), tR = r('#timer');
+  const hit = (a, b) => !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+  const buttons = ['#pause-btn', '#edit-controls-btn', '#leave-lobby-btn'];
+  const clashes = buttons.filter((s) => hit(mineR, r(s)) || hit(foeR, r(s)));
+  const overCentre = hit(mineR, tR) || hit(foeR, tR);
+  const off = Math.min(mineR.left, foeR.left) < 0 || Math.max(mineR.right, foeR.right) > innerWidth
+    || Math.max(mineR.bottom, foeR.bottom) > innerHeight;
+  const bad = clashes.length || overCentre || off;
+  const b = document.getElementById('hudbadge');
+  b.textContent = `${bad ? 'BAD' : 'OK'} n=${n} vp ${innerWidth}x${innerHeight}\n`
+    + `mine ${Math.round(mineR.left)}..${Math.round(mineR.right)} h=${Math.round(mineR.height)} · `
+    + `foe ${Math.round(foeR.left)}..${Math.round(foeR.right)} h=${Math.round(foeR.height)}\n`
+    + (clashes.length ? 'CLASH: ' + clashes.join(',') : 'no button clash')
+    + (overCentre ? ' · OVERLAPS CLOCK' : '') + (off ? ' · OFFSCREEN' : '');
+  b.className = bad ? 'bad' : '';
+  document.title = (bad ? 'BAD' : 'OK') + ' n=' + n;
+}));
+</script>
+</body>
+</html>

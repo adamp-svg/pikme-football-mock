@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VS-screen fit harness</title>
+<!-- DEV HARNESS (not linked from the game). The pre-match VS / countdown screen has to fit 2v2, 3v3
+     and 5v5 at any phone height, and there is no way to eyeball that from the game itself: you would
+     have to actually queue a 5v5 that does not exist yet. This page renders the SAME markup that
+     fillIntroCol() builds, against the REAL style.css, at whatever row count you ask for:
+        /_vs-fit.html?n=3            one screen, 3 seats per side
+        /_vs-fit.html?n=5&count=3    with the 5..0 countdown showing
+     Verify with a real engine at a real phone size, e.g.:
+        chrome --headless --window-size=844,390 --screenshot=out.png "http://localhost:3012/_vs-fit.html?n=3"
+     OVERFLOW CHECK: the badge in the corner reports scrollHeight vs clientHeight — it must say FITS.
+     If it says OVERFLOW the layout is broken however pretty the screenshot looks. -->
+<link rel="stylesheet" href="/style.css" />
+<style>
+  html, body { height: 100%; margin: 0; background: #06111a; }
+  #fitbadge { position: fixed; z-index: 200; bottom: 4px; left: 4px; font: 900 11px monospace;
+    padding: 3px 7px; border-radius: 6px; background: #123; color: #7CFC7C; }
+  #fitbadge.bad { background: #521; color: #ff8a8a; }
+</style>
+</head>
+<body>
+  <div id="team-intro" class="team-intro show">
+    <div id="ti-mode" class="ti-mode"><span class="ti-mode-name">⚽ כדורגל · 3 נגד 3</span><span class="ti-mode-rule">ראשון ל-3 · עד 2 דק׳</span></div>
+    <div id="ti-count" class="ti-count hidden">5</div>
+    <div class="ti-inner">
+      <div class="ti-col ti-home"><div class="ti-team-title">הקבוצה שלי</div><div class="ti-rows"></div></div>
+      <div class="ti-vs">נגד</div>
+      <div class="ti-col ti-away"><div class="ti-team-title">יריבים</div><div class="ti-rows"></div></div>
+    </div>
+    <div class="ti-tap">הקש לדילוג</div>
+  </div>
+  <div id="fitbadge">…</div>
+<script type="module">
+const q = new URLSearchParams(location.search);
+const n = Math.max(1, Math.min(9, +q.get('n') || 2));
+const count = q.get('count');
+const RAR = ['legendary', 'epic', 'rare', 'common'];
+// Same DOM fillIntroCol() produces: avatar · name (+ bot level line) · 3 power cards.
+function fill(col, label, bot) {
+  col.dataset.size = n;
+  col.querySelector('.ti-team-title').textContent = label;
+  const rows = col.querySelector('.ti-rows'); rows.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const row = document.createElement('div'); row.className = 'ti-row';
+    const av = document.createElement('div'); av.className = 'ti-av'; av.textContent = bot && i ? '🤖' : 'אב';
+    const nm = document.createElement('div'); nm.className = 'ti-name';
+    nm.textContent = bot && i ? 'בוט מתקדם' : (i ? `שחקן ארוך שם ${i}` : 'אדם (אני)');
+    if (bot && i) { const lv = document.createElement('span'); lv.className = 'ti-lvl';
+      lv.style.cssText = 'display:block;font-size:11px;font-weight:700;opacity:.78;margin-top:1px';
+      lv.textContent = 'רמה 7 · 12.4K XP'; nm.appendChild(lv); }
+    const cw = document.createElement('div'); cw.className = 'ti-cards';
+    for (let c = 0; c < 3; c++) {
+      const el = document.createElement('div');
+      el.className = 'ti-card cf-noart rarity-' + RAR[(i + c) % RAR.length]; el.dataset.n = 10 + c;
+      cw.appendChild(el);
+    }
+    row.append(av, nm, cw); rows.appendChild(row);
+  }
+}
+const cols = document.querySelectorAll('.ti-col');
+fill(cols[0], 'הקבוצה שלי', false);
+fill(cols[1], 'יריבים', true);
+document.querySelector('.ti-mode-name').textContent = `⚽ כדורגל · ${n} נגד ${n}`;
+if (count) { const c = document.getElementById('ti-count'); c.textContent = count; c.classList.remove('hidden'); document.getElementById('team-intro').classList.add('counting'); }
+// The actual verdict: does anything inside the overlay exceed the viewport box?
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  const ti = document.getElementById('team-intro');
+  const over = Math.max(ti.scrollHeight - ti.clientHeight, ti.scrollWidth - ti.clientWidth, 0);
+  const inner = document.querySelector('.ti-inner').getBoundingClientRect();
+  const b = document.getElementById('fitbadge');
+  b.textContent = `${over === 0 ? 'FITS' : 'OVERFLOW +' + over + 'px'} · vp ${innerWidth}x${innerHeight} · rows ${n} · cols h=${Math.round(inner.height)}`;
+  b.className = over === 0 ? '' : 'bad';
+  document.title = (over === 0 ? 'FITS' : 'OVERFLOW') + ' n=' + n;
+}));
+</script>
+</body>
+</html>

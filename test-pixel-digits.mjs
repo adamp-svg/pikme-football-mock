@@ -124,14 +124,24 @@ console.log('\n--- the HUD is wired to it, and stacked clock-over-score ---');
 {
   const css = readFileSync(join(here, 'public/style.css'), 'utf8');
   const src = readFileSync(join(here, 'public/client.js'), 'utf8');
-  ok('#hud stacks as a column', /#hud\s*\{[^}]*flex-direction: column/.test(css));
+  // 2026-07-26: #hud became a 3-COLUMN GRID — my team's power cards · the clock/score/caption stack ·
+  // the opponents' cards. The stack itself is unchanged (clock, score, caption, top to bottom), but it
+  // is now expressed as explicit grid rows in the middle column instead of flex `order:`.
+  const hud = css.match(/^#hud \{[^}]*\}/m);
+  ok('#hud is a grid', !!hud && /display: grid/.test(hud[0]));
+  ok('#hud has three columns (cards · stack · cards)', !!hud && /grid-template-columns: 1fr auto 1fr/.test(hud[0]));
+  ok('#hud forces PHYSICAL columns (RTL would mirror my team to the right)', !!hud && /direction: ltr/.test(hud[0]));
   const timer = css.match(/^\.timer \{[^}]*\}/m);
-  ok('the clock is the first row', !!timer && /order: 1/.test(timer[0]), timer && timer[0].slice(0, 60));
+  ok('the clock is the first row of the centre column', !!timer && /grid-area: 1 \/ 2/.test(timer[0]), timer && timer[0].slice(0, 60));
   ok('the clock is no longer pinned top-right', !/^\.timer \{[^}]*position: fixed/m.test(css));
-  ok('the score is the second row', /^\.score \{[^}]*order: 2/m.test(css));
-  ok('the caption is the third row', /^\.score-fmt \{[^}]*order: 3/m.test(css));
+  ok('the score is the second row', /^\.score \{[^}]*grid-area: 2 \/ 2/m.test(css));
+  ok('the caption is the third row', /^\.score-fmt \{[^}]*grid-area: 3 \/ 2/m.test(css));
   ok('both have a pixel-size knob', /^\.timer \{[^}]*--pd-px/m.test(css) && /^\.score \{[^}]*--pd-px/m.test(css));
   ok('the card powers moved off the old clock offset', !/\.match-powers \{[^}]*right: 118px/.test(css));
+  // The rails flank the stack: mine in column 1 (physically left), opponents in column 3.
+  ok('my team rail sits left of the stack', /^\.match-powers \{[^}]*grid-area: 1 \/ 1/m.test(css));
+  ok('opponent rail sits right of the stack', /^\.match-powers-foe \{[^}]*grid-area: 1 \/ 3/m.test(css));
+  ok('the score keeps its RTL order inside the LTR grid', /#hud \.score,[^{]*\{[^}]*direction: rtl/.test(css));
   ok('client.js renders the clock through the pixel font', /setPixelText\(timerEl/.test(src));
   ok('client.js renders both score halves through it', (src.match(/setPixelText\(/g) || []).length >= 4, `${(src.match(/setPixelText\(/g) || []).length} call sites`);
 }

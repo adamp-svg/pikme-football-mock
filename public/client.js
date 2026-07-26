@@ -13,7 +13,8 @@ import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-ca
 import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { FIELD_SIZES, SIZE_IDS, DEFAULT_SIZE, sizeOf, sizeOfField, canHost } from '/shared/field-sizes.js';
-import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
+import { MAX_SPAWNS_PER_TEAM, teamForX, spawnCounts, spawnCapacity } from '/shared/field-spawns.js';
+import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, hideNetHud, NET_DEBUG } from '/net-hud.js';
 import { openMatchInfo, closeMatchInfo } from '/match-info.js';
@@ -55,7 +56,14 @@ let ws = null;
 let me = { playerId: null, team: null, char: 'striker' };
 let matchId = null;            // stable per-match id from matchStart (app-bound matchResult key)
 let matchGoalsToWin = 0;       // first-to-N from matchStart; 0 = timed (most goals wins)
-let matchDiffLevel = null;     // authoritative bot difficulty (0..11) from matchStart; sets the trophy bot ceiling
+let matchDiffLevel = null;     // authoritative bot difficulty (0..11) — matchStart, then live `bots` frames
+// The LOWEST level this match ever ran at, and what matchResult reports as the trophy BOT CEILING.
+// Difficulty is changeable mid-match in a vs-bots room, so a single number is gameable in one
+// direction or the other: report the JOIN level and you can quietly drop to level 0 for the whole
+// match while still claiming the join ceiling; report the LATEST and you can play level 0 and flick
+// to קטלני at the whistle. The floor is the only honest answer — you cannot claim a ceiling above the
+// easiest bots you actually faced.
+let matchDiffFloor = null;
 let matchOpponentKey = '';     // server-computed opaque id of MY human opponents (win-trading cap); '' vs bots
 let training = false;          // true in the training ground (no clock, penned dummy, reset-ball)
 let matchResultSent = false;   // one-shot guard: matchResult is posted to the app exactly once per match
@@ -588,7 +596,7 @@ function postMatchResult(myT, opT, myScore, opScore) {
       humanCount,                   // total humans in the match (incl. me)
       totalPlayers,                 // filled slots (humans + bots)
       xpFactor,                     // XP multiplier: 0.2 (all bots) .. 1.0 (all humans)
-      botLevel: matchDiffLevel,     // authoritative room difficulty 0..11 → the trophy BOT CEILING
+      botLevel: matchDiffFloor,     // LOWEST room difficulty 0..11 this match ran at → the trophy BOT CEILING
       opponentKey: matchOpponentKey, // server-computed opaque id of MY human opponents ('' vs bots)
       stats: myMatchStats || null,  // MY per-player tallies: { goals, strips, saves, shots, bombs, walls }
     };
@@ -1857,19 +1865,57 @@ function showSlotInfo(i) {
   if (rm) rm.addEventListener('click', () => { setSlotCard(i, null); hidePowerInfo(); renderCardsPage(); }); // removed card returns to the album
   powerInfoEl.classList.remove('hidden');
 }
-// In-match HUD: the 3 equipped cards next to the timer (read-only).
+// In-match HUD: BOTH TEAMS' power cards, flanking the clock/scoreboard — my team on the LEFT rail
+// (me first), the opponents on the RIGHT. Same read that Brawl Stars' match HUD gives you: who is on
+// the pitch and what they are carrying, without opening anything. Read-only.
+//
+// It used to be only MY three cards in the top-right corner, which told you nothing about the
+// players you were actually up against. Card sources are unchanged — introCardsFor() already resolves
+// my LIVE loadout, another player's echoed loadout, and a bot's synthesized one.
 const matchPowersEl = document.getElementById('match-powers');
+const matchPowersFoeEl = document.getElementById('match-powers-foe');
+// One rail = one row per player. `mine` marks my own row so it reads as "you" at a glance.
+function fillPowerRail(rail, players, teamCls) {
+  if (!rail) return;
+  rail.innerHTML = '';
+  rail.classList.toggle('mpwr-foe-rail', teamCls === 'foe');
+  for (const p of players) {
+    const row = document.createElement('div');
+    row.className = 'mpwr-row' + (p.id === myMemberId ? ' mpwr-me' : '');
+    const who = document.createElement('span');
+    who.className = 'mpwr-who';
+    const isBot = !!(p.isBot || p.bot) || !p.name;
+    who.textContent = p.id === myMemberId ? 'אני' : (isBot ? '🤖' : memberInitials(p.name));
+    who.title = p.name || 'בוט';
+    const cards = document.createElement('span');
+    cards.className = 'mpwr-cards';
+    const list = introCardsFor(p);
+    // A player with no cards still gets a row (their seat exists) — three empty frames, so the rail
+    // never silently shrinks and re-flows mid-match when a loadout echo arrives late.
+    for (let i = 0; i < 3; i++) {
+      const c = list[i];
+      const el = document.createElement('div');
+      el.className = 'mpwr' + (c ? ' rarity-' + c.r : ' mpwr-empty');
+      if (c) el.appendChild(slotCardEl(c, 'mpwr-art', 26, 34));
+      cards.appendChild(el);
+    }
+    row.append(who, cards);
+    rail.appendChild(row);
+  }
+}
 function renderMatchPowers() {
-  if (!matchPowersEl) return;
-  const eff = effectiveLoadout();
-  matchPowersEl.innerHTML = '';
-  eff.forEach((card, i) => {
-    const el = document.createElement('div');
-    el.className = 'mpwr' + (card ? ' rarity-' + card.r : ' mpwr-empty');
-    if (card) el.appendChild(slotCardEl(card, 'mpwr-art', 26, 34));
-    else { const s = document.createElement('span'); s.textContent = SLOT_META[i].icon; el.appendChild(s); }
-    matchPowersEl.appendChild(el);
-  });
+  const hud = document.getElementById('hud');
+  const myTeam = me.team === 'B' ? 'B' : 'A';
+  // Order: me first, then team-mates — my own cards stay in the same place every match.
+  const sortMine = (a, b) => (a.id === myMemberId ? -1 : b.id === myMemberId ? 1 : 0);
+  const mine = matchRoster.filter((p) => p && p.team === myTeam).sort(sortMine);
+  const foe = matchRoster.filter((p) => p && p.team !== myTeam);
+  // No roster yet (training ground, or a mode that sends none): fall back to just my own loadout so
+  // the rail is never empty where it used to show my three cards.
+  fillPowerRail(matchPowersEl, mine.length ? mine : [{ id: myMemberId, name: 'אני' }], 'mine');
+  fillPowerRail(matchPowersFoeEl, foe, 'foe');
+  // Card size is driven off the format: 5 rows of full-size cards would eat the top of the screen.
+  if (hud) hud.dataset.teamSize = String(Math.max(1, matchTeamSize | 0 || 2));
 }
 
 // ---- Home dancing character -------------------------------------------------
@@ -2123,6 +2169,12 @@ function launchMode(id) {
 // 'party' (picks the game for a private room — the room start sends it as `game`).
 // Live modes first, dev tail last. Locked cards stay TAPPABLE and explain themselves
 // rather than being dead pixels.
+//
+// BOTH surfaces now draw the SAME portrait pixel-art card; the party surfaces (the team page and the
+// host's picker sheet) just render it one size down (`pc-mini`). They used to be a separate list of
+// text rows (`.modecard`), so the game you pick with friends looked nothing like the game you pick in
+// the lobby — two visual languages for one choice. `kind` still drives FILTER + BEHAVIOUR, only the
+// look is now shared.
 function renderModeList(el) {
   const kind = el.dataset.modes === 'party' ? 'party' : 'launch';
   const list = MODES.filter((m) => (kind === 'party' ? m.party || m.state === 'dev' : true));
@@ -2133,28 +2185,19 @@ function renderModeList(el) {
     const card = document.createElement('button');
     card.dataset.modeId = m.id;
     card.dataset.modeKind = kind;
-    if (kind === 'launch') {
-      // The PICKER: a tall portrait card per mode — coloured title band, pixel-art scene,
-      // rule strip. Four fit on one screen, so there is no scrolling and no tabs.
-      card.className = 'pcard' + (m.state === 'live' ? '' : ' lock');
-      card.style.setProperty('--band-hi', m.hue[0]);
-      card.style.setProperty('--band-lo', m.hue[1]);
-      card.innerHTML = `<span class="pc-band"><span class="pc-ic">${m.ic}</span>`
-        + `<span class="pc-tx"><b>${m.name}</b><small>${m.sub}</small></span></span>`
-        + `<span class="pc-art"><canvas class="pc-cv" aria-hidden="true"></canvas></span>`
-        + (m.state === 'live'
-          ? `<span class="pc-meta"><span>${m.meta[0]}</span><span>${m.meta[1]}</span></span>`
-          : `<span class="pc-soon">${m.soon || 'בקרוב'}</span>`);
-      el.appendChild(card);
-      drawModeArt(card.querySelector('.pc-cv'), m.id);
-    } else {
-      // The PARTY surface stays a compact row list — it sits inside an existing panel.
-      card.className = 'modecard' + (m.state === 'live' ? '' : ' lock');
-      const go = m.state === 'live' ? '<span class="mc-go">‹</span>' : `<span class="mc-go soon">${m.soon || 'בקרוב'}</span>`;
-      card.innerHTML = `<span class="mc-ic">${m.ic}</span>`
-        + `<span class="mc-tx"><b>${m.name}</b><small>${m.sub}</small></span>${go}`;
-      el.appendChild(card);
-    }
+    // The PICKER card: coloured title band · pixel-art scene · rule strip. Four fit across the
+    // landscape stage at full size; the mini variant fits the same four inside a panel.
+    card.className = 'pcard' + (kind === 'party' ? ' pc-mini' : '') + (m.state === 'live' ? '' : ' lock');
+    card.style.setProperty('--band-hi', m.hue[0]);
+    card.style.setProperty('--band-lo', m.hue[1]);
+    card.innerHTML = `<span class="pc-band"><span class="pc-ic">${m.ic}</span>`
+      + `<span class="pc-tx"><b>${m.name}</b><small>${m.sub}</small></span></span>`
+      + `<span class="pc-art"><canvas class="pc-cv" aria-hidden="true"></canvas></span>`
+      + (m.state === 'live'
+        ? `<span class="pc-meta"><span>${m.meta[0]}</span><span>${m.meta[1]}</span></span>`
+        : `<span class="pc-soon">${m.soon || 'בקרוב'}</span>`);
+    el.appendChild(card);
+    drawModeArt(card.querySelector('.pc-cv'), m.id);
   }
 }
 function renderAllModeLists() { document.querySelectorAll('.mode-list').forEach(renderModeList); }
@@ -2279,7 +2322,9 @@ document.getElementById('friends-btn').addEventListener('click', () => {
 });
 document.getElementById('training-btn').addEventListener('click', () => { unlockAudio(); document.getElementById('train-choose')?.classList.remove('hidden'); });
 document.getElementById('tc-cancel')?.addEventListener('click', () => document.getElementById('train-choose')?.classList.add('hidden'));
-document.getElementById('tc-ground')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); sendMsg({ type: 'training' }); });
+// The training ground opens AT the picked level (the server used to always start it at the default,
+// so the sentry ignored the picker until you re-picked mid-session). Change it live with the 🤖 chip.
+document.getElementById('tc-ground')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); sendMsg({ type: 'training', diffLevel }); });
 document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); syncLoadout(); sendMsg({ type: 'botGame', diffLevel }); }); // play-with-bots uses the manual difficulty picker (change it live in settings)
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Pick-best loadout (restored): null loadout => effectiveLoadout() auto-fills the album's
@@ -3286,7 +3331,9 @@ partyEl?.addEventListener('pointerdown', (e) => { partyDownBackdrop = isDismissB
 partyEl?.addEventListener('click', (e) => {
   // Mode cards are rendered from MODES and handled by the delegated listener; here we
   // only need to keep a tap ON a card from being read as a backdrop tap (= leave room).
-  if (e.target.closest('.modecard')) return;
+  // Matched on [data-mode-id], not on a class name — the party surface renders `.pcard` now, and
+  // this guard silently stopped covering it when it was still spelled `.modecard`.
+  if (e.target.closest('[data-mode-id]')) return;
   if (partyDownBackdrop && isDismissBackdrop(e.target, partyEl)) { partyDownBackdrop = false; leaveToLobby(); }
 });
 
@@ -3353,7 +3400,20 @@ function connect(name, avatar) {
       // Refreshed bot dossier for the settings readout — sent when a mid-match backfill adds a bot
       // that `matchStart`'s roster could not have contained (e.g. a human left).
       matchBots = Array.isArray(msg.bots) ? msg.bots : [];
-      if (typeof msg.diffLevel === 'number') matchDiffLevel = msg.diffLevel;
+      if (typeof msg.diffLevel === 'number') {
+        matchDiffLevel = msg.diffLevel;
+        matchDiffFloor = matchDiffFloor == null ? msg.diffLevel : Math.min(matchDiffFloor, msg.diffLevel);
+      }
+      // Fold the fresh dossier back into the roster and repaint the in-match card rails. Two reasons:
+      // a backfill bot that replaced a leaver needs a row, and a MID-GAME difficulty change re-rolls
+      // every bot's cards server-side — without this the rails would keep showing the old level's
+      // cards, i.e. the HUD would be lying about what the opponents are carrying.
+      {
+        const byId = new Map(matchRoster.filter(Boolean).map((p) => [p.id, p]));
+        for (const b of matchBots) byId.set(b.id, b); // fresh entry wins
+        matchRoster = [...byId.values()];
+      }
+      renderMatchPowers();
     } else if (msg.type === 'home') {
       homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
     } else if (msg.type === 'roomJoined') {
@@ -3485,6 +3545,7 @@ function enterMatch(msg) {
   // xpDiffLevel() is only what we ASKED for, and a private/party room may have set its own). Reported
   // in matchResult so the backend can apply the trophy BOT CEILING for the level actually played.
   matchDiffLevel = (typeof msg.diffLevel === 'number') ? msg.diffLevel : null;
+  matchDiffFloor = matchDiffLevel; // fresh match: the floor starts at the level it kicked off on
   matchOpponentKey = typeof msg.opponentKey === 'string' ? msg.opponentKey : '';
   matchResultSent = false;       // arm the one-shot matchResult post for the fresh match
   myMatchStats = null; _pendingPost = null; // clear last match's per-player tallies + any pending post
@@ -3496,6 +3557,9 @@ function enterMatch(msg) {
   // from it (hard walls + bushes). Dry walls ride the snapshot as built walls. null otherwise.
   customArena = msg.arena ? buildArenaFromField(msg.arena) : null;
   document.getElementById('train-tag').classList.toggle('hidden', !training);
+  // Training-only bot-level chip: shows the live level and opens the difficulty grid (mid-game).
+  document.getElementById('train-diff')?.classList.toggle('hidden', !training);
+  syncDiffChips();
   // Controls editor gets its OWN top-bar button beside ⚙ — training ground only (same tier as the
   // settings panel's controls section), so a real match can't have someone editing mid-play.
   document.getElementById('edit-controls-btn')?.classList.toggle('hidden', !training);
@@ -3580,10 +3644,19 @@ function updateVsCountdown(msg) {
   showVsMode(msg);
   preloadCards(roster.flatMap((m) => introCardsFor(m)));
   startLobbyMusic(); // #12: lobby theme plays for the whole wait (starts on entry, loops through the countdown)
-  if (msg.phase === 'countdown' && msg.countdown > 0) { tiCountEl.textContent = msg.countdown; tiCountEl.classList.remove('hidden'); }
-  else { tiCountEl.classList.add('hidden'); }
+  setTiCount(msg.phase === 'countdown' && msg.countdown > 0 ? msg.countdown : null);
   teamIntroEl.classList.remove('hidden');
   requestAnimationFrame(() => teamIntroEl.classList.add('show'));
+}
+// The 5..0 number lives OVER the centre gutter (see .ti-count), so showing it has to hide «נגד» —
+// one helper does both, because two call sites toggling `.hidden` by hand is how they drift apart.
+// `null` clears it.
+function setTiCount(n) {
+  if (!tiCountEl) return;
+  if (n == null) { tiCountEl.classList.add('hidden'); teamIntroEl && teamIntroEl.classList.remove('counting'); return; }
+  tiCountEl.textContent = n;
+  tiCountEl.classList.remove('hidden');
+  teamIntroEl && teamIntroEl.classList.add('counting');
 }
 function introCardEl(c) {
   const el = document.createElement('div');
@@ -3639,8 +3712,11 @@ function showTeamIntro(players) {
   if (!teamIntroEl || !Array.isArray(players)) return;
   const mine = me.team === 'B' ? 'B' : 'A';
   const cols = teamIntroEl.querySelectorAll('.ti-col');
-  fillIntroCol(cols[0], players, mine);                       // home column = my team
-  fillIntroCol(cols[1], players, mine === 'A' ? 'B' : 'A');   // away column = rivals
+  // Rows per side = THIS match's format (matchStart.teamSize). Omitting it defaulted to 2, so the
+  // 3v3 match-start intro silently dropped the third player on each side.
+  const perTeam = Math.max(1, matchTeamSize | 0 || 2);
+  fillIntroCol(cols[0], players, mine, perTeam);                       // home column = my team
+  fillIntroCol(cols[1], players, mine === 'A' ? 'B' : 'A', perTeam);   // away column = rivals
   preloadCards(players.flatMap((p) => introCardsFor(p)));     // #18: bots' loadout art too
   teamIntroEl.classList.remove('hidden');
   requestAnimationFrame(() => teamIntroEl.classList.add('show'));
@@ -3650,7 +3726,7 @@ function showTeamIntro(players) {
 function hideTeamIntro() {
   clearTimeout(introTimer);
   if (!teamIntroEl) return;
-  if (tiCountEl) tiCountEl.classList.add('hidden');
+  setTiCount(null);
   teamIntroEl.classList.remove('show');
   setTimeout(() => teamIntroEl.classList.add('hidden'), 340);
 }
@@ -4314,14 +4390,30 @@ if (diffContainer) {
   });
 }
 function syncDifficultyUI() { for (const b of diffBtns) b.classList.toggle('active', +b.dataset.level === diffLevel); }
+// The picked level is shown in TWO more places than the settings grid, because that grid is behind ⚙:
+//   · the builder's 🤖 button (cycles the level before ▶ שחק — the same one-tap pattern as 📐 גודל)
+//   · the training ground's 🤖 chip beside 🎯 אימון (tap → the settings grid, changeable mid-game)
+// One function updates both, so a level change anywhere can't leave a stale label somewhere else.
+function syncDiffChips() {
+  const lvl = levelAt(diffLevel);
+  const b = document.getElementById('b-diff');
+  if (b) { b.textContent = `🤖 ${lvl.name}`; b.title = `רמת בוטים למשחק מהבונה: ${lvl.name} · ${lvl.hint}`; }
+  const t = document.getElementById('train-diff');
+  if (t) { t.textContent = `🤖 ${lvl.name}`; t.title = `רמת בוטים: ${lvl.name} · ${lvl.hint} — הקש לשינוי`; }
+}
 function setDifficulty(i) {
   diffLevel = clampLevel(i);
   try { localStorage.setItem('pikme-diff-level', String(diffLevel)); } catch { /* private mode */ }
   syncDifficultyUI();
+  syncDiffChips();
   playSound('ui', 0.5, 1.05);
+  // Live push. The server accepts it only where a mid-match change is legitimate (training / vs-bots /
+  // builder / private) and echoes the applied level back on the `bots` frame, which is what keeps
+  // matchDiffLevel — and therefore the dossier readout — honest after a mid-game change.
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'settings', diffLevel }));
 }
 syncDifficultyUI();
+syncDiffChips();
 
 function openSettings() {
   playSound('ui', 0.45);
@@ -4356,6 +4448,11 @@ function closeSettings() {
   closeMatchInfo();   // stop the 2Hz repaint while the panel is closed
 }
 pauseBtn.addEventListener('click', openSettings);
+// The training chip is a shortcut INTO the difficulty grid — no second picker to keep in sync.
+document.getElementById('train-diff')?.addEventListener('click', () => {
+  openSettings();
+  document.getElementById('setting-difficulty')?.scrollIntoView({ block: 'nearest' });
+});
 document.getElementById('resume').addEventListener('click', closeSettings);
 // #15: click the dark backdrop (outside the settings card) to close — no ✕ button.
 settingsPanel.addEventListener('click', (e) => { if (e.target === settingsPanel) closeSettings(); });
@@ -6616,20 +6713,33 @@ const FB_BUSH = { w: 224, h: 160 };
 const FB_GRID = 50;                          // fine grid cell — snap + overlay. Cell COUNT is per-size (s2v2 40x22, sBig 52x30, sHuge 58x34); every size is a whole, even number of cells on both axes so the centre line stays a junction and mirroring is exact.
 const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;            // snaps to grid JUNCTIONS (cell corners)
 const fbSnapCell = (v) => Math.floor(v / FB_GRID) * FB_GRID + FB_GRID / 2; // snaps to CELL CENTRES (the box grid) — used for walls so they line up with crates
-let fbField = { version: 2, size: DEFAULT_SIZE, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
-let fbTool = null;   // 'bush' | 'hard' | 'dry' | 'crate' | null (placement tool)
+let fbField = { version: 3, size: DEFAULT_SIZE, bushes: [], hardWalls: [], dryWalls: [], crates: [], spawns: [], ball: null };
+let fbTool = null;   // 'bush' | 'hard' | 'dry' | 'crate' | 'spawn' | 'ball' | null (placement tool)
 let fbSel = null;    // { type, i } selected element | null
 let fbDrag = null;   // active pointer drag
 const fbPit = () => document.getElementById('builder-pitch');
-const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.hardWalls : t === 'crate' ? fbField.crates : fbField.dryWalls);
+// MARKERS (start slots + the ball) are not geometry: nothing collides with them, so they stay out of
+// the overlap groups. The ball is a single point in the data model (the sim wants one spot, not a
+// list), and is exposed here as a 0-or-1 array holding the LIVE object — so the generic select/move
+// code mutates the real ball through it. Only delete needs to know the difference (fbDeleteEl).
+const fbList = (t) => (t === 'bush' ? fbField.bushes : t === 'hard' ? fbField.hardWalls : t === 'crate' ? fbField.crates
+  : t === 'spawn' ? fbField.spawns : t === 'ball' ? (fbField.ball ? [fbField.ball] : []) : fbField.dryWalls);
+const FB_MARKER = (t) => t === 'spawn' || t === 'ball';
 // THE one place a builder field object is constructed. Every rebuild path goes through it —
 // load, undo/redo restore, clear-all, and the saved-field library's normalizer — because the
 // bug this replaces was three separate `{ version: 1, ... }` literals that each silently DROPPED
 // the size, so a big pitch came back as a 2000x1100 one with its elements still out at x=2500.
 // A field with no `size` was drawn before sizes existed, so it IS s2v2. Never rescale it.
+// v3 adds `spawns` (start slots) + `ball` (kickoff spot). A v1/v2 save simply has neither, which is
+// exactly "this field doesn't declare a formation" — the sim then runs its formula, unchanged.
 function fbNorm(j, sizeId) {
   const size = sizeOf(sizeId != null ? sizeId : (j && j.size)).id;
-  return { version: 2, size, bushes: (j && j.bushes) || [], hardWalls: (j && j.hardWalls) || [], dryWalls: (j && j.dryWalls) || [], crates: (j && j.crates) || [] };
+  return {
+    version: 3, size,
+    bushes: (j && j.bushes) || [], hardWalls: (j && j.hardWalls) || [], dryWalls: (j && j.dryWalls) || [], crates: (j && j.crates) || [],
+    spawns: (j && Array.isArray(j.spawns)) ? j.spawns : [],
+    ball: (j && j.ball && typeof j.ball === 'object') ? { x: +j.ball.x, y: +j.ball.y } : null,
+  };
 }
 function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return fbNorm(j); } catch (e) {} return fbNorm(null, DEFAULT_SIZE); }
 function fbSave() { try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {} }
@@ -6642,6 +6752,9 @@ function fbOutOfBounds(size) {
   const over = (x, y) => x < 0 || y < 0 || x > size.W || y > size.H;
   for (const b of [...fbField.bushes, ...fbField.crates]) if (over(b.x, b.y) || over(b.x + b.w, b.y + b.h)) return true;
   for (const w of [...fbField.hardWalls, ...fbField.dryWalls]) for (const p of fbEnds(w)) if (over(p.x, p.y)) return true;
+  // Markers count: a shrink that left a start slot or the ball outside the pitch would spawn a
+  // player in the void, and the server would silently clamp it somewhere the author never chose.
+  for (const s of [...fbField.spawns, ...(fbField.ball ? [fbField.ball] : [])]) if (over(s.x, s.y)) return true;
   return false;
 }
 // Point the builder at a size. `keep` = only re-sync the view to the field's existing size (used by
@@ -6730,7 +6843,15 @@ function fpCloneArr(a) { return Array.isArray(a) ? a.map((o) => ({ ...o })) : []
 // Deep-copies a field for the saved-field library. Carries `size` through: a saved slot must
 // remember the pitch it was drawn on, or cloning a big field into the builder would reopen it at
 // 2000x1100 with every element stranded outside the canvas.
-function fpNormField(f) { return { version: 2, size: sizeOfField(f).id, bushes: fpCloneArr(f && f.bushes), hardWalls: fpCloneArr(f && f.hardWalls), dryWalls: fpCloneArr(f && f.dryWalls), crates: fpCloneArr(f && f.crates) }; }
+// Carries `spawns`/`ball` too — dropping them here is the same class of bug as the `size` drop this
+// function's comment already documents: a saved field would lose its formation on the way in or out.
+function fpNormField(f) {
+  return {
+    version: 3, size: sizeOfField(f).id,
+    bushes: fpCloneArr(f && f.bushes), hardWalls: fpCloneArr(f && f.hardWalls), dryWalls: fpCloneArr(f && f.dryWalls), crates: fpCloneArr(f && f.crates),
+    spawns: fpCloneArr(f && f.spawns), ball: (f && f.ball) ? { x: f.ball.x, y: f.ball.y } : null,
+  };
+}
 // Saved slots: validated + id-stamped + deep-copied. Corrupt/non-object entries are skipped so a
 // bad row can't crash the list; every entry gets a stable id for identity-safe delete/rename.
 function fpLoadSaves() {
@@ -6959,13 +7080,18 @@ function fbRender() {
   const pit = fbPit(); if (!pit) return;
   pit.querySelectorAll('.bel,.bhandle').forEach((e) => e.remove());
   const pctL = (x) => (x / FB_W * 100) + '%', pctT = (y) => (y / FB_H * 100) + '%';
+  // w/h null => the element is a POINT (a marker): it keeps a fixed on-screen size from CSS instead of
+  // scaling with the pitch. One grid cell is ~9px wide on the builder's ~370px pitch, which made the
+  // start-slot discs unreadable dots; a marker is a position, not an area, so screen size is right.
   const mk = (type, i, cx, cy, w, h, angle) => {
     const d = document.createElement('div');
     d.className = 'bel ' + type + (fbSel && fbSel.type === type && fbSel.i === i ? ' sel' : '');
-    d.style.left = pctL(cx); d.style.top = pctT(cy); d.style.width = pctL(w); d.style.height = pctT(h);
+    d.style.left = pctL(cx); d.style.top = pctT(cy);
+    if (w != null) { d.style.width = pctL(w); d.style.height = pctT(h); }
     if (angle != null) d.style.setProperty('--ang', angle + 'rad');
     d.dataset.type = type; d.dataset.i = i;
     pit.appendChild(d);
+    return d;
   };
   fbField.bushes.forEach((b, i) => mk('bush', i, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h, null));
   fbField.hardWalls.forEach((w, i) => mk('hard', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
@@ -6984,6 +7110,38 @@ function fbRender() {
   }
   fbField.dryWalls.forEach((w, i) => mk('dry', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
   fbField.crates.forEach((c, i) => mk('crate', i, c.x + c.w / 2, c.y + c.h / 2, c.w, c.h, null));
+  // MARKERS on top (z-index in CSS): one cell wide, labelled so a slot's team is never a guess.
+  fbField.spawns.forEach((s, i) => {
+    const el = mk('spawn', i, s.x, s.y, null, null, null);
+    el.classList.add(s.team === 'B' ? 'spawn-b' : 'spawn-a'); el.dataset.lbl = s.team;
+  });
+  if (fbField.ball) mk('ball', 0, fbField.ball.x, fbField.ball.y, null, null, null);
+  fbUpdateCap();
+}
+// "How many players does this map hold?" — min(A slots, B slots), because a 3-vs-1 layout can only
+// seat 1v1 without stacking two players on one marker. Rendered as a live badge next to the size
+// button so the author sees the answer while placing, plus what a shortfall/surplus will do.
+// ▶ שחק launches a 2v2 vs bots (server: startBuilderMatch), so that is what a shortfall/surplus is
+// measured against — quoting a capacity with no reference point is what makes "6 slots" ambiguous.
+const FB_MATCH_TEAM = 2;
+function fbUpdateCap() {
+  const el = document.getElementById('b-cap'); if (!el) return;
+  const c = spawnCounts(fbField.spawns), cap = spawnCapacity(fbField.spawns);
+  const ballTx = fbField.ball ? ' ⚽' : '';
+  const rule = '\nיותר נקודות משחקנים = בכל משחק נבחרות נקודות אחרות (רנדומלי). פחות = השאר מתחילים במערך הקבוע.'
+    + (fbField.ball ? '\n⚽ הכדור מתחיל בנקודה שהצבת — חופשי, שתי הקבוצות מתחרות עליו.' : '');
+  if (!c.A && !c.B) {
+    el.textContent = '👥 מערך ברירת מחדל' + ballTx;
+    el.title = 'לא הוצבו נקודות פתיחה — השחקנים מסתדרים לפי המערך הקבוע של המשחק' + rule;
+    el.classList.remove('cap-warn'); return;
+  }
+  const short = cap < FB_MATCH_TEAM;
+  el.textContent = `👥 ${cap} נגד ${cap}${ballTx}` + (short ? ` · משחק ${FB_MATCH_TEAM}נגד${FB_MATCH_TEAM}` : (cap > FB_MATCH_TEAM ? ' · רנדומלי' : ''));
+  el.classList.toggle('cap-warn', short || c.A !== c.B);
+  el.title = `נקודות פתיחה: קבוצה A ${c.A} · קבוצה B ${c.B}`
+    + (c.A !== c.B ? ' — לא מאוזן: הקיבולת נקבעת לפי הצד הקטן' : '')
+    + (short ? `\n▶ שחק הוא ${FB_MATCH_TEAM} נגד ${FB_MATCH_TEAM} — שחקנים ללא נקודה מתחילים במערך הקבוע` : '')
+    + rule;
 }
 // Move a selected element to (wx,wy) — grid-snapped.
 function fbMoveSel(wx, wy) {
@@ -6991,6 +7149,10 @@ function fbMoveSel(wx, wy) {
   // Bushes snap their TOP-LEFT CORNER to a grid line (matches how they're drawn) so a moved
   // bush stays cell-aligned; centre-snapping put even-width bushes half a cell off the grid.
   if (fbSel.type === 'bush' || fbSel.type === 'crate') { L.x = fbSnap(wx - L.w / 2); L.y = fbSnap(wy - L.h / 2); }
+  // Markers ARE their point: snap the point itself to a cell centre (same grid the walls use), and
+  // keep the stored team — dragging a slot into the other half is a deliberate high-press layout,
+  // not a mistake to auto-correct. Tap it with the 🏁 tool to flip the team.
+  else if (FB_MARKER(fbSel.type)) { L.x = fbSnapCell(wx); L.y = fbSnapCell(wy); }
   else { L.cx = fbSnapCell(wx); L.cy = fbSnapCell(wy); } // walls snap to the box grid (cell centres)
   fbRender();
 }
@@ -7018,7 +7180,15 @@ function fbDrawUpdate(wx, wy) {
   }
   fbRender();
 }
-function fbDeleteEl(el) { if (!el) return; const arr = fbList(el.dataset.type); const i = +el.dataset.i; if (i >= 0 && i < arr.length) { arr.splice(i, 1); if (fbSel && fbSel.type === el.dataset.type && fbSel.i === i) fbSel = null; fbRender(); } }
+function fbDeleteEl(el) {
+  if (!el) return;
+  const t = el.dataset.type;
+  // The ball is a single field, not a list slot — fbList('ball') hands out a throwaway wrapper, so
+  // splicing it would delete nothing and look like a broken eraser.
+  if (t === 'ball') { if (fbField.ball) { fbField.ball = null; if (fbSel && fbSel.type === 'ball') fbSel = null; fbRender(); } return; }
+  const arr = fbList(t); const i = +el.dataset.i;
+  if (i >= 0 && i < arr.length) { arr.splice(i, 1); if (fbSel && fbSel.type === t && fbSel.i === i) fbSel = null; fbRender(); }
+}
 function fbSetTool(t) { fbTool = t; fbSel = null; document.querySelectorAll('#builder .btool').forEach((b) => b.classList.toggle('active', b.dataset.tool === t)); fbRender(); }
 // Mirror all elements. mode: 'sides' (L<->R across x-centre), 'top' (T<->B across y-centre),
 // 'diag' (180° point symmetry). Adds the mirrored copies to what's already placed.
@@ -7032,6 +7202,22 @@ function fbMirror(mode) {
     : { ...b, x: mx(b.x + b.w), y: my(b.y + b.h) };
   const addCopies = (type, fn) => { const orig = fbList(type).slice(); for (const e of orig) { const c = fn(e); if (!fbOverlapsAny(c, type, -1)) fbList(type).push(c); } };
   addCopies('hard', wall); addCopies('dry', wall); addCopies('bush', bush); addCopies('crate', bush); // crates mirror like boxes
+  // START SLOTS mirror as points, and a side/diagonal mirror FLIPS the team — that is the whole
+  // point: place your 3 slots on the left, tap ⇆ צד, and the opponents' 3 appear opposite them.
+  // A top mirror stays on the same half, so the team is unchanged. Capped per team so a repeated
+  // mirror can't breed slots past the limit. The single ball has no mirror image — it stays put.
+  {
+    const cap = MAX_SPAWNS_PER_TEAM;
+    const copies = [];
+    for (const s of fbField.spawns) {
+      const flip = mode !== 'top';
+      const c = { x: mode === 'top' ? s.x : mx(s.x), y: mode === 'sides' ? s.y : my(s.y), team: flip ? (s.team === 'A' ? 'B' : 'A') : s.team };
+      const dup = [...fbField.spawns, ...copies].some((o) => o.team === c.team && Math.abs(o.x - c.x) < 1 && Math.abs(o.y - c.y) < 1);
+      const n = [...fbField.spawns, ...copies].filter((o) => o.team === c.team).length;
+      if (!dup && n < cap) copies.push(c);
+    }
+    fbField.spawns.push(...copies);
+  }
   fbSel = null; fbRender(); fbPush();
 }
 // Field zoom: scale the arena's layout HEIGHT (aspect keeps width in step) so the stage's
@@ -7054,6 +7240,12 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
   // Clear-all empties the ELEMENTS, not the pitch: you keep authoring at the size you chose.
   document.getElementById('b-clear')?.addEventListener('click', () => { fbField = fbNorm(null, fbField.size); fbSel = null; fbRender(); fbPush(); fbSetName('טיוטה'); });
   document.getElementById('b-size')?.addEventListener('click', () => fbCycleSize());
+  // 🤖 bot level for the playtest — cycles the SHARED level (setDifficulty persists it + pushes it
+  // live), so what you pick here is what the settings panel shows once the match starts.
+  document.getElementById('b-diff')?.addEventListener('click', () => {
+    setDifficulty((diffLevel + 1) % DIFFICULTY_LEVELS.length);
+    fbFlash(`רמת בוטים: ${levelAt(diffLevel).name} · ${levelAt(diffLevel).hint}`);
+  });
   document.querySelectorAll('#builder [data-mirror]').forEach((btn) => btn.addEventListener('click', () => fbMirror(btn.dataset.mirror)));
   document.getElementById('b-undo')?.addEventListener('click', fbUndo);
   document.getElementById('b-redo')?.addEventListener('click', fbRedo);
@@ -7083,7 +7275,9 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
   document.getElementById('builder-play')?.addEventListener('click', () => {
     fbSave();
     if (!canHost(fbField.size)) { fbFlash(`מגרש ${sizeOf(fbField.size).name} — אפשר לבנות, משחק בקרוב`); return; }
-    unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField });
+    // diffLevel: playtest your field against the bots you PICKED with the 🤖 button in the rail
+    // (this path used to send none, so every builder match ran at the default level).
+    unlockAudio && unlockAudio(); syncLoadout && syncLoadout(); sendMsg({ type: 'builderMatch', field: fbField, diffLevel });
   });
   document.getElementById('b-zoom-in')?.addEventListener('click', () => fbSetZoom(fbZoom + 0.25));
   document.getElementById('b-zoom-out')?.addEventListener('click', () => fbSetZoom(fbZoom - 0.25));
@@ -7126,6 +7320,34 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
       fbDraw = { type: 'bush', ax, ay, i: fbField.bushes.length - 1 }; fbSel = { type: 'bush', i: fbDraw.i };
       fbDrag = { id: e.pointerId }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
     }
+    // START SLOT — PLACE a marker at the cell centre. Team is guessed from the half (A defends the
+    // left goal), which makes the common case a single tap. Tapping an EXISTING slot flips its team
+    // instead of stacking a second marker on it — that's how you author a high-press start.
+    if (fbTool === 'spawn') {
+      const pre = fbSnapshot();
+      if (el && el.dataset.type === 'spawn') {
+        const s = fbField.spawns[+el.dataset.i];
+        if (s) {
+          const to = s.team === 'A' ? 'B' : 'A';
+          if (spawnCounts(fbField.spawns)[to] >= MAX_SPAWNS_PER_TEAM) { fbFlash(`מקסימום ${MAX_SPAWNS_PER_TEAM} נקודות פתיחה לקבוצה`); return; }
+          s.team = to; fbSel = { type: 'spawn', i: +el.dataset.i }; fbRender(); fbPush();
+        }
+        return;
+      }
+      const sx = fbSnapCell(w.x), sy = fbSnapCell(w.y);
+      const team = teamForX(sx, sizeOf(fbField.size));
+      if (spawnCounts(fbField.spawns)[team] >= MAX_SPAWNS_PER_TEAM) { fbFlash(`מקסימום ${MAX_SPAWNS_PER_TEAM} נקודות פתיחה לקבוצה ${team}`); return; }
+      fbField.spawns.push({ x: sx, y: sy, team });
+      fbSel = { type: 'spawn', i: fbField.spawns.length - 1 };
+      fbDrag = { id: e.pointerId, move: true, pre }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
+    }
+    // BALL — one per field: placing again MOVES it rather than adding a second ball.
+    if (fbTool === 'ball') {
+      const pre = fbSnapshot();
+      fbField.ball = { x: fbSnapCell(w.x), y: fbSnapCell(w.y) };
+      fbSel = { type: 'ball', i: 0 };
+      fbDrag = { id: e.pointerId, move: true, pre }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
+    }
     // CRATE — PLACE a single grid cell in the cell under the cursor. No resize; optional drag to
     // reposition. Overlap is checked on release (a crate can't sit on another solid).
     if (fbTool === 'crate') {
@@ -7163,6 +7385,9 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
         if (L && fbOverlapsAny(L, 'crate', fbSel.i)) { fbRestore(fbDrag.pre); fbFlash('אי אפשר לחפוף ארגז'); }
         else if (fbDrag.pre !== fbSnapshot()) fbPush();
       }
+      // MARKERS: no overlap rule to resolve (nothing collides with a start spot), so a move is just
+      // committed. Without this branch they fell into the wall resolver below and vanished.
+      else if (FB_MARKER(fbSel.type)) { if (fbDrag.pre !== fbSnapshot()) fbPush(); }
       else {
         const res = fbResolveWall(fbSel.type, fbSel.i);
         if (!res.ok) { fbRestore(fbDrag.pre); fbFlash('אי אפשר להניח קיר כאן'); }

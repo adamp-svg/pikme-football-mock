@@ -22,6 +22,7 @@ import { coalesceInput, consumeEdges } from './shared/input-merge.js';
 import { MAIN_FIELD } from './shared/main-field.js';
 import { FIELD_3V3 } from './shared/field-3v3.js';
 import { sizeOfField, canHost, sizeOf } from './shared/field-sizes.js';
+import { normSpawns, normBall } from './shared/field-spawns.js';
 import { encodeKeyframe } from './shared/wire.js';
 import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN_KEYS } from './shared/cosmetics.js';
 import { verifyFootballToken } from './shared/football-auth.js';
@@ -285,6 +286,41 @@ function fillBots(room, rosterOut) {
   }
 }
 
+// Re-apply the room's CURRENT difficulty level to bots that already exist.
+//
+// Bot difficulty is two things: SKILL (applyTeamSkill, read live by the AI every tick) and CARD BUFFS
+// (rolled once in fillBots from the level). A mid-match level change used to move only the first, so
+// after switching from שלב 2 to קטלני the bots played at the new skill while still carrying the old
+// level's card buffs — and the settings dossier reported those stale buffs as fact. This rolls the
+// buffs/loadout for the new level, writes them into the live sim players, and refreshes the dossier
+// entries so the readout describes what the sim is actually running.
+// Training is untouched: its enemies are role-driven (updateTrainingDummy reads the enemy scalar
+// live) and carry no card buffs, and room.botRoster is empty there.
+function relevelBots(room) {
+  if (!room || !Array.isArray(room.botRoster) || !room.botRoster.length) return;
+  const level = clampLevel(room.diffLevel);
+  for (const b of room.botRoster) {
+    const p = room.state.players[b.id];
+    if (!p) continue;
+    const teamHasHuman = Object.values(room.state.players).some((q) => !q.isBot && q.team === p.team);
+    const sideScalar = botSideScalar(levelAt(level), teamHasHuman);
+    let loadout, buffs;
+    if (sideScalar >= EXTREME_SKILL) { loadout = extremeBotLoadout(); buffs = EXTREME_BOT_BUFFS; }
+    else { loadout = botLoadoutForLevel(level); buffs = buffsFromLoadout(loadout); }
+    p.cardShot = buffs.cardShot; p.speedBuff = buffs.speedBuff; p.cardUtil = buffs.cardUtil;
+    b.loadout = loadout; b.cards = loadoutToCards(loadout); b.buffs = buffs;
+    b.skill = sideScalar; b.botLevel = level; b.partnerSide = teamHasHuman;
+  }
+}
+
+// Rooms where a client may set the bot difficulty LIVE. The training ground, vs-bots and a builder
+// test match exist to be tinkered with, and a private room is the host's own game. A PUBLIC matchmade
+// room takes its level ONCE, at join, from the player's XP: accepting a live change there would let
+// anyone weaken the enemy bots mid-match, and the level reported in matchResult (which sets the
+// trophy BOT CEILING) would stop describing the level actually played.
+const DIFF_LIVE_MODES = new Set(['training', 'botgame', 'builder']);
+const canSetDiffLive = (room) => !!room && (room.isPrivate || DIFF_LIVE_MODES.has(room.mode));
+
 // Push the bot dossier to everyone in the match. Called after a mid-match backfill, whose bots the
 // original `matchStart` roster could not have contained.
 function broadcastBots(room) {
@@ -397,11 +433,15 @@ function joinMatchmade(member, mode, diffLevel) {
 // Solo training ground: instant entry, no lobby/countdown, endless clock, and
 // two enemies — a penned roaming dummy by the far goal + a midfield sentry that
 // fires at you. Reuses the whole match render/snapshot pipeline.
-function startTraining(member) {
+function startTraining(member, diffLevel) {
   leaveCurrentRoom(member);
   const room = makeRoom(`train-${++roomCounter}`, false, 'training');
   rooms.set(room.id, room);
   addToRoom(member, room);
+  // The training ground opens at the level the player PICKED, not at DEFAULT_LEVEL. Without this the
+  // sentry always started at "normal" and the picker only took effect once you opened settings
+  // mid-session — so the level shown in the panel disagreed with the enemy you were shooting at.
+  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
 
   room.state = createState();
   room.state.noClock = true;      // never transitions to 'ended'
@@ -431,7 +471,9 @@ function startTraining(member) {
   room.endHoldT = 0; room.statsSent = false;
   room.phase = 'match';
   send(member.ws, { type: 'roomJoined', mode: 'training', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'training', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
+  // diffLevel rides along so the client's settings/dossier readout reports the level the room is
+  // actually running (matchDiffLevel was null here, which read as "unknown difficulty").
+  send(member.ws, { type: 'matchStart', mode: 'training', diffLevel: clampLevel(room.diffLevel), matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
   room.rosterVersion++; broadcastRoster(room);
 }
 
@@ -454,8 +496,12 @@ function sanitizeField(field) {
   });
   const arr = (a) => (Array.isArray(a) ? a : []);
   return {
-    version: 2,
+    version: 3,
     size: size.id,
+    // Authored kickoff data (shared/field-spawns.js): start slots + the ball's spot. Their own
+    // normalizers clamp to THIS size and cap the per-team slot count, so the sim can trust them.
+    spawns: normSpawns(field.spawns, size),
+    ball: normBall(field.ball, size),
     bushes: arr(field.bushes).slice(0, 20).map((b) => ({ x: num(b && b.x, 0, size.W, 0), y: num(b && b.y, 0, size.H, 0), w: num(b && b.w, 40, 600, 200), h: num(b && b.h, 40, 600, 150) })),
     hardWalls: arr(field.hardWalls).slice(0, 20).map(cap),
     dryWalls: arr(field.dryWalls).slice(0, 20).map(cap),
@@ -472,7 +518,7 @@ const MAIN_FIELD_CLEAN = sanitizeField(MAIN_FIELD);
 for (const f of Object.values(FORMATS)) if (f.field) f.cleanField = sanitizeField(f.field);
 
 // Solo "play my field vs bots": instant, endless, custom field + backfilled bots (2v2).
-function startBuilderMatch(member, field) {
+function startBuilderMatch(member, field, diffLevel) {
   // The client gates ▶ שחק on the size being hostable, but never trust it: the sim still reads its
   // geometry from the global FIELD, so hosting a non-base size would run 2000x1100 goal lines and
   // spawns underneath a bigger-looking pitch. Refuse instead of playing a lie. Widen RUNTIME_SIZES
@@ -485,6 +531,9 @@ function startBuilderMatch(member, field) {
   addToRoom(member, room);
   room.state = createState();
   room.state.noClock = true; // endless — tinker + playtest freely
+  // Test your field against the bots YOU chose. This path ignored diffLevel entirely, so every
+  // builder playtest ran at DEFAULT_LEVEL however the picker was set.
+  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
   const clean = sanitizeField(field);
   if (clean) setField(room.state, clean);
   room.inputs.clear();
@@ -499,7 +548,7 @@ function startBuilderMatch(member, field) {
   attachBall(room.state, 'A');
   room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'builder', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'builder', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: clean });
+  send(member.ws, { type: 'matchStart', mode: 'builder', diffLevel: clampLevel(room.diffLevel), matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: clean });
   room.rosterVersion++; broadcastRoster(room);
 }
 
@@ -507,7 +556,11 @@ function startBuilderMatch(member, field) {
 // solo entry; the human is team A and every other slot is a bot. Difficulty from the client.
 function startBotGame(member, diffLevel) {
   leaveCurrentRoom(member);
-  const room = makeRoom(`bots-${++roomCounter}`, false, 'match');
+  // mode 'botgame', not 'match': this is a solo practice room, and the room has to SAY so for the
+  // difficulty gate (canSetDiffLive) to tell it apart from a public matchmade room. `roomJoined`
+  // already reported 'botgame' to the client; only the room object was still calling itself a match.
+  // (room.mode is compared against 'training' and nothing else, so nothing downstream shifts.)
+  const room = makeRoom(`bots-${++roomCounter}`, false, 'botgame');
   rooms.set(room.id, room);
   addToRoom(member, room);
   room.state = createState();
@@ -1129,8 +1182,8 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'quickMatch') { joinMatchmade(member, 'quick', msg.diffLevel); return; }
       if (msg.type === 'goalBrawl') { joinMatchmade(member, 'brawl', msg.diffLevel); return; }
       if (msg.type === 'matchmade') { joinMatchmade(member, FORMATS[msg.format] ? msg.format : 'quick', msg.diffLevel); return; }
-      if (msg.type === 'training') { startTraining(member); return; }
-      if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field); return; }
+      if (msg.type === 'training') { startTraining(member, msg.diffLevel); return; }
+      if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field, msg.diffLevel); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
       if (msg.type === 'resetBall') { // training only: recenter the ball on demand
         const r = member.room;
@@ -1302,11 +1355,18 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'settings' && room) {
         if (msg.settings) applySettings(room, msg.settings);
-        // New: fluent difficulty LADDER — a level index that sets enemy + partner skill.
-        if (msg.diffLevel != null) room.diffLevel = clampLevel(msg.diffLevel);
-        // Legacy: a stale client may still send a string tier — bridge it to a level index.
-        else if (['easy', 'normal', 'hard', 'extreme'].includes(msg.botDifficulty)) room.diffLevel = levelFromLegacy(msg.botDifficulty);
-        if (room.botMem) applyTeamSkill(room); // apply live (also re-applied each tick)
+        // Difficulty LADDER — a level index that sets enemy + partner skill. Legacy clients may still
+        // send a string tier; bridge it to a level index.
+        const wanted = msg.diffLevel != null ? clampLevel(msg.diffLevel)
+          : (['easy', 'normal', 'hard', 'extreme'].includes(msg.botDifficulty) ? levelFromLegacy(msg.botDifficulty) : null);
+        // Only where a live change is legitimate (see canSetDiffLive) — and only when it's a real
+        // change, so a repeated settings frame can't reroll bot cards on every keystroke.
+        if (wanted != null && canSetDiffLive(room) && wanted !== clampLevel(room.diffLevel)) {
+          room.diffLevel = wanted;
+          if (room.botMem) applyTeamSkill(room); // skill applies live (also re-applied each tick)
+          relevelBots(room);                     // ...and so must the CARD BUFFS + the dossier
+          broadcastBots(room);                   // every client in the room sees the new truth
+        }
         return;
       }
       if (msg.type === 'ping') { send(ws, { type: 'pong', t: msg.t }); return; }

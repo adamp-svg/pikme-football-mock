@@ -85,27 +85,37 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* ---- Game ---- */
 #canvas { display: block; width: 100vw; height: 100vh; touch-action: none; -webkit-user-select: none; user-select: none; }
-/* TOP-CENTRE STACK: clock, then score under it, then the format caption. A COLUMN, and the three
-   rows are ordered with `order:` rather than by moving them in index.html (several agents live in
-   that file). `.match-powers` and `.net` stay position:fixed, so they sit this column out. */
+/* TOP HUD: three columns — MY TEAM's power cards · the clock/score/format stack · the OPPONENTS'
+   power cards. A GRID (was a plain column) because the two card rails have to flank the centre stack
+   and stay put whatever its width is; every child is placed by explicit grid-area, so DOM order in
+   index.html is irrelevant (several agents live in that file). `.net` stays position:fixed and sits
+   the grid out. An unplaced future child lands in an implicit 4th row, below everything — visible,
+   never on top of the score. */
 #hud {
-  position: fixed; top: 0; left: 0; right: 0; padding: 8px 16px;
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  position: fixed; top: 0; left: 0; right: 0; padding: 8px 10px;
+  display: grid; grid-template-columns: 1fr auto 1fr; grid-template-rows: auto auto auto;
+  align-items: start; column-gap: clamp(6px, 1.6vw, 18px); row-gap: 4px;
   pointer-events: none; font-variant-numeric: tabular-nums;
+  /* PHYSICAL columns. The page is RTL, which maps grid column 1 to the RIGHT — that put my own team
+     on the right and the opponents on the left, the opposite of the spec. `direction: ltr` here pins
+     column 1 = physically left; every Hebrew/ordered child below re-declares `direction: rtl` so
+     nothing else about the HUD changes (the score keeps the exact order it has today). */
+  direction: ltr;
 }
+#hud .score, #hud .score-fmt, #hud .net, #hud .mpwr-who { direction: rtl; }
 /* Both numbers are drawn by public/pixel-digits.js as real pixel blocks in `currentColor`, so every
    colour rule below still applies — the glyph code knows nothing about colour. `--pd-px` is the size
    of ONE pixel block: the only knob for how big the clock / score are. */
-.timer { order: 1; --pd-px: 2px; color: #cdd8ef;
+.timer { grid-area: 1 / 2; justify-self: center; --pd-px: 2px; color: #cdd8ef;
   background: #182019e8; padding: 4px 7px; border: 2px solid #667061; border-radius: 0;
   box-shadow: 0 3px 0 rgba(0,0,0,.4); filter: drop-shadow(0 0 2px rgba(205,216,239,.45)); }
-.score { order: 2; --pd-px: 3px; display: flex; gap: 4px; align-items: flex-start;
+.score { grid-area: 2 / 2; justify-self: center; --pd-px: 3px; display: flex; gap: 4px; align-items: flex-start;
   background: #182019e8; padding: 4px 9px; border: 2px solid #667061; border-radius: 0;
   box-shadow: inset 0 -3px #0b100c, 0 3px 0 rgba(0,0,0,.4); }
 .team-a { color: var(--a); } .team-b { color: var(--b); } .dash { color: #55637f; }
 /* Match-format caption — third row of the same column (was position:fixed at top:62px, which the
    restacked HUD would have dropped on top of the score). */
-.score-fmt { order: 3; text-align: center; pointer-events: none;
+.score-fmt { grid-area: 3 / 2; justify-self: center; text-align: center; pointer-events: none;
   font-size: 11px; font-weight: 700; letter-spacing: .5px; color: #8b9ab5; text-shadow: 0 2px 0 rgba(0,0,0,.5); }
 .score-fmt.match-point { color: #ffd34d; animation: fmtPulse .9s ease-in-out infinite; }
 @keyframes fmtPulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
@@ -363,6 +373,15 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   letter-spacing: .5px; text-shadow: 0 2px 0 rgba(0,0,0,.5);
 }
 .train-tag.hidden { display: none; }
+/* Training-ground bot-level chip — under the 🎯 אימון tag, tappable (opens the difficulty grid).
+   It is the training ground's answer to "what am I playing against, and how do I change it?". */
+.train-diff {
+  position: fixed; top: 42px; right: 18px; z-index: 7; cursor: pointer;
+  padding: 3px 9px; border-radius: 999px; background: rgba(24,32,25,.82); border: 2px solid #667061;
+  color: #ffd76a; font: 800 11px sans-serif; letter-spacing: .3px; touch-action: manipulation;
+}
+.train-diff:active { transform: scale(.95); }
+.train-diff.hidden { display: none; }
 .reset-ball-btn {
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
   z-index: 6; padding: 9px 18px; border-radius: 3px;
@@ -585,7 +604,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Party flow: game picker overlay (host taps "בחר משחק"). */
 .game-select { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
   background: rgba(4,8,6,.78); backdrop-filter: blur(3px); }
-.game-select-card { width: min(420px, 92vw); background: #12151a; border: 2px solid #2c3830; border-radius: 16px;
+/* min(520px) so the MINI picker cards (same look as the lobby's) fit one row here too. */
+.game-select-card { width: min(520px, 92vw); background: #12151a; border: 2px solid #2c3830; border-radius: 16px;
   padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
 .game-select-head { display: flex; align-items: center; justify-content: space-between; }
 .game-select-head h2 { margin: 0; color: #fff; font: 900 18px "Arial Black", sans-serif; }
@@ -690,33 +710,62 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   color: #fff; font: 800 10px monospace; padding: 1px 5px; border-radius: 5px;
 }
 
-/* ---- Team intro overlay (match start) ---- */
+/* ---- Team intro / VS overlay (match start + quick-match countdown) ----
+   FIT RULE (rewritten 2026-07-26): the screen must fit 2v2, 3v3 and 5v5 at any phone height with
+   ZERO overflow and zero per-format hand-tuning. Two things did the damage before:
+     · the big 5..0 countdown sat IN the column flow, eating 58–128px of the very height the extra
+       rows needed (at 3v3 on a 390px-tall landscape phone the stack came to ~401px);
+     · rows had FIXED heights (40px avatar, 42px cards), so a third or fifth row simply ran off.
+   Now: a 3-row grid (mode · columns · hint) where the columns row is the only flexible one, the
+   countdown is ABSOLUTE over the centre gutter (where «נגד» sits — the Brawl Stars / Fortnite VS
+   placement), and every row/avatar/card is sized by the height it actually gets (flex + aspect-ratio
+   + vh clamps). Add a 7v7 tomorrow and it still fits. */
 .team-intro {
-  position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 16px;
+  position: fixed; inset: 0; z-index: 70; display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto; justify-items: center; align-items: center;
+  gap: clamp(4px, 1.2vh, 12px); padding: clamp(6px, 1.6vh, 16px) 10px; overflow: hidden;
   background: radial-gradient(circle at 50% 40%, rgba(14,22,40,.93), rgba(6,10,20,.97));
   opacity: 0; transition: opacity .34s; pointer-events: none;
 }
 .team-intro.show { opacity: 1; pointer-events: auto; }
 .team-intro.hidden { display: none; }
-.ti-inner { display: flex; align-items: stretch; gap: 14px; width: min(94vw, 720px); }
-.ti-col { flex: 1; background: rgba(255,255,255,.04); border: 2px solid #26324c; border-radius: 12px; padding: 12px; }
+/* align-SELF stretch (the grid sets align-items:center for the mode/hint rows): without it this row
+   sizes to CONTENT, the columns collapse to ~34px and every card inside them disappears. The whole
+   flex chain below needs a definite height to resolve `height:100%` against. */
+.ti-inner { align-self: stretch; display: flex; align-items: stretch; justify-content: center; gap: clamp(6px, 1.4vw, 14px); width: min(94vw, 720px); max-height: 100%; min-height: 0; }
+.ti-col {
+  flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  background: rgba(255,255,255,.04); border: 2px solid #26324c; border-radius: 12px;
+  padding: clamp(5px, 1.2vh, 12px) clamp(6px, 1vw, 12px);
+}
 .ti-col.ti-home { border-color: #3d6fb5; box-shadow: inset 0 0 22px rgba(78,160,255,.22); }
 .ti-col.ti-away { border-color: #b5474f; box-shadow: inset 0 0 22px rgba(255,91,106,.22); }
-.ti-team-title { text-align: center; font: 900 13px "Arial Black", sans-serif; letter-spacing: 2px; margin-bottom: 10px; }
+.ti-team-title { flex: none; text-align: center; font: 900 clamp(10px, 1.9vh, 13px)/1.1 "Arial Black", sans-serif; letter-spacing: 2px; margin-bottom: clamp(3px, 1vh, 10px); }
 .ti-home .ti-team-title { color: #7fbcff; }
 .ti-away .ti-team-title { color: #ff8a94; }
-.ti-vs { align-self: center; font: 900 26px "Arial Black", sans-serif; color: #ffe49a; text-shadow: 0 3px #0b0f0b; }
-.ti-rows { display: flex; flex-direction: column; gap: 10px; }
-.ti-row { display: grid; grid-template-columns: 40px 1fr; grid-template-rows: auto auto; gap: 2px 10px; align-items: center; }
-.ti-av {
-  grid-row: 1 / span 2; width: 40px; height: 40px; border-radius: 8px; border: 2px solid #ffe49a;
-  background: #26332a center/cover no-repeat; display: flex; align-items: center; justify-content: center;
-  font: 900 15px "Arial Black", sans-serif; color: #e7dcae;
+.ti-vs { flex: none; align-self: center; font: 900 clamp(15px, 3.6vh, 26px) "Arial Black", sans-serif; color: #ffe49a; text-shadow: 0 3px #0b0f0b; transition: opacity .2s; }
+/* While the 5..0 counts down, the number OWNS the centre gutter — «נגד» would collide with it. */
+.team-intro.counting .ti-vs { opacity: 0; }
+.ti-rows { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: clamp(3px, 1vh, 10px); }
+/* Each seat takes an equal share of whatever height the column got. `minmax(0,1fr)` on the second
+   grid row is what lets the cards shrink instead of pushing the row past its box. */
+.ti-row {
+  flex: 1 1 0; min-height: 0; display: grid;
+  grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
+  gap: 2px clamp(5px, 1vw, 10px); align-items: center;
 }
-.ti-name { font: 800 13px sans-serif; color: #eaf1ff; }
-.ti-cards { display: flex; gap: 5px; }
-.ti-card { width: 30px; height: 42px; border-radius: 4px; overflow: hidden; border: 2px solid #2a3550; background: #10192e; position: relative; }
+.ti-av {
+  grid-row: 1 / span 2; height: 100%; aspect-ratio: 1; max-height: 40px; max-width: 22vw;
+  border-radius: 8px; border: 2px solid #ffe49a;
+  background: #26332a center/cover no-repeat; display: flex; align-items: center; justify-content: center;
+  font: 900 clamp(10px, 2vh, 15px) "Arial Black", sans-serif; color: #e7dcae; overflow: hidden;
+}
+.ti-name { font: 800 clamp(9px, 1.9vh, 13px)/1.15 sans-serif; color: #eaf1ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ti-cards { display: flex; align-items: center; gap: clamp(2px, .6vw, 5px); min-height: 0; height: 100%; }
+/* Cards are sized by the HEIGHT the row hands them; 5:7 keeps the card proportion at every size. */
+/* min-height is the floor that keeps a card readable (and gives the row an intrinsic size) — without
+   it a very short screen shrinks the cards to slivers. */
+.ti-card { height: 100%; min-height: 20px; max-height: 42px; aspect-ratio: 5 / 7; flex: none; border-radius: 4px; overflow: hidden; border: 2px solid #2a3550; background: #10192e; position: relative; }
 .ti-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ti-card.rarity-legendary { border-color: #ffb800; }
 .ti-card.rarity-epic { border-color: #b46bff; }
@@ -731,30 +780,38 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .ti-card.cf-noart.rarity-epic { background: linear-gradient(160deg, #d0a3ff, #b46bff); }
 .ti-card.cf-noart.rarity-rare { background: linear-gradient(160deg, #7fbcff, #4ea0ff); }
 .ti-card.cf-noart.rarity-common { background: linear-gradient(160deg, #c4d3e0, #9ab0c5); }
-.ti-tap { color: #9fb0d0; font: 700 11px sans-serif; letter-spacing: 1px; }
-/* Big 5..0 countdown over the VS screen — same look as the main-menu countdown. */
+.ti-tap { color: #9fb0d0; font: 700 clamp(9px, 1.7vh, 11px) sans-serif; letter-spacing: 1px; }
+/* Big 5..0 countdown — ABSOLUTE over the centre gutter (it replaces «נגד» while counting) instead of
+   a row in the stack. In flow it cost up to 128px of height, which is exactly what pushed 3v3 off a
+   short landscape screen. Sized in vh so a short phone gets a smaller number, never a taller page. */
 .ti-count {
-  font: 900 clamp(58px, 15vw, 128px)/1 "Arial Black", Impact, sans-serif;
-  color: #fff4ca; text-shadow: 0 6px 0 #a56a16, 0 11px 0 #252a21; margin-bottom: 2px;
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2;
+  pointer-events: none; text-align: center;
+  font: 900 clamp(42px, 14vh, 128px)/1 "Arial Black", Impact, sans-serif;
+  color: #fff4ca; text-shadow: 0 6px 0 #a56a16, 0 11px 0 #252a21;
 }
 .ti-count.hidden { display: none; }
 /* Mode label above the countdown: WHICH mode + the rule that decides the win. Both live modes
    share this screen, so this line is the only thing distinguishing ראשון ל-3 from קרב על השער. */
-.ti-mode { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; }
+.ti-mode { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
 .ti-mode.hidden { display: none; }
-.ti-mode-name { font: 900 15px "Arial Black", sans-serif; color: #ffe49a; text-shadow: 0 2px #0b0f0b; letter-spacing: .5px; }
+.ti-mode-name { font: 900 clamp(11px, 2.2vh, 15px) "Arial Black", sans-serif; color: #ffe49a; text-shadow: 0 2px #0b0f0b; letter-spacing: .5px; }
 .ti-mode-rule {
-  font: 800 11px sans-serif; color: #cfe0ff; letter-spacing: 1px; padding: 3px 10px;
+  font: 800 clamp(9px, 1.7vh, 11px) sans-serif; color: #cfe0ff; letter-spacing: 1px; padding: 2px 10px;
   border: 1px solid #2f3f60; border-radius: 999px; background: rgba(255,255,255,.05);
 }
-/* 3v3 / 5v5: more rows per side, so the rows tighten instead of overflowing the column. */
-.ti-col[data-size="3"] .ti-rows { gap: 7px; }
-.ti-col[data-size="3"] .ti-card { width: 26px; height: 36px; }
-.ti-col[data-size="5"] .ti-rows { gap: 5px; }
-.ti-col[data-size="5"] .ti-row { grid-template-columns: 30px 1fr; }
-.ti-col[data-size="5"] .ti-av { width: 30px; height: 30px; font-size: 12px; }
-.ti-col[data-size="5"] .ti-card { width: 22px; height: 30px; }
-.ti-col[data-size="5"] .ti-name { font-size: 11px; }
+/* Per-format nudges only — the FIT is handled by the flex/aspect-ratio sizing above, so these are
+   cosmetic caps (a 2-seat column shouldn't blow its avatars up to fill a tall screen) rather than the
+   load-bearing rule they used to be. data-size is set by fillIntroCol from the room's teamSize. */
+.ti-col[data-size="2"] .ti-av { max-height: 44px; }
+.ti-col[data-size="2"] .ti-card { max-height: 46px; }
+.ti-col[data-size="3"] .ti-av { max-height: 38px; }
+.ti-col[data-size="3"] .ti-card { max-height: 40px; }
+/* 5v5: ten seats. Names go one line smaller so a long name still fits beside 3 cards. */
+.ti-col[data-size="5"] .ti-av { max-height: 30px; }
+.ti-col[data-size="5"] .ti-card { max-height: 32px; }
+.ti-col[data-size="5"] .ti-name { font-size: clamp(8px, 1.5vh, 11px); }
+.ti-col[data-size="5"] .ti-lvl { display: none !important; } /* no room for the bot level line at 5v5 */
 
 /* Home user screen: dancing character + small avatar/name row. */
 .home-char { display: block; width: 150px; height: 158px; image-rendering: pixelated; margin: 0 0 -4px; }
@@ -1105,7 +1162,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .pr-card.rarity-legendary { border-color: #ffb800; } .pr-card.rarity-epic { border-color: #b46bff; }
 .pr-card.rarity-rare { border-color: #4ea0ff; } .pr-card.rarity-common { border-color: #9ab0c5; }
 .pr-empty { align-self: center; color: #8ea08a; font: 800 12px "Arial Black", sans-serif; padding: 0 6px; }
-.party-games { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+/* Widened from 460 so four MINI picker cards sit in ONE row (4x104 + 3x8 gaps) instead of wrapping. */
+.party-games { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .party-games-h { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; text-align: right; }
 /* Invite screen sections (online / pending / accepted) */
 .fs-sections { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
@@ -1120,12 +1178,17 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .subpage-back:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
 .subpage-head h2 { font: 900 22px "Arial Black", sans-serif; letter-spacing: .5px; color: #fff4ca; text-shadow: 0 3px 0 #23281f; }
 .subpage-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-/* Wrapper for the MODES-rendered cards. The party/game-select surfaces keep the old
-   column of rows; the PICKER (data-modes="launch") lays its portrait cards out in a row. */
+/* Wrapper for the MODES-rendered cards. BOTH surfaces are a row of portrait picker cards now — the
+   party ones (team page + host sheet) are the same card at `pc-mini` size, so picking a game with
+   friends looks like picking one in the lobby. */
 .mode-list { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .mode-list[data-modes="launch"] {
   flex-direction: row; align-items: stretch; justify-content: center; gap: 12px;
   flex: 1; min-height: 190px; padding: 2px 0 6px;
+}
+.mode-list[data-modes="party"] {
+  flex-direction: row; align-items: stretch; justify-content: center; flex-wrap: wrap;
+  gap: 8px; padding: 2px 0 4px;
 }
 
 /* ---- picker: portrait pixel-art mode card ---------------------------------
@@ -1162,9 +1225,26 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .pcard.lock .pc-band, .pcard.lock .pc-art { filter: grayscale(1) brightness(.62); }
 .pcard.lock { opacity: .8; }
 
+/* ---- MINI picker card (party surfaces) -------------------------------------
+   Same anatomy, one size down, so it sits inside the team page's panel next to the roster instead of
+   needing its own screen. Four still fit in one row on a landscape phone. */
+/* Explicit HEIGHT, not min-height: this panel shares a scroll box with the party roster, so the card
+   must be a known size instead of whatever its content adds up to (that came out 148px tall and made
+   the team page scroll on a short phone). vh-scaled so a taller screen gets a slightly bigger card. */
+.pcard.pc-mini { flex: 1 1 104px; min-width: 92px; max-width: 126px; height: clamp(92px, 21vh, 120px); border-width: 2px; box-shadow: 0 4px 0 #070b08; }
+.pcard.pc-mini:active { box-shadow: 0 2px 0 #070b08; }
+.pcard.pc-mini .pc-band { padding: 4px 6px 5px; gap: 5px; }
+.pcard.pc-mini .pc-ic { font-size: 15px; }
+.pcard.pc-mini .pc-tx b { font-size: 10px; }
+.pcard.pc-mini .pc-tx small { font-size: 8px; }
+.pcard.pc-mini .pc-art { min-height: 42px; }
+.pcard.pc-mini .pc-meta { padding: 3px 6px; font-size: 8px; }
+.pcard.pc-mini .pc-soon { padding: 3px 6px; font-size: 9px; }
+
 @media (max-height: 420px) {
   .pcard .pc-tx b { font-size: 11px; }
   .pcard .pc-band { padding: 5px 7px 6px; }
+  .pcard.pc-mini .pc-art { min-height: 30px; }
 }
 .modecard {
   appearance: none; display: flex; direction: rtl; align-items: center; gap: 12px; cursor: pointer;
@@ -1418,14 +1498,37 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   display: grid; place-items: center; border-radius: 50%; background: #ff5a5a; color: #fff;
   font: 900 12px "Arial Black", sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,.5);
 }
-/* In-match HUD: 3 small equipped-card icons next to the timer. */
-/* right:18px, not 118 — it used to sit to the LEFT of the top-right clock, which has moved to the
-   centre column, so the old offset left a 100px hole at the screen edge. */
-.match-powers { position: fixed; top: 16px; right: 18px; display: flex; gap: 5px; pointer-events: none; z-index: 6; }
+/* In-match power-card RAILS — one row per player, flanking the clock/score column inside the #hud
+   grid (they were a single fixed strip in the top-right corner showing only my own three cards).
+   MINE = grid column 1, hugging the centre stack; OPPONENTS = column 3. Both span all three rows so
+   a 3v3/5v5 rail can be taller than the score stack without pushing it around. */
+.match-powers { grid-area: 1 / 1 / span 3 / span 1; justify-self: end; display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
+.match-powers-foe { grid-area: 1 / 3 / span 3 / span 1; justify-self: start; }
+.mpwr-row { display: flex; align-items: center; gap: 4px; background: rgba(11,16,12,.55); padding: 2px 4px; border-radius: 3px; }
+/* Opponent rows mirror so their cards also sit closest to the score — the two rails read as one
+   symmetric HUD instead of two lists pointing the same way. */
+.match-powers-foe .mpwr-row { flex-direction: row-reverse; }
+.mpwr-me { box-shadow: inset 0 0 0 1px rgba(255,228,154,.55); }
+.mpwr-who { flex: none; min-width: 18px; text-align: center; font: 900 9px "Arial Black", sans-serif; color: #cbd7ea; text-shadow: 0 1px 0 rgba(0,0,0,.6); }
+.mpwr-me .mpwr-who { color: #ffe49a; }
+.match-powers .mpwr-cards { display: flex; gap: 2px; }
 .mpwr {
-  width: 26px; height: 34px; overflow: hidden; border: 2px solid #667061;
+  width: 26px; height: 34px; overflow: hidden; border: 2px solid #667061; flex: none;
   background: rgba(11,16,12,.78); display: flex; align-items: center; justify-content: center;
   font-size: 13px; box-shadow: 0 3px 0 rgba(0,0,0,.4);
+}
+/* Format-driven card size (set by renderMatchPowers): ten rows of 26x34 cards would swallow the top
+   of the screen, so the bigger the format the smaller the cards. */
+#hud[data-team-size="3"] .mpwr { width: 21px; height: 28px; }
+#hud[data-team-size="3"] .mpwr-row { padding: 1px 3px; }
+#hud[data-team-size="5"] .mpwr { width: 16px; height: 21px; border-width: 1px; }
+#hud[data-team-size="5"] .mpwr-row { padding: 0 2px; gap: 3px; }
+#hud[data-team-size="5"] .mpwr-who { min-width: 14px; font-size: 8px; }
+/* Short landscape: shrink one more step so the rails never reach the joysticks. */
+@media (max-height: 400px) {
+  .mpwr { width: 21px; height: 28px; }
+  #hud[data-team-size="3"] .mpwr { width: 18px; height: 24px; }
+  #hud[data-team-size="5"] .mpwr { width: 14px; height: 18px; }
 }
 .mpwr-art { width: 100%; height: 100%; object-fit: cover; display: block; image-rendering: pixelated; }
 .mpwr.rarity-legendary { border-color: #ffb800; }
@@ -1451,7 +1554,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 @media (max-width: 720px) {
   .pslot { width: 42px; height: 54px; }
   .power-slots { gap: 6px; }
-  .match-powers { right: 104px; }
+  /* (the old `.match-powers { right: 104px }` nudge is gone with the fixed-corner strip — the rails
+     are grid-placed inside #hud now, so nothing can collide with the top-right gear row.) */
 }
 
 /* ============================================================================
@@ -1979,8 +2083,17 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    buttons sit ~10% in from the edge), and never inside the landscape notch/rounded corners. */
 .builder-body { flex: 1; min-height: 0; display: flex; flex-direction: row; align-items: stretch; gap: 8px; direction: ltr;
   padding: 4px max(10%, env(safe-area-inset-right)) 2px max(10%, env(safe-area-inset-left)); }
-.builder-side { flex: none; width: 88px; display: flex; flex-direction: column; gap: 6px; justify-content: center; overflow-y: auto; }
-.builder-side .bact, .builder-side .btool { width: 100%; }
+/* WRAPPING column: the rail is one column on a tall screen and splits into a SECOND column when the
+   buttons don't fit, instead of scrolling them out of sight. That conditional behaviour is exactly
+   what `flex-flow: column wrap` + a bounded height gives for free — and it is why the two new tools
+   (🏁/⚽) don't cost anyone access to ✋/🩹 on a 333px-tall viewport (measured; it was 40px over). */
+.builder-side { flex: none; display: flex; flex-flow: column wrap; align-content: center; justify-content: center; gap: 4px; max-height: 100%; overflow: hidden; }
+.builder-side .bact, .builder-side .btool { width: 88px; flex: none; }
+/* The materials rail carries 8 tools now (🏁 start slots + ⚽ ball joined the four materials + move +
+   eraser). At the old 8px/13px sizing that stack was ~306px and scrolled on a 420px-tall window,
+   hiding ✋/🩹 below the fold. Both rails are compacted so every tool stays one tap away at phone
+   height — measured with the CDP harness (scrollHeight === clientHeight on both rails at 900x420). */
+.builder-side .btool, .builder-side .bact { padding: 6px 8px; font-size: 12px; }
 /* Zoom controls, overlaid bottom-left of the (now scrollable) stage. */
 .builder-zoom { position: absolute; left: 8px; bottom: 8px; z-index: 6; display: flex; flex-direction: column; gap: 5px; }
 .builder-zoom button { width: 38px; height: 38px; border: none; border-radius: 9px; background: rgba(20,32,24,.92); color: #eaf2ec; font: 900 18px "Arial Black", sans-serif; box-shadow: 0 3px 0 #070b08; cursor: pointer; }
@@ -2040,6 +2153,21 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .bel.crate::before { transform: rotate(42deg); }
 .bel.crate::after { transform: rotate(-42deg); }
 .bel.sel { outline: 3px solid #ffd54a; outline-offset: 2px; z-index: 5; }
+/* KICKOFF markers (start slots + the ball). Discs, not slabs — they are not geometry, nothing
+   collides with them, and they must read as "a player stands here" over any wall/bush behind them.
+   z-index above the elements so a slot placed on a bush stays visible and grabbable. */
+.bel.spawn, .bel.ball { width: 22px; height: 22px; border-radius: 50%; z-index: 4;
+  display: flex; align-items: center; justify-content: center;
+  font: 900 11px "Arial Black", sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+.bel.spawn::after { content: attr(data-lbl); color: #06210f; }
+.bel.spawn.spawn-a { background: radial-gradient(circle at 40% 34%, #9ecbff, #4ea0ff 70%); border: 3px solid #eaf4ff; }
+.bel.spawn.spawn-b { background: radial-gradient(circle at 40% 34%, #ffb0b8, #ff5b6a 70%); border: 3px solid #ffeaec; }
+.bel.ball { background: radial-gradient(circle at 38% 32%, #fff, #cfd8e3 72%); border: 3px solid #1b2431; }
+.bel.ball::after { content: "⚽"; font-size: 15px; line-height: 1; }
+/* Layout capacity badge (min A/B slots). Warns when the two sides are uneven — that is the one
+   authoring mistake the sim silently absorbs by seating fewer players than the map looks like. */
+.bcap { flex: none; text-align: center; font: 800 11px sans-serif; color: #b7c9bd; background: #22302a; border-radius: 8px; padding: 3px 8px; line-height: 1.3; white-space: nowrap; }
+.bcap.cap-warn { color: #ffd7a1; background: #3a2f22; }
 .builder-palette { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; justify-content: center; }
 .btool, .bact { border: none; border-radius: 9px; padding: 8px 12px; font-weight: 700; font-size: 13px; background: #2a3a30; color: #eaf2ec; }
 .btool.active { background: #2fbf5e; color: #06210f; }

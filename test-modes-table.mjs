@@ -71,9 +71,17 @@ console.log('3) the picker renders portrait pixel-art cards');
     cards.filter((c) => !c.classList.contains('lock')).every((c) => c.querySelector('.pc-meta') && !c.querySelector('.pc-soon')));
   ok('locked cards name a TARGET instead of a bare בקרוב',
     cards.filter((c) => c.classList.contains('lock')).every((c) => c.querySelector('.pc-soon')?.textContent.trim().length > 0));
-  // The party surface must stay a compact row list — portrait cards would not fit there.
+  // 2026-07-26: the party surface now renders the SAME portrait card, one size down (`pc-mini`), so
+  // picking a game with friends looks like picking one in the lobby. It must stay the mini variant —
+  // full-size cards do not fit beside the party roster.
   const party = lists.find((el) => el.dataset.modes === 'party');
-  ok('party surface keeps row cards (no portrait cards)', party.querySelectorAll('.pcard').length === 0);
+  const partyCards = [...party.querySelectorAll('.pcard')];
+  ok('party surface renders the picker card too', partyCards.length > 0, `${partyCards.length} cards`);
+  ok('party cards are the MINI variant', partyCards.every((c) => c.classList.contains('pc-mini')));
+  ok('party cards keep the pixel-art canvas', partyCards.every((c) => c.querySelector('canvas.pc-cv')));
+  ok('picker cards are NOT mini', cards.every((c) => !c.classList.contains('pc-mini')));
+  // The party surface still FILTERS to party-legal modes — same look, not the same list.
+  ok('party surface still filters to party-legal modes', partyCards.length <= cards.length);
 }
 
 console.log('4) the pixel art itself');

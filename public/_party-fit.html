@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>party game-picker harness</title>
+<!-- DEV HARNESS (not linked from the game). The team page's game selection is now the SAME portrait
+     picker card as the main lobby, one size down (pc-mini). Reaching that screen for real needs a
+     party + a friend, so this renders the panel standalone against the real style.css + mode-art.js:
+        /_party-fit.html            the team page panel
+        /_party-fit.html?full=1     the main-lobby picker, for a side-by-side size sanity check
+     chrome --headless --window-size=844,390 --screenshot=party.png "http://localhost:3012/_party-fit.html" -->
+<link rel="stylesheet" href="/style.css" />
+<style>
+  html, body { height: 100%; margin: 0; background: #0c130f; }
+  #wrap { height: 100%; }
+  #pbadge { position: fixed; z-index: 200; bottom: 4px; left: 4px; font: 900 10px monospace;
+    padding: 3px 7px; border-radius: 6px; background: #123; color: #7CFC7C; white-space: pre; }
+  #pbadge.bad { background: #521; color: #ff8a8a; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div class="screen" style="height:100%">
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head"><h2>הקבוצה שלי</h2></div>
+      <div class="subpage-body">
+        <div class="party-roster" style="min-height:56px;color:#8ea08a;font:800 12px sans-serif">[party roster]</div>
+        <div class="party-games">
+          <div class="party-games-h">בחרו משחק</div>
+          <div class="mode-list" data-modes="party"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="pbadge">…</div>
+<script type="module">
+import { drawModeArt } from '/mode-art.js';
+const full = new URLSearchParams(location.search).get('full');
+// Same rows the real MODES table has (id/hue/art must match mode-art.js ids).
+const MODES = [
+  { id: '2v2', ic: '⚽', name: 'כדורגל · 2 נגד 2', sub: 'אצטדיון הבלוקים', meta: ['ראשון ל-3', 'עד 2 דק׳'], hue: ['#7fd48f', '#4fae66'], state: 'live', party: true },
+  { id: 'brawl', ic: '🥅', name: 'קרב על השער', sub: 'אצטדיון הבלוקים', meta: ['הכי הרבה גולים', '2 דקות'], hue: ['#ffd06a', '#e8a02f'], state: 'live', party: true },
+  { id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש שלושות · יותר טירוף', meta: ['ראשון ל-3', '6 שחקנים'], hue: ['#8fb6ef', '#4f7fd4'], state: 'live', party: false },
+  { id: 'cup', ic: '🏆', name: 'טורניר', sub: 'עונתי · סוללת משחקים', meta: ['עונה 1', 'בפיתוח'], hue: ['#e0a2f0', '#a45cc4'], state: 'dev', soon: 'עונה 1' },
+];
+// Mirrors renderModeList() exactly (mini for the party surface).
+function render(el) {
+  const kind = el.dataset.modes === 'party' ? 'party' : 'launch';
+  const list = MODES.filter((m) => (kind === 'party' ? m.party || m.state === 'dev' : true));
+  el.innerHTML = '';
+  for (const m of [...list.filter((x) => x.state === 'live'), ...list.filter((x) => x.state !== 'live')]) {
+    const c = document.createElement('button');
+    c.className = 'pcard' + (kind === 'party' ? ' pc-mini' : '') + (m.state === 'live' ? '' : ' lock');
+    c.style.setProperty('--band-hi', m.hue[0]); c.style.setProperty('--band-lo', m.hue[1]);
+    c.innerHTML = `<span class="pc-band"><span class="pc-ic">${m.ic}</span><span class="pc-tx"><b>${m.name}</b><small>${m.sub}</small></span></span>`
+      + `<span class="pc-art"><canvas class="pc-cv" aria-hidden="true"></canvas></span>`
+      + (m.state === 'live' ? `<span class="pc-meta"><span>${m.meta[0]}</span><span>${m.meta[1]}</span></span>` : `<span class="pc-soon">${m.soon}</span>`);
+    el.appendChild(c); drawModeArt(c.querySelector('.pc-cv'), m.id);
+  }
+}
+const list = document.querySelector('.mode-list');
+if (full) { list.dataset.modes = 'launch'; document.querySelector('.party-games-h').textContent = 'מה משחקים? (גודל מלא)'; }
+render(list);
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  const cards = [...document.querySelectorAll('.pcard')];
+  const tops = new Set(cards.map((c) => Math.round(c.getBoundingClientRect().top)));
+  const body = document.querySelector('.subpage-body');
+  const over = Math.max(body.scrollHeight - body.clientHeight, 0);
+  const b = document.getElementById('pbadge');
+  const bad = tops.size > 1 || over > 0;
+  b.textContent = `${bad ? 'BAD' : 'OK'} · vp ${innerWidth}x${innerHeight} · cards ${cards.length} in ${tops.size} row(s)\n`
+    + `card ${Math.round(cards[0].getBoundingClientRect().width)}x${Math.round(cards[0].getBoundingClientRect().height)}`
+    + (over ? ` · BODY SCROLLS +${over}px` : ' · no scroll');
+  b.className = bad ? 'bad' : '';
+  document.title = (bad ? 'BAD' : 'OK');
+}));
+</script>
+</body>
+</html>

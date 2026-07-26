@@ -22,6 +22,7 @@ import {
   defaultSettings, chargeMul, clamp,
 } from './constants.js';
 import { ARENA, resolveWalls, resolveCircleBox, pointInBox, circleHitsBox, nearestOnWall, segBlockedByWall, buildArenaFromField, dryWallSeeds, capsuleAABB, wallPlacement } from './arena.js';
+import { normSpawns, normBall, planSpawns } from './field-spawns.js';
 
 // Built walls can be built at an ANGLE, quantized over a half-turn (a wall is 180°-symmetric)
 // so it round-trips the wire exactly. The steps live with the placement formula in arena.js
@@ -183,6 +184,31 @@ function spawnPos(team, slot, n = 2) {
   return { x, y: FIELD.H * fy };
 }
 
+// (Re)draw which AUTHORED start slots this match uses (shared/field-spawns.js). Called by setField,
+// so a match on a field with 6 slots per side but only 2 players per side gets a random 2 — and the
+// draw is stable for the whole match (a kickoff after a goal returns you to YOUR spot, it doesn't
+// reshuffle mid-game, which would read as teleporting).
+// Call AFTER state.teamSize is set: the plan is one entry per slot.
+export function planFieldSpawns(state) {
+  state.spawnPlan = (state.fieldSpawns && state.fieldSpawns.length)
+    ? planSpawns(state.fieldSpawns, state.teamSize, () => rnd(state))
+    : null;
+}
+
+// Where this player STARTS: the authored slot this match drew for them, else the formula above.
+// One place, so addPlayer and every kickoff can never disagree about a spawn spot.
+function startPos(state, team, slot) {
+  if (state.fieldSpawns && state.fieldSpawns.length && !state.spawnPlan) planFieldSpawns(state); // lazy: setField may have run before teamSize
+  const plan = state.spawnPlan && state.spawnPlan[team];
+  const s = plan ? plan[Math.min(Math.max(slot | 0, 0), plan.length - 1)] : null;
+  return s ? { x: s.x, y: s.y } : spawnPos(team, slot, state.teamSize);
+}
+
+// The ball's kickoff spot: the authored one, else the centre spot.
+function ballStart(state) {
+  return state.ballSpawn ? { x: state.ballSpawn.x, y: state.ballSpawn.y } : { x: FIELD.W / 2, y: FIELD.H / 2 };
+}
+
 // --- Optional DETERMINISTIC randomness -------------------------------------------------
 // The sim has three genuinely random moments (a strip's left/right detach side, and a
 // bomb-popped ball's angle + speed). In production they stay Math.random. But a headless
@@ -222,6 +248,11 @@ export function createState() {
     bombs: [], // planted bombs (fusing)
     builtWalls: [], // player-built destructible walls { id, x, y, w, h, hp, maxHp, team, ttl }
     fieldDryWalls: [], // field-builder DRY-WALL templates (dryWallSeeds); reseeded into builtWalls each kickoff
+    // Authored kickoff data from the field builder (shared/field-spawns.js). Empty/null => the
+    // formation formula + centre ball, i.e. every field that doesn't declare them behaves as before.
+    fieldSpawns: [],   // [{x,y,team}] start slots the layout offers
+    ballSpawn: null,   // {x,y} the ball starts on (loose), or null for the centre spot
+    spawnPlan: null,   // { A:[pt|null × teamSize], B:[...] } — this match's draw from fieldSpawns
     blasts: [], // short-lived explosion visuals
     impacts: [], // short-lived bullet collision events for synchronized VFX
     pendingReset: false, // goal scored — snap to kickoff once the "show" hold ends
@@ -242,6 +273,17 @@ function ballRadius(state) {
 // Attach the ball to a player of `team` (kickoff possession). Positions it in
 // front of that player.
 export function attachBall(state, team) {
+  // AUTHORED ball spot wins: the layout said where the ball starts, so it starts THERE and LOOSE —
+  // both teams race for it (Brawl Stars' Brawl Ball kickoff) instead of one side kicking off with it.
+  // Every caller (match start, post-goal kickoff, training's reset-ball) goes through here, so the
+  // author's spot can't be honoured on one path and ignored on another.
+  if (state.ballSpawn) {
+    const b = ballStart(state);
+    state.ball.owner = null; state.ball.pickupCd = 0; state.ball.lastTouch = null;
+    state.ball.prevPlayer = null; state.ball.lastPlayer = null;
+    state.ball.x = b.x; state.ball.y = b.y; state.ball.vx = 0; state.ball.vy = 0; clearKick(state.ball);
+    return;
+  }
   const holder = Object.values(state.players).find((p) => p.team === team);
   state.ball.pickupCd = 0;
   state.ball.lastTouch = team;
@@ -263,7 +305,7 @@ export function addPlayer(state, id, { name, char, team, slot, isBot, cosmetic, 
     // per-match tallies; sent to each human at match end (see the matchStats broadcast in server.js)
     stat: { goals: 0, assists: 0, strips: 0, saves: 0, shots: 0, bombs: 0, walls: 0, touches: 0, possSec: 0, distPx: 0 },
 
-    ...spawnPos(team, slot, state.teamSize),
+    ...startPos(state, team, slot), // authored start slot for this match's draw, else the formation formula
     vx: 0, vy: 0,
     kvx: 0, kvy: 0, // knockback velocity (decays), added on top of movement
     aimX: team === 'A' ? 1 : -1, aimY: 0,
@@ -316,11 +358,12 @@ export function removePlayer(state, id) {
 function repositionKickoff(state, ballTeam) {
   for (const id in state.players) {
     const p = state.players[id];
-    const s = spawnPos(p.team, p.slot, state.teamSize);
+    const s = startPos(state, p.team, p.slot);
     p.x = s.x; p.y = s.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; p.power = false; p.powerT = 0; p.powerMeter = 0; p.powerUses = 0; p.launchGlide = 0; p.buildWindup = 0;
     p.aimX = p.team === 'A' ? 1 : -1; p.aimY = 0;
   }
-  state.ball = { x: FIELD.W / 2, y: FIELD.H / 2, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
+  const bs = ballStart(state); // authored ball spot, else the centre
+  state.ball = { x: bs.x, y: bs.y, vx: 0, vy: 0, owner: null, pickupCd: 0, lastTouch: null, kickTier: 0 };
   state.projectiles = [];
   state.bombs = [];
   state.builtWalls = []; // built defences don't survive a kickoff...
@@ -346,6 +389,12 @@ export function seedFieldWalls(state) {
 export function setField(state, field) {
   state.arena = buildArenaFromField(field);
   state.fieldDryWalls = dryWallSeeds(field);
+  // Authored kickoff data travels with the layout. Re-normalized here (not trusted as-is) so a
+  // hand-edited save or an old field can't put a spawn outside the pitch, and the per-match draw is
+  // made right away — state.teamSize is already set by the time any caller reaches setField.
+  state.fieldSpawns = normSpawns(field && field.spawns, field && field.size);
+  state.ballSpawn = normBall(field && field.ball, field && field.size);
+  planFieldSpawns(state);
   // reseed builtWalls to just the field walls (drop any player walls from before)
   state.builtWalls = state.builtWalls.filter((w) => !w.field);
   seedFieldWalls(state);

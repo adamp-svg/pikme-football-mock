@@ -139,6 +139,10 @@
       <div class="builder-titlewrap">
         <span class="builder-title">🏗️ בונה מגרש</span>
         <span id="builder-fieldname" class="builder-fieldname"></span>
+        <!-- Live capacity readout: how many players this LAYOUT seats = min(A slots, B slots). Filled
+             by fbUpdateCap(); long-press/hover for the per-team split + the surplus rule. It lives in
+             the TOP BAR, not the tool rail — the rails are already full of buttons at phone height. -->
+        <span id="b-cap" class="bcap">👥 ברירת מחדל</span>
       </div>
       <div class="builder-top-right">
         <button id="builder-fields" class="builder-btn builder-clone">⧉ מגרשים</button>
@@ -161,6 +165,9 @@
         <!-- Arena SIZE cycler (shared/field-sizes.js). Label is set from the active size by
              fbApplySize; the pitch aspect follows via the --fb-aspect custom property. -->
         <button id="b-size" class="bact" title="גודל מגרש">📐 רגיל</button>
+        <!-- Bot level for ▶ שחק. Cycles on tap (same pattern as 📐 גודל) and shares the ONE stored
+             level with the settings grid, so the builder and the panel can never disagree. -->
+        <button id="b-diff" class="bact" title="רמת בוטים">🤖 שלב 5</button>
       </div>
       <div class="builder-stage">
         <div class="builder-arena">
@@ -185,6 +192,10 @@
         <button class="btool" data-tool="dry">🟫 חלש</button>
         <button class="btool" data-tool="bush">🌳 שיח</button>
         <button class="btool" data-tool="crate">📦 ארגז</button>
+        <!-- KICKOFF markers: where players start, and where the ball starts. Both travel inside the
+             saved field (shared/field-spawns.js) — a field with none keeps the built-in formation. -->
+        <button class="btool" data-tool="spawn">🏁 פתיחה</button>
+        <button class="btool" data-tool="ball">⚽ כדור</button>
         <button class="btool" data-tool="move">✋ הזז</button>
         <button class="btool" data-tool="eraser">🩹 מחק</button>
       </div>
@@ -192,7 +203,7 @@
     <!-- Bottom bar MIRRORS the top bar: clear-all sits under ‹ back (left), save under play (right). -->
     <div class="builder-bottom">
       <button id="b-clear" class="builder-btn builder-clear">✕ נקה הכל</button>
-      <span class="builder-hint">קיר: גרור לצייר קו (בכל זווית) · שיח: גרור מלבן · 🩹 מחק בגרירה · שיקוף: צד / עליון / אלכסון</span>
+      <span class="builder-hint">קיר: גרור לצייר קו (בכל זווית) · שיח: גרור מלבן · 🏁 הקש להצבת נקודת פתיחה (הקשה חוזרת מחליפה קבוצה) · ⚽ מקום התחלת הכדור · 🩹 מחק בגרירה · שיקוף: צד / עליון / אלכסון</span>
       <button id="b-save" class="builder-btn builder-save">💾 שמור</button>
     </div>
   </div>
@@ -627,13 +638,18 @@
            flips to a match-point cue when either team is one goal from winning. -->
       <div class="score-fmt" id="score-fmt"></div>
       <div class="timer" id="timer">2:00</div>
-      <!-- Card powers: read-only equipped-cards HUD next to the timer during play. -->
+      <!-- Card powers: read-only. MY TEAM's cards to the LEFT of the clock/score, the OPPONENTS' to
+           the RIGHT — one row per player (see renderMatchPowers / fillPowerRail in client.js). #hud is
+           a 3-column grid and every child is placed explicitly, so DOM order here doesn't matter. -->
       <div class="match-powers" id="match-powers"></div>
+      <div class="match-powers match-powers-foe" id="match-powers-foe"></div>
       <div class="net" id="net">מתחבר…</div>
     </div>
 
-    <!-- Training-only: label + reset-ball button (shown only in the training ground) -->
+    <!-- Training-only: label + bot-level chip + reset-ball button (shown only in the training ground).
+         The chip shows the live bot level and opens the difficulty grid — changeable mid-game. -->
     <div id="train-tag" class="train-tag hidden">🎯 אימון</div>
+    <button id="train-diff" class="train-diff hidden" title="רמת בוטים">🤖 שלב 5</button>
     <button id="reset-ball-btn" class="reset-ball-btn hidden">↺ אפס כדור</button>
 
     <!-- Control-layout editor overlay. Drag each puck to move, drag its corner handle to resize.
