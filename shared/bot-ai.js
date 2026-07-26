@@ -417,7 +417,7 @@ export function botCanSee(viewer, target, state, sk) {
   // X-RAY DELETED. The top tier used to see every OPEN enemy anywhere on the pitch — information
   // the player provably cannot have, and the single most "unfair rather than hard" thing in the
   // file. Brawl Stars' bots never cheat; Fortnite's are navmesh + a reaction budget. The top tier
-  // is now strong through DECISIONS (see decisionHz/memoryS/leadGain), with vision merely wide.
+  // is now strong through DECISIONS (see memoryS/leadGain/react), with vision merely wide.
 
   const vMul = (sk && sk.visionMul) || 1;
   // The ball-carrier is the tracked objective — seen at a longer (tier-scaled) range so
@@ -1082,7 +1082,7 @@ function decideBot(p, role, state, mem, sk, dt) {
   // the bottom tier needs 2.12s to reach FULL_CHARGE, hence the 2.6s floor.
   const CARRY_HOLD_MAX = Math.max(2.6, 4.2 - 2.4 * AGG); // t=0: 2.76s → normal ~2.6s → top ~2.6s
 
-  // target point to move toward, plus button intents (decided at decisionHz)
+  // target point to move toward, plus button intents (re-decided every tick — see the decisionHz autopsy in finalize)
   let tgt = { x: p.x, y: p.y };
   let aim = { x: p.aimX, y: p.aimY };
   let shoot = false, charge = 0, special = false, build = false, closeShot = false, forceRelease = false;
@@ -2015,23 +2015,26 @@ function windupBudget(p, fireAt) {
 
 // Apply steering + skill (reaction latency + smoothed noisy aim), emit the input.
 function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
-  // ---- WHY decisionHz IS STILL DEAD (do not "just wire it up") ------------------------------
-  // decisionHz sits in all five tier tables, is interpolated by skillVec, and is READ BY NOTHING:
-  // every bot re-plans at the full 60Hz, so the only live handicaps (react, turnRate) slow just the
-  // RETICLE, never the thinking. Reviving it is the obvious way to make the bottom of the ladder
-  // feel genuinely dumb, and it is the biggest remaining lever — but a naive plan-cache here makes
-  // things MEASURABLY WORSE, and it was tried three ways before this comment was written:
-  //   * cache tgt + aim as a world point  -> ladder rho +0.70 => +0.20, shots/match -56%
-  //   * same, replaying unit aims verbatim -> rho +0.20, still -40% shots
-  //   * cache the movement target only     -> rho -0.50 (the HIGH tiers suffer most, because
-  //                                          positional reactivity is exactly their advantage)
-  // The reason is that the tactical body is not a pure function of a cached plan: carryT/blindT and
-  // the progress ratchet are INTEGRATORS that must advance every tick (left inside a 4Hz gate,
-  // carryT advances 1dt per 15 ticks, so the anti-idle release never fires), and eight branches
-  // early-return straight into finalize() with a hand-built aim. Doing it properly means hoisting
-  // the integrators, a forceNow on every role/possession change, and live aim overrides for the
-  // tracked target — a real refactor, not a wrapper. Left dead ON PURPOSE with this note, so the
-  // next agent does not repeat the three cheap versions. Council spec: step 16B.
+  // ---- AUTOPSY: THERE IS NO WORKING "MAKE THE BOTTOM DUMBER" LEVER. STOP LOOKING. -----------
+  // decisionHz has been REMOVED from the tier tables and SKILL_KEYS (it sat there for months,
+  // interpolated by skillVec, read by nothing). Two councils tried to revive it. SEVEN distinct
+  // implementations were built and MEASURED with test-bot-ladder.mjs; every one was neutral or worse:
+  //   * plan cache (tgt + aim as a world point)   -> ladder rho +0.70 => +0.20, shots/match -56%
+  //   * ditto, replaying unit aims verbatim       -> rho +0.20, still ~-40% shots
+  //   * movement-target cache only                -> rho -0.50 (the HIGH tiers hurt MOST)
+  //   * output cache / aim-stale / uniform-Hz     -> best safe config indistinguishable from none
+  //   * mistakeP (the Brawl Stars handicap: hold a stale plan and make it cost something) was built
+  //     line-for-line by an adversarial challenger and FAILED BY THE SAME NUMBER it was written to
+  //     fix — within +-0.03 goals/match of an ungated reference.
+  // ROOT CAUSE, structural rather than a tuning problem: the tactical body is not a pure function of
+  // a cached plan. carryT / blindT / the progress ratchet are INTEGRATORS that must advance EVERY
+  // tick (inside a 4Hz gate carryT advances 1dt per 15 ticks, so the anti-idle release never fires
+  // at all), and EIGHT branches early-return straight into finalize() with a hand-built aim. Staling
+  // any of it removes reactivity, and reactivity is exactly where the HIGH tiers' advantage lives —
+  // which is why every variant compressed the ladder from the top.
+  // The bottom tier is already clearly weakest (-0.41 vs +0.23 goals/match, strips 0.76 vs 5.84).
+  // It is not CHARACTERFULLY dumb, and that is still unsolved — but not by rate-limiting decisions.
+  // If you try an eighth version, measure it with SEEDS=6 first.
   bm.wantMove = opts.hold ? 0 : 1;
   let mvx = 0, mvy = 0;
   if (opts.hold) { bm.mvx = 0; bm.mvy = 0; bm.lastX = p.x; bm.lastY = p.y; bm.stuck = 0; } // stand ON the bomb plant
