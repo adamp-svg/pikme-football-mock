@@ -5,6 +5,71 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 00000000. ROUND 9b (2026-07-26 17:3x-18:5x, same agent) — THE ROUND-9 FIX WAS SHIPPED WRONG, AND THE CORRECTION IS SMALLER
+
+**Read this before §0000000: the receiver half of round 9 (`d01d3b8`) was replaced.** Everything §0000000
+says about the diagnosis and about the three refuted approaches stands. What it got wrong is the fix,
+and the reason is a lesson about this repo, not about passing.
+
+### MEASURE ON HEAD. `d01d3b8` cost 86% -> 70% of passes once the other agents' work was in the tree
+
+The absolute-rendezvous-spot version was developed against a `git archive` of the HEAD it started from
+and measured **90% -> 92%** pass completion at skill 0.93. Re-measured on the COMBINED head, after
+`15dc0a6` / `62f9a10` / `e59c1dd` landed (the arena plan, the bullet-target latch, the ladder-harness
+work), the same code reads **86% -> 70%** — below the 85% floor the task set. Isolated on that base:
+
+| build (all on the combined base, `bot-passes`, 60 matches, skill 0.93) | |
+|---|---|
+| before | **86%** |
+| the latch abort ALONE | **87%** (free) |
+| the receiver spot-latch alone | 72% |
+| spot-latch, never-backwards clamp removed | 81% |
+| spot-latch + clamp (what `d01d3b8` shipped) | **70%** |
+
+Three isolated agents each measuring against their own frozen base is how four correct A/Bs produce a
+wrong integration. **A long-running bot A/B has to be re-run against real HEAD before it ships.**
+
+### THE SHIPPED FIX IS NOW A GROUND BUDGET (`RECV_GIVE_MAX = 20`)
+
+The per-tick close is left **exactly as it was**, because that is what completes passes (it is
+angularly stationary from the carrier's point of view — see §0000000, refuted item 2). What is new is
+an anchor at the moment of the call and a cap on the ground the receiver may give up over the whole
+call. Swept on the combined base: budget **90px -> 87% · 45px -> 87% · 20px -> 89%** completion, so the
+tightest budget is also the best-completing one, and 20px is a step rather than a run.
+
+| combined base, L10, 12 x 60s | before | `d01d3b8` (withdrawn) | **shipped (budget 20)** |
+|---|---|---|---|
+| pass completion 0.42 / 0.50 / 0.93 | 95 / 95 / 86% | 97 / 95 / **70%** | 93 / 94 / **89%** |
+| of >90deg latch releases, mate BEHIND me on the attacking axis | 25 / 25 / 25% | 7 / 0 / 0% | **0 / 0 / 4%** |
+| ...their mean receiver bearing | 98 / 103 / 96deg | 86 / 86 / 88deg | **86 / 89 / 86deg** |
+| receiver RETREAT per call, mean | 46 / 57px | 35 / 37px | **37 / 51px** |
+| ...calls with a retreat over 60px | 37 / 41% | 20 / 20% | **26 / 33%** |
+| support away-ticks, wall detours excluded | 5.1 / 5.7 / 5.1% | 4.5 / 5.4 / 3.1% | **3.8 / 5.8 / 4.8%** |
+| ladder goals rho / spread / strips rho | 0.50 / 0.58 / 0.90 | **-0.10 / 0.07** / 1.00 | **0.60 / 0.28 / 1.00** |
+
+**And that last row is the point.** The withdrawn version flattened the ladder exactly as §00000
+predicts. The budget version does not: goals rho 0.50 -> **0.60** (slightly better than before), top
+beats bottom PASSES with a real margin (-0.19 vs -0.47), strips rank a perfect **1.00**, and the only
+gate that moved adversely — spread 0.58 -> 0.28 — moved 0.30 against that run's own 3-SE resolution of
+0.42, i.e. inside its noise. Both failing gates were already failing before any of this.
+
+### The honest limit of ANY fix in this branch
+
+`receivePass` chooses a TARGET; `steer()` and the flow field choose the PATH. On MAIN_FIELD **87-91% of
+all "support is running the wrong way" ticks are the flow field walking round a capsule** (that is what
+`bot-support.mjs`'s `awayNoDetour%` exists to separate). So a target-level fix can only ever move the
+minority slice, and it did: 5.3% -> 4.8% of support ticks. The raw `away%` is ~23% before and after, and
+it will stay there until someone works on the PATH. Do not read the raw number as a failure of this fix,
+and do not chase it here.
+
+`bot-support.mjs` also grew a retreat-DISTANCE metric, which is the one that matches what a player sees
+(a tick count cannot tell a 20px drift from a 200px sprint). Two traps in it, both fixed and both worth
+knowing if you write anything similar: a goal respawn teleports players, so per-tick steps over 12px
+must be discarded; and `mem.pass[team]` LINGERS after `until` (it is replaced, not cleared), so a
+tracker keyed on it accumulates for seconds after the call ends — that produced 2000-3400px of phantom
+retreat before it was caught.
+
+---
 ## 0000000. ROUND 9 (2026-07-26 15:0x-17:3x, agent `pass-direction`) — THE RECEIVER WAS ON A CARROT AND A STICK
 
 Requested, from a tracked L10 run: *"the friend sometimes goes the other way"* (22.1% of support ticks

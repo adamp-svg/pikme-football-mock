@@ -50,6 +50,9 @@ function mk() {
     recvAhead: 0, recvBehind: 0,
     // pass latch geometry at the moment the ball leaves: + = the receiver gains ground
     latchGainSum: 0, latchLoss: 0, latchLossSum: 0,
+    // HOW FAR does a called receiver actually retreat over one call? The tick-count metrics above
+    // cannot tell a 20px drift from a 210px sprint, and the DISTANCE is the thing the player sees.
+    callN: 0, giveSum: 0, giveMax: 0, giveOver60: 0,
     // for the >90deg latch releases: is the RECEIVER geometrically backwards, or is the emitted
     // aim only backwards because of leadAim / the aim slew? (different bugs, different fixes)
     lb: 0, lbGeomBack: 0, lbAxisBack: 0, lbGeomOffSum: 0,
@@ -65,6 +68,7 @@ for (let mi = 0; mi < MATCHES; mi++) {
   attachBall(s, lcg() < 0.5 ? 'A' : 'B');
   const mem = createBotMemory('normal');
   mem.teamSkill = { A: SK_A, B: SK_B };
+  const recvTrack = {};
 
   for (let t = 0; t < TICKS; t++) {
     const inp = computeBotInputs(s, mem, DT);
@@ -94,6 +98,33 @@ for (let mi = 0; mi < MATCHES; mi++) {
             if (tag === 'receivePass') { if (aheadOfCarrier) acc.recvAhead++; else acc.recvBehind++; bump(acc.recvWhy, why); }
             if (tag === '[none]') bump(acc.noneWhy, why);
           }
+        }
+      }
+
+      // ---- 1b. ground GIVEN UP by a called receiver, per call ----
+      // Accumulated BACKWARD displacement while the call is live. Per-tick, and any step over 12px is
+      // discarded as a respawn/teleport (a bot walks ~3px per 0.02s tick), so a goal reset cannot
+      // fabricate a 2000px "retreat" — the first version of this metric did exactly that.
+      {
+        // ONLY while the call is LIVE. mem.pass[team] lingers after `until` (it is replaced, not
+        // cleared), and accumulating past it produced thousands of px of phantom 'retreat'.
+        const call0 = mem.pass && mem.pass[team];
+        const call = (call0 && mem.t < call0.until) ? call0 : null;
+        const key = call ? team + ':' + call.until : null;
+        for (const k of Object.keys(recvTrack)) {
+          if (k.split(':')[0] !== team || k === key) continue;
+          const tr = recvTrack[k];
+          acc.callN++; acc.giveSum += tr.lost; if (tr.lost > acc.giveMax) acc.giveMax = tr.lost;
+          if (tr.lost > 60) acc.giveOver60++;
+          delete recvTrack[k];
+        }
+        if (call && s.players[call.to]) {
+          const q = s.players[call.to];
+          if (!recvTrack[key]) recvTrack[key] = { lost: 0, px: q.x };
+          const tr = recvTrack[key];
+          const step = (tr.px - q.x) * fwd;                   // + = moved backward this tick
+          if (Math.abs(step) < 12 && step > 0) tr.lost += step;
+          tr.px = q.x;
         }
       }
 
@@ -146,6 +177,7 @@ for (const [team, label, sk] of [['A', 'FRIEND (partner)', SK_A], ['B', 'ENEMY',
   console.log(`  passLatch     ${a.latchN} releases · mean ${(a.latchOffSum / Math.max(1, a.latchN)).toFixed(0)}deg off goal · ${pct(a.latchBack, a.latchN).toFixed(0)}% >90deg`);
   console.log(`    >90deg latch releases: ${a.lb} · receiver geometrically >90deg ${pct(a.lbGeomBack, a.lb).toFixed(0)}% · behind on the AXIS ${pct(a.lbAxisBack, a.lb).toFixed(0)}% · mean receiver bearing ${(a.lbGeomOffSum / Math.max(1, a.lb)).toFixed(0)}deg`);
   console.log(`    geometry    mean ground GAINED by the receiver ${(a.latchGainSum / Math.max(1, a.latchN)).toFixed(0)}px · LOSES ground on ${pct(a.latchLoss, a.latchN).toFixed(0)}% (mean ${(a.latchLossSum / Math.max(1, a.latchLoss)).toFixed(0)}px)`);
+  console.log(`  receiver RETREAT per call: mean worst ${(a.giveSum / Math.max(1, a.callN)).toFixed(0)}px · single worst ${a.giveMax.toFixed(0)}px · over 60px on ${pct(a.giveOver60, a.callN).toFixed(0)}% of ${a.callN} calls`);
   console.log(`    receivePass away-ticks: receiver was AHEAD of the carrier ${pct(a.recvAhead, a.recvAhead + a.recvBehind).toFixed(0)}% (${a.recvAhead}) · behind ${a.recvBehind}`);
   console.log(`      why       ${top(a.recvWhy, Object.values(a.recvWhy).reduce((x, y) => x + y, 0), 5)}`);
   console.log(`    [none] away-ticks: ${top(a.noneWhy, Object.values(a.noneWhy).reduce((x, y) => x + y, 0), 5)}`);
@@ -157,6 +189,7 @@ for (const t of ['A', 'B']) for (const k in C) {
 }
 console.log(`BOTH TEAMS  away ${pct(C.awayTicks, C.supTicks).toFixed(1)}%  awayNoDetour ${pct(C.awayNoDetour, C.supTicks).toFixed(1)}%  (${C.supTicks} ticks)`);
 console.log(`  awayNoDetour by tag  ${top(C.awayNdTags, C.awayNoDetour, 8)}`);
+console.log(`  receiver RETREAT per call: mean worst ${(C.giveSum / Math.max(1, C.callN)).toFixed(0)}px · single worst ${C.giveMax.toFixed(0)}px · over 60px on ${pct(C.giveOver60, C.callN).toFixed(0)}% of ${C.callN} calls`);
 console.log(`  >90deg latch: ${C.lb} · receiver geom >90deg ${pct(C.lbGeomBack, C.lb).toFixed(0)}% · axis-back ${pct(C.lbAxisBack, C.lb).toFixed(0)}% · mean bearing ${(C.lbGeomOffSum / Math.max(1, C.lb)).toFixed(0)}deg`);
 console.log(`  releases ${C.rel} · >90deg ${pct(C.back, C.rel).toFixed(1)}% · 60-90deg ${pct(C.side, C.rel).toFixed(1)}% · passLatch ${C.latchN} mean ${(C.latchOffSum / Math.max(1, C.latchN)).toFixed(0)}deg · latch>90 ${pct(C.latchBack, C.latchN).toFixed(1)}% · latch loses ground ${pct(C.latchLoss, C.latchN).toFixed(1)}%`);
 console.log(JSON.stringify({

@@ -1248,6 +1248,12 @@ const PASS_MARK = 130;       // don't pass to a mate with a defender this close
 // ~58% of every release in this game) are fine and only a genuinely backward kick is refused.
 // A DISTANCE version of this gate cost 81% of all passes — see the abort site for that autopsy.
 const PASS_BACK_COS = -0.17;
+// How much ground a called receiver may give up while showing for the ball, over the WHOLE call.
+// 20px is a step, not a run. SWEPT on the combined HEAD (bot-passes, 60 matches, skill 0.93 — 86%
+// before): budget 90px -> 87% · 45px -> 87% · 20px -> 89%, and the tighter the budget the less the
+// receiver is seen running the wrong way. Zero is NOT better: see the receiver branch for the two
+// rewrites that stopped the close entirely and cost 72-81%.
+const RECV_GIVE_MAX = 20;
 function passWorthIt(p, mate, bm, mem, team, state, egX, visibleEnemies) {
   if (mem.t <= (bm.nextPassAt || 0)) return false;
   if (hyp(egX - mate.x, GY - mate.y) > hyp(egX - p.x, GY - p.y) - PASS_GAIN) return false;
@@ -2070,59 +2076,51 @@ function decideBot(p, role, state, mem, sk, dt) {
     // the pass. Above the body screen, because a screen while the ball is on its way to me is the
     // wrong job; below the deflect set-piece, which is rarer and worth more.
     // "THE FRIEND SOMETIMES GOES THE OTHER WAY" — MEASURED, AND THIS BRANCH OWNED A THIRD OF IT.
-    // At the reported level 10 (partner 0.42 vs enemy 0.93, 12 x 60s, bot-support.mjs): 28.7% of the
-    // partner's support move-ticks were spent actively running AWAY from the goal its own team was
-    // attacking, and [receivePass] was 60% of the ticks the flow field was NOT merely routing round a
-    // wall — with the receiver ALREADY AHEAD OF THE CARRIER on 88% of them.
+    // At the reported level 10 (partner 0.42 vs enemy 0.93, 12 x 60s x 3 seed bases, bot-support.mjs):
+    // 22-29% of the partner's support move-ticks were spent actively running AWAY from the goal its own
+    // team was attacking, and [receivePass] was ~60% of the ticks the flow field was NOT merely routing
+    // round a wall — with the receiver ALREADY AHEAD OF THE CARRIER on 88% of them.
     //
-    // TWO causes, and the second one is the real bug.
-    //  1. "show for it" stepped 90px ALONG the pass line TOWARD the carrier, which shortens the pass
-    //     (good) by giving up ground (bad) whenever the receiver is the furthest-forward player.
-    //  2. THAT TARGET WAS RECOMPUTED FROM THE LIVE POSITION EVERY TICK, so it was a carrot on a
-    //     stick: 90px behind wherever the receiver had got to, re-issued ~50x a second for the whole
-    //     1.4s call. The receiver therefore did not check back 90px, it RETREATED CONTINUOUSLY — up
-    //     to ~210px at walking pace, which is what the player sees as "he ran the other way".
-    // The latch above then re-aims at the receiver's LED position, so the pass FOLLOWS the receiver
-    // backwards and the kick goes the wrong way too: both reported symptoms are one bug, seen from
-    // the two ends.
+    // The cause is not the 90px. It is that the 90px target was recomputed from the receiver's LIVE
+    // position EVERY TICK: 90px behind wherever it had just got to, re-issued ~50x a second for the
+    // whole 1.4s call. A carrot on a stick. So the receiver did not check back 90px, it RETREATED
+    // CONTINUOUSLY — up to ~210px at walking pace — and the latch above, which re-aims at the
+    // receiver's led position, FOLLOWED IT BACKWARDS. Both reported symptoms are one bug, two ends.
     //
-    // FIX: the rendezvous point is chosen ONCE per call and held as an ABSOLUTE spot, so a check-back
-    // is a bounded 90px step that the receiver arrives at and stops; and the spot may never lose
-    // ground toward the enemy goal.
-    // WHY THE ORDER MATTERS (measured, and it cost most of this session): the never-backwards rule
-    // ALONE — a two-line clamp on the old per-tick target — cost **86% -> 72% of passes reaching a
-    // team-mate at skill 0.93 and 37% of all pass releases**. Closing straight along the pass line is
-    // ANGULARLY STATIONARY from the carrier's point of view, so the carrier's slewing aim converges
-    // and `fire` passes its |dTheta| <= tol gate; clamping one axis of a target that is re-derived
-    // every tick makes the receiver sweep sideways forever, the aim never settles, and the wind-up
-    // times out. LATCHING THE SPOT FIRST makes the same clamp nearly free (84%, and MORE releases
-    // than before). A bounded run is what a human does; an unbounded one is what broke the aim.
+    // THE FIX IS A GROUND BUDGET, AND THE SHAPE OF IT IS MEASURED, NOT CHOSEN. `RECV_GIVE_MAX` caps
+    // the ground a receiver may give up over a whole call; under the cap the per-tick close is left
+    // EXACTLY as it was, and that is deliberate:
+    //   * closing straight along the pass line is ANGULARLY STATIONARY from the carrier's point of
+    //     view, so the carrier's slewing aim converges and `fire` passes its |dTheta| <= tol gate.
+    //     It is why the latch completes ~90% of passes at all.
+    //   * TWO tidier-looking rewrites were built and both broke that, ON THE COMBINED HEAD, measured
+    //     with bot-passes.mjs at 60 matches, skill 0.93 (86% before):
+    //       - a per-tick clamp ("never emit a backward step")     -> 72%, and -37% of pass releases
+    //       - latching an absolute rendezvous SPOT for the call   -> 81% (72% with the clamp too)
+    //     A receiver that stops closing is a receiver the pass has to be threaded to.
+    //   * the budget keeps 89% (better than the 86% it started at) because the close still happens —
+    //     it just cannot run away for a fifth of the pitch.
+    // NB the SPOT-LATCH version shipped briefly in d01d3b8 and was replaced here for exactly that
+    // reason: it measured fine (90 -> 92%) against the older base it was developed on, and cost
+    // 86 -> 70% once the other agents' bullet/wall latches were in the tree. Measure on HEAD.
     const call = mem.pass && mem.pass[team];
     if (call && call.to === p.id && mem.t < call.until && state.players[call.from] && !bm.bombHold && !bm.buildHold) {
       const from = state.players[call.from];
       const [lx, ly] = unit(p.x - from.x, p.y - from.y);
       const fwd = egX >= ogX ? 1 : -1;                                       // +x for A, -x for B
-      let want;
-      if (bm.recvSpot && bm.recvSpot.until === call.until) want = bm.recvSpot; // one decision per call
-      else {
-        // the side stays LATCHED PER BOT, as it always was ("a committed side, so it doesn't
-        // dither"). Re-deciding it per tick — even scored on which lane is more open, which is the
-        // kind of thing that usually scales with tier — measured EXACTLY NEUTRAL here (84%/90%
-        // completion either way), so it is not worth the code or the dither risk.
+      let want = { x: p.x - lx * 90, y: p.y - ly * 90 };                     // check back for it
+      if (!laneClear(from.x, from.y, p.x, p.y, state, team, { margin: 6, viewer: p })) {
+        // the side stays LATCHED PER BOT, as it always was ("a committed side, so it doesn't dither").
+        // Re-deciding it per tick, scored on which lane is more open — the kind of thing that usually
+        // scales with tier — measured EXACTLY NEUTRAL, so it is not worth the code or the dither risk.
         const side = (bm.recvSide = bm.recvSide || ((idHash(p.id) & 1) ? 1 : -1));
-        want = { x: p.x - lx * 90, y: p.y - ly * 90 };                       // check back for it
-        if (!laneClear(from.x, from.y, p.x, p.y, state, team, { margin: 6, viewer: p }))
-          want = { x: clamp(p.x - ly * 190 * side, 80, FIELD.W - 80), y: clamp(p.y + lx * 190 * side, 80, FIELD.H - 80) };
-        if ((want.x - p.x) * fwd < 0) want.x = p.x;                          // NEVER give up ground
-        // If the clamp ate the whole run the receiver is directly in FRONT of the carrier — the case
-        // where checking back really is running the wrong way. Show SIDEWAYS instead: a frozen
-        // off-ball bot reads as broken, which is what this branch exists to prevent.
-        if (hyp(want.x - p.x, want.y - p.y) < 35) {
-          want = { x: clamp(p.x - ly * 110 * side, 80, FIELD.W - 80), y: clamp(p.y + lx * 110 * side, 80, FIELD.H - 80) };
-          if ((want.x - p.x) * fwd < 0) want.x = p.x;
-        }
-        bm.recvSpot = { x: want.x, y: want.y, until: call.until };
+        want = { x: clamp(p.x - ly * 190 * side, 80, FIELD.W - 80), y: clamp(p.y + lx * 190 * side, 80, FIELD.H - 80) };
       }
+      // THE BUDGET. Anchor where the receiver stood when the call arrived, and once it has given up
+      // RECV_GIVE_MAX of ground, stop giving up any more: keep the lateral part of the run, drop the
+      // backward part. Lateral is a real way to show for a ball; retreating past your own carrier is not.
+      if (!bm.recvAnchor || bm.recvAnchor.until !== call.until) bm.recvAnchor = { x: p.x, until: call.until };
+      if ((bm.recvAnchor.x - p.x) * fwd >= RECV_GIVE_MAX && (want.x - p.x) * fwd < 0) want = { x: p.x, y: want.y };
       bm.lastTrick = 'receivePass';
       bm.nextPassAt = mem.t + PASS_COOLDOWN * 0.75;   // take a touch before you give it back
       // early return ON PURPOSE: the MIN_SEP floor below exists to stop both bots crowding the
