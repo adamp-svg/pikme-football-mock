@@ -64,6 +64,23 @@
    intended crisp rendering. If the art is ever redrawn as true pixel art, delete this block. */
 .special-btn > .saltiz-icon,
 .build-icon > .saltiz-icon { image-rendering: auto; }
+/* SYNTHESIZED OUTLINE — the actual cause of "the black parts look transparent".
+   It is not caching, not the sprite packing, and not the CSS sizing. codex's SOURCE art has a
+   BROKEN outline: transparent/bomb.png at 256px is a solid body surrounded by a scatter of ISOLATED
+   dark pixels, so the ring never closes and the button colour shows through the gaps. Verified at
+   source resolution, composited over the real button colours — the packed 128px cell reproduces the
+   source faithfully, so there is nothing to fix downstream of the artwork.
+   Four 1px drop-shadows re-close the ring: every opaque pixel gets a dark neighbour on all four
+   sides, so the isolated dots join up and the silhouette gains the continuous outline the "chunky"
+   language is supposed to have. Verified with a DPR-3 A/B against the live buttons.
+   THIS IS A MITIGATION. The proper fix is for the icon pack to re-export these two with a closed
+   outline (see ASSET_HANDOFF.md / NEW_ASSET_TEMPLATE.md); when it does, delete this block. Scoped to
+   these two icons so the rest of the pack is untouched. */
+.special-btn > .saltiz-icon,
+.build-icon > .saltiz-icon {
+  filter: drop-shadow(1px 0 0 #120d00) drop-shadow(-1px 0 0 #120d00)
+          drop-shadow(0 1px 0 #120d00) drop-shadow(0 -1px 0 #120d00);
+}
 .builder-title .saltiz-icon,
 .builder-btn .saltiz-icon,
 .bact .saltiz-icon,
