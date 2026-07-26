@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
+import { randomBytes } from 'crypto';
 
 import {
   createState, addPlayer, removePlayer, step, attachBall, setField,
@@ -149,10 +150,23 @@ const formingRoom = (mode) => publicRooms.get(mode) || null;
 // Drop a room from its matchmaking pool (it started, or it died) so the next joiner forms a fresh one.
 function clearForming(room) { for (const [mode, r] of publicRooms) if (r === room) publicRooms.delete(mode); }
 let memberCounter = 0, roomCounter = 0;
-// Module-level monotonic match counter — never resets, so matchId is globally unique even when a
-// private room CODE is reused by a later room instance (a per-room counter would collide and the
-// backend's recordedMatchIds idempotency guard could silently drop a legit match).
+// Monotonic match counter. It is only monotonic WITHIN ONE PROCESS — the "never resets" in the old
+// comment here was wrong, and it cost real matches.
+//
+// ⚠️ WHY BOOT_ID EXISTS (2026-07-26). matchId used to be `${room.id}-${++matchSeq}`, and BOTH parts
+// restart at 1 on every process start: roomCounter and matchSeq are module-level `let`s. Render
+// restarts the process on every deploy, so a day with ten deploys regenerates `bots-1-1`, `pub-1-1`,
+// `trio-3-3` … over and over. pikme-server's record-match is idempotent on
+// { phone, recordedMatchIds: { $ne: matchId } } — so a brand-new match arriving with an id the account
+// already holds is treated as a duplicate REPLAY and SILENTLY DROPPED. No trophies, no xp, no reveal
+// animation, no error anywhere. Diagnosed from a real account holding pub-1-1 … pub-8-8, bots-2-2,
+// brawl-1-1, trio-3-3: every one of those is reachable again after a restart.
+// A per-boot token makes the id unique across restarts while keeping it STABLE for a given match, so
+// genuine replay protection (the same match reported twice) still works.
+const BOOT_ID = randomBytes(3).toString('hex');
 let matchSeq = 0;
+// Every matchStart must use this — never build the id inline again.
+const nextMatchId = (room) => `${BOOT_ID}-${room.id}-${++matchSeq}`;
 let msgErrCount = 0, tickErrCount = 0, bcErrCount = 0;
 
 const nowMs = () => Date.now();
@@ -493,7 +507,7 @@ function startTraining(member, diffLevel) {
     room.trainEnemies.push({ id, role: e.role, home: { x: e.x, y: e.y }, leash: e.leash !== false, mem: e.role === 'sentry' ? createSentryMem() : null });
   });
 
-  const matchId = `${room.id}-${++matchSeq}`;
+  const matchId = nextMatchId(room);
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [] }];
   attachBall(room.state, 'A');
   room.endHoldT = 0; room.statsSent = false;
@@ -569,7 +583,7 @@ function startBuilderMatch(member, field, diffLevel) {
   addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(member.loadout) });
   room.inputs.set(member.id, emptyInput());
   member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
-  const matchId = `${room.id}-${++matchSeq}`;
+  const matchId = nextMatchId(room);
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [], cosmetic: member.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(member.loadout, member.cards), isBot: false }];
   room.phase = 'match';
   fillBots(room, roster); // backfill bots on both teams
@@ -600,7 +614,7 @@ function startBotGame(member, diffLevel) {
   addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(member.loadout) });
   room.inputs.set(member.id, emptyInput());
   member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
-  const matchId = `${room.id}-${++matchSeq}`;
+  const matchId = nextMatchId(room);
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [], cosmetic: member.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(member.loadout, member.cards), isBot: false }];
   room.phase = 'match';
   fillBots(room, roster); // fill the other 3 slots with bots
@@ -633,7 +647,7 @@ function startSpectate(member, diffLevel) {
   room.inputs.clear();
   room.botCounter = 0;
   member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
-  const matchId = `${room.id}-${++matchSeq}`;
+  const matchId = nextMatchId(room);
   const roster = [];
   room.phase = 'match';
   fillBots(room, roster);                          // no humans in the sim -> every slot is a bot
@@ -758,7 +772,7 @@ function startMatch(room) {
   // Stable per-match id (roomId + GLOBAL monotonic match seq): unique per match instance across the
   // whole process — a reused private-room code can't collide with an earlier room's matchId — and
   // identical if the same matchStart is resent. Feeds matchResult idempotency downstream (app -> backend).
-  const matchId = `${room.id}-${++matchSeq}`;
+  const matchId = nextMatchId(room);
   const introMs = Math.round(INTRO_PROMO * 1000);
   // Roster for the team-intro overlay: EACH participant's team + album (cards) + equipped card-powers
   // (loadout). Built BEFORE matchStart is sent, and bots are APPENDED below (Task 18) so the countdown/
