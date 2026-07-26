@@ -29,6 +29,28 @@ work), the same code reads **86% -> 70%** — below the 85% floor the task set. 
 Three isolated agents each measuring against their own frozen base is how four correct A/Bs produce a
 wrong integration. **A long-running bot A/B has to be re-run against real HEAD before it ships.**
 
+### THE METHOD THAT CANNOT GO STALE — A/B by REVERSE-APPLYING YOUR OWN HUNKS
+
+`wall-windup` proposed this after we were both bitten, and it is strictly better than what §000 (and
+this file generally) has been recommending. Do not measure `frozen base` vs `frozen base + you`.
+Measure:
+
+```bash
+git archive HEAD | tar -x -C /tmp/ab-after          # the tree that actually ships
+git archive HEAD | tar -x -C /tmp/ab-before
+git show <your-commit> | git apply -R --directory=. -p1   # ...in /tmp/ab-before only
+```
+
+i.e. **HEAD** vs **HEAD with your own change reverse-applied**. It measures your change's MARGINAL
+effect on the tree that ships, it cannot go stale underneath a 40-minute ladder run, and it keeps every
+other agent's work on BOTH sides so their changes cannot masquerade as yours. `git archive <rev>` is
+still the right tool for BISECTING a regression across the day (that is what §000 built it for) — it is
+the wrong tool for validating a change you are about to ship.
+
+The cost of getting this wrong, both ways round, in one session: `d01d3b8` shipped a −16-point pass
+regression and a flattened ladder that its own frozen-base A/B could not see, and this file briefly
+recorded a phantom third test failure that only existed in the scratch copy.
+
 ### THE SHIPPED FIX IS NOW A GROUND BUDGET (`RECV_GIVE_MAX = 20`)
 
 The per-tick close is left **exactly as it was**, because that is what completes passes (it is
@@ -203,9 +225,17 @@ spread moved 0.51 against a 3-SE resolution of 0.42 — real, but only just.
 
 ### Suite
 
-69 pass. `test-bot-ladder.mjs`, `test-bot-partner.mjs` and `test-rank-parity.mjs` fail — **all three
-also fail on pristine HEAD**, verified in a separate `git archive` checkout, so zero new failures.
-`test-rank-parity.mjs` is new to this list and is nothing to do with bots.
+**70 pass, and the only failures are the two known ones** — `test-bot-ladder.mjs` and
+`test-bot-partner.mjs`, both of which also fail on pristine HEAD.
+
+**CORRECTED (see §00000000): this round first reported "69 pass" with `test-rank-parity.mjs` as a third
+pre-existing failure. That was an artefact of measuring in a scratch copy, not a real failure.**
+`test-rank-parity.mjs:30` requires the SIBLING repo `../pikme-server/data/football-rank.js` and
+deliberately hard-fails rather than self-disabling when it is absent ("a check that turns itself off is
+not a check"). A `git archive` scratch tree has no sibling, so it fails there and only there; it is
+**6/6 PASS from the real working directory**. Caught by `wall-windup`. Run the suite from the real
+tree — or at minimum re-check anything that fails only in a scratch copy before calling it
+pre-existing.
 
 ---
 ## 000000. ROUND 8 (2026-07-26 15:0x-, agent `wall-windup`) — THE L10 "IDLE" WAS THE THRESHOLD, NOT THE BOTS
