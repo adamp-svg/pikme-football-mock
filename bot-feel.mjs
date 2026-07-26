@@ -1,14 +1,5 @@
-// bot-feel.mjs — the "does it FEEL right" meter. Not a gated test: a paired A/B instrument.
-//
-// Usage:  MATCHES=6 SECS=60 SKA=0.5 SKB=0.5 node bot-feel.mjs        # main arena (the default)
-//         ARENA=default node bot-feel.mjs                            # the bare 4-wall arena
-//         SEEDBASE=777 node bot-feel.mjs                             # a second, independent draw
-//
-// It is deliberately API-MINIMAL (createState/addPlayer/attachBall/step/setField/computeBotInputs)
-// so the SAME file can be dropped into a `git archive <rev> shared` checkout of an OLD revision and
-// run there — that is how the 2026-07-26 wall-jam regression was bisected to a single commit.
-// Cross-revision bot "feel" meter: every revision is measured by its OWN sim + bot-ai with
-// IDENTICAL inputs.
+// Cross-revision bot "feel" meter. Copied into each extracted revision dir and run there,
+// so every revision is measured by its OWN sim + bot-ai with IDENTICAL inputs.
 //
 // Determinism: Math.random is replaced by a seeded LCG before any sim call, so revisions that
 // predate makeRng() are just as reproducible as the current one. Paired seeds => a real A/B.
@@ -69,6 +60,8 @@ let stuckWorst = 0, stuckLong = 0, speedSum = 0;
 let looseTicks = 0, gapSum = 0, notClosing = 0;
 let reachSum = 0, reachN = 0, reachTimeouts = 0;
 let goals = 0, shots = 0, touches = 0;
+let advSum = 0, advN = 0, advBack = 0;            // ball ground gained toward the enemy goal per release
+let nearestTicks = 0, retreatTicks = 0;          // "I am nearest the loose ball and moving AWAY from it"
 
 for (let mi = 0; mi < MATCHES; mi++) {
   _s = (SEEDBASE * 7919 + mi * 104729) >>> 0;
@@ -85,10 +78,33 @@ for (let mi = 0; mi < MATCHES; mi++) {
   for (const id in s.players) { prev[id] = { x: s.players[id].x, y: s.players[id].y }; run[id] = 0; }
   let prevOwner = s.ball.owner, prevScore = s.score.A + s.score.B, looseAt = null, prevGap = null;
 
+  let release = null;
   for (let t = 0; t < TICKS; t++) {
     const inp = computeBotInputs(s, mem, DT);
     for (const id in inp) if (inp[id] && inp[id].fire) shots++;
+    // a release = the carrier fires. Record where the ball was and which way that team attacks.
+    for (const id in inp) {
+      if (!inp[id] || !inp[id].fire || s.ball.owner !== id) continue;
+      release = { team: s.players[id].team, x0: s.ball.x, at: t };
+    }
     step(s, inp, DT);
+    if (release && (t - release.at > 45 || s.ball.owner)) {
+      const dir = release.team === 'A' ? 1 : -1;
+      const adv = (s.ball.x - release.x0) * dir;
+      advSum += adv; advN++; if (adv < -20) advBack++;
+      release = null;
+    }
+    // nearest-to-a-loose-ball, and is it closing?
+    if (!s.ball.owner) {
+      let best = null, bd = 1e9;
+      for (const id in s.players) { const d = Math.hypot(s.players[id].x - s.ball.x, s.players[id].y - s.ball.y); if (d < bd) { bd = d; best = id; } }
+      const i = inp[best];
+      if (i && Math.hypot(i.moveX, i.moveY) > 0.3) {
+        nearestTicks++;
+        const [ux, uy] = [(s.ball.x - s.players[best].x) / (bd || 1), (s.ball.y - s.players[best].y) / (bd || 1)];
+        if (i.moveX * ux + i.moveY * uy < -0.1) retreatTicks++;    // actively walking away from it
+      }
+    }
     if (s.score.A + s.score.B !== prevScore) { goals += s.score.A + s.score.B - prevScore; prevScore = s.score.A + s.score.B; }
     if (s.resetTimer > 0) {
       for (const id in s.players) { prev[id] = { x: s.players[id].x, y: s.players[id].y }; run[id] = 0; }
@@ -148,5 +164,8 @@ const out = {
   shotsPerMatch: +(shots / MATCHES).toFixed(1),
   touchesPerMatch: +(touches / MATCHES).toFixed(1),
   loosePct: +pct(looseTicks, playTicks).toFixed(1),
+  advancePerRelease: +(advSum / Math.max(1, advN)).toFixed(0),
+  backwardReleasePct: +pct(advBack, advN).toFixed(1),
+  retreatWhileNearestPct: +pct(retreatTicks, nearestTicks).toFixed(1),
 };
 console.log(JSON.stringify(out));

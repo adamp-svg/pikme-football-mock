@@ -1055,6 +1055,14 @@ const CATA_WINDOW = 3.4;    // seconds the whole play may take before it gives u
 // BOT_SKILL's tiers carry their own).
 const skT = (sk) => (sk && typeof sk.t === 'number' ? sk.t : 0);
 
+// Plays that are ALLOWED to walk away from a loose ball the bot is nearest to — the user's own
+// "unless doing a trick, hiding in bushes or something". Everything else must go and get it.
+const FETCH_EXEMPT = new Set([
+  'ambushLurk', 'bushSteal', 'ambushWall', 'ambushStrip', 'receivePass', 'catapultSetup',
+  'catapultWall', 'catapult', 'goalScreen', 'screenWall', 'blockDrive', 'bodyScreen', 'goalKeep',
+  'dodge', 'cornerEscape', 'chaseJump', 'catchUpJump', 'coopPush', 'wallCannonJump',
+]);
+
 // ---- B1b — how close a super bot will walk in for a BODY STRIP instead of shooting ----------
 // A bot moves ~142px/s (CHARACTERS.player.speed 158 x settings.speedMul 0.9), so 220px is ~1.5s
 // of closing — comfortably inside OVERCHARGE_TTL (4s), which is what stops this from being a
@@ -1171,10 +1179,17 @@ const JUMP_NO_CANNON_D = 620;    // without a wall boost, insist on a trip long 
 // looks like it is doing nothing. A stronger bot should use the bomb BETTER, not MORE, so the gap
 // between MOBILITY bombs is a constant. The tackle bomb and the corner escape keep their own
 // cdMul-scaled cooldown — those are reactions, not travel.
-const MOBILITY_GAP = 6.5;
+// MILDLY tier-scaled, not flat and not cdMul. The first version was FLAT, which fixed the idle
+// (14.3% -> 5.1% of bot-ticks on a fuse at skill 0.93) but ALSO took a genuine advantage away from
+// the top of the ladder — cdMul is one of the few honest mechanical edges a strong bot has, and
+// removing it entirely is part of why the re-measured ladder ranked at rho 0.80 instead of 0.90.
+// This keeps ~90% of the idle fix (t=1.00 waits 5.5s between travel bombs, not the 1.2s that caused
+// the complaint) while leaving the top tier a readable edge over the bottom's 8.1s.
+const mobilityGap = (sk) => 6.5 * (1.25 - 0.4 * skT(sk));
 function mobilityJump(p, bm, mem, state, sk, tgt, visibleEnemies, bombReady, tag) {
   if (!bombReady || (sk.toolSkill || 0) < TOOL_MOBILITY_MIN) return null;
   if (mem.t <= (bm.nextBombAt || 0) || mem.t <= (bm.nextMobilityAt || 0) || !toolNotice(sk, p, mem)) return null;
+  // (the gap itself is stamped below, once the jump is actually taken)
   const d = hyp(tgt.x - p.x, tgt.y - p.y);
   if (d < JUMP_MIN_D) return null;
   // Freezing for 1.725s next to an opponent is how you get stripped, and freezing while somebody
@@ -1189,7 +1204,7 @@ function mobilityJump(p, bm, mem, state, sk, tgt, visibleEnemies, bombReady, tag
   if (cp.mul < 1.05 && d < JUMP_NO_CANNON_D) return null;   // no boost and not far enough: walk
   bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
   bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
-  bm.nextMobilityAt = mem.t + MOBILITY_GAP;
+  bm.nextMobilityAt = mem.t + mobilityGap(sk);
   bm.lastTrick = cp.mul > 1.05 ? 'wallCannonJump' : tag;
   return { x: cp.dx, y: cp.dy };
 }
@@ -1584,7 +1599,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         charge = clamp(chargeForRoll(state, FLY_DIST * 0.8), 0.30, 0.85);
         shoot = true; closeShot = true; bm.carryT = 0;
         bm.fly = { x: fx, y: fy, at: mem.t };
-        bm.nextFlyAt = mem.t + 9.0; bm.nextMobilityAt = mem.t + MOBILITY_GAP;   // flat: see MOBILITY_GAP
+        bm.nextFlyAt = mem.t + 9.0; bm.nextMobilityAt = mem.t + mobilityGap(sk);   // see mobilityGap
         bm.lastTrick = 'kickAndFly';
       }
     }
@@ -1656,6 +1671,13 @@ function decideBot(p, role, state, mem, sk, dt) {
         aim = { x: gx - p.x, y: gy - p.y }; shoot = true; charge = 1; bm.carryT = 0;
         closeShot = true; bm.lastTrick = 'smashWall';
       } else if (mate && !superKeep && mem.t > (bm.nextPassAt || 0)
+                 // NEVER A BACKWARD OUTLET. This branch only asked for a clear lane to the mate, so
+                 // it happily played the ball to someone standing behind us — measured as 35% of
+                 // releases at skill 0.93 ending up BEHIND where they started, which is the exact
+                 // opposite of "push the ball further towards the enemy goal". Lateral is fine
+                 // (that is a genuine outlet); losing ground is not, and the forward clearance
+                 // below is a better answer when the only mate is behind.
+                 && hyp(egX - mate.x, GY - mate.y) <= distGoal + 20
                  && laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
         // (c) can't shoot at all (indestructible stone, or out of range) → give it to the mate
         //     ...unless B1a is protecting an overcharge that is still inside finishing reach.
@@ -1665,15 +1687,64 @@ function decideBot(p, role, state, mem, sk, dt) {
         aim = { x: pax, y: pay }; shoot = true; bm.carryT = 0;
         callPass(p, mate, bm, mem, team); bm.lastTrick = 'outletPass';
       } else {
-        // (d) nothing is on — STOP grinding into the blocker and work an angle instead. Slide
-        // along the wall toward whichever post is more open; the ladder re-tests every tick, so
-        // as soon as a lane appears (a) fires. Never a dead end.
-        bm.workAngle = bm.workAngle || (p.y < GY ? 1 : -1);
-        if (mem.t > (bm.workFlip || 0)) { bm.workFlip = mem.t + 1.2; bm.workAngle *= -1; }
-        // Same movement either way — but name it for what it IS, so the histogram can tell
-        // "I have nothing on" apart from "I am carrying an overcharge to the goal".
-        bm.slideAngle = true;
-        bm.lastTrick = superKeep ? 'superHold' : 'workAngle';
+        // (c2) CLEAR IT FORWARD — requested: "usually if the player is near the ball he should
+        // either go fetch it or try to shoot it to make it go closer to the enemy goal", and
+        // "prioritise behaviour which pushes the ball further towards the enemy goal".
+        // MEASURED BEFORE THIS EXISTED: the average release advanced the ball **4px** toward the
+        // enemy goal at skill 0.50 (10px at 0.93) and **8-15% of releases went BACKWARDS**. With no
+        // shot and no mate, the best thing on offer was to hold the ball and slide sideways — so
+        // the bots were optimising for possession they could not use. A clearance up the pitch is
+        // what a real player does, and it is worth more than a tidy dribble that goes nowhere.
+        // Search a fan around the goalward line, keep the directions whose BALL LANE is clear for
+        // the roll, and score them by ground gained MINUS how close the landing spot is to an
+        // enemy — so it is a clearance into space, not a gift.
+        // WHEN. Note where this sits: inside the release ladder, which only runs once the ball has
+        // been held for CARRY_IDLE with no shot, no smashable blocker and no mate lane. So "clear
+        // it" already means "I have had the ball for ~0.4s and there is nothing on" — that is the
+        // moment a real player puts it up the pitch. Two versions were measured at skill 0.50:
+        //   ungated (this one)        advance/release 4 -> 9px · retreat-while-nearest 23% -> 20.5%
+        //   gated on pressure only    advance stayed 4px · retreat got WORSE (29%) · touches -27%
+        // The narrower gate looked safer and was worse at everything the user asked for, so the
+        // ladder position IS the gate. What survives from that experiment is the `foe < 200` veto
+        // below (never clear it onto an opponent) and the shorter 420px reach.
+        const gdir = Math.atan2(GY - p.y, egX - p.x);
+        // CHECK THE LANE OUT TO THE ACTUAL ROLL, not to a nominal reach. The charge is clamped up to
+        // a 0.45 floor, so a "420px" clearance really travels ballRollPx(0.45) — and testing the
+        // shorter segment let the ball sail on into a wall JUST past it and rebound: measured 35% of
+        // clearances at skill 0.93 ended up BEHIND where they started. The lane must cover the whole
+        // distance the ball will actually cover.
+        const gsign = egX > FIELD.W / 2 ? 1 : -1;
+        const clearCharge = clamp(chargeForRoll(state, 420), 0.45, 1);
+        const CLEAR_REACH = Math.max(420, ballRollPx(state, clearCharge));
+        let bestA = null, bestScore = -1e9;
+        for (const off of [0, 0.26, -0.26, 0.52, -0.52, 0.79, -0.79, 1.05, -1.05]) {
+          const th = gdir + off, cx = Math.cos(th), cy = Math.sin(th);
+          const lx = p.x + cx * CLEAR_REACH, ly = p.y + cy * CLEAR_REACH;
+          if (lx < 70 || lx > FIELD.W - 70 || ly < 70 || ly > FIELD.H - 70) continue;
+          if (!laneClear(p.x, p.y, lx, ly, state, team, { enemies: false })) continue;
+          let foe = 1e9;
+          for (const e of visibleEnemies) foe = Math.min(foe, hyp(e.x - lx, e.y - ly));
+          if (foe < 200) continue;                              // never clear it onto an opponent
+          const adv = gsign * cx * CLEAR_REACH;                 // ground gained toward their goal
+          const sc = adv + Math.min(foe, 520) * 0.5;
+          if (sc > bestScore) { bestScore = sc; bestA = { cx, cy }; }
+        }
+        if (bestA && gsign * bestA.cx > 0.2 && mem.t > (bm.nextClearAt || 0)) {
+          aim = { x: bestA.cx, y: bestA.cy };
+          charge = clearCharge;
+          shoot = true; closeShot = true; bm.carryT = 0;
+          bm.nextClearAt = mem.t + 2.0; bm.lastTrick = 'clearForward';
+        } else {
+          // (d) genuinely nothing on — STOP grinding into the blocker and work an angle instead.
+          // Slide along the wall toward whichever post is more open; the ladder re-tests every
+          // tick, so as soon as a lane appears (a) fires. Never a dead end.
+          bm.workAngle = bm.workAngle || (p.y < GY ? 1 : -1);
+          if (mem.t > (bm.workFlip || 0)) { bm.workFlip = mem.t + 1.2; bm.workAngle *= -1; }
+          // Same movement either way — but name it for what it IS, so the histogram can tell
+          // "I have nothing on" apart from "I am carrying an overcharge to the goal".
+          bm.slideAngle = true;
+          bm.lastTrick = superKeep ? 'superHold' : 'workAngle';
+        }
       }
     }
     // WATCHDOG — the last line of defence, and no branch above can defeat it. If the ball has
@@ -2432,6 +2503,31 @@ function decideBot(p, role, state, mem, sk, dt) {
         bm.dodgeUntil = mem.t + 0.28; bm.nextDodgeAt = mem.t + 0.6 * (sk.cdMul || 1);
         tgt = bm.dodgeTgt; bm.lastTrick = 'dodge';
         break;
+      }
+    }
+  }
+
+  // ===== "IF YOU ARE NEAREST THE BALL, GO AND GET IT" (requested) ==============================
+  // MEASURED BEFORE THIS EXISTED: on 23% of ticks (26% at skill 0.93) where a bot was the CLOSEST
+  // player to a LOOSE ball and wanted to move, it was walking AWAY from it. That is the most
+  // "what is he doing?" thing a spectator can see, and no single branch owned it: the off-ball
+  // lurk/hold spot, the cover lane and the outlet spots are all chosen for SHAPE, and any of them
+  // can point backwards while the ball sits at the bot's feet.
+  // Deliberately narrow, and it honours the user's own exemption ("unless doing a trick, hiding in
+  // bushes or something"): only a LOOSE ball, only the player actually nearest to it, and only when
+  // nothing sanctioned is in progress — a bomb fuse, a wall wind-up, a catapult, a kick-and-fly, a
+  // bush ambush/trap, a called pass, an active bullet dodge, or a committed wall play.
+  if (!b.owner && !bm.bombHold && !bm.buildHold && !bm.cata && !bm.fly && !bm.trap
+      && !(bm.dodgeUntil && mem.t < bm.dodgeUntil) && !FETCH_EXEMPT.has(bm.lastTrick)) {
+    let nearest = null, nd = 1e9;
+    for (const q of Object.values(state.players)) { const d = hyp(q.x - b.x, q.y - b.y); if (d < nd) { nd = d; nearest = q; } }
+    if (nearest && nearest.id === p.id) {
+      const [bx2, by2] = predictBall(b, clamp(nd / 900, 0.05, 0.4));
+      const [tx, ty] = unit(tgt.x - p.x, tgt.y - p.y);
+      const [gx2, gy2] = unit(bx2 - p.x, by2 - p.y);
+      if (tx * gx2 + ty * gy2 < 0.25) {            // the chosen target points away from the ball
+        tgt = { x: bx2, y: by2 };
+        if (!bm.lastTrick) bm.lastTrick = 'fetchBall';
       }
     }
   }

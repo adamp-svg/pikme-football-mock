@@ -5,6 +5,64 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 00000. ROUND 7 (2026-07-26 14:1x-, agent `bot-review`) — REWARD SHAPING: move the ball forward, and fetch it
+
+Requested: *"prioritize and reward behaviour which pushes the ball further towards the enemy goal...
+reward their own movement, so a stuck bot, or a bot which travels further from the ball when the ball
+is nearest to it, should be less rewarded (unless doing a trick, hiding in bushes or something).
+Usually if the player is near the ball he should either go fetch it or try to shoot it to make it go
+closer to the enemy goal."*
+
+### Both behaviours were measured first, and both were as bad as he thought
+
+Two new metrics in `bot-feel.mjs`:
+
+| | skill 0.50 | skill 0.93 |
+|---|---|---|
+| `advancePerRelease` — ground the ball gains toward their goal, per release | **4px** | **10px** |
+| `backwardReleasePct` — releases that end up BEHIND where they started | 8.0% | 15.4% |
+| `retreatWhileNearestPct` — nearest player to a loose ball, walking AWAY | **23.2%** | **26.2%** |
+
+4px per release is "the kick moved the ball nowhere". The bots were optimising for possession they
+could not use, because holding-and-sliding scored better than putting the ball up the pitch.
+
+### Three rules, and the result
+
+1. **`clearForward`** — a new rung in the release ladder. No shot, no smashable blocker, no forward
+   mate => pick the most goalward direction whose BALL LANE is clear **for the whole roll** (not for a
+   nominal reach — that bug let the ball sail into a wall just past the checked segment), refuse any
+   landing spot within 200px of an opponent, and put it up the pitch.
+2. **No backward outlet.** The ladder's outlet pass asked ONLY for a clear lane, so it played the ball
+   to a mate standing behind. That was the biggest single source of backward releases. The receiver
+   must now be no further from the enemy goal than the carrier — lateral yes, losing ground no.
+3. **`fetchBall`** — after every branch has picked a target, a bot that is the CLOSEST player to a
+   loose ball and whose target points away from it gets the ball as its target instead. The user's
+   exemption is explicit in code (`FETCH_EXEMPT`): bomb fuse, wall wind-up, catapult, kick-and-fly,
+   bush ambush/trap, called pass, active dodge and the committed wall plays may all walk away.
+
+**16 matches x 60s, paired seeds:** advance per release **4 -> 29px** (0.50) and **10 -> 176px**
+(0.93) · backward releases **8.0% -> 3.7%** (0.50) · retreat-while-nearest **23.2% -> 15.1%** (0.50),
+26.2% -> 25.4% (0.93) · jam/idle held (pinned 0.26%, worst jam 1.03s, idle-with-ball 0.76%).
+
+### Refuted, recorded here so it is not re-proposed
+
+**Gating the forward clearance on "only under pressure"** (an enemy within 300px or the carry clock
+running out). It looks obviously safer — a clearance is a last resort, surely — and it measured WORSE
+at everything the request was about: advance per release stayed at 4px, retreat-while-nearest got
+worse (23% -> 29%), touches fell 27% and the ball was loose 8 points more of the match. The ladder
+POSITION is already the gate: that rung only runs after ~0.4s of holding with nothing on.
+
+### Open after round 7
+
+1. **The skill-axis ladder needs a re-run.** Last measured before these three rules (round 6: rho
+   0.80 — 0.05 short of its gate — and spread 1.10, the widest ever recorded here).
+2. `retreatWhileNearestPct` is still ~25% at skill 0.93 and the ball is loose ~79% of that match.
+   Strong bots shoot long and the off-ball bot holds MIN_SEP; §0000's open item 1 is the same thing.
+3. `backwardReleasePct` stays ~15% at 0.93 against 3.7% at 0.50. It is not the opponent's counter-kick
+   (re-measured with a 0.75s settle window: unchanged), so there is one more backward-release path at
+   the top of the ladder that has not been found yet.
+
+---
 ## 0000. ROUND 6 (2026-07-26 13:2x-, agent `bot-review`) — 6 requested features, and the L10 "idle"
 
 Requests: better obstacle awareness + wall planning · bots that COMMUNICATE to pass · a left-behind
