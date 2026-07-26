@@ -63,6 +63,9 @@ window in SAMPLE. All three burned this session inside a few hours:
 | a scratch copy without the sibling repo | 3 pre-existing test failures | 2 — `test-rank-parity` needs `../pikme-server` |
 | `git reflog \| head -12`, then `head -14` | "12 pushes today from 00:58" / "14 from 00:43" | **117 pushes over 8 days**, today's first at 00:02 |
 | `bot-passes.mjs` at its default 6 matches | 22% or 96% completion, depending on the run | **~90%**, and it needs 60 matches to say so |
+| a COMMIT MESSAGE, read as provenance | `9339cee` "chore: re-probe the Render webhook" | its diff is match-info / bot-dossier / 3v3 work — **zero** deploy lines |
+| a `grep` PATTERN | that commit "does mention render" — 29 hits | all 29 are `renderMatchInfo` / `renderNet`; the one real hit was the commit MESSAGE, which `git show` prints |
+| a LINE NUMBER in `AGENT_REQUEST_LOG.md` | "see lines 246 / 270 / 432" | the log is PREPENDED to, so every cited line drifts within hours |
 
 The reflog one is the sharpest warning, because **two agents independently truncated the same log and both
 understated the same number in the same direction**, then each corrected the other and were still wrong.
@@ -70,8 +73,21 @@ Agreement between two agents is not evidence; only the untruncated measurement i
 `| tail -1` before quoting any range, and **state the window you measured** so the next reader can see
 what you did not look at.
 
-That last row is the one that will bite a bot agent soonest: `bot-passes.mjs` defaults to `MATCHES=6`,
-which swings a 10x spread between adjacent skills. **Use `MATCHES=60`.**
+`bot-passes.mjs` defaults to `MATCHES=6`, which swings a 10x spread between adjacent skills. **Use
+`MATCHES=60`.**
+
+**The commit-message row is the dangerous one**, because it reads like provenance and nothing warns you.
+§6 already records that this repo has an agent who leaves work STAGED, so any `git commit` sweeps up
+whatever else is in the index — which means a title here describes *an intention*, not reliably *the
+diff*. `9339cee` is the worked example: it is titled "re-probe the Render webhook after
+re-authentication" and contains no deploy change at all, and the log separately records two other
+agents' feature work being swept into it. **`git show --stat <sha>` before citing a commit as
+evidence** — a title is a claim, the diff is the measurement. (Corollary for `grep`: `git show` prints
+the message above the diff, so a keyword can "appear in a commit" while being absent from the change.
+Use `git show --format='' <sha>` when you mean the diff.)
+
+**And cite log entries by their quoted text, never by line number** — `AGENT_REQUEST_LOG.md` is
+prepended to by several agents a day, so a line reference is stale almost immediately.
 
 ### THE SHIPPED FIX IS NOW A GROUND BUDGET (`RECV_GIVE_MAX = 20`)
 
