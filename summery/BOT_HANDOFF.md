@@ -58,6 +58,25 @@ recorded a phantom third test failure that only existed in the scratch copy.
 > a file position without its version · a quote without its sha. The fix is always the same shape —
 > **attach the coordinate**, and state it in what you report. (`wall-windup`'s synthesis, and it is
 > better than the six worked examples below it.)
+>
+> **AND THE ROOT CAUSE, which explains all of them without seven explanations: the rigour was never
+> absent, it was SCOPED TO WHATEVER THE AGENT HAD DECIDED WAS "THE MEASUREMENT".** Everything treated
+> as mere *context* got quoted raw. Both agents in this session hedged their headline result to a
+> standard error — the ladder spread against 3 SE, the cannon gate against a binomial SE — and in the
+> same hour read a `git reflog` like a receipt. Neither was careless; each had a spotlight and assumed
+> everything outside it. So the useful instruction is not "be more careful", it is: **notice the moment
+> you stop measuring and start citing.** That is where every one of these happened.
+>
+> **AND THE MOST DANGEROUS DIRECTION OF ALL — A NEGATIVE RESULT.** Six of the instances below are
+> over-trusting a slice that was *there*. The seventh and eighth were over-trusting an **empty** one,
+> and that is worse, because *absence looks identical whether the thing is missing or your pattern is
+> wrong* — and an empty result feels like diligence. Both happened while the two of us were checking
+> each other's claim about **this very paragraph**: a case-sensitive `git grep "reference without a
+> coordinate"` returned 0 because the line holds it in CAPITALS, and a `grep "wall-windup's synthesis"`
+> returned 0 because the name is in `backticks`. Either zero would have "proved" this text was not in
+> the file. **Before believing a zero: loosen the pattern (`-i`, a shorter substring), and confirm the
+> file/haystack is the one you think it is.** A zero is a claim about your pattern first and the world
+> second.
 
 Both failures above are one habit: **measuring a bounded slice and reporting it as the population.** A
 frozen base is a window in TIME; `head -n` is a window in a LOG; and 6 matches of `bot-passes.mjs` is a
