@@ -782,6 +782,10 @@
        which screen (home/lobby/game/friends) is active when it fires. -->
   <div id="fp-toast" class="fp-toast hidden"></div>
 
+  <!-- Consistent «‹ חזרה» on every sub-page. MUST stay ABOVE the client.js module tag: modules are
+       deferred, so this classic script runs first and its buttons exist before client.js binds
+       [data-home-back]. Below it, the buttons would render and do nothing. -->
+  <script src="/back-nav.js"></script>
   <script type="module" src="/client.js"></script>
   <!-- DEV-ONLY visual layout editor (feat/lobby-redesign). Self-gating and purely
        additive: it re-applies any saved lobby layout on every load (so the arrangement
