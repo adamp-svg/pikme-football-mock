@@ -1,0 +1,65 @@
+id,category,purpose
+goalkeeper,future-gameplay,Goalkeeper role or goalie-specific mode
+striker,future-gameplay,Striker role and attacking specialization
+defender,future-gameplay,Defender role and defensive specialization
+formation,future-gameplay,Team formation and tactical layout
+ranked-event,future-gameplay,Ranked event or competitive queue
+daily-challenge,future-gameplay,Daily challenge and rotating objective
+quest,future-gameplay,Quest list and multi-step objective
+achievement,future-gameplay,Achievement and permanent accomplishment
+replay,future-gameplay,Watch or review a saved replay
+spectate,future-gameplay,Spectate a live match
+rematch,future-gameplay,Request or begin a rematch
+matchmaking,future-gameplay,Searching for opponents or joining teams
+private-room,future-gameplay,Invite-only room and room code
+voice-chat,future-gameplay,Voice chat and microphone channel
+club-war,future-gameplay,Club-versus-club competitive event
+training-drill,future-gameplay,Structured practice drill
+profile,future-progression,Player profile
+edit-profile,future-progression,Edit player profile
+inbox,future-progression,Messages rewards and system inbox
+event-calendar,future-progression,Upcoming event schedule
+leaderboard,future-progression,Leaderboard and podium
+player-stats,future-progression,Player statistics and performance trends
+match-history,future-progression,Previous match results
+season-road,future-progression,Season progression road
+reward-chest,future-progression,Closed reward chest
+key,future-progression,Key currency and chest unlock
+claim,future-progression,Claim an available reward
+upgrade,future-progression,Upgrade a player card or power
+merge,future-progression,Merge duplicate cards or players
+favorite,future-progression,Favorite a player card field or mode
+report-player,future-progression,Report unsafe or abusive player behavior
+block-player,future-progression,Block communication and invitations from a player
+emote-wave,social-emote,Greeting
+emote-thumbs-up,social-emote,Approval and encouragement
+emote-clap,social-emote,Applause for a good play
+emote-heart,social-emote,Support and team appreciation
+emote-good-game,social-emote,Post-match sportsmanship
+emote-sorry,social-emote,Apology after a mistake
+emote-thanks,social-emote,Thank a teammate
+emote-celebrate,social-emote,Positive celebration
+emote-laugh,social-emote,Playful laughter
+emote-wow,social-emote,Surprise at an impressive moment
+emote-sad,social-emote,Disappointment
+emote-angry,social-emote,Frustration
+emote-confused,social-emote,Confusion or unclear play
+emote-nervous,social-emote,Pressure or close-call reaction
+emote-fire,social-emote,Hype and hot streak
+emote-mvp,social-emote,Praise an outstanding player
+call-pass,tactical-call,Ask for or announce a pass
+call-shoot,tactical-call,Ask teammate to shoot
+call-defend,tactical-call,Call for defensive coverage
+call-attack,tactical-call,Push the team forward
+call-left,tactical-call,Move or play toward the left
+call-right,tactical-call,Move or play toward the right
+call-wait,tactical-call,Hold position or slow down
+call-ready,tactical-call,Signal readiness at kickoff or set play
+call-help,tactical-call,Request nearby support
+call-mark,tactical-call,Mark the highlighted opponent
+call-goalkeeper,tactical-call,Call goalkeeper positioning or coverage
+call-spread,tactical-call,Ask teammates to spread out
+call-group,tactical-call,Ask teammates to group up
+call-retreat,tactical-call,Fall back and reset shape
+call-rematch,tactical-call,Request another match
+call-well-played,tactical-call,Praise a smart team play
