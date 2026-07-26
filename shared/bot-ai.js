@@ -253,6 +253,12 @@ export function personaOf(slot, rot = 0) {
 export function withPersonaForTest(sk, slot, rot = 0, forced = null) { return withPersona(sk, slot, rot, forced); }
 function withPersona(sk, slot, rot, forced) {
   const pr = forced ? personaByName(forced) : personaOf(slot, rot);
+  // MEASURED AND REVERTED — ramping the persona policy in with skill (blend toward neutral below
+  // t=0.60, on the theory that a skill-independent ability flattens the ladder). It did not do its
+  // job: the t=0.05 anchor moved +0.03 -> +0.06 (nothing), goals rho stayed 0.70, and it COST the
+  // felt spread (0.50 -> 0.46) and the strip ranking (rho 0.90 -> 0.80), while making the identities
+  // invisible at 5 of the 12 levels. Kept as a note rather than as code: the bottom-tier inversion is
+  // NOT the personas' doing — the BASELINE ladder is inverted (rho -0.50), see BOT_HANDOFF round 10.
   const out = { ...sk, persona: pr.name, pp: pr };
   out.aggro = clamp((sk.aggro || 0.9) + pr.aggro, 0.5, 1.30);
   out.toolSkill = clamp((sk.toolSkill || 0.5) + pr.toolSkill, 0.20, 1.00);
@@ -3009,6 +3015,11 @@ function decideBot(p, role, state, mem, sk, dt) {
     // because "one bot always goes after the ball" has to be true on the far side of the pitch too.
     // The graded axis moved to `chaseReact` (how fast it reacts) rather than a blind spot, and the
     // radius still applies to the OTHER bot, so a weak team still does not double-chase perfectly.
+    // MEASURED: shrinking the chaser's radius to 700 + 1500*skT to "grade" this made the ladder
+    // WORSE, not better (goals rho stayed 0.70 and the felt spread FELL from 0.50 to 0.34), because it
+    // took more away from the t=0.50 REFERENCE tier than from the bottom. The bottom tier's advantage
+    // was never the radius — it was the persona policy being skill-independent, which is fixed in
+    // withPersona instead. So the chaser notices the ball anywhere, exactly as the user asked.
     const noticeR = role.chaser === p.id ? Infinity : 300 + 900 * skT(sk);
     if (nearest && nearest.id === p.id && nd < noticeR) {
       const [bx2, by2] = predictBall(b, clamp(nd / 900, 0.05, 0.4));

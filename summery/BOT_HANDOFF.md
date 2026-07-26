@@ -54,11 +54,36 @@ New instrument: `press-probe.mjs`.
 | `reachS` (loose -> collected, whole team) | 1.01 / 0.92 | **1.15 / 1.14** ⚠ |
 | carrier crossing an 80px corridor (isolated) | pops 4/0/4, advanced 87/961/92px | **pops 0/0/1, advanced 586/964/452px** |
 
-**THE LADDER DID NOT COMPRESS — IT SHARPENED.** `SEEDS=6 ARENA=main`: goals rho **1.00** (was 0.90),
-top-vs-bottom spread **0.77 goals/match = 69% of everything scored** against a 39% design ask (the
-previous round reached ~36%), strips rho 0.90, shots-on-goal rho 0.90, zero-check and balance PASS.
-Removing the ball's fog spent a perception lever and `chaseReact` + the skill-gated `maxCharge` paid
-it back.
+### THE LADDER — AND THE CONTROL THAT REVERSES THE OBVIOUS READING
+
+**Take the control first: the ladder on the UNCHANGED tree is INVERTED.** Same harness, same seeds,
+`SEEDS=6 ARENA=main`, baseline = `177c915` (this round's spec commit, i.e. HEAD minus my hunks):
+
+| tree | goals rho (gate 0.85) | top beats bottom | felt spread (gate ~0.41) | strips rho |
+|---|---|---|---|---|
+| **baseline, untouched** | **-0.50** | **FAIL** (top -0.01 vs bottom +0.14) | **-0.15 = -20%** | 0.90 |
+| chase/press/obstacles only | **1.00** | PASS | 0.77 = 69% | 0.90 |
+| + personalities (SHIPPED) | 0.70 | PASS (+0.53 vs +0.03) | 0.50 = 48% | 0.90 |
+| + persona skill-ramp (reverted) | 0.70 | PASS | 0.46 = 42% | 0.80 |
+
+So this round did not compress the ladder — **it un-inverted it**, and the shipped state still misses
+the goals-rho gate at 0.70. Both facts are true and the second one does not cancel the first. If you
+read only the failing gate you will "fix" a ladder that is far better than the one you started with.
+
+**Two attempts to close the 0.70 gap, both measured, both reverted, both recorded in the file:**
+1. **Widen `chaseReact` and shrink the chaser's notice radius** (grade the new ability harder). It made
+   things WORSE — felt spread 0.50 -> 0.34 — because it took more away from the t=0.50 REFERENCE tier
+   than from the bottom. When the gate is measured against a fixed reference, weakening everyone
+   weakens the yardstick.
+2. **Ramp the persona policy in with skill.** Principled (the design law says a skill-independent
+   ability flattens the ladder) and it did nothing: t=0.05 moved +0.03 -> +0.06, rho stayed 0.70, and
+   it cost spread (0.50 -> 0.46) and strips rho (0.90 -> 0.80) while making the identities invisible at
+   5 of 12 levels.
+
+**What that leaves:** the remaining inversion is at the BOTTOM (t=0.05 outscores t=0.25), it is present
+in the baseline in a worse form, and neither of the two obvious graded knobs touches it. It is the
+12-level re-cut the handoff has been deferring to the user, not a tuning task — and the honest headline
+is that the ends now rank when they previously did not.
 
 ### Honest costs and open items
 
