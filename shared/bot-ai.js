@@ -1687,6 +1687,20 @@ function decideBot(p, role, state, mem, sk, dt) {
         // anchor further out simply becomes a max-length lob along the same line. Deliberately
         // NO bm.bombHold: that is the "stand on your plant for the fuse" state, which exists to
         // earn the rocket-jump. Here it would walk the support bot into its own blast.
+        // MEASURED OUTCOME OF THE LOB REWRITE ABOVE: still ~0 fires, and the remaining reason is
+        // NOT a threshold — it is branch reachability. Instrumented over 8 matches at t=0.82:
+        // 5 tackle signals, 890 bot-ticks inside the live window, and the full conjunction is
+        // satisfied on 27 of them. But at those 27 moments the ball was LOOSE on 22 and held by
+        // an enemy on only 5. The tackle bomb that RAISES the signal has usually already stripped
+        // the carrier by the time a mate could join, and with no carrier the support bot is in the
+        // loose-ball branch, where this code does not exist. The play is chasing a situation its
+        // own trigger destroys, so it fires only in the ~0.08s where a carrier survives the tackle.
+        // Left in place because it is correct and free when it does hit; do NOT "fix" it by
+        // widening gates again (that has now been tried three times). The salvageable idea is the
+        // LOB ITSELF, decoupled from the tackle signal: a lobbed bomb strips a carrier on its own
+        // (verified: off-centre blast strips at 1.72s, feet plant 1.78s via the flying tackle,
+        // sim.js:1516 only suppresses the ball-pop when the bomber stands ON its own bomb). That is
+        // a new ability and needs sign-off, not a silent widening of this gate.
         bm.lastTrick = 'doubleBomb'; bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
         return finalize(p, { x: p.x, y: p.y }, { x: stk.x - p.x, y: stk.y - p.y },
           { shoot: false, charge: 0, special: true, build: false, lob: { x: stk.x, y: stk.y } }, state, mem, bm, sk, dt);
