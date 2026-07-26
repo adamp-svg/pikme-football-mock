@@ -212,6 +212,8 @@ Additions to §4's refuted list. **Do not re-propose these without new evidence:
   Combined with the game service autodeploying (CLAUDE.md, corrected in `0314eda`), **whatever you
   commit reaches production within the hour whether or not you push it**, so the decision point is the
   **commit**, not the push. Do not commit a change you would not ship.
+  **The full six-instance "a window mistaken for the whole" table lives in `BOT_HANDOFF.md` §3 — read
+  it before you quote any number.** It is the most useful thing this session produced.
   ⚠️ **And read the correction that goes with this, because two agents plus the lead all made it:**
   the first three reports of the above said "12/14 pushes today, starting 00:43, nothing explains it,
   probably a rogue sibling session" — because all three ran `git reflog | head`. **A `head`-limited
