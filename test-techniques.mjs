@@ -8,7 +8,7 @@
 // buyable or trophy-gated.
 
 import {
-  TECHNIQUES, DRILLS, MEDALS,
+  TECHNIQUES, DRILLS, MEDALS, EFFECT,
   techniqueById, drillById, medalFor, unlockedTechniques, isUnlocked,
   drillProgress, recordDrillResult, emptyDrillState, techniqueCount,
 } from './shared/techniques.js';
@@ -37,6 +37,21 @@ ok(
 ok(TECHNIQUES.every((t) => !t.price && !t.cost && !t.iap), 'no technique can be bought');
 ok(TECHNIQUES.every((t) => t.trophyReq == null), 'no technique is gated behind trophies — skill, not rank');
 ok(TECHNIQUES.every((t) => t.drill && drillById(t.drill)), 'every technique is earned from a real drill');
+
+// WHERE THIS FILE'S GUARANTEE STOPS. The two assertions above check the technique's METADATA — that no
+// object literal carries a `mul`/`bonus`/`speed` field. A stat buff can pass that gate simply by keeping
+// its magnitude out of the literal and putting it in the sim hook instead, which is exactly what the
+// specced `precise-strip` ("a more forgiving strip threshold") would have done. Horizontality at the
+// EFFECT level is asserted in test-technique-effects.mjs (a curve conserves ball speed; a clean strip has
+// the same power; the super bank is capped at what you already earned). Keep both halves.
+console.log('--- the effect id is the contract with the sim ---');
+// `effect` is the ONLY string the sim hooks read, so a duplicate would make two techniques
+// indistinguishable to hasEffect() — unlocking one would silently grant the other.
+ok(new Set(TECHNIQUES.map((t) => t.effect)).size === TECHNIQUES.length, 'effect ids are unique — no two techniques share a sim hook');
+ok(TECHNIQUES.every((t) => typeof t.effect === 'string' && t.effect.length > 0), 'every technique names its effect');
+const EFFECT_VALUES = new Set(Object.values(EFFECT));
+ok(TECHNIQUES.every((t) => EFFECT_VALUES.has(t.effect)), 'every effect has a named EFFECT constant — a new technique cannot be added without one');
+eq(Object.keys(EFFECT).length, TECHNIQUES.length, 'and no EFFECT constant is left pointing at a technique that no longer exists');
 
 console.log('--- drills map to techniques and to real game mechanics ---');
 ok(DRILLS.every((d) => d.he && d.goal), 'every drill has a Hebrew name and a stated goal');

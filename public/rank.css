@@ -8,7 +8,8 @@
 
 /* ── RANK: the badge over the hero (#hub-tier) ────────────────────────────────
    The badge already exists in style.css with a 3px meter (.hub-tier-bar). These rules only add what
-   RANK needs: the points number, the bot-ceiling "capped" cue, and the promotion celebration. */
+   RANK needs: the points number, the mode-locked "capped" cue, and the promotion celebration.
+   (It was the BOT-CEILING cue until 2026-07-26; atBotCeiling is deleted — see STATE 3 below.) */
 
 .hub-tier.hub-tier-rank .hub-tier-lbl {
   display: inline-flex;
@@ -29,25 +30,115 @@
 .hub-tier.hub-tier-rank .hub-tier-bar { height: 4px; bottom: 2px; }
 .hub-tier.hub-tier-rank .hub-tier-bar b { transition: width .25s ease-out; }
 
-/* "This mode cannot move your rank" — the meter reads LOCKED rather than merely stalled, so a number
-   that stopped moving does not read as a bug.
-   ⚠️ CURRENTLY UNAPPLIED, on purpose. It used to be driven by atBotCeiling, which the humans-only
-   ruling turned into a constant `true` — latching this lock onto every badge. Kept because the state is
-   real and returns with the ranked event (shared/ranked.js decides "is this the ranked mode"), NOT
-   because anything sets it today. */
+/* ── STATE 2 of 3: לא מדורג (UNRANKED) ────────────────────────────────────────
+   Rank is DESIGNED to be earned only in ranked events, humans only, so a player who has never played one
+   has no rank — and painting them ברונזה 0 is a lie.
+   ⚠️ TODAY the gate is not live: pikme-server pays the g = 0 row for every human match in every mode
+   (its `isRanked` is hard-false until S7), so this state ends at a player's first non-bot win or draw
+   instead of covering the ~87% of the base §4 sizes it for. The pixels are right either way; the scope
+   sentence above is the design, not the running system. Same 50×42px box, same pixel idiom, with the two things they do
+   not have REMOVED: the tier identity (colour + medal) and the ledger (points). What is left is a
+   greyscale dashed frame, a dashed shield, and an empty dashed meter.
+
+   Greyscale c1/c2 are set inline by paintUnranked (#d4dae0 / #8a939c, spec §4) so this state cannot be
+   read as a rung of the ladder. It is deliberately the LOWEST-contrast state on the hub: ~87% of the
+   base lives in it and it must not shout. */
+.hub-tier.hub-tier-unranked {
+  /* The badge's clip-path (style.css) would eat a border, so the dashed frame is an inset ring drawn
+     with box-shadow inside the notched silhouette. */
+  box-shadow:
+    inset 0 0 0 2px rgba(88, 98, 110, .55),
+    inset 2px 2px 0 rgba(255, 255, 255, .35),
+    inset -2px -2px 0 rgba(0, 0, 0, .22);
+  /* filter is inherited from the base .hub-tier rule on purpose — same chunky pixel drop shadow, so the
+     silhouette is identical to a ranked badge and only the CONTENT reads as absent. */
+}
+/* 8px, one notch under the existing .px-sub (9px) — the same type family, not a new scale. The label is
+   allowed to CLIP rather than reflow: .hub-tier is white-space:nowrap with a clip-path, so a font that
+   renders Hebrew wider than 44px loses its edge instead of blowing out the pixel silhouette. */
+.hub-tier.hub-tier-unranked .px-unr-t {
+  font: 900 8px "Arial Black", sans-serif;
+  letter-spacing: -.3px;
+  color: #3d4650;
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .45);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+/* DASHED PIXEL SHIELD, not an emoji: ❔ reads as "mystery reward" and 🥉 is a medal the player has not
+   earned. Drawn with 3px box-shadow blocks — the same technique as .hub-xp .xp-trophy below, so it is
+   the hub's existing 8-bit vocabulary and not a new one. Gaps in the outline ARE the dash. */
+.hub-tier.hub-tier-unranked .px-unr {
+  position: relative;
+  display: block;
+  width: 15px; height: 15px;
+  margin: 1px auto 1px;
+}
+.hub-tier.hub-tier-unranked .px-unr::before {
+  content: '';
+  position: absolute; top: 0; left: 0;
+  width: 3px; height: 3px;
+  /* 5 cols × 5 rows on a 3px grid: dashed top edge, dashed sides, tapering to a point. */
+  box-shadow:
+     0px  0px 0 0 #6b7480,  6px  0px 0 0 #6b7480,  12px  0px 0 0 #6b7480,
+     0px  3px 0 0 #6b7480,                         12px  3px 0 0 #6b7480,
+     0px  6px 0 0 #6b7480,                         12px  6px 0 0 #6b7480,
+                            3px  9px 0 0 #6b7480,   9px  9px 0 0 #6b7480,
+                            6px 12px 0 0 #6b7480;
+  image-rendering: pixelated;
+}
+/* The meter reads "no ladder yet", NOT "ladder, empty". A 0%-wide SOLID fill is pixel-identical to
+   "ברונזה with no progress" — the exact confusion this state exists to remove — so the fill element is
+   removed outright and the track goes dashed. (spec §4, verified against tierProgress(0) === 0.) */
+.hub-tier.hub-tier-unranked .hub-tier-bar {
+  height: 4px; bottom: 2px;
+  background: transparent;
+  border: 1px dashed rgba(61, 70, 80, .75);
+  overflow: visible;
+}
+.hub-tier.hub-tier-unranked .hub-tier-bar b { display: none; }
+
+/* ── STATE 3 of 3: "this mode cannot move your rank" ──────────────────────────
+   The meter reads LOCKED rather than merely stalled, so a number that stopped moving does not read as a
+   bug. Note what does NOT change: the tier colour, the medal and the points all stay — you still ARE
+   זהב. Only the PROGRESS affordance is suspended, which is exactly the thing that is suspended.
+   ⚠️ HISTORY: this used to be driven by atBotCeiling, which the humans-only ruling turned into a
+   constant `true` — latching the lock onto every badge in the app. It is now driven by an explicit mode
+   signal — `setRankMode(modeId)` in hub-rank.js, delegating to shared/ranked.js `rankLockedForMode` —
+   whose default is UNKNOWN, and unknown never paints a lock. (An earlier version of this comment named a
+   `setModePaysRank` API that exists in neither repo.)
+   ⚠️ NOTHING CALLS setRankMode YET, and it must not be pointed at a live mode: every human match in every
+   mode currently DOES move rank, so a 🔒 there would be a fresh lie. Wire it with the ranked queue (S7). */
 .hub-tier.hub-tier-capped .hub-tier-bar b {
   background: repeating-linear-gradient(45deg, #6b5a2a 0 3px, #241a05 3px 6px);
 }
 .hub-tier.hub-tier-capped::after {
   content: '🔒';
   position: absolute;
-  top: -4px; inset-inline-start: -4px;
-  font-size: 10px;
+  top: 1px; inset-inline-start: 2px;
+  font-size: 9px;
+  line-height: 1;
   filter: drop-shadow(0 1px 0 rgba(0, 0, 0, .5));
 }
 
-/* Floating +N / −N chip beside the badge. A gain rises and glows; a loss sinks, muted — never
-   celebratory, because a drop should be legible without being punishing. */
+/* ── THE CHIP LAYER ──────────────────────────────────────────────────────────
+   A SIBLING of #hub-tier, not a child, and both reasons are real bugs:
+     1. .hub-tier carries a clip-path (style.css, for the notched pixel corners) and clip-path clips
+        DESCENDANTS. Every chip lives outside the 50×42px box, so a chip parented to the badge was
+        clipped away — the +N flash has never actually been visible on a device.
+     2. .hub > #hub-tier is z-index 3 while .hub-hero is z-index 4, so the hero paints OVER the badge.
+   hub-rank.js keeps this layer aligned to the badge's box via offsetLeft/offsetTop. */
+.rk-chips {
+  position: absolute;
+  z-index: 9;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* Floating +N / −N chip ABOVE the badge — WHAT happened. A gain rises and glows; a loss sinks, muted —
+   never celebratory, because a drop should be legible without being punishing. */
+.rk-chips .rk-flash,
 .hub-tier .rk-flash {
   position: absolute;
   top: -12px; inset-inline-start: 50%;
@@ -63,6 +154,7 @@
   z-index: 8;
   animation: rkFlashUp 2s ease-out forwards;
 }
+.rk-chips .rk-flash-down,
 .hub-tier .rk-flash-down {
   color: #f4e9e9;
   background: linear-gradient(180deg, #6e5152, #4a3536);
@@ -84,7 +176,54 @@
   100% { opacity: 0; transform: translateX(-50%) translateY(10px); }
 }
 
-/* Tier promotion — the one moment that earns a real celebration. */
+/* ── THE GAP CHIP (spec §1) ──────────────────────────────────────────────────
+   BELOW the badge — WHY it happened. The same win pays +4 … +105 depending on the tier gap, and an
+   unexplained 26x spread reads as randomness (the #1 complaint in 05-psychology): "ship the chip or
+   don't ship the table."
+
+   Hierarchy, on purpose: the +N chip is gold, 11px, ABOVE the badge and animates up; the gap chips are
+   9px, dark, BELOW it and only fade. Position, size and contrast all rank the explanation second, so it
+   never competes with the number it is explaining. The pill itself is the hub's existing dark-chip idiom
+   (see .hub-arena-tx / .hub-mtx in style.css: rgba(15,22,17,.8x) + 2px #3a473c + 0 Npx 0 #070b08) — no
+   new visual language. */
+.rk-chips .rk-gaps {
+  position: absolute;
+  top: calc(100% + 5px); inset-inline-start: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  animation: rkGapIn 4.6s ease-out forwards;
+}
+.rk-chips .rk-gap {
+  direction: rtl;
+  white-space: nowrap;
+  padding: 2px 6px;
+  font: 900 9px "Arial Black", sans-serif;
+  color: #cdd8c8;
+  background: rgba(15, 22, 17, .9);
+  border: 2px solid #3a473c;
+  box-shadow: 0 2px 0 #070b08;
+}
+/* The multiplier is the payload of the chip, so it is the only coloured token in it. Numbers are
+   LTR-isolated in the markup (dir="ltr"); this only makes the isolation visible. */
+.rk-chips .rk-gap b { color: #ffe27a; direction: ltr; unicode-bidi: isolate; font-weight: 900; }
+/* g < 0: the payout SHRANK. Gold would read as a reward for beating someone weaker. */
+.rk-chips .rk-gap-down b { color: #c9a9a9; }
+/* The decay is informational, not a prize. */
+.rk-chips .rk-gap-meet b { color: #cdd8c8; }
+/* "הדרגה נשמרת" — the badge held while the raw ledger fell. Reassurance, not celebration. */
+.rk-chips .rk-gap-held { color: #9fb0a2; border-color: #33403a; }
+@keyframes rkGapIn {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  8%   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  85%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Tier promotion — the one moment that earns a real celebration. It is also what לא מדורג → ranked
+   gets: arriving on the ladder is a promotion, and reusing this keeps the moment in one vocabulary. */
 .hub-tier.hub-tier-promote { animation: rkPromote 1.4s ease-out; }
 @keyframes rkPromote {
   0%   { transform: scale(1) rotate(0); }
@@ -130,8 +269,13 @@
 .hub-xp .hub-xp-amt { direction: ltr; unicode-bidi: isolate; }
 
 @media (prefers-reduced-motion: reduce) {
+  .rk-chips .rk-flash,
+  .rk-chips .rk-flash-down,
   .hub-tier .rk-flash,
   .hub-tier .rk-flash-down { animation-duration: .01ms; animation-iteration-count: 1; }
+  /* The gap chip is INFORMATION, not decoration — so it must still be readable with motion off. It
+     keeps its full dwell and only loses the slide/fade. */
+  .rk-chips .rk-gaps { animation: none; opacity: 1; }
   .hub-tier.hub-tier-promote { animation: none; }
   .hub-tier.hub-tier-rank .hub-tier-bar b { transition: none; }
 }
