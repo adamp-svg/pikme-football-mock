@@ -113,10 +113,10 @@ export const BOT_SKILL = {
   // sends { botDifficulty }) carries the same gating scalar skillVec() now exposes. Without it
   // every t-gated behaviour below would read `undefined` on that path and silently never fire.
   // The values mirror SKILL_ANCHORS' own stops, so the two paths agree by construction.
-  easy:    { t: 0.25, react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20, memoryS: 0.55 },
-  normal:  { t: 0.50, react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12, memoryS: 0.90 },
-  hard:    { t: 0.82, react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.40, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05, memoryS: 1.50 },
-  extreme: { t: 1.00, react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 1.60, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, memoryS: 2.20, preChargeP: 0.55, cheatFlub: 0.34, flubMag: 0.10 },
+  easy:    { t: 0.25, react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20, memoryS: 0.55, chaseReact: 0.26 },
+  normal:  { t: 0.50, react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12, memoryS: 0.90, chaseReact: 0.16 },
+  hard:    { t: 0.82, react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.40, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05, memoryS: 1.50, chaseReact: 0.06 },
+  extreme: { t: 1.00, react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 1.60, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, memoryS: 2.20, chaseReact: 0.00, preChargeP: 0.55, cheatFlub: 0.34, flubMag: 0.10 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -124,7 +124,7 @@ export const DEFAULT_SKILL = 'normal';
 // t = 0 tutorial-weak, ~0.25 easy, 0.5 normal, ~0.82 hard, 1.0 extreme. Lets each SIDE of a
 // match carry its own continuous difficulty (see computeBotInputs' per-team skill), so enemy
 // and partner can be tuned independently and matched to game progression.
-const VERY_EASY = { t: 0.00, react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30, memoryS: 0.35 };
+const VERY_EASY = { t: 0.00, react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30, memoryS: 0.35, chaseReact: 0.35 };
 const SKILL_ANCHORS = [
   { t: 0.00, v: VERY_EASY },
   { t: 0.25, v: BOT_SKILL.easy },
@@ -132,7 +132,7 @@ const SKILL_ANCHORS = [
   { t: 0.82, v: BOT_SKILL.hard },
   { t: 1.00, v: BOT_SKILL.extreme },
 ];
-const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul', 'wallCommit', 'detourRatio', 'flowAhead', 'navLag', 'memoryS'];
+const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul', 'wallCommit', 'detourRatio', 'flowAhead', 'navLag', 'memoryS', 'chaseReact'];
 export function skillVec(t) {
   t = Math.max(0, Math.min(1, t));
   let a = SKILL_ANCHORS[0], b = SKILL_ANCHORS[SKILL_ANCHORS.length - 1];
@@ -813,18 +813,26 @@ function steer(bot, tgtx, tgty, state, bmem, sk, now = 0) {
 // onto the hidden player. Persisted on mem.belief[team].
 function updateBelief(state, team, mem) {
   const b = state.ball;
-  const sk = memSkillVec(mem, team);
-  const bots = Object.values(state.players).filter((p) => p.team === team && p.isBot);
-  let visible;
-  if (b.owner) {
-    const owner = state.players[b.owner];
-    if (!owner || owner.team === team) visible = true;                 // we hold it (or stale owner)
-    else visible = bots.some((bt) => botCanSee(bt, owner, state, sk));  // enemy carrier — only if in sight (tier vision)
-  } else if (!pointInBush(b.x, b.y)) {
-    visible = true;                                                 // loose ball in the open = known
-  } else {
-    visible = bots.some((bt) => hyp(bt.x - b.x, bt.y - b.y) < BUSH_REVEAL_DIST); // bushed loose ball — only up close
-  }
+  // ---- THE BALL IS NEVER HIDDEN FROM A BOT (2026-07-26, the user's ask, and it is a FAIRNESS FIX) --
+  // A PLAYER always knows where the ball is: bushes conceal PLAYERS, never the ball (the renderer
+  // draws it unconditionally), and when it leaves the screen `client.js:5917` pins an arrow to the
+  // nearest edge pointing at it. The old rule made a BOT blinder than the human it plays against.
+  //
+  // It was also blind on the wrong geometry. The loose-ball test called `pointInBush(x, y)`, which
+  // takes no state and reads the DEFAULT arena's three rectangles on EVERY layout (shared/arena.js:37
+  // — still true, still worth fixing for the ambush spots that also read it). So the ball was hidden
+  // where no bush exists and revealed inside the ones that do. Measured over 28 matches, 7 layouts
+  // (`bot-skill-census.mjs`): both teams blind to a loose ball for 18.6% of loose ticks on the pitch
+  // that ships — worst single spell 20.9s — 31.3% / 48.5s on the classic layout, 44.7% / 37.4s on a
+  // generated one. A team that does not know where the ball is cannot go and get it, which is the
+  // "they struggle to get the objective" report.
+  //
+  // THIS IS NOT X-RAY. Enemy BODIES keep their fog: `botCanSee` (screen-shaped VIEW_BOX + bush
+  // concealment) and `perceivedPos` are untouched, so every SHOT still needs sight and a bot can
+  // neither snipe out of fog nor track a bushed enemy. Only the BALL — the thing the player's own
+  // HUD never hides — is always known. `visible`/`age` are kept in the return shape (callers read
+  // them) and are now constant: nothing dead-reckons the ball any more.
+  const visible = true;
   const store = mem.belief || (mem.belief = {});
   const cur = store[team] || (store[team] = { x: b.x, y: b.y, vx: 0, vy: 0, tSeen: mem.t });
   if (visible) {
@@ -844,6 +852,10 @@ function updateBelief(state, team, mem) {
 // Roles: 'onBall' (press the carrier / chase the loose ball / carry) and
 // 'support' (attack outlet when we attack, cover shadow when we defend).
 const SWITCH_MARGIN = 120, MIN_HOLD = 0.5;
+// Seconds a bot with an armed commitment (bomb fuse / wall wind-up / catapult / kick-and-fly) should
+// be assumed unable to move. BOMB.fuse is 1.725s and BUILD_WINDUP 0.5s; 1.2s is between them, so the
+// role goes to the free bot in both cases without over-punishing a wind-up that is nearly done.
+const FROZEN_ROOT_S = 1.2;
 export function assignRoles(state, team, mem, dt) {
   const belief = updateBelief(state, team, mem);
   const bots = Object.values(state.players).filter((p) => p.team === team);
@@ -852,21 +864,44 @@ export function assignRoles(state, team, mem, dt) {
   if (bots.length === 1) { const r = { onBall: bots[0].id, support: null, mode: ballMode(state, team), belief }; mem.teams[team] = r; return r; }
 
   const b = state.ball;
-  // Assign roles around what we can SEE — the real carrier/ball if visible, else the
-  // last-seen point (so bots don't pick roles off a hidden ball's true position).
+  // Assign roles around what we can SEE. The BALL is always known now (see updateBelief), so this
+  // is the live ball/carrier; `belief` is kept as the single source so any future fog change has one
+  // place to change.
   const focus = belief.visible ? (b.owner && state.players[b.owner] ? state.players[b.owner] : b) : belief;
-  const d0 = hyp(focus.x - bots[0].x, focus.y - bots[0].y);
-  const d1 = hyp(focus.x - bots[1].x, focus.y - bots[1].y);
-  // candidate: nearest to focus is onBall (deterministic slot tie-break).
+  // WHO GOES FOR IT: reach measured in GROUND, with a rooted bot charged the ground it cannot cover.
+  // A bot standing on a live bomb fuse or holding a wall wind-up physically cannot move for up to
+  // BOMB.fuse (1.725s), yet it still won the role whenever it was the nearest body — and the other
+  // bot then held its shape, so NOBODY arrived. That is a large part of "they struggle to get the
+  // objective". The penalty is expressed as `speed x FROZEN_ROOT_S` so it stays in the same px unit
+  // as SWITCH_MARGIN below, and it is derived from the sim's own speed rather than a magic number.
+  // NOTE the deliberate non-fix: we do NOT cancel the commitment. The charge is already spent, and
+  // aborting wind-ups was measured at builds 1.75 -> 0.38/match (BOT_HANDOFF, refuted list). Route
+  // the job to the bot that can actually do it instead.
+  const isRooted = (p) => {
+    const bm = (mem.bots && mem.bots[p.id]) || {};
+    return !!(bm.bombHold || bm.buildHold || bm.cata || bm.fly);
+  };
+  const reach = (p) => {
+    const spd = Math.max(1, (CHARACTERS[p.char] || CHARACTERS[DEFAULT_CHAR]).speed * (state.settings.speedMul || 1));
+    return hyp(focus.x - p.x, focus.y - p.y) + (isRooted(p) ? spd * FROZEN_ROOT_S : 0);
+  };
+  const d0 = reach(bots[0]), d1 = reach(bots[1]);
+  // candidate: best reach to the focus is onBall (deterministic slot tie-break).
   let onBall = d0 <= d1 ? bots[0].id : bots[1].id;
   // hysteresis: keep the previous onBall unless the other is clearly closer for a moment.
   const hold = prev && (mem.t - (prev.since || 0)) < MIN_HOLD;
   if (prev && prev.onBall && state.players[prev.onBall]) {
     const cur = state.players[prev.onBall];
     const other = bots.find((p) => p.id !== prev.onBall);
-    const dCur = hyp(focus.x - cur.x, focus.y - cur.y);
-    const dOther = other ? hyp(focus.x - other.x, focus.y - other.y) : 1e9;
-    if (hold || dOther > dCur - SWITCH_MARGIN) onBall = prev.onBall;
+    const dCur = reach(cur);
+    const dOther = other ? reach(other) : 1e9;
+    // A ROOTED INCUMBENT LOSES THE ROLE OUTRIGHT — the hysteresis does not protect it. Both the
+    // 120px margin and the 0.5s hold exist to stop role THRASH, and a bot on a bomb fuse cannot
+    // thrash: it is committed for ~1.7s either way, so handing the job to the free bot is stable by
+    // construction. Without this the incumbent kept the chase whenever the reach penalty (speed x
+    // 1.2s) landed inside the switch margin, which is exactly the "nobody went for it" case.
+    if (other && isRooted(cur) && !isRooted(other)) onBall = other.id;
+    else if (hold || dOther > dCur - SWITCH_MARGIN) onBall = prev.onBall;
     else onBall = other.id;
   }
   // SUPPORT = the off-ball bot nearest the focus, i.e. the best pass outlet. With one off-ball bot
@@ -881,7 +916,11 @@ export function assignRoles(state, team, mem, dt) {
   const lane = {};
   cover.forEach((q, i) => { lane[q.id] = i; });
   const since = (prev && prev.onBall === onBall) ? (prev.since || mem.t) : mem.t;
-  const r = { onBall, support, mode: ballMode(state, team), since, belief, lane, lanes: cover.length };
+  // `chaser` = the ONE bot this team has committed to a loose ball. Null while anybody holds it, so
+  // "am I the chaser?" is a single question the whole file can ask instead of re-deriving "am I
+  // nearest?" in three places. The commitment itself (and its reaction delay) lives in decideBot.
+  const chaser = b.owner ? null : onBall;
+  const r = { onBall, support, chaser, mode: ballMode(state, team), since, belief, lane, lanes: cover.length };
   mem.teams[team] = r;
   return r;
 }
@@ -906,6 +945,41 @@ function predictBall(b, tau) {
   const k = 2.15; // ~ -ln(BALL_FRICTION)/DT per second
   const f = (1 - Math.exp(-k * tau)) / k;
   return [b.x + b.vx * f, b.y + b.vy * f];
+}
+
+// ---- WHERE TO WALK TO TAKE THE BALL OFF SOMEBODY (the user's ask #2) ------------------------
+// Walking at a carrier's BODY is a tail chase: you arrive where they were. This returns where they
+// will BE when you get there, so the presser cuts the run instead of following it — and it biases
+// the point slightly toward the goal the carrier is attacking, because that is the side the ball has
+// to come through and the side a strip is worth most.
+//
+// NO NEW PHYSICS MODEL (ARCHITECTURE-REVIEW §2.1: seven of the nine live defects are bot-ai
+// re-deriving what sim.js already owns). Both speeds are the sim's own: `CHARACTERS[char].speed x
+// settings.speedMul`, with `carrySpeedMul` applied to the carrier exactly as sim.js does it. The
+// only free parameters are the two clamps, and `sk.leadGain` scales the lead so a weak bot mis-leads
+// — the same graded-execution knob the aim already uses, rather than a coin flip.
+function speedOf(pl, state, carrying) {
+  const base = (CHARACTERS[pl.char] || CHARACTERS[DEFAULT_CHAR]).speed * (state.settings.speedMul || 1);
+  return Math.max(1, base * (carrying ? (state.settings.carrySpeedMul || 1) : 1));
+}
+export function interceptPoint(me, carrier, state, sk) {
+  const mySpd = speedOf(me, state, state.ball.owner === me.id);
+  const dist = hyp(carrier.x - me.x, carrier.y - me.y);
+  // How long until I get there. Capped at 0.9s: past that the carrier's current heading is a guess,
+  // and over-leading walks the presser into space (the "recomputed target treadmill" family).
+  const tau = clamp(dist / mySpd, 0, 0.9) * (sk && sk.leadGain != null ? sk.leadGain : 1);
+  const cvx = carrier.vx || 0, cvy = carrier.vy || 0;
+  let x = carrier.x + cvx * tau, y = carrier.y + cvy * tau;
+  // Cut the lane: shade the intercept ~15% toward the goal the carrier is attacking, so the presser
+  // ends up between the ball and the net rather than behind it. Skipped when they are standing still
+  // (nothing to cut off) so a stationary carrier is still approached directly.
+  const movingFast = hyp(cvx, cvy) > 40;
+  if (movingFast) {
+    const egX = enemyGoalX(carrier.team);
+    x += (egX - carrier.x) * 0.15;
+    y += (GY - carrier.y) * 0.15;
+  }
+  return { x: clamp(x, 20, FIELD.W - 20), y: clamp(y, 20, FIELD.H - 20) };
 }
 
 // ---- main entry ----
@@ -1267,6 +1341,7 @@ function decideBot(p, role, state, mem, sk, dt) {
   const bm = bmemOf(mem, p.id);
   bm.lastTrick = null; // reset each tick — it's a per-tick behaviour tag, not sticky state
                        // (histogramming a sticky tag over-counted ~9x and hid the real behaviour)
+  if (state.ball.owner) bm.looseSince = null; // re-arm the chase reaction for the NEXT loose ball
   bm.slideAngle = false; // ditto: "the release ladder fell through to (d)" is a per-tick fact
   bm.seekContact = false; // per-tick: "I am deliberately walking INTO a body" — steer()'s body
                           // avoidance reads it, and a contact play must re-assert it every tick
@@ -2264,7 +2339,12 @@ function decideBot(p, role, state, mem, sk, dt) {
     }
 
     if (isOnBall) {
-      tgt = { x: c.x, y: c.y };
+      // INTERCEPT, DON'T TRAIL (the user's ask #2: "at least one bot ... go after the ball in enemy
+      // hands, or at least intercept where the enemy is going"). Walking at `c.x, c.y` is a tail
+      // chase that never closes on a carrier running away at the same speed; interceptPoint walks at
+      // where they will be, shaded onto the goal side so the press cuts the lane.
+      tgt = interceptPoint(p, c, state, sk);
+      if (hyp((c.vx || 0), (c.vy || 0)) > 40 && !bm.lastTrick) bm.lastTrick = 'pressIntercept';
       // Only CLOSE contact counts as wanted: a strip is a BULLET at up to PRESS_RANGE (~436px), so a
       // presser has no reason to grind into the carrier's body — measured, keeping the whole press
       // range as "seek contact" tripled enemy-body blocking. Inside 140px the shove is the point.
@@ -2604,6 +2684,26 @@ function decideBot(p, role, state, mem, sk, dt) {
       const [bx, by] = predictBall(b, clamp(len(b.x - p.x, b.y - p.y) / 900, 0.05, 0.5));
       tgt = { x: bx, y: by };
       aim = { x: egX - p.x, y: GY - p.y };
+      // FULL-FORCE CHASE (2026-07-26, the user's ask #1: "one bot always goes after the ball, full
+      // force, if it is not in enemy hands"). Being the designated chaser now OUTRANKS shape, and
+      // the two things that used to quietly stop it are dropped here:
+      //   * `bm.trap` — armed by blockDrive against a CARRIER. Once the ball is loose that premise
+      //     is dead, but the flag lived on and it is in FETCH_EXEMPT, so it silently vetoed the
+      //     fetch fallback for the rest of its life.
+      //   * a stale detour commitment, which could hold a bot on a bearing chosen for a target it
+      //     is no longer walking to.
+      // NOT dropped: bm.bombHold / bm.buildHold / bm.cata / bm.fly. Those are paid-for commitments
+      // and aborting them is on the refuted list — assignRoles' reach penalty hands the chase to the
+      // other bot instead, which is the same outcome without throwing a charge away.
+      // GRADED EXECUTION, not a gate: every tier chases, but a weak bot takes `chaseReact` seconds to
+      // register the ball coming loose (0.33s at t=0.05, 0.02s at L10). A reaction time is the axis
+      // Brawl Stars and Fortnite actually ship; a coin flip (mistakeP/decisionHz) is refuted 8x here.
+      if (bm.looseSince == null) bm.looseSince = mem.t;
+      if (mem.t - bm.looseSince >= (sk.chaseReact || 0)) {
+        if (bm.trap) bm.trap = null;
+        if (bm.detourUntil && bm.detourUntil < mem.t + 0.01) bm.detourUntil = 0;
+        if (!bm.lastTrick) bm.lastTrick = 'chaseCommit';
+      }
       // LEFT BEHIND ON A LOOSE BALL — the case the two old jumps could not cover, because both
       // lived in the "my team-mate is carrying" branch. mobilityJump refuses when an enemy is
       // within 420px of the ball (they would simply arrive first while we stood on a fuse), so
@@ -2625,9 +2725,31 @@ function decideBot(p, role, state, mem, sk, dt) {
   // defending). This is what actually kills the "both bots chase the ball".
   if (!isOnBall) {
     if (carrier) {
-      // CARRIED ball: keep real spacing so we don't both crowd the carrier.
-      const dx = tgt.x - carrier.x, dy = tgt.y - carrier.y, d = hyp(dx, dy), MIN_SEP = 320;
-      if (d < MIN_SEP) { const [ux, uy] = unit(dx || (ogX - carrier.x), dy || (GY - carrier.y)); tgt = { x: carrier.x + ux * MIN_SEP, y: carrier.y + uy * MIN_SEP }; }
+      // NOBODY IS PRESSING -> THIS BOT PRESSES (the user's ask #2, the "at least one" half).
+      // MIN_SEP exists so both bots don't crowd one carrier, and it is right almost always. But it
+      // also held the support at 320px while the on-ball bot was rooted on a bomb fuse or simply too
+      // far to strip — so an enemy could carry unopposed with two defenders "in shape". The waiver is
+      // conditional on the ENEMY holding the ball and nobody of ours being in strip range of them, so
+      // it cannot become "both bots chase". `pincer` already does this at t >= 0.92; this is the same
+      // mechanism made available to every tier, which is what "always" requires.
+      const enemyHolds = carrier.team !== team;
+      let pressed = false;
+      if (enemyHolds) {
+        for (const q of Object.values(state.players)) {
+          if (q.team !== team || q.id === p.id) continue;
+          const qbm = (mem.bots && mem.bots[q.id]) || {};
+          const rooted = !!(qbm.bombHold || qbm.buildHold || qbm.cata || qbm.fly);
+          if (!rooted && hyp(q.x - carrier.x, q.y - carrier.y) < PRESS_RANGE) pressed = true;
+        }
+      }
+      if (enemyHolds && !pressed) {
+        tgt = interceptPoint(p, carrier, state, sk);
+        if (!bm.lastTrick) bm.lastTrick = 'secondPress';
+      } else {
+        // CARRIED ball: keep real spacing so we don't both crowd the carrier.
+        const dx = tgt.x - carrier.x, dy = tgt.y - carrier.y, d = hyp(dx, dy), MIN_SEP = 320;
+        if (d < MIN_SEP) { const [ux, uy] = unit(dx || (ogX - carrier.x), dy || (GY - carrier.y)); tgt = { x: carrier.x + ux * MIN_SEP, y: carrier.y + uy * MIN_SEP }; }
+      }
     } else {
       // LOOSE ball. PRESENCE: the off-ball bot should mostly CONTEST, not hide (it used to lurk
       // in a bush 2:1 over contesting — the main reason hard "felt absent"). Contest radius scales
@@ -2703,7 +2825,12 @@ function decideBot(p, role, state, mem, sk, dt) {
     // ...and a WEAK bot only notices at close range. Same reason as the clearance above: an
     // unconditional "always go and get it" is skill-independent and helped the bottom tier most.
     // 345px of attention at t=0.05, the whole pitch by the top of the ladder.
-    if (nearest && nearest.id === p.id && nd < 300 + 900 * skT(sk)) {
+    // EXCEPT for the team's DESIGNATED CHASER, whose whole job this is: it notices at any range,
+    // because "one bot always goes after the ball" has to be true on the far side of the pitch too.
+    // The graded axis moved to `chaseReact` (how fast it reacts) rather than a blind spot, and the
+    // radius still applies to the OTHER bot, so a weak team still does not double-chase perfectly.
+    const noticeR = role.chaser === p.id ? Infinity : 300 + 900 * skT(sk);
+    if (nearest && nearest.id === p.id && nd < noticeR) {
       const [bx2, by2] = predictBall(b, clamp(nd / 900, 0.05, 0.4));
       const [tx, ty] = unit(tgt.x - p.x, tgt.y - p.y);
       const [gx2, gy2] = unit(bx2 - p.x, by2 - p.y);
