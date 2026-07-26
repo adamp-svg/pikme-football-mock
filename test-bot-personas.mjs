@@ -175,18 +175,32 @@ const get = (n) => rows.find((r) => r.name === n) || {};
 const enforcer = get('enforcer'), fortress = get('fortress'), bodyguard = get('bodyguard'), hawk = get('ballhawk');
 
 // the doc's identity tests, one per persona, each on ITS OWN metric
-ok(enforcer.meanCharge > hawk.meanCharge,
-  `Enforcer's mean requested charge beats the Ball Hawk's (${enforcer.meanCharge} > ${hawk.meanCharge})`);
+// CHARGE IS NO LONGER A PERSONA AXIS AT THE TOP OF THE LADDER, by the user's explicit instruction:
+// "in level 5 and above, the enemy to always try to have a full power shot." So every persona banks
+// 1.0 from L5 up and this comparison is 1.00 vs 1.00 there — it is checked at L3 instead, mid-ramp,
+// where the persona tilt is still what decides who gets there first.
+{
+  const mcOf = (name) => withPersonaForTest(skillVec(0.31), 0, 0, name).maxCharge;   // t=0.31 = level 3
+  ok(mcOf('enforcer') > mcOf('ballhawk'),
+    `mid-ramp (L3) the Enforcer is closer to full power than the Ball Hawk (${mcOf('enforcer').toFixed(3)} > ${mcOf('ballhawk').toFixed(3)})`);
+  ok(enforcer.meanCharge >= 0.95 && hawk.meanCharge >= 0.70,
+    `at L10 both are at/near maximum power, as asked (enforcer ${enforcer.meanCharge}, hawk ${hawk.meanCharge})`);
+}
 ok(enforcer.holdPct > hawk.holdPct,
   `Enforcer spends more time with a banked charge (${enforcer.holdPct}% > ${hawk.holdPct}%)`);
 {
   const m = mixedProbe('fortress', 'enforcer');
   const f = 100 * m.fortress.goalSide / Math.max(1, m.fortress.ticks);
   const e = 100 * m.enforcer.goalSide / Math.max(1, m.enforcer.ticks);
-  ok(f > e, `same team, same match: the Fortress is goal-side more than the Enforcer (${f.toFixed(1)}% > ${e.toFixed(1)}%)`);
+  // GOAL-SIDE-OF-THE-BALL IS NO LONGER A PERSONA DISCRIMINATOR, and that is a deliberate consequence
+  // of the user's ask #2: every presser now shifts toward the goal the carrier attacks, so the bot
+  // doing the PRESSING is goal-side by construction — the Enforcer scores higher on it (81% vs 74%)
+  // precisely because it presses more. Depth is still an identity, and own-box occupancy is what
+  // measures it now. Recorded rather than quietly dropped, because a metric that stops discriminating
+  // is information about the change, not a nuisance.
   const fb = 100 * m.fortress.box / Math.max(1, m.fortress.ticks);
   const eb = 100 * m.enforcer.box / Math.max(1, m.enforcer.ticks);
-  ok(fb > eb, `...and spends more time in its own box (${fb.toFixed(1)}% > ${eb.toFixed(1)}%)`);
+  ok(fb > eb, `same team, same match: the Fortress defends deeper than the Enforcer — own-box occupancy ${fb.toFixed(1)}% > ${eb.toFixed(1)}% (goal-side-of-ball is now ${f.toFixed(0)}% vs ${e.toFixed(0)}%, see the note)`);
 }
 {
   // ESCORT IS MEASURED AS A STATION, NOT AS AN ARRIVAL, and that is a finding rather than a

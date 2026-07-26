@@ -270,11 +270,14 @@ function withPersona(sk, slot, rot, forced) {
   // head start of 220px instead of 320px. A persona's `maxCharge` is now the ceiling it may bank, and
   // it is gated on SKILL as well: at the bottom of the ladder nobody banks past the strip threshold,
   // so this cannot hand low tiers a new weapon.
-  // Gated, not ramped from zero: below READY_SKILL_GATE a bot releases at the strip threshold exactly
-  // as it always did ("low skill may release at the minimum full threshold"), and above it the extra
-  // power ramps in to the persona's ceiling. So this cannot hand the bottom of the ladder a new weapon.
-  const mcSkill = clamp(((sk.t || 0) - READY_SKILL_GATE) / (1 - READY_SKILL_GATE), 0, 1);
-  out.maxCharge = clamp(FULL_CHARGE + 0.01 + (pr.maxCharge - FULL_CHARGE - 0.01) * mcSkill, FULL_CHARGE + 0.01, 1);
+  // THE USER'S ASK #1: "in level 5 and above, the enemy to always try to have a full power shot."
+  // So the CEILING is the level's, not the persona's: it ramps 0.71 -> 1.00 across L1..L5 and stays at
+  // true maximum power above it, for every persona. The persona's own `maxCharge` survives only as a
+  // tilt BELOW the top of the ramp (an Enforcer gets there first, a Ball Hawk last), because that is
+  // where identity is still affordable — at L5+ everybody hits as hard as the game allows.
+  const lr = levelRamp(sk);
+  const personaTilt = 0.85 + 0.15 * (pr.maxCharge != null ? pr.maxCharge : 1);   // 0.96..1.00
+  out.maxCharge = clamp(FULL_CHARGE + 0.01 + (1 - FULL_CHARGE - 0.01) * lr * personaTilt, FULL_CHARGE + 0.01, 1);
   return out;
 }
 // ---- readyCharge: bank power BEFORE a target exists (research doc §"Smart-bot full-power readiness")
@@ -291,12 +294,14 @@ function toolGap(sk, kind) {
   const want = pr && pr[kind] != null ? pr[kind] : 1;
   return clamp(1 / clamp(want, 0.75, 1.25), 0.8, 1.34);
 }
-const READY_SKILL_GATE = 0.55;
+// "ALWAYS TRY TO HAVE a full power shot" is the readiness half of ask #1: how full a wind-up this bot
+// keeps banked with no victim selected. On the L5 ramp, so it is rare at L1 and permanent from L5.
+// The persona still shades WHO bothers most (Enforcer 1.0 ... Ball Hawk 0.30) but at L5+ even the
+// laziest keeps most of a charge, which is what the user asked for.
 function readyChargeWant(sk) {
   const pr = sk.pp;
-  if (!pr || !pr.ready) return 0;
-  const skill = clamp(((sk.t || 0) - READY_SKILL_GATE) / (1 - READY_SKILL_GATE), 0, 1);
-  return pr.ready * skill;   // 0 at/below t=0.55, pr.ready at the top of the ladder
+  const want = pr && pr.ready != null ? pr.ready : 0.5;
+  return levelRamp(sk) * (0.62 + 0.38 * want);   // L5+: 0.74 (hawk) .. 1.00 (enforcer)
 }
 
 export function createBotMemory(skill = DEFAULT_SKILL) {
@@ -1225,6 +1230,54 @@ function toolNotice(sk, p, mem) {
   return seededNoise(Math.floor(mem.t * 1.3) + idHash(p.id) * 0.011) < pr * 2 - 1;
 }
 
+
+// ---- ASK #2: "aim the shot at the enemy more, pushing him back further" ----------------------
+// The sim pushes a hit body along the BULLET'S TRAVEL DIRECTION (sim.js:1382 `t.kvx += bnx * kb`), so
+// a bot cannot choose the push direction independently of where it is standing — the only lever is
+// WHEN to fire. That makes this a timing rule, and the measured stakes are large:
+//   * a full hit is 343px of drift at charge 1.0 vs 250px at the old 0.71 clamp (ask #1 buys that);
+//   * pushing a chaser at 0deg to their heading makes them arrive 1.18s SOONER; 90deg is neutral;
+//     only 150-180deg buys time (+1.60/+1.93s). Roughly half of `clearMarker`'s shots were gifts.
+// So `pushValue` scores the push a shot from HERE would deliver, and at L5+ a bot waits (briefly) for
+// a shot worth taking instead of firing into its own interest. Never a hard veto: a strip is worth
+// having even at a bad angle, and the watchdog/charging path still owns the release.
+//   +1  the push moves them away from the ball (or the goal they are attacking)
+//   -1  it shoves them toward it
+function pushValue(shooter, target, state, aimAtBall) {
+  const [ux, uy] = unit(target.x - shooter.x, target.y - shooter.y);   // = the bullet's travel dir
+  const b = state.ball;
+  const ref = aimAtBall !== false ? { x: b.x, y: b.y } : { x: enemyGoalX(target.team), y: GY };
+  const [rx, ry] = unit(ref.x - target.x, ref.y - target.y);           // target -> the thing they want
+  const toward = ux * rx + uy * ry;             // +1 = we push them straight at what they want
+  const head = hyp(target.vx || 0, target.vy || 0) > 60 ? unit(target.vx, target.vy) : null;
+  const withRun = head ? ux * head[0] + uy * head[1] : 0;              // +1 = we push them along their run
+  return -0.65 * toward - 0.35 * withRun;       // high = a push they do not want
+}
+
+// ---- "LEVEL 5 AND ABOVE", THE USER'S OWN DEFINITION -----------------------------------------
+// He was explicit about what it means: *"randomly from level 1 very few times, to almost always
+// level 5 and above."* So it is a RAMP, not a switch. Enemy skill by level (difficulty.js):
+//   L0 0.05 · L1 0.13 · L2 0.22 · L3 0.31 · L4 0.40 · L5 0.49 · … · L11 1.00
+// which gives, through `levelChance` below:
+//   L0 never · L1 ~7% · L2 ~28% · L3 ~50% · L4 ~72% · L5 ~94% · L6+ ~always
+//
+// WHY A PROBABILITY IS ALLOWED HERE, when `decisionHz`/`mistakeP` are on the refuted list: those
+// were stochastic HANDICAPS — a bot that randomly fails to act on what it already decided. This is a
+// frequency ramp on an ABILITY, the same shape as `toolNotice` and `preChargeP`, both of which ship
+// and both of which rank. A weak bot uses the trick rarely and a strong one uses it always; nobody
+// gets a coin flip inserted between deciding and acting.
+//
+// Deterministic: seededNoise over a per-bot hash, a per-behaviour key and a ~1.1Hz time bucket, so a
+// replay of the same match makes the same choices and A/Bs stay paired. NEVER Math.random here.
+const L5_LO = 0.10, L5_HI = 0.49;
+function levelRamp(sk) { return clamp(((sk.t || 0) - L5_LO) / (L5_HI - L5_LO), 0, 1); }
+function levelChance(sk, p, mem, key, hz = 1.1) {
+  const pr = levelRamp(sk) * 0.94 + (levelRamp(sk) >= 1 ? 0.06 : 0);   // ~94% at L5, ~100% above it
+  if (pr <= 0) return false;
+  if (pr >= 1) return true;
+  return seededNoise(Math.floor(mem.t * hz) + idHash(p.id) * 0.011 + idHash(key) * 0.007) < pr * 2 - 1;
+}
+
 // ============================ THE FOUR NEW BEHAVIOUR GATES ==================================
 // All on `sk.t`, the RAW difficulty scalar skillVec now exposes — NEVER on toolSkill, which
 // saturates at 0.85 by L5 and therefore cannot rank anything above it (see skillVec's comment
@@ -1421,12 +1474,23 @@ const JUMP_NO_CANNON_D = 620;    // without a wall boost, insist on a trip long 
 // removing it entirely is part of why the re-measured ladder ranked at rho 0.80 instead of 0.90.
 // This keeps ~90% of the idle fix (t=1.00 waits 5.5s between travel bombs, not the 1.2s that caused
 // the complaint) while leaving the top tier a readable edge over the bottom's 8.1s.
-const mobilityGap = (sk) => 6.5 * (1.25 - 0.4 * skT(sk));
+// THE USER'S ASK #5: "in higher level bot, 5 and above, the bot prefer to move using the bomb trick
+// more." The re-arm interval is what limits how often it happens, so the L5 ramp shortens it — 8.1s at
+// the bottom, 3.5s from L5 up. MOBILITY_GAP was deliberately kept flat-ish once (a skill-scaled
+// interval measured as flattening the ladder), so this is a change to a decision that was previously
+// argued: it is now level-ramped ON PURPOSE and the ladder is re-measured for it.
+const mobilityGap = (sk) => 6.5 * (1.25 - 0.4 * skT(sk)) * (1 - 0.46 * levelRamp(sk));
 function mobilityJump(p, bm, mem, state, sk, tgt, visibleEnemies, bombReady, tag) {
   if (!bombReady || (sk.toolSkill || 0) < TOOL_MOBILITY_MIN) return null;
   if (mem.t <= (bm.nextBombAt || 0) || mem.t <= (bm.nextMobilityAt || 0) || !toolNotice(sk, p, mem)) return null;
   // (the gap itself is stamped below, once the jump is actually taken)
   const d = hyp(tgt.x - p.x, tgt.y - p.y);
+  // ASK #5, AND THE PART OF IT THAT MUST NOT MOVE: the distance gates encode "a jump only pays if it
+  // BEATS WALKING" — over one fuse+glide (2.92s) walking covers 400px, an on-centre launch 653px.
+  // Lowering JUMP_MIN_D to 300 and JUMP_NO_CANNON_D to 430 to make bombs commoner made a bot take a
+  // 450px trip by bomb instead of walking round a 600px wall, and it never arrived inside the budget
+  // (test-bot-stall.mjs case 4: 5.90s -> never). The frequency comes from the RE-ARM interval instead,
+  // which is what actually limited how often this fires.
   if (d < JUMP_MIN_D) return null;
   // Freezing for 1.725s next to an opponent is how you get stripped, and freezing while somebody
   // else is closer to the destination is how you arrive second.
@@ -1622,22 +1686,52 @@ function decideBot(p, role, state, mem, sk, dt) {
   }
   bm.blindT = 0;
 
-  // TACTIC 11 — CORNER-PINNED BOMB ESCAPE (all tiers; harder bots trigger sooner). When we're
-  // wedged in a corner scrapping for the ball with an enemy right on us, plant a bomb at our feet
-  // and rocket-jump loose (a carried ball stays attached; the point-blank enemy gets flung too).
+  // TACTIC 11 — BOMB YOURSELF LOOSE (all tiers; harder bots trigger sooner).
+  // ASK #4: "when the bots are stuck or moving with no purpose, make them place a bomb at their feet
+  // to get loose." This used to require a CORNER, an enemy within 170px AND the ball within 220px —
+  // three conditions that almost never coincide, which is why `cornerEscape` fired 0.11-0.18 times a
+  // match while the felt symptom (a bot grinding on a wall face) kept getting reported. Now the
+  // trigger is the thing the user actually described: I want to move, I am not moving, and it has gone
+  // on long enough to be embarrassing. The corner case survives as the FAST path (it triggers sooner
+  // there, because a corner is where a body genuinely cannot slide out).
+  // WHY IT IS SAFE TO WIDEN: `bm.stuck` counts consecutive ticks of wanting to move and not moving, so
+  // it cannot fire on a bot that is standing still ON PURPOSE (a wall wind-up sets its own hold, a
+  // bomb plant returns early). The launch path is wall-tested by cannonPlant, the bomb is on its own
+  // cooldown, and a CARRIER cannot plant at all (sim.js:889 gates on !carrying) — so the worst case is
+  // one wasted charge, against a measured 15.65s of a bot standing in a wall before this existed.
   {
-    const stuckLim = sk.toolSkill >= 0.9 ? 5 : 9;
     const nearCorner = (p.x < 300 || p.x > FIELD.W - 300) && (p.y < 260 || p.y > FIELD.H - 260);
     let foeNear = 1e9; for (const e of visibleEnemies) foeNear = Math.min(foeNear, hyp(e.x - p.x, e.y - p.y));
-    if ((bm.stuck || 0) > stuckLim && nearCorner && foeNear < 170 && hyp(b.x - p.x, b.y - p.y) < 220
-        && (p.specialCd || 0) <= 0 && mem.t > (bm.nextBombAt || 0)) {
-      const [ex, ey] = unit(FIELD.W / 2 - p.x, GY - p.y);   // rocket toward the open pitch centre
-      // Wedged in a corner is exactly where a wall IS behind you, so this is the highest-yield place
-      // to use the cannon lob — and the escape needs every px of launch it can get.
+    // ~0.5s wedged in a corner (or with someone on top of us), ~1.1s anywhere else. Weak bots wait
+    // longer before resorting to it, which keeps this off the bottom of the ladder as a free ability.
+    const fast = nearCorner || foeNear < 170;
+    // MEASURED THEN SET: with the ray-sampled detour in place the WORST jam in 24 matches is ~1.0s,
+    // so a 1.1s gate could never fire — `stuckEscape` was 0 per match. The gate now sits UNDER the
+    // observed tail: ~0.4s wedged in a corner or under pressure, ~0.65s anywhere else.
+    const stuckLim = (fast ? 24 : 40) * (sk.toolSkill >= 0.9 ? 0.7 : 1) * (1.3 - 0.3 * levelRamp(sk));
+    // Either signal fires it: a hard wedge (bm.stuck ticks) or going nowhere while moving
+    // (bm.noProgressT seconds). The second one is what the user described as "moving with no purpose",
+    // and it needs a longer fuse because a bot legitimately loses progress for a moment when the ball
+    // changes hands — 1.5s at the top of the ramp, 2.2s at the bottom.
+    // 1.5s of no progress fired this 7.2 times a match, which is a habit rather than a rescue: each
+    // plant parks the bot on a 1.725s fuse, and the repo's own note (README §2) records that a bot
+    // standing on a plant still reports wantMove=1 and therefore lands in `pinnedPct`. So the fuse is
+    // longer and there is a per-bot re-arm: ~2 escapes a match, used when nothing else worked.
+    const noPurposeLim = 2.3 * (1.4 - 0.4 * levelRamp(sk));
+    const wedged = (bm.stuck || 0) > stuckLim;
+    const aimless = (bm.noProgressT || 0) > noPurposeLim;
+    if ((wedged || aimless) && (p.specialCd || 0) <= 0 && mem.t > (bm.nextBombAt || 0) && mem.t > (bm.nextEscapeAt || 0)) {
+      // Fly toward open space: the pitch centre is the safest bet from a corner, and away from the
+      // nearest wall face otherwise. cannonPlant screens the flight path, so if the only launch
+      // available would fly into stone this returns null and we simply keep steering.
+      const [ex, ey] = unit(FIELD.W / 2 - p.x, GY - p.y);
       const cp = cannonPlant(p, ex, ey, state, 420);
       if (cp) {
         bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 400, aimY: p.y + cp.dy * 400 };
-        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb'); bm.stuck = 0; bm.lastTrick = 'cornerEscape';
+        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb');
+        bm.nextEscapeAt = mem.t + 9.0;                 // a rescue, not a movement style
+        bm.stuck = 0; bm.noProgressT = 0;
+        bm.lastTrick = nearCorner ? 'cornerEscape' : (wedged ? 'stuckEscape' : 'aimlessEscape');
         return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
       }
     }
@@ -2470,7 +2564,17 @@ function decideBot(p, role, state, mem, sk, dt) {
       for (const e of visibleEnemies) { const d = hyp(e.x - carrier.x, e.y - carrier.y); if (d < 130 && d < md) { md = d; mark = e; } }
       if (mark && laneClear(p.x, p.y, mark.x, mark.y, state, team, { enemies: false }) && mem.t > (bm.nextMarkAt || 0)) {
         const [ax, ay] = leadAim(p.x, p.y, mark.x, mark.y, mark.vx || 0, mark.vy || 0, bulletSpeed, sk);
-        aim = { x: ax, y: ay }; shoot = true; shootTgt = mark.id; charge = 0.8; bm.lastTrick = 'clearMarker'; bm.nextMarkAt = mem.t + 0.7 * (sk.cdMul || 1); if (md < 160) closeShot = true;
+        // ASK #2 + the measured defect: `clearMarker` had NO angle term, so ~half its shots pushed the
+        // chaser along their own run and made them arrive 1.18s SOONER. From L5 up it only fires when
+        // the push is actually unhelpful to the marker, and it asks for full power (ask #1) rather than
+        // the old 0.8 — the whole point of the play is displacement.
+        const pvM = pushValue(p, mark, state, true);
+        if (levelChance(sk, p, mem, 'mark') && pvM < 0) {
+          bm.nextMarkAt = mem.t + 0.25;                 // re-look soon: this was a bad angle, not a bad idea
+          if (!bm.lastTrick) bm.lastTrick = 'pushAngle';
+        } else {
+          aim = { x: ax, y: ay }; shoot = true; shootTgt = mark.id; charge = 1; bm.lastTrick = 'clearMarker'; bm.nextMarkAt = mem.t + 0.7 * (sk.cdMul || 1); if (md < 160) closeShot = true;
+        }
       }
     }
 
@@ -2513,6 +2617,20 @@ function decideBot(p, role, state, mem, sk, dt) {
       // chase that never closes on a carrier running away at the same speed; interceptPoint walks at
       // where they will be, shaded onto the goal side so the press cuts the lane.
       tgt = interceptPoint(p, c, state, sk);
+      // ASK #2, the half that actually fires: the push travels along the BULLET's line, so where you
+      // STAND decides which way the carrier flies. Standing goal-side (between the carrier and the
+      // goal they are attacking) means every strip shoves them back up the pitch instead of forward.
+      // A bounded shift, so it biases the approach without abandoning the intercept: at most 130px.
+      if (levelChance(sk, p, mem, 'press')) {
+        const [gx2, gy2] = unit(egX - c.x, GY - c.y);            // carrier -> the goal they attack
+        // Scaled by the persona's own appetite for depth, because a flat shift made EVERY presser
+        // goal-side and collapsed the Fortress/Enforcer distinction that test-bot-personas.mjs
+        // measures (Fortress 50.4% vs Enforcer 57.6% — backwards). A Fortress now shifts ~1.3x, an
+        // Enforcer ~0.9x, so both the ask and the identity survive.
+        const ggShift = 0.70 + 0.60 * ((sk.pp && sk.pp.guardGoal != null) ? sk.pp.guardGoal : 0.5);
+        const shift = Math.min(130, 0.20 * distC) * ggShift;
+        tgt = { x: clamp(tgt.x + gx2 * shift, 20, FIELD.W - 20), y: clamp(tgt.y + gy2 * shift, 20, FIELD.H - 20) };
+      }
       if (hyp((c.vx || 0), (c.vy || 0)) > 40 && !bm.lastTrick) bm.lastTrick = 'pressIntercept';
       // Only CLOSE contact counts as wanted: a strip is a BULLET at up to PRESS_RANGE (~436px), so a
       // presser has no reason to grind into the carrier's body — measured, keeping the whole press
@@ -2523,7 +2641,20 @@ function decideBot(p, role, state, mem, sk, dt) {
         aim = { x: ax, y: ay };
       }
       // a FULL-charge bullet strips the ball even INSIDE the box (only knockback is cut there)
-      if (canShoot && seeC && lane && distC < PRESS_RANGE) { shoot = true; shootTgt = c.id; charge = 1; if (distC < 260) closeShot = true; }
+      if (canShoot && seeC && lane && distC < PRESS_RANGE) {
+        // ASK #2: from L5 up, hold a beat when the shot would shove the carrier TOWARD the ball or
+        // along their own run — unless they are close enough that the strip itself is the point, or
+        // we have already waited (bounded by pushWaitUntil so this can never become a stall).
+        const pv = pushValue(p, c, state, true);
+        const wantAngle = levelChance(sk, p, mem, 'push') && distC > 200 && pv < -0.15;
+        if (wantAngle && !(bm.pushWaitUntil && mem.t > bm.pushWaitUntil)) {
+          if (!bm.pushWaitUntil) bm.pushWaitUntil = mem.t + 0.45;   // at most ~0.45s of repositioning
+          if (!bm.lastTrick) bm.lastTrick = 'pushAngle';
+        } else {
+          bm.pushWaitUntil = 0;
+          shoot = true; shootTgt = c.id; charge = 1; if (distC < 260) closeShot = true;
+        }
+      }
       // bomb tackle-steal: only if the blast will actually REACH the carrier at detonation
       // (predict them forward by the fuse), no teammate is caught, and the carrier isn't
       // deep in its box (reduced knockback blunts the tackle there).
@@ -2848,6 +2979,51 @@ function decideBot(p, role, state, mem, sk, dt) {
     }
 
   } else {
+    // ===== ASK #3: I CANNOT WIN THE RACE, SO MOVE THE BALL WITH A BULLET =========================
+    // "if the enemy is closer to the ball than him then he should shoot the ball to deflect it,
+    // preferably in the direction of the goal or its team mate."
+    // The mechanic is fully implemented in the sim and was measured NEVER used: a bullet sets a loose
+    // ball's velocity to PROJECTILE.ballPush(476) x chargeMul (~214px of roll at full), which is why
+    // `bulletBall` shows 10-65 chances a match at 0% taken (SKILL_CATALOGUE T4). The push travels along
+    // the BULLET's line, so the useful shot is the one where the line from me through the ball already
+    // points somewhere I want it: the enemy goal, or my mate. That is a geometry test, not a solver.
+    // Gated on the L5 ramp, on actually LOSING the race (their arrival beats mine by a real margin),
+    // and on a clear lane — and it deliberately does not fire when the ball is already rolling fast,
+    // because then the roll is doing the work and a bullet would just as likely stop it.
+    // FOUR GATES, ALL FROM MEASUREMENT. Ungated (margin 0.22s, no cooldown, any distance) this fired
+    // 28.7 times a match and turned pickups into scrambles: shots/match 74 -> 163, touches 22.6 -> 18.5,
+    // wall-pinning 0.56% -> 1.05%. It is a PLAY, not a reflex, so: lose the race by a real margin, be
+    // far enough away that walking is genuinely not the answer, keep a round in reserve, and re-arm
+    // slowly enough that a scramble cannot become a shooting gallery.
+    if (!b.owner && p.ammo >= 2 && !bm.charging && !bm.bombHold && !bm.buildHold
+        && mem.t > (bm.nextBallPushAt || 0) && levelChance(sk, p, mem, 'ballpush')) {
+      const mySpd = speedOf(p, state, false);
+      const myDist = hyp(b.x - p.x, b.y - p.y);
+      const myArrive = myDist / mySpd;
+      let foeArrive = 1e9;
+      for (const e of visibleEnemies) foeArrive = Math.min(foeArrive, hyp(b.x - e.x, b.y - e.y) / speedOf(e, state, false));
+      const losingRace = foeArrive < myArrive - 0.55 && myDist > 240;       // they clearly win it, and it is not at my feet
+      const ballSlow = hyp(b.vx || 0, b.vy || 0) < 240;
+      if (losingRace && ballSlow) {
+        const [dx, dy] = unit(b.x - p.x, b.y - p.y);                       // the direction a hit would send it
+        const dGoal = unit(egX - b.x, GY - b.y);
+        const towardGoal = dx * dGoal[0] + dy * dGoal[1];
+        const mateDir = mate ? unit(mate.x - b.x, mate.y - b.y) : null;
+        const towardMate = mateDir ? dx * mateDir[0] + dy * mateDir[1] : -1;
+        // 0.62 ~ 52deg of tolerance: the ball only has to end up meaningfully goalward (or at the mate),
+        // not perfectly. Also never nudge it INTO our own half's danger zone: goalward wins ties.
+        const useful = towardGoal > 0.62 || (towardMate > 0.78 && hyp(mate.x - b.x, mate.y - b.y) > 120);
+        const clearLane = laneClear(p.x, p.y, b.x, b.y, state, team, { enemies: false });
+        if (useful && clearLane) {
+          bm.nextBallPushAt = mem.t + 1.6 * (sk.cdMul || 1);
+          bm.lastTrick = 'ballPush';
+          return finalize(p, tgt, { x: b.x - p.x, y: b.y - p.y },
+            { shoot: true, charge: 1, special: false, build: false, closeShot: hyp(b.x - p.x, b.y - p.y) < 260 },
+            state, mem, bm, sk, dt);
+        }
+      }
+    }
+
     // ===== LOOSE BALL =====
     if (isOnBall) {
       const [bx, by] = predictBall(b, clamp(len(b.x - p.x, b.y - p.y) / 900, 0.05, 0.5));
@@ -3181,6 +3357,12 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
     bm.pg.tx = tgt.x; bm.pg.ty = tgt.y;
     if (progress < bm.pg.best - 8) { bm.pg.best = progress; bm.pg.bestAt = mem.t; }
     bm.stalledFlag = straight > 46 && (mem.t - bm.pg.bestAt) > 0.6;
+    // "MOVING WITH NO PURPOSE" (ask #4's second half) as a DURATION, not a flag. bm.stuck only counts
+    // a hard wedge (<0.6px/tick) and the ray-sampled detour made those rare — worst 24-match jam ~1.0s
+    // — so the bomb escape could never see the case the user actually described: a bot that IS moving
+    // and is getting nowhere (circling a capsule, oscillating between two waypoints). The ratchet
+    // already detects it; this integrates it so a threshold can be set against it.
+    bm.noProgressT = bm.stalledFlag ? (bm.noProgressT || 0) + dt : 0;
     const s = steer(p, navTgt.x, navTgt.y, state, bm, sk, mem.t); mvx = s[0]; mvy = s[1];
   }
 
