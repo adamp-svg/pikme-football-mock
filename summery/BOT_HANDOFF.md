@@ -5,6 +5,127 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 000000. ROUND 8 (2026-07-26 15:0x-, agent `wall-windup`) — THE L10 "IDLE" WAS THE THRESHOLD, NOT THE BOTS
+
+Requested: *"there are still idle moments"* at difficulty 10, with round 7's attribution pointing at the
+wall wind-up (67% of stationary episodes) and an untagged "blocked" slice (28%).
+
+### READ THIS BEFORE YOU CHASE BOT IDLE AGAIN. THE NUMBER WAS AN ARTEFACT.
+
+`bot-idle.mjs` counted a bot as **stationary below 1.2 px/tick**. Do the arithmetic the file never did:
+
+| | |
+|---|---|
+| full-speed walk | `CHARACTERS.player.speed 158 × settings.speedMul 0.9 = 142.2 px/s`, `MOVE_ACCEL 1` (velocity snaps) → **2.37 px/tick** at DT 1/60 |
+| wall wind-up | `BUILD_WINDUP_SLOW 0.5` (`sim.js:715`) → **1.185 px/tick** |
+| the old "stationary" cut | **1.2 px/tick** — 0.015px above the wind-up crawl |
+
+Measured, L10 (partner 0.42 / enemy 0.93), 8 × 60s, MAIN_FIELD: while `buildHold` the displacement is
+**1.18 / 1.19 / 1.19 px/tick at p10 / p50 / p90** and `mean|move| = 1.00` — a *perfectly flat walk at
+half speed with full move intent*, not a stall. Threshold sweep, episodes ≥0.3s per match:
+
+| cut | total | buildHold | blocked | bombHold |
+|---|---|---|---|---|
+| 1.5px | 4.63 | 2.38 | 2.13 | 0.13 |
+| **1.2px (old)** | **3.25** | **2.25** | 0.88 | 0.13 |
+| 1.0px | 0.38 | 0.00 | 0.25 | 0.13 |
+| **0.8px** | **0.00** | **0.00** | **0.00** | **0.00** |
+
+**No bot at L10 is stationary for 0.3 s.** And the slow is not a bot handicap — `sim.js:715` is
+player-agnostic, so a human winding up a wall crawls at exactly the same 1.185 px/tick. The only
+levers on it are `BUILD_WINDUP` / `BUILD_WINDUP_SLOW`, which change the rule for human players too:
+that is a design decision for the user, not a bot fix.
+
+`bot-idle.mjs` now defaults to `STOP_PX 0.8` (sweepable), carries the arithmetic in its header, and
+prints a separate **SLOWED but walking** report so the crawl can never be mistaken for a stall again:
+carrying the ball **15.9 s/match** · rubbing along geometry/bodies **11.5 s/match** · wall wind-up
+**1.5 s/match**. STOPPED is 0.89% of bot-ticks, longest stopped run **0.28 s**.
+
+**The 28% "blocked, no tag" slice, re-measured under 1.0 px/tick:** 1.90 s/match total —
+**51.6% knockback fighting the move** (the bot is being blasted; correct behaviour), 33.5% enemy
+body, 10.9% mate body, 1.1% unexplained — and only **0.38 episodes/match ≥0.3 s, all knockback**.
+Round 6 took mate-body blocking from 28.6% of stuck ticks to a tenth of a second per match. There is
+nothing left in that slice.
+
+### The real bug that was hiding under the phantom: THE WALL'S AIM NEVER LATCHED
+
+`bm.buildHold` stored a `dist` and nothing else — `bm.buildHold.x/y` was written by five branches and
+**read by no one**. The wall is placed by `wallPlacement(p.x, p.y, p.aimX, p.aimY, p.aimMag)` at the
+COMMIT tick, and by then a *different* branch owns the aim: `blockDrive` arms `bm.buildHold` and
+`bm.trap` on the same tick, so from the next tick the bot is in the `else if (bm.trap)` burst-and-strip
+branch, aiming at the carrier. Per-tick tags over one wind-up: **blockDrive 10 ticks, ambushStrip 260**.
+
+| at commit | aim drift | placement error |
+|---|---|---|
+| `blockDrive` | **38°** median | 43px median, **152px** max |
+| `ambushWall` | 17° | 23px |
+| `catapultWall` | **116°** | 115px |
+| `deflectSetup` | 2° | 29px |
+
+So the branches that returned `finalize(p, {x: p.x, y: p.y}, ...)` — pinning themselves to their own
+feet *"so the wall doesn't move"* — were paying `BUILD_WINDUP_SLOW` for nothing. The wall moved.
+
+**Fix, all in `finalize()` plus the five arming sites:** latch `wx`/`wy` (the wall's world centre) and
+the normal; re-derive `buildDist` from the LIVE position every tick, exactly as the client's drag
+ghost does; let the latched normal own the emitted aim for the wind-up and the commit; never commit a
+wall on a tick the bot also fires (`p.aimX` is one field serving both the bullet/kick and
+`wallPlacement`) with a 0.25 s cap so the deferral can't hang; drop the wind-up the instant this bot
+owns the ball (same invariant as `bombHold` — a carrier can never build, and the aim latch would
+otherwise point a *carrier* along a stale wall normal); and LEASH the steering target into the window
+where the wall still lands, for the tiers whose `wallReach` has push distance to give.
+
+**Outcome — the metric that matters is the ANGLE, because these walls exist to SPAN a lane** (24
+matches × 60s, L10):
+
+| | HEAD | after |
+|---|---|---|
+| walls raised vs an enemy carrier | 11 (of 52 builds) | **32 (of 94)** |
+| miss from perpendicular-to-the-lane | **22° median, 63° p90** | **4° median, 5° p90** |
+| within 30° of spanning the lane | **64%** | **100%** |
+| commit aim drift | 38° / 116° | **0°** |
+| wall builds per match | 2.2 | **3.9** (UP — this is not idle removed by never building) |
+
+`bot-feel`, paired seeds against a pristine `git archive HEAD` copy, 3 seed bases × 12 × 60s, at skill
+**0.93**: worst jam 0.68 → 0.59 s · jams>0.5 s 0.14 → 0.11 · reach-timeouts 4.00 → 3.61 ·
+**backward releases 24.7% → 17.9%** (round 7's open item 3) · touches 21.6 → 22.3 · goals 1.86 → 1.78.
+At skill 0.50 every delta sits inside the band `CLAUDE.md` records for this instrument (identical code
+has reported pinning 0.27–0.51%).
+
+### MEASURED AND REFUTED THIS ROUND — do not re-propose
+
+- **ABORT a wind-up whose wall is no longer wanted.** Obvious, free (the charge is spent inside
+  `buildWall`), and it destroyed the play: **every** `ambushWall` hold aborted (0.88 arms/match, 0.88
+  aborts, **0 commits**) and wall builds fell **1.75 → 0.38/match**. Cause: the trap strips the ball it
+  was walling against, our team then owns it, and `wallSpotOk`'s own-lane test flips — *the trigger
+  destroys its own precondition*, the same shape as `doubleBomb` in §4.
+- **GATE the arm on already standing on the build ray** ("walk to the spot, wind up on arrival").
+  `blockDrive` went **1.25 → 0.13 arms/match**: its stand spot is recomputed from the carrier's LIVE
+  position every tick, so the bot chases a target that moves. That is the walk-to-a-pad autopsy from
+  §0000 for the **third** time in this file. A LEASH works where a gate does not: nothing to miss,
+  nothing to cancel.
+- **LEASH every tier.** Below `T_FAR_WALL` (0.82) `wallReach == BUILT_WALL.offset`, so the along-window
+  collapses to a single distance and the leash is a 60px arc — a freeze in all but name. Skill 0.50:
+  worst jam 0.97 → 1.61 s, pinned 0.37 → 0.49%, idle-with-ball 1.12 → 1.51%. Gated on the freedom
+  existing, skill 0.50 movement is unchanged and only the orientation is fixed.
+
+### Open after round 8
+
+1. **The defensive wall plays place their wall AFTER the situation has ended.** Of 52 builds at HEAD
+   only 11 went up while an enemy still carried the ball (94 → 32 after the fix, so it improved, but
+   it is still a third). The 0.6 s wind-up outlives a possession whose median length is ~0.87 s. Worth
+   a look: arm earlier off a *predicted* drive, or accept that the wall is a delaying line rather than
+   a tackle.
+2. `idleBallPct` reads consistently higher after this round (0.78 → 1.05% at 0.93, 1.12 → 1.79% at
+   0.50) across all seeds. The one mechanism I could name — a stale wind-up surviving a pickup — is
+   now closed and the number did not move, so this looks like chaotic re-rolling rather than a code
+   path. It is ~1% of a match; worth confirming with more seeds before anyone spends time on it.
+3. Round 7's open items 2 and 3 are unchanged and are the honest remaining answer to "the bots look
+   idle at L10": at skill 0.93 the ball is loose ~71% of the match, `notClosingPct` is ~45% and there
+   are ~3.6 "nobody reached it in 4 s" events per match. **A bot walking away from a loose ball looks
+   exactly like a bot standing still, from the player's chair — and that one is real.** It is not a
+   wall problem and it is not measurable with `bot-idle.mjs`.
+
+---
 ## 00000. ROUND 7 (2026-07-26 14:1x-, agent `bot-review`) — REWARD SHAPING: move the ball forward, and fetch it
 
 Requested: *"prioritize and reward behaviour which pushes the ball further towards the enemy goal...

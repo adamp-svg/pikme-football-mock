@@ -1098,6 +1098,12 @@ function wallSpotOk(state, p, team, cx, cy) {
 }
 
 function wallReach(sk) { return skT(sk) >= T_FAR_WALL ? BUILT_WALL.offset + BUILD_DIST_MAX : BUILT_WALL.offset; }
+// How far a bot may drift during a wall wind-up before the wall stops landing where the play asked
+// (see the latch at the top of finalize, which LEASHES the steering target to this window). The
+// wall is BUILT_WALL.len 176px long and .thick 32px, so 46px of LATERAL slide still spans the lane
+// it was built across; the along-axis needs no separate slack because `wallPush` already clamps the
+// drag into [offset, reach].
+const BUILD_LAT_TOL = 46;
 // The buildDist that puts the wall on (wx,wy) when building along the unit aim (nx,ny). Clamped
 // into the tier's reach, so below the gate this is exactly 0 — today's at-your-feet wall.
 function wallPush(p, wx, wy, nx, ny, sk) {
@@ -1883,11 +1889,16 @@ function decideBot(p, role, state, mem, sk, dt) {
         aim = { x: nx, y: ny };
         if (along >= BUILT_WALL.offset - 22 && along <= reach + 8 && lat < 52) {
           const dist = wallPush(p, Wx, Wy, nx, ny, sk);
-          if (!bm.buildHold) bm.buildHold = { x: nx, y: ny, dist, until: mem.t + BUILD_WINDUP + 0.1 };
+          // wx/wy LATCH the wall's world centre, so finalize() re-derives the drag from wherever
+          // this bot ends up standing.
+          if (!bm.buildHold) bm.buildHold = { x: nx, y: ny, wx: Wx, wy: Wy, dist, until: mem.t + BUILD_WINDUP + 0.1 };
           else bm.buildHold.dist = dist;
           bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'deflectSetup'; bm.deflect = null;
           (mem.setPiece || (mem.setPiece = {}))[team] = { x: Wx, y: Wy, by: p.id, until: mem.t + 3.0 };
-          return finalize(p, { x: p.x, y: p.y }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+          // Was `{x: p.x, y: p.y}` — pinned to its own feet for the whole wind-up so the wall
+          // would not move. The latch above is what keeps the wall still now, so hold the build
+          // RAY instead: the ray-frame clamp in finalize() keeps this legal and the bot walking.
+          return finalize(p, { x: Wx - nx * reach, y: Wy - ny * reach }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
         }
         // walk onto the build ray, standing back by the tier's full reach
         return finalize(p, { x: Wx - nx * reach, y: Wy - ny * reach }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
@@ -1944,9 +1955,14 @@ function decideBot(p, role, state, mem, sk, dt) {
           return finalize(p, spot, { x: q.dx, y: q.dy }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
         }
         if (buildReady && !bm.buildHold && mem.t > (bm.nextBuildAt || 0)) {
-          // aim BACKWARDS so the capsule lands behind the plant spot — that is the cannon side
-          const dist = wallPush(p, p.x - q.dx * 70, p.y - q.dy * 70, -q.dx, -q.dy, sk);
-          bm.buildHold = { x: -q.dx, y: -q.dy, dist, until: mem.t + BUILD_WINDUP + 0.1 };
+          // aim BACKWARDS so the capsule lands behind the plant spot — that is the cannon side.
+          // The wall's spot is latched in WORLD space (wx/wy): measured without it, the catapult
+          // wall committed with 116deg of aim drift and 115px of error, because from the next tick
+          // the aim came from whatever ran then — and this play's whole value is the wall being
+          // BEHIND the bomb, in the cone opposite the push.
+          const wcx = p.x - q.dx * 70, wcy = p.y - q.dy * 70;
+          const dist = wallPush(p, wcx, wcy, -q.dx, -q.dy, sk);
+          bm.buildHold = { x: -q.dx, y: -q.dy, wx: wcx, wy: wcy, dist, until: mem.t + BUILD_WINDUP + 0.1 };
           bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1);
           q.phase = 'build'; bm.lastTrick = 'catapultWall';
           return finalize(p, { x: p.x, y: p.y }, { x: -q.dx, y: -q.dy }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
@@ -2354,11 +2370,17 @@ function decideBot(p, role, state, mem, sk, dt) {
         // while the trap is still live, and re-stamping `until` from `mem.t` each time
         // would perpetually push completion out of reach. `dist` DOES refresh each tick: the
         // bot is still walking, and the drag it commits should match where it actually stands.
+        // THIS IS THE PLAY THAT MOTIVATED THE LATCH. It arms and sets `bm.trap` on the SAME tick,
+        // so from the very next tick the bot is in the `else if (bm.trap)` burst-and-strip branch
+        // (measured per-tick tags over one wind-up: blockDrive 10 ticks, ambushStrip 260) — which
+        // aims at the CARRIER. The wall therefore committed a median 43px / 38deg off the lane it
+        // was supposed to span, max 152px. wx/wy latch the lane point so the capsule goes up
+        // ACROSS that lane whatever the strip run does to this bot's aim in the meantime.
         const trapDist = wallPush(p, wallPt.x, wallPt.y, lux, luy, sk);
         aim = { x: lux, y: luy };
         tgt = { x: c.x + lux * 150, y: c.y + luy * 150 };
         if (wallSpotOk(state, p, team, wallPt.x, wallPt.y)) {
-          if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, dist: trapDist, until: mem.t + BUILD_WINDUP + 0.1 };
+          if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, wx: wallPt.x, wy: wallPt.y, dist: trapDist, until: mem.t + BUILD_WINDUP + 0.1 };
           else bm.buildHold.dist = trapDist;
           bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = ambush ? 'ambushWall' : 'blockDrive';
         }
@@ -2422,15 +2444,20 @@ function decideBot(p, role, state, mem, sk, dt) {
           bm.lastTrick = 'goalScreen'; // tagged for the WALK too: this is a committed play now
           if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 85 && wallSpotOk(state, p, team, screenPlaneX, screenY)) { // on the plane -> raise the screen
             const dist = wallPush(p, screenPlaneX, screenY, ogSign, 0, sk);
-            if (!bm.buildHold) bm.buildHold = { x: ogSign, y: 0, dist, until: mem.t + BUILD_WINDUP + 0.1 };
+            // The screen plane is already a WORLD point, so latching it is exact: the wall goes up
+            // outside the box (solid hp3, never a fragile in-box one) no matter where the walk ends.
+            if (!bm.buildHold) bm.buildHold = { x: ogSign, y: 0, wx: screenPlaneX, wy: screenY, dist, until: mem.t + BUILD_WINDUP + 0.1 };
             else bm.buildHold.dist = dist;
             aim = { x: ogSign, y: 0 }; shoot = false; special = false;
             bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.screenUntil = 0;
           }
         } else if (buildReady && liningUp && iGoalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)
                    && wallSpotOk(state, p, team, p.x + w2cx * BUILT_WALL.offset, p.y + w2cy * BUILT_WALL.offset)) {
-          // fallback: opportunistic screen wall at our current position (aim toward the carrier)
-          if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, dist: 0, until: mem.t + BUILD_WINDUP + 0.1 };
+          // fallback: opportunistic screen wall at our current position (aim toward the carrier).
+          // `dist: 0` means "at BUILT_WALL.offset along the aim" — freeze that as a WORLD point at
+          // arm time (the same spot wallSpotOk was just checked against) so the wall still lands
+          // between us and the carrier if this bot drifts during the wind-up.
+          if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, wx: p.x + w2cx * BUILT_WALL.offset, wy: p.y + w2cy * BUILT_WALL.offset, dist: 0, until: mem.t + BUILD_WINDUP + 0.1 };
           aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
           bm.lastTrick = 'screenWall'; // was UNTAGGED, so every trick histogram reported it as dead
                                        // when it may simply have been invisible. Measure, then judge.
@@ -2601,6 +2628,69 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   // the top tiers). decideBot clears it at the top of the next tick; this closes the arming tick
   // too, so no new play can reintroduce it by accident. test-bot-tricks-fire gates on exactly this.
   if (state.ball.owner === p.id && bm.bombHold) { bm.bombHold = null; btn = { ...btn, special: false }; }
+  // ---- WALL WIND-UP: LATCH THE WALL TO A WORLD POINT, NOT TO STANDING STILL -------------------
+  // MEASURED before this existed (L10 = partner 0.42 / enemy 0.93, 8 matches x 60s, MAIN_FIELD):
+  // 2.4 wind-ups/match, and the wall landed a median 43px — max 152px — and 38deg away from what
+  // the arming branch asked for on the dominant play (`blockDrive`). Cause: `bm.buildHold` only
+  // ever carried a `dist`; the AIM on the commit tick was whatever branch happened to run THEN,
+  // and after the arming tick that is a DIFFERENT branch — `blockDrive` arms, sets `bm.trap`, and
+  // from the next tick the bot is `ambushStrip` bursting at the carrier (per-tick tags measured:
+  // blockDrive 10 ticks vs ambushStrip 260). So the branches that pinned themselves to their own
+  // feet "so the wall doesn't move" were paying BUILD_WINDUP_SLOW for nothing: the wall moved.
+  // Latching the target POINT plus the wall's normal makes placement independent of where the bot
+  // walks — `wallPush` re-derives the drag from the LIVE position every tick, exactly as the
+  // client's drag ghost does. Three things follow, in order of how much they matter:
+  //   1. the wall lands where the play asked (placement error -> ~0, orientation exact);
+  //   2. no branch needs to target its own feet, so the bot keeps PLAYING through the wind-up,
+  //      inside the box where the wall still lands right (steering target clamped in the ray frame);
+  // MEASURED OUTCOME (L10, 24 matches x 60s, MAIN_FIELD) — the wall's job is to SPAN the carrier's
+  // lane, so the angle is what matters: walls raised against an enemy carrier used to miss
+  // perpendicular-to-the-lane by a median 22deg (p90 63deg) and only 64% were within 30deg of
+  // spanning it; now it is a median 4deg (p90 5deg) and 100%. Wall builds went UP, 2.2 -> 3.9/match,
+  // so this is not "idle removed by never building".
+  // NB below T_FAR_WALL `wallReach` == BUILT_WALL.offset, so those tiers get the orientation fix
+  // only and move exactly as before; the far-wall tiers (t >= 0.82, which is L10's enemy) get both.
+  // SAME INVARIANT AS bombHold, one line above, and for the same reason: a ball CARRIER can never
+  // build (sim.js gates buildWall on `!carrying`), so a wind-up that survives a pickup is dead
+  // state — and with the aim latch below it is worse than dead, because it would point a CARRIER
+  // along a stale wall normal, which is the ball's glue direction AND its kick direction. MEASURED
+  // before this line existed: idle-with-ball 1.12 -> 1.77% at skill 0.50 and 0.78 -> 1.05% at 0.93.
+  if (state.ball.owner === p.id && bm.buildHold) bm.buildHold = null;
+  let bhDist = null, bhAim = null;
+  if (bm.buildHold && bm.buildHold.wx != null && !opts.hold) {
+    const h = bm.buildHold;
+    const reach = wallReach(sk);
+    bhDist = wallPush(p, h.wx, h.wy, h.x, h.y, sk);
+    bhAim = { x: h.x, y: h.y };
+    // LEASH, not a freeze and not an abort. Re-express the branch's OWN target in the ray frame,
+    // clamp the two components into the window where the wall still lands on (wx,wy), and steer at
+    // that. The bot keeps walking the way it wanted to (at BUILD_WINDUP_SLOW — the same half speed
+    // a human pays for a wind-up, sim.js:715) and it is pulled back onto the ray if it strays,
+    // instead of being pinned to its own feet. perp = (-h.y, h.x); q = W - along*n - lat*perp.
+    // MEASURED AND REJECTED — do not re-propose either of these without new evidence:
+    //   * CANCELLING the wind-up once the bot leaves the window (task idea 3) — every `ambushWall`
+    //     hold aborted (0.88 arms/match, 0.88 aborts, 0 commits) and wall builds fell
+    //     1.75 -> 0.38/match at L10. The play strips the ball it was walling against, our team then
+    //     owns it, and `wallSpotOk`'s own-lane test flips: the trigger destroys its own precondition,
+    //     the same shape as `doubleBomb` in §4.
+    //   * GATING the arm on already standing in the window (task idea 1, `onBuildRay`) — `blockDrive`
+    //     went 1.25 -> 0.13 arms/match, because its stand spot is recomputed from the carrier's LIVE
+    //     position every tick, so the bot chases a target that moves (§0000's walk-to-a-pad autopsy,
+    //     third time in this file). A leash is what works here: no gate to miss, nothing to cancel.
+    // ...and ONLY for tiers whose wall has push distance to give. Below T_FAR_WALL `wallReach` IS
+    // `BUILT_WALL.offset`, so the along-window collapses to a single distance and the leash becomes
+    // a 60px arc — a freeze in all but name. MEASURED with the leash applied to every tier
+    // (3 seed bases x 12 matches x 60s): at skill 0.50 worst jam 0.97 -> 1.61s, pinned 0.37 ->
+    // 0.49%, idle-with-ball 1.12 -> 1.51%, while skill 0.93 (which HAS the 120px window) came out
+    // neutral-to-better — worst jam 0.68 -> 0.59s, reach-timeouts 4.00 -> 3.61/match. So the leash
+    // is gated on the freedom existing. Below the gate the movement is byte-identical to before and
+    // only the wall's ORIENTATION is fixed, which is the part that was actually broken.
+    if (reach > BUILT_WALL.offset) {
+      const ta = clamp((h.wx - tgt.x) * h.x + (h.wy - tgt.y) * h.y, BUILT_WALL.offset, reach);
+      const tl = clamp((h.wx - tgt.x) * -h.y + (h.wy - tgt.y) * h.x, -BUILD_LAT_TOL, BUILD_LAT_TOL);
+      tgt = { x: h.wx - h.x * ta + h.y * tl, y: h.wy - h.y * ta - h.x * tl };
+    }
+  }
   bm.wantMove = opts.hold ? 0 : 1;
   let mvx = 0, mvy = 0;
   if (opts.hold) { bm.mvx = 0; bm.mvy = 0; bm.lastX = p.x; bm.lastY = p.y; bm.stuck = 0; } // stand ON the bomb plant
@@ -2804,10 +2894,9 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
 
   // Resolve a pending build-hold: hold the buildHold control until the windup completes,
   // then emit the build edge once (this tick only) and clear the intent. Mirrors the
-  // bombHold hold-then-commit pattern above. The branch that armed bm.buildHold keeps
-  // re-selecting itself each tick (buildReady stays true until the wall actually commits)
-  // and re-supplies the same aim vector via aimVec, so the wall's orientation stays
-  // consistent for the whole hold without needing to be forced here.
+  // bombHold hold-then-commit pattern above. The geometry comes from the LATCH resolved at the
+  // top of this function (bhDist/bhAim) — it must NOT come from whichever branch happens to run
+  // on the commit tick, which is what used to misplace the wall by a median 43px / 38deg.
   let buildHold = false, buildDist = 0;
   if (bm.buildHold) {
     // B3 — the wall's push distance. Read BEFORE the hold is cleared, because the build EDGE
@@ -2816,17 +2905,30 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
     // emitted this field, so every bot wall in the game landed at the 60px minimum while
     // players drag theirs to 180. Below T_FAR_WALL every branch supplies 0, i.e. exactly the
     // old behaviour, so this cannot change what the low tiers do.
-    buildDist = clamp(bm.buildHold.dist || 0, 0, 1);
-    if (mem.t >= bm.buildHold.until) { build = true; bm.buildHold = null; }
+    buildDist = bhDist != null ? bhDist : clamp(bm.buildHold.dist || 0, 0, 1);
+    // NEVER commit a wall on a tick this bot also FIRES: the sim reads ONE aim
+    // (`p.aimX/p.aimY`, set from `inp.aimX/aimY`) for both the bullet/kick direction AND
+    // `buildWall`'s wallPlacement, so a wall committed on a shooting tick is placed along the
+    // shot. `until` already carries +0.1s of slack and `p.buildWindup` is clamped at 1, so
+    // deferring the commit by a tick is free. HARD CAP so the deferral can never become a hang:
+    // a bot that fires every tick would otherwise hold the wind-up (and BUILD_WINDUP_SLOW with it)
+    // forever — exactly the shape of the deleted `carryJump` freeze.
+    const past = mem.t >= bm.buildHold.until;
+    if (past && (!fire || mem.t >= bm.buildHold.until + 0.25)) { build = true; bm.buildHold = null; }
     else { buildHold = true; build = false; }
   }
+  // The latched wall normal owns the emitted aim for the whole wind-up (so the client's `winding`
+  // ghost telegraphs the wall that is actually coming) and, critically, on the commit tick. A
+  // FIRE tick still wins — and the commit is deferred off it above, so both jobs get a true aim.
+  // bm.aimTheta is untouched, so the tactical slew keeps converging underneath.
+  const bhOut = (bhAim && (buildHold || build) && !fire) ? bhAim : null;
 
   return {
     seq: (bm.seq = (bm.seq || 0) + 1),
     moveX: mvx, moveY: mvy,
     // On the FIRE tick the aim IS the kick/shot direction, so the carry deflection above is
     // dropped there: the ball leaves along the aim the tactic actually chose.
-    aimX: fire ? Math.cos(th) : ax, aimY: fire ? Math.sin(th) : ay,
+    aimX: bhOut ? bhOut.x : (fire ? Math.cos(th) : ax), aimY: bhOut ? bhOut.y : (fire ? Math.sin(th) : ay),
     // Bots always shoot deliberately AT a target (goal/enemy/mate), so a bot shot is an AIMED
     // shot — it must push/strip. Without this, every bot bullet degrades to a no-push quick shot.
     hold, fire, aimed: fire, special, build, buildHold, buildDist,
