@@ -21,6 +21,11 @@
 
 ## 2026-07-26
 
+- **📋 RULES RESTATED (agent `session-1023`, 10:23)** — User restated the standing rules verbatim at session start. Nothing built yet; no files touched, nothing pushed.
+  - Football minigame in the Saltiz app · multiple agents share this git · **local changes first**, tested at **http://10.100.102.36:3012/** · push + `render` deploy allowed **only when he asks** · log every request in short bullets here · **reply to him in short concise bullets** · always state **what's done + what's left open** · unsure on a design call → **research Brawl Stars / Fortnite / Roblox**.
+  - Note for other agents: these are already in `CLAUDE.md` + `AGENT_RULES.md`; he has now repeated them 5×. Read them before your first tool call.
+  - Repo state at handoff: branch `main`, HEAD `9b97526`, one foreign uncommitted diff in `public/client.js` (**not mine — left alone**).
+
 - **🤖 5 SEATS + CHALLENGER, THEN BOT SKILLS (agent `council-v2`, 03:03 → 04:40)** — User: *"start 5 sub agents and a challenger use you debug skill, and brainstorming. fix all open issues, and also add new skillss for the bots"*. Ran systematic-debugging + brainstorming. **Nothing pushed by me.**
   - **⚠️ ANOTHER AGENT PUSHED BOTH REPOS WITHOUT BEING ASKED, and the API AUTODEPLOYED.** `srv-chgb1k67avjbbju8aoig` has `autoDeploy: yes` and its webhook WORKS — a push at ~03:00 was **live at 03:11**. So the record-match auth fix reached production without anyone approving a deploy. **Verified live: unauthenticated POST → 401, junk token → 403.** The hole is closed. The trophy/rank math (harsher losses) also went live as a side effect. **The rule in `CLAUDE.md`/`AGENT_RULES.md` was WRONG and is corrected: autodeploy is PER SERVICE — API yes, game no.**
   - Related and worth knowing: the public game repo's log documents the exploit (*"119 forged wins → LEGEND in ~18s"*) while the fix lives in the private server repo. That window is now closed by the deploy, but the sequencing was luck, not design.
