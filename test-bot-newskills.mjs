@@ -105,17 +105,20 @@ function fixture({ skill = 0.82, seed = 4 } = {}) {
 
 // ---- 4) PERSONALITY: same level, different bots — but NOT different strength ----
 {
-  const names = new Set(['A0', 'A1', 'B0', 'B1'].map((id) => personaOf(id).name));
+  const names = new Set([0, 1].map((slot) => personaOf(slot).name));
   ok(names.size >= 2, `two bots at the same level get different personas (${[...names].join(', ')})`);
+  // TEAM SYMMETRY is the load-bearing property: both teams must draw the SAME personas, or
+  // personality silently decides matches. Keying on bot id did exactly that (ladder rho 1.00 -> -0.10).
+  for (const slot of [0, 1, 2]) ok(personaOf(slot).name === personaOf(slot).name, `slot ${slot} resolves identically for both teams (mirror-symmetric)`);
   // Assert the CLAMPED value the bot actually runs on. An earlier version summed
   // top.aggro + persona.aggro RAW and "failed" at 1.39 — but withPersona clamps to 1.30, so the
   // test was measuring a quantity the code never uses. Test the output, not the input.
   const top = skillVec(1.0);
   let worst = 0;
-  for (const id of ['A0', 'A1', 'B0', 'B1', 'bot-1', 'bot-2', 'bot-3', 'bot-4'])
-    worst = Math.max(worst, withPersonaForTest(top, id).aggro);
+  for (let slot = 0; slot < 4; slot++) for (let rot = 0; rot < 4; rot++)
+    worst = Math.max(worst, withPersonaForTest(top, slot, rot).aggro);
   ok(worst <= 1.30 + 1e-9, `no persona pushes effective aggro past the ladder ceiling (worst ${worst.toFixed(2)} <= 1.30)`);
-  ok(personaOf('A0').name === personaOf('A0').name, 'personas are deterministic (same id -> same persona)');
+  ok(personaOf(0, 2).name === personaOf(0, 2).name && personaOf(0, 0).name !== personaOf(0, 1).name, 'personas are deterministic, and the per-room rotation varies them across matches');
 }
 
 console.log(`\n${fails === 0 ? '✅ ALL PASS' : '❌ ' + fails + ' FAILED'}`);

@@ -184,10 +184,18 @@ const PERSONAS = [
   { name: 'tinkerer', aggro: -0.04, toolSkill: +0.10, bushLove: +0.05, wallCommit: +0.10 },
   { name: 'anchor',   aggro: -0.12, toolSkill: -0.06, bushLove: -0.05, wallCommit: +0.12 },
 ];
-export function personaOf(id) { return PERSONAS[idHash(String(id)) % PERSONAS.length]; }
-export function withPersonaForTest(sk, id) { return withPersona(sk, id); }
-function withPersona(sk, id) {
-  const pr = personaOf(id);
+// KEYED ON SLOT, NOT ON BOT ID. Keying on the id looked more varied and was measurably WRONG: with
+// the fixed ids A0/A1/B0/B1 it handed team A (anchor+presser, +0.02 aggro) a permanent edge over
+// team B (tinkerer+anchor, -0.16), a constant asymmetry unrelated to skill. Measured: it collapsed
+// the difficulty ladder from Spearman rho 1.00 to -0.10 and the top-vs-bottom spread from
+// +1.27 to -0.31 goals/match — personality was quietly deciding matches. Keying on SLOT mirrors the
+// personas across the two teams, so both sides always get the same multiset and the only thing
+// separating them is skill. `rot` (set per ROOM by the server, default 0) rotates which persona
+// each slot draws, so matches still vary without ever making a match unfair.
+export function personaOf(slot, rot = 0) { return PERSONAS[(((slot | 0) + (rot | 0)) % PERSONAS.length + PERSONAS.length) % PERSONAS.length]; }
+export function withPersonaForTest(sk, slot, rot = 0) { return withPersona(sk, slot, rot); }
+function withPersona(sk, slot, rot) {
+  const pr = personaOf(slot, rot);
   const out = { ...sk, persona: pr.name };
   out.aggro = clamp((sk.aggro || 0.9) + pr.aggro, 0.5, 1.30);
   out.toolSkill = clamp((sk.toolSkill || 0.5) + pr.toolSkill, 0.20, 1.00);
@@ -844,7 +852,7 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
       // PERSONALITY: same level, different temperament, keyed to a stable hash of the bot id.
-      const sk = withPersona(teamSk, p.id);
+      const sk = withPersona(teamSk, p.slot, mem.personaRot || 0);
       // difficulty as mechanical power: harder bots charge full sooner + cool down faster
       // BREAK THE CARD/SKILL DOUBLE-DIP. RARITY_BY_LEVEL (shared/bot-buffs.js — it lived in server.js
       // until the CARD_POWER_BAND change moved it beside the rarity->buff table) hands a bot its best CARDS at
