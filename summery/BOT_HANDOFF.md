@@ -5,6 +5,92 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 000000000. ROUND 10 (2026-07-26 18:3x-19:5x, agent `chase-press`) — THE OBJECTIVE, AND PERSONALITIES THAT ARE VISIBLE
+
+The user, watching level 10: *"they still sometimes struggle to get the objective."* Then four asks
+(one bot always chases a loose ball; at least one always contests a ball in enemy hands; they must
+ALWAYS know where the ball is; improve obstacles), then: build
+`summery/bots logic/BOT-PERSONALITIES-RESEARCH.md`.
+
+Spec: `docs/superpowers/specs/2026-07-26-bot-chase-press-obstacles-design.md`. Commits `bc01c77`,
+`a232e9a`, `6fb0510`, `36e58d4`. Tests: `test-bot-chase.mjs` (13), `test-bot-personas.mjs` (13).
+New instrument: `press-probe.mjs`.
+
+### What changed
+
+1. **THE BALL IS NEVER HIDDEN FROM A BOT.** `updateBelief`'s loose-ball test called
+   `pointInBush(x, y)`, which reads the DEFAULT arena's three boxes on every layout — so the ball was
+   "hidden" where no bush exists. Measured over 7 layouts: both teams blind for **18.6% of loose ticks
+   on the pitch that ships (worst spell 20.9s)**, 31.3%/48.5s on classic, 44.7%/37.4s on a generated
+   one. A PLAYER never has that problem (bushes hide players, not the ball, and `client.js:5917` pins
+   an off-screen arrow to it), so this was a fairness fix. **Enemy bodies keep their fog** —
+   `botCanSee`/`perceivedPos` untouched, every shot still needs sight.
+2. **The chase is a commitment.** `assignRoles` publishes `role.chaser`, ranks by reach in GROUND with
+   a rooted bot charged `speed x FROZEN_ROOT_S (1.2s)`, and **a rooted incumbent loses the role
+   outright** — the anti-thrash hysteresis was protecting bots that physically could not move. The
+   chaser drops the stale `bm.trap` that vetoed its own fetch, and its fetch notice radius is
+   unbounded. Graded by the new `chaseReact` (0.33s of reaction at t=0.05, 0.02s at L10).
+   **Armed commitments are never aborted** — routing around beats throwing a charge away.
+3. **Somebody always contests.** `interceptPoint()` walks at where the carrier WILL be (speeds from
+   the sim's own CHARACTERS/speedMul/carrySpeedMul — no new shadow model), and when the enemy holds
+   the ball with nobody inside `PRESS_RANGE`, the support's 320px `MIN_SEP` is waived.
+4. **Obstacles.** `steer()` now charges a carrier for the extra `ballR` of room its glued ball needs
+   (soft cost, `W_CARRY 1.4` below `W_BLOCK 2.2`); `cannonPlant` screens every launch candidate — and
+   its previously-unscreened fallback — with a flight-path wall test.
+5. **Personalities are policy, not scalar tilts.** Enforcer / Fortress / Bodyguard / Ball Hawk, drawn
+   in complementary PAIRS per room rotation, still slot-keyed and mirrored. A bullet's ceiling is now
+   the persona's `maxCharge` (skill-gated at t >= 0.55), because `finalize` clamped every bullet in
+   the game to `FULL_CHARGE + 0.01 = 0.71` — the weakest charge that still strips, 250px of drift
+   where 1.0 gives 343px. Plus `readyCharge`: deterministic persona-shaped pre-charge with no victim.
+
+### Measured (MAIN_FIELD, both sides 0.93, freeze ticks excluded, TWO seed bases, n=24)
+
+| | before | after |
+|---|---|---|
+| `notClosingPct` (nearest bot NOT closing on a loose ball) | 46.6 / 46.6 | **42.2 / 41.8** |
+| `retreatWhileNearestPct` | 23.8 / 27.2 | **21.4 / 20.0** |
+| strip rate, share of all carries (`press-probe.mjs`) | 40.3 / 40.6 | **42.0 / 43.0** |
+| `pinnedPct` (wall-pinned while wanting to move) | 0.39 / 0.30 | **0.56 / 0.54** ⚠ |
+| `reachS` (loose -> collected, whole team) | 1.01 / 0.92 | **1.15 / 1.14** ⚠ |
+| carrier crossing an 80px corridor (isolated) | pops 4/0/4, advanced 87/961/92px | **pops 0/0/1, advanced 586/964/452px** |
+
+**THE LADDER DID NOT COMPRESS — IT SHARPENED.** `SEEDS=6 ARENA=main`: goals rho **1.00** (was 0.90),
+top-vs-bottom spread **0.77 goals/match = 69% of everything scored** against a 39% design ask (the
+previous round reached ~36%), strips rho 0.90, shots-on-goal rho 0.90, zero-check and balance PASS.
+Removing the ball's fog spent a perception lever and `chaseReact` + the skill-gated `maxCharge` paid
+it back.
+
+### Honest costs and open items
+
+- **Wall-pinning is up** (0.35% -> 0.55% of move ticks, both seed bases) and the worst-jam tail with
+  it. Turning the carry term off does NOT restore it (0.47/0.49), so this is the price of ENGAGEMENT:
+  a bot that walks to the ball on a crate-heavy map touches walls more than one holding shape in open
+  space. Still ~6x better than the 3.25% the round-5 regression started from.
+- **`reachS` got worse while `notClosing` got better**, which is not a contradiction: bots now chase
+  balls they used to ignore, and some of those chases are long. Do not gate on team-wide `reachS`.
+- **Escort stationing barely executes.** Mean possession is **0.68s**, so a Bodyguard that just
+  conceded a loose ball cannot cross 400px to an escort point before the carry ends. The escort
+  occupancy metric measures who was nearest when the ball was collected. Recorded in the test.
+- Still unfired anywhere: `goalBank`, `watchdogRelease`. Still unbuilt: `clearMarker`'s angle term
+  (half its shots make the chaser arrive SOONER), the release ladder's range gate (`:1727`, 77% of
+  shots at goal cannot arrive), the `pointInBush` arena fix for ambush spots.
+
+### Two traps that cost this round hours — both are §3 in a new costume
+
+1. **A single seed base invents findings.** My first A/B (6 matches) read "shots/match 83 -> 52,
+   touches 24.3 -> 18" and looked like a serious regression. At n=24 on two seed bases the same
+   comparison is 46.8 -> 43.0 and 30.6 -> 49.6: **noise with opposite signs.** Nothing below
+   `MATCHES=24` on `>= 2` seed bases is quotable.
+2. **An opponent-confounded comparison.** "Fortress is goal-side more than the Enforcer" measured
+   BACKWARDS (59.5% vs 83.4%) when each persona played a different opponent, because goal-side
+   occupancy depends on where the BALL is and the opponent decides that. Same team, same match:
+   87.6% vs 67.3%. Any metric that depends on ball position must be a WITHIN-MATCH comparison.
+
+Also: `bot-feel.mjs` cannot see a press. The press features measured worse on every felt metric while
+raising the strip rate by 8 points. **Each behaviour needs the instrument for its own job.**
+
+---
+
 ## 00000000. ROUND 9b (2026-07-26 17:3x-18:5x, same agent) — THE ROUND-9 FIX WAS SHIPPED WRONG, AND THE CORRECTION IS SMALLER
 
 **Read this before §0000000: the receiver half of round 9 (`d01d3b8`) was replaced.** Everything §0000000
