@@ -109,10 +109,19 @@ const put = (s, id, x, y, vx = 0, vy = 0) => { const p = s.players[id]; p.x = x;
 {
   // A0 is 700px from a loose ball; B0 is 200px from it. A0 attacks x=2000, and the ball is between
   // A0 and that goal — so a bullet along A0->ball sends the ball goalward.
+  // The ball sits in A's OWN half on purpose: shipping this play everywhere made both teams knock the
+  // ball back and forth (advance per release 29-41px -> 6-12px, felt ladder range 48% -> 18%), so it
+  // is restricted to clearing danger out of our own half, which is the case the research measured as
+  // valuable (SKILL_CATALOGUE T4/T5).
   const fired = (skill) => {
     const { s, mem } = fixture(skill, { field: { version: 1, bushes: [], crates: [], dryWalls: [], hardWalls: [] } });
-    s.ball.owner = null; s.ball.x = 1100; s.ball.y = GY; s.ball.vx = 0; s.ball.vy = 0;
-    put(s, 'A0', 400, GY); put(s, 'A1', 300, 900); put(s, 'B0', 1300, GY); put(s, 'B1', 1700, 300);
+    // y = 250, NOT the centre line: (850..1150, 430..670) is the DEFAULT arena's "centre contest
+    // bush", and `pointInBush` reads that box on every layout — so an enemy standing there is hidden
+    // from botCanSee even on an empty field, and `visibleEnemies` comes back empty. The BALL's fog was
+    // removed this session; ENEMY visibility still reads the phantom geometry (recorded in
+    // summery/bots logic handoff/ARENA-AUDIT). A fixture has to stay out of that box.
+    s.ball.owner = null; s.ball.x = 700; s.ball.y = 250; s.ball.vx = 0; s.ball.vy = 0;   // A's own half
+    put(s, 'A0', 200, 250); put(s, 'A1', 300, 900); put(s, 'B0', 900, 250); put(s, 'B1', 1700, 700);
     let shotAtBall = false, ballGoalward = 0;
     for (let t = 0; t < 150; t++) {
       const inp = computeBotInputs(s, mem, DT);
@@ -120,7 +129,7 @@ const put = (s, id, x, y, vx = 0, vy = 0) => { const p = s.players[id]; p.x = x;
       const vx0 = s.ball.vx;
       step(s, { A0: inp.A0 }, DT);              // isolate: nobody else moves or shoots
       if (tag === 'ballPush') shotAtBall = true;
-      if (s.ball.vx > vx0 + 100) ballGoalward++;   // the ball gained speed toward x=2000
+      if (s.ball.vx > vx0 + 100) ballGoalward++;   // the ball gained speed toward x=2000 (A attacks right)
     }
     return { shotAtBall, ballGoalward };
   };

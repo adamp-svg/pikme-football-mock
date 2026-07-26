@@ -301,7 +301,12 @@ function toolGap(sk, kind) {
 function readyChargeWant(sk) {
   const pr = sk.pp;
   const want = pr && pr.ready != null ? pr.ready : 0.5;
-  return levelRamp(sk) * (0.62 + 0.38 * want);   // L5+: 0.74 (hawk) .. 1.00 (enforcer)
+  // BANK PART OF IT, NOT ALL OF IT. Banking the whole wind-up turned every opened gate into an
+  // instant shot: bullets/match 74 -> 232, ball advance per release 29-41px -> 6-12px, and the felt
+  // ladder range 48% -> 18%. Measured, the ask survives at ~half a wind-up: the SHOT is still full
+  // power (maxCharge 1.0 does that), the bot is still visibly charged, and it still needs ~0.4s of
+  // top-up — which is also the "preserve a visible tell" safeguard the research doc asked for.
+  return levelRamp(sk) * (0.34 + 0.26 * want);   // L5+: 0.42 (hawk) .. 0.60 (enforcer)
 }
 
 export function createBotMemory(skill = DEFAULT_SKILL) {
@@ -3003,6 +3008,13 @@ function decideBot(p, role, state, mem, sk, dt) {
       let foeArrive = 1e9;
       for (const e of visibleEnemies) foeArrive = Math.min(foeArrive, hyp(b.x - e.x, b.y - e.y) / speedOf(e, state, false));
       const losingRace = foeArrive < myArrive - 0.55 && myDist > 240;       // they clearly win it, and it is not at my feet
+      // WHERE it is worth doing. Measured on the ladder: allowing this anywhere made both teams knock
+      // the ball back and forth all match — ball advance per carrier release collapsed from 29-41px to
+      // 6-12px and the felt difficulty range fell from 48% to 18% of the arena's scoring rate. The
+      // research's own valuable case is the DEFENSIVE one ("clear a loose ball away from an enemy in
+      // your own box", SKILL_CATALOGUE T4/T5), so that is what ships: our own half, or a genuine pass
+      // to a mate. In the attacking half a lost race is better answered by keeping the shape.
+      const inOwnHalf = Math.abs(b.x - ogX) < FIELD.W * 0.55;
       const ballSlow = hyp(b.vx || 0, b.vy || 0) < 240;
       if (losingRace && ballSlow) {
         const [dx, dy] = unit(b.x - p.x, b.y - p.y);                       // the direction a hit would send it
@@ -3012,10 +3024,12 @@ function decideBot(p, role, state, mem, sk, dt) {
         const towardMate = mateDir ? dx * mateDir[0] + dy * mateDir[1] : -1;
         // 0.62 ~ 52deg of tolerance: the ball only has to end up meaningfully goalward (or at the mate),
         // not perfectly. Also never nudge it INTO our own half's danger zone: goalward wins ties.
-        const useful = towardGoal > 0.62 || (towardMate > 0.78 && hyp(mate.x - b.x, mate.y - b.y) > 120);
+        // 0.75 (~41deg) rather than 0.62 (~52deg): a marginal nudge just hands the ball over in
+        // midfield, which is where the ladder damage came from. Mate passes need a real gap too.
+        const useful = (inOwnHalf && towardGoal > 0.70) || (towardMate > 0.85 && hyp(mate.x - b.x, mate.y - b.y) > 200);
         const clearLane = laneClear(p.x, p.y, b.x, b.y, state, team, { enemies: false });
         if (useful && clearLane) {
-          bm.nextBallPushAt = mem.t + 1.6 * (sk.cdMul || 1);
+          bm.nextBallPushAt = mem.t + 3.4 * (sk.cdMul || 1);
           bm.lastTrick = 'ballPush';
           return finalize(p, tgt, { x: b.x - p.x, y: b.y - p.y },
             { shoot: true, charge: 1, special: false, build: false, closeShot: hyp(b.x - p.x, b.y - p.y) < 260 },
@@ -3509,7 +3523,16 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   // timeout still cancels (a real cancel, no shot). ----
   let hold = false, fire = false;
   const wantCharge = clamp(charge || 1, 0, 1);
+  // BULLET CADENCE. Ask #1 ("always try to have a full power shot") banks the charge, and the side
+  // effect measured on the ladder was a shooting gallery: bullets/match 74 -> 232 at the top tiers,
+  // ball advance per release 29-41px -> 7-11px, felt ladder spread 48% -> 18%. A wound-up bot used to
+  // LOSE most gates before the charge arrived; now it takes them all. The ask is about being READY,
+  // not about firing more often, so a bot may not open a new BULLET wind-up more than ~1.4/s. Ball
+  // RELEASES are exempt — a kick is the carrier's whole move, and the release ladder already gates it.
+  const bulletCadenceOk = isBallRelease || mem.t > (bm.nextBulletAt || 0);
+  if (shoot && !bm.charging && !bulletCadenceOk) shoot = false;
   if (shoot && !bm.charging) {
+    if (!isBallRelease) bm.nextBulletAt = mem.t + 0.70;
     if (isBallRelease || p.ammo > 0) { // don't start a BULLET wind-up we can't finish
       // A KICK's power IS its reach, so a ball release must fire at the charge it ASKED for.
       // This used to clamp every request to FULL_CHARGE + 0.01 = 0.71 "to cut the vulnerable
