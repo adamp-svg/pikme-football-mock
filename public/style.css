@@ -2626,7 +2626,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Empty seats + the per-side counter, so a 3v3 team page reads as 3-a-side before the bots arrive. */
 .member-ghost { opacity: .45; }
 .member-ghost .member-av { border-style: dashed; }
-.member-ghost .member-name { font-style: italic; }
+.member-ghost .member-name { font-style: italic; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .team-seats { font: 900 11px "Arial Black", sans-serif; color: #ffce4a; margin-inline-start: 6px; }
 
 .party-chat { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }

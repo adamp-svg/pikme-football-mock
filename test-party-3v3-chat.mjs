@@ -94,6 +94,30 @@ for (let i = 0; i < 3; i++) { host.send({ type: 'addBot', botId: `bot${i}`, name
 await until(() => host.lobby && host.lobby.members.length + 0 >= 3 && (host.lobby.members || []).length >= 6);
 ok((host.lobby.members || []).length === 6, `the room seats SIX at 3v3 (${(host.lobby.members || []).length})`);
 
+// ---- 1b. the SETUP flow order: game BEFORE invites --------------------------------------------
+// In the setup flow the card is picked before the room exists, so the pick lands from
+// applyPartyPicks() instead of from the picker. If it arrived AFTER the invites (or not at all) the
+// room would still be seating four and the fifth invitee would bounce on "החדר מלא".
+{
+  const h2 = client('u-host2', 'Host2');
+  const g1 = client('u-g1', 'Guest1');
+  await Promise.all([h2.ready, g1.ready]);
+  for (const c of [h2, g1]) c.send({ type: 'join', authToken: tok(c.id, c.nick), name: c.nick, cards: [], loadout: [null, null, null] });
+  await until(() => h2.memberId && g1.memberId);
+  h2.send({ type: 'setFriends', friends: [g1.id] });
+  g1.send({ type: 'setFriends', friends: [h2.id] });
+  await wait(150);
+  h2.send({ type: 'createRoom' });
+  await until(() => h2.lobby && h2.lobby.code);
+  // what applyPartyPicks() does, in its order: the game, then the invites/bots
+  h2.send({ type: 'partyGame', game: '3v3' });
+  for (let i = 0; i < 5; i++) h2.send({ type: 'addBot', botId: `sbot${i}`, name: `SBot${i}` });
+  await until(() => h2.lobby && (h2.lobby.members || []).length >= 6, 4000);
+  ok((h2.lobby.members || []).length === 6, `setup flow: game-then-invites seats six (${(h2.lobby.members || []).length})`);
+  ok(h2.lobby.teamSize === 3, 'and the room really is 3v3');
+  h2.ws.close(); g1.ws.close();
+}
+
 // ---- 2. shrinking with six seated is refused ---------------------------------------------------
 host.errors.length = 0;
 host.send({ type: 'partyGame', game: '2v2' });

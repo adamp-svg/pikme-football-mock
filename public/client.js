@@ -3380,6 +3380,13 @@ gameSelectEl?.addEventListener('click', (e) => {
 // Once the fresh party room is created (host), apply the picks: bots via addBot, real friends
 // via inviteFriend. Called from the roomJoined handler.
 function applyPartyPicks() {
+  // THE GAME GOES FIRST, BEFORE THE INVITES. In the SETUP flow the card is picked before the room
+  // exists, so the `partyGame` send at the picker is skipped (there is nothing to send it to) and this
+  // is the only place it can land. Without it a host who chose 3v3 here got a room that still seated
+  // FOUR — the same capacity bug the picker path fixes, surviving in the other flow. And it must
+  // precede the invites: capacity is teamSize x 2, so inviting five friends into a not-yet-3v3 room
+  // bounces the last one on "החדר מלא".
+  if (selectedGame) sendMsg({ type: 'partyGame', game: selectedGame });
   const byId = new Map(FRIENDS.map((f) => [f.userId, f]));
   for (const uid of partySel) {
     const f = byId.get(uid); if (!f) continue;
@@ -4281,7 +4288,8 @@ function updateLobbyUI(msg) {
       g.className = 'member-row member-ghost';
       const av = document.createElement('div'); av.className = 'member-av';
       const nm = document.createElement('div'); nm.className = 'member-name';
-      nm.textContent = 'מקום פנוי · בוט';
+      nm.textContent = 'בוט';          // short on purpose: the column is ~120px on a phone and
+                                        // 'מקום פנוי · בוט' truncated to 'מקום פנוי ·'
       g.append(av, nm);
       listEl.appendChild(g);
     }
