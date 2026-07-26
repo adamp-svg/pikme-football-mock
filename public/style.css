@@ -2100,7 +2100,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    that is 84px PER SIDE — 168px, a fifth of the screen — spent on empty margin, and the pitch was
    measured at 264x145. 8px is a floor for phones that report no inset at all. */
 .builder-body { flex: 1; min-height: 0; display: flex; flex-direction: row; align-items: stretch; gap: 8px; direction: ltr;
-  padding: 4px max(8px, env(safe-area-inset-right)) 2px max(8px, env(safe-area-inset-left)); }
+  padding: 1px max(8px, env(safe-area-inset-right)) 1px max(8px, env(safe-area-inset-left)); }
 /* WRAPPING column: the rail is one column on a tall screen and splits into a SECOND column when the
    buttons don't fit, instead of scrolling them out of sight. That conditional behaviour is exactly
    what `flex-flow: column wrap` + a bounded height gives for free — and it is why the two new tools
@@ -2113,8 +2113,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    height — measured with the CDP harness (scrollHeight === clientHeight on both rails at 900x420). */
 .builder-side .btool, .builder-side .bact { padding: 6px 8px; font-size: 12px; }
 /* Zoom controls, overlaid bottom-left of the (now scrollable) stage. */
-.builder-zoom { position: absolute; left: 8px; bottom: 8px; z-index: 6; display: flex; flex-direction: column; gap: 5px; }
-.builder-zoom button { width: 38px; height: 38px; border: none; border-radius: 9px; background: rgba(20,32,24,.92); color: #eaf2ec; font: 900 18px "Arial Black", sans-serif; box-shadow: 0 3px 0 #070b08; cursor: pointer; }
+/* Now that the pitch fills the stage (97% inset) this cluster necessarily OVERLAYS it, where it
+   used to sit in the old 8% slack. Tucked hard into the corner, shrunk 38->30px and made
+   translucent until touched, so it costs the least arena possible and the pitch reads through it.
+   The bottom-left corner is the emptiest part of a football pitch. */
+.builder-zoom { position: absolute; left: 2px; bottom: 2px; z-index: 6; display: flex; flex-direction: column; gap: 3px; opacity: .55; transition: opacity .15s; }
+.builder-zoom:hover, .builder-zoom:active, .builder-stage:active .builder-zoom { opacity: 1; }
+.builder-zoom button { width: 30px; height: 30px; border: none; border-radius: 9px; background: rgba(20,32,24,.92); color: #eaf2ec; font: 900 18px "Arial Black", sans-serif; box-shadow: 0 3px 0 #070b08; cursor: pointer; }
 .builder-zoom button:active { transform: translateY(2px); box-shadow: 0 1px 0 #070b08; }
 /* Extra top/bottom inset keeps back/play (top) and clear/save (bottom) a bit off the screen edges. */
 /* Vertical padding trimmed (14/6 -> 6/3). Measured: the pitch is HEIGHT-limited, not width-limited
@@ -2123,9 +2128,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    spending 110px of a 303px viewport. Kept as max(…, safe-area-inset-top) so a notched phone in
    landscape still clears the island; only the arbitrary floor shrank. Button sizes are deliberately
    NOT touched — .builder-btn is shared with the back pill on every sub-page. */
-.builder-top { display: flex; align-items: center; justify-content: space-between; padding: max(6px, env(safe-area-inset-top)) 12px 3px; gap: 8px; }
+.builder-top { display: flex; align-items: center; justify-content: space-between; padding: max(4px, env(safe-area-inset-top)) 12px 2px; gap: 8px; }
 /* Bottom bar mirrors the top bar layout: clear-all (left) under back, save (right) under play. */
-.builder-bottom { display: flex; align-items: center; justify-content: space-between; padding: 3px 12px max(6px, env(safe-area-inset-bottom)); gap: 8px; }
+/* Bottom bar is the tightest thing on screen: its buttons are smaller than the shared .builder-btn
+   (user: "you can resize the lowest buttons a bit") and its padding is down to 2px, because every px
+   here becomes ~1.8px of pitch WIDTH — the pitch is height-bound by aspect-ratio, not width-bound. */
+.builder-bottom { display: flex; align-items: center; justify-content: space-between; padding: 2px 12px max(4px, env(safe-area-inset-bottom)); gap: 8px; }
+.builder-bottom .builder-btn { padding: 4px 10px; font-size: 12px; }
 /* 16px -> 12px: the heading is orientation, not content, and every px it gives back is arena. */
 .builder-title { font-weight: 800; font-size: 12px; }
 .builder-btn { border: none; border-radius: 10px; padding: 8px 14px; font-weight: 800; font-size: 14px; color: #fff; flex: none; }
@@ -2159,7 +2168,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .field-row-active { border-color: #7ea862; box-shadow: 0 4px 0 #070b08, inset 0 0 0 2px #7ea862; } /* the loaded slot */
 /* Stage scrolls (pan) when the field is zoomed past its fit size; block flow + margin:auto on
    the arena centres it when it fits and scrolls cleanly from the origin when it overflows. */
-.builder-stage { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 6px; }
+/* padding 6px -> 1px: this sat directly between the arena and the tool rails and cost 12px of the
+   height the pitch is limited by (user: "very little slack between the arena and the buttons"). */
+.builder-stage { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: auto; padding: 1px; }
 /* Uniform scale: aspect-ratio keeps px/world identical on both axes, so CSS rotate() is true. */
 .builder-pitch { position: relative; width: 100%; max-width: 980px; aspect-ratio: var(--fb-aspect, 2000 / 1100); max-height: 100%;
   background: radial-gradient(circle at 50% 50%, #2f7d43, #256a38); border: 3px solid rgba(255,255,255,.5); border-radius: 8px;
@@ -2233,8 +2244,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   box-shadow: inset 0 0 0 4px #2c4553, inset 0 0 70px rgba(0,0,0,.6), 0 8px 28px rgba(0,0,0,.45); }
 /* Pitch inset inside the arena so the seat-dot stands wrap it on all sides. */
 /* Pitch keeps EXACT 2000:1100 aspect (uniform world->screen scale => correct placement +
-   un-skewed rotated walls); centred at 88% so the seat-bowl stands show as a ring. */
-.builder-arena .builder-pitch { position: relative; inset: auto; width: 92%; height: auto; max-width: 92%; max-height: 92%; aspect-ratio: var(--fb-aspect, 2000 / 1100); z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22);
+   un-skewed rotated walls). Inset 97%, not 92%: that 8% ring was the single biggest remaining gap
+   between the arena and the controls (user: "increase the arena dimension… very little slack"), and
+   because the pitch is height-bound by aspect-ratio, each percent of height returns ~1.8% of width.
+   3% still shows the seat-bowl stands as a visible ring, so the stadium identity survives. */
+.builder-arena .builder-pitch { position: relative; inset: auto; width: 97%; height: auto; max-width: 97%; max-height: 97%; aspect-ratio: var(--fb-aspect, 2000 / 1100); z-index: 1; box-shadow: 0 0 0 5px #0e3a1e, 0 0 0 7px rgba(255,255,255,.22);
   /* Brawl-style cell grid (20x11) drawn behind the placed elements. */
   background-image: linear-gradient(rgba(255,255,255,.11) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.11) 1px, transparent 1px), radial-gradient(circle at 50% 50%, #2f7d43, #256a38);
   background-size: 2.5% 4.5454%, 2.5% 4.5454%, 100% 100%; }

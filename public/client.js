@@ -34,9 +34,12 @@ let slotIds = [], slotTeam = [], rosterVersion = -1; // binary-snapshot slot->id
 
 // TEMP diagnostic: a visible build tag so we can tell for certain whether the device is running
 // the freshly-deployed game. If you don't see this green tag bottom-left, you're on stale code.
+// Dev build badge. Positioned bottom-CENTRE, not bottom-left: the builder's «נקה הכל» button sits in
+// that corner now that the bars are tight, and this badge covered it and made it unreadable.
+// Bottom-centre is free (the builder's hint overlay is at bottom:68px).
 const BUILD_TAG = 'BUILD ✅ 25JUL-v5';
 try {
-  const _mk = () => { const d = document.createElement('div'); d.textContent = BUILD_TAG; d.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:999999;font:bold 12px monospace;color:#0f0;background:rgba(0,0,0,.6);padding:2px 6px;border-radius:3px;pointer-events:none'; document.body.appendChild(d); };
+  const _mk = () => { const d = document.createElement('div'); d.textContent = BUILD_TAG; d.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:2px;z-index:999999;font:bold 10px monospace;color:#0f0;background:rgba(0,0,0,.45);padding:1px 5px;border-radius:3px;pointer-events:none;opacity:.6'; document.body.appendChild(d); };
   if (document.body) _mk(); else addEventListener('DOMContentLoaded', _mk);
 } catch { /* non-browser */ }
 
