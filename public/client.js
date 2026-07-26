@@ -12,11 +12,11 @@ import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
 import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
+import { FIELD_SIZES, SIZE_IDS, DEFAULT_SIZE, sizeOf, sizeOfField, canHost } from '/shared/field-sizes.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, hideNetHud, NET_DEBUG } from '/net-hud.js';
 import { openMatchInfo, closeMatchInfo } from '/match-info.js';
-import { FIELD_SIZES, SIZE_IDS, DEFAULT_SIZE, sizeOf, sizeOfField, canHost } from '/shared/field-sizes.js';
 import { setPixelText, mountPixelDigitCss } from '/pixel-digits.js';
 import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
@@ -845,6 +845,22 @@ const RARITY_SKIN = { common: 'base', rare: 'gold', epic: 'holo', legendary: 'si
 // look empty. On localhost we preview a small sample; on any real host (device or
 // Render) we NEVER fake it — return the injected cards or nothing.
 const DEV_LOCAL = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname);
+// ---- PRIVATE-HOST TEST HOOK -----------------------------------------------------------------
+// DEV_LOCAL is deliberately NOT widened: it also drives DEV_SAMPLE_CARDS, the fake-XP fallbacks at
+// three sites and the dev reveal panels, so broadening it would silently switch those on for every
+// LAN visitor. DEV_HOST is a SEPARATE predicate used only for the difficulty pin below.
+// Why this exists: difficulty comes from window.SALTIZ_XP, which only the app injects, so on the
+// LAN IP the fallback was xp 0 => level 0 — the WEAKEST tier in the game, on BOTH sides. Every
+// browser test session was testing a tier no real player ever meets.
+const DEV_HOST = DEV_LOCAL || /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?)/.test(location.hostname);
+// ?diff=N pins the bot difficulty for this page load. Read from the URL ONLY (never persisted),
+// and only honoured on a private host, so a public deployment cannot be handed an easy-bot farm.
+const DIFF_PIN = (() => {
+  if (!DEV_HOST) return null;
+  const raw = new URLSearchParams(location.search).get('diff');
+  if (raw == null || raw === '' || !/^\d+$/.test(raw)) return null;
+  return clampLevel(parseInt(raw, 10));
+})();
 // Worth-order intentionally DIFFERS from rarity-order here so "select best" is visibly
 // distinct on localhost: the highest-worth card is a common, and the rarest (legendary)
 // cards have modest worth — so rarity-then-copies picks the two legendaries, not the common.
@@ -4274,6 +4290,7 @@ function sendSettings() {
 // instead of a manual picker (bots reflect the player; start at level 0, cap at 11). Same
 // window.SALTIZ_XP source of truth as the hub XP bar; DEV_LOCAL falls back to the hub's 1240.
 function xpDiffLevel() {
+  if (DIFF_PIN != null) return DIFF_PIN; // ?diff=N on a private host — see DEV_HOST above
   const src = window.SALTIZ_XP;
   const xp = src && Number.isFinite(+src.xp) ? +src.xp : (DEV_LOCAL ? 1240 : 0);
   return botLevelFromXp(xp);
