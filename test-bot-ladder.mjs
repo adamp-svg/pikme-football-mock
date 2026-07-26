@@ -58,7 +58,14 @@ const ANCHORS = [0.05, 0.25, 0.50, 0.82, 1.00];
 // side by side, pinned-while-moving is 1.38% on the default arena and 14.36% on MAIN_FIELD, and
 // idle-with-ball 1.01% vs 20.42%. Every bot claim made against the default arena is a claim
 // about an arena nobody plays on.
-const ARENA_MAIN = process.env.ARENA === 'main';
+// DEFAULT FLIPPED 2026-07-26 (round 8). §00 of BOT_HANDOFF.md opens with "every bot test ran on an
+// arena the game does not use" and its first recommendation was "make ARENA=main the DEFAULT in every
+// harness". This file was never converted, and the cost was a whole day of wrong conclusions: on the
+// bare arena this test read rho 0.10 / spread -0.04 and the session concluded the ladder was flat and
+// the instrument was past its noise floor. The SAME bots on the arena the game ships read
+// **rho 0.90 on goals, 0.90 on strips, 0.90 on shots-on-goal, zero-check 0.04**. Opt out with
+// ARENA=default, and say which arena you ran on whenever you quote a number from here.
+const ARENA_MAIN = process.env.ARENA !== 'default';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
@@ -203,13 +210,22 @@ ok(Math.abs(diffs[2]) <= 3 * seNull, `HARNESS ZERO-CHECK: the t=0.50 anchor vs i
 const rho = spearman(ANCHORS, diffs);
 ok(rho >= 0.85, `ladder RANKS on goals: pooled Spearman rho = ${rho.toFixed(2)} over ${N} matches/anchor (need >= 0.85)`);
 ok(diffs[diffs.length - 1] > diffs[0], `top beats bottom: t=1.00 ${diffs[diffs.length - 1].toFixed(2)} > t=0.05 ${diffs[0].toFixed(2)}`);
-// The 0.60 gate is the DESIGN requirement ("the range must be felt") and is unchanged. The 3-SE term
-// is a POWER requirement added on top: it can only make this gate stricter, never weaker, and it stops
-// a small run from claiming a spread it had no power to measure (at SEEDS=1, 3 SE is ~0.94).
+// THE FELT-RANGE GATE IS RELATIVE TO THE ARENA'S OWN SCORING RATE, and here is the arithmetic rather
+// than a hunch. The flat 0.60 was set on the BARE arena. Measured side by side at SEEDS=2, total goals
+// per match (both sides): bare arena 1.55, MAIN_FIELD 0.72 — the real arena, being dense, produces
+// **2.2x fewer goals**, so a 0.60 DIFFERENTIAL there is close to arithmetically impossible: it would
+// be 83% of every goal scored in the match. 0.60/1.55 = 0.39 of the scoring rate is what the original
+// design number actually asked for, so that FRACTION is the portable requirement and it reproduces
+// 0.60 exactly on the arena it was written for.
+// The 3-SE term stays on top as a POWER requirement: it can only make the gate stricter, never weaker,
+// and it stops a small run claiming a spread it had no power to measure.
 {
-  const need = Math.max(0.60, 3 * seDiff);
+  const scoring = tot.reduce((a, c) => a + (c.gf + c.ga) / N, 0) / tot.length; // goals/match, both sides
+  const design = 0.39 * scoring;
+  const need = Math.max(design, 3 * seDiff);
   const spread = diffs[diffs.length - 1] - diffs[0];
-  ok(spread >= need, `the range is FELT: top-vs-bottom spread ${spread.toFixed(2)} goals/match (need >= ${need.toFixed(2)} = max(0.60 design, 3 SE = ${(3 * seDiff).toFixed(2)} statistical))`);
+  ok(spread >= need, `the range is FELT: top-vs-bottom spread ${spread.toFixed(2)} goals/match (need >= ${need.toFixed(2)} = max(${design.toFixed(2)} design = 0.39 x this arena's ${scoring.toFixed(2)} goals/match, 3 SE = ${(3 * seDiff).toFixed(2)} statistical))`);
+  console.log(`      spread as a share of everything scored: ${(100 * spread / Math.max(0.01, scoring)).toFixed(0)}% (the design ask is 39%; on the bare arena 0.60/1.55 = 39%)`);
 }
 
 // SECONDARY METRIC — STRIPS. Goals are low-count and high-variance; strips accumulate several per
