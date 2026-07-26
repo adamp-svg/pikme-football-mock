@@ -7,6 +7,11 @@
 > / fps / 120Hz / WebRTC work → see [`OPTIMIZATION_TODO.md`](OPTIMIZATION_TODO.md)** (prioritized
 > pickup queue). Deep detail: `summery/REACTIVITY_ROADMAP.md` + `summery/WEBRTC_TRANSPORT_PLAN.md`.
 
+> 🤖 **BOT AI WORK? READ [`summery/BOT_HANDOFF.md`](summery/BOT_HANDOFF.md) FIRST.**
+> Full handoff: what changed, how to measure it, and the things already MEASURED AND REFUTED so you
+> don't redo them. **§0 first: prod is ~half a session stale, so the bots on the phone are NOT the
+> bots in this repo — a "the bots are broken" report may be about 10-hour-old code.**
+
 ## 🔒 STANDING RULES (from the user — apply to EVERY agent, every session)
 
 > Full version: [`AGENT_RULES.md`](AGENT_RULES.md). Summary:

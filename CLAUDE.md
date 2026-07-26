@@ -15,6 +15,19 @@
 - **The user's two test surfaces:** browser at **http://10.100.102.36:3012/** (LAN IP — his phone browser hits it too) and a **TestFlight build on the phone**. Bind the dev server so the LAN IP works, and give him that URL, not `localhost`.
 - **Open design question → research the big games.** Check what **Brawl Stars, Roblox and Fortnite** do (controls, feel, progression, UI, netcode) and cite that as the reference instead of guessing.
 
+## Bot AI
+
+- **Read [`summery/BOT_HANDOFF.md`](summery/BOT_HANDOFF.md) before any bot work.** It records what
+  changed, the measurement harnesses and — most importantly — the things already **measured and
+  refuted** (`decisionHz` in seven variants, `mistakeP`, widening `doubleBomb`'s gate, a kicked ball
+  chipping a wall). Re-deriving those costs hours.
+- **Verify what is actually LIVE before trusting a bug report:**
+  `curl -s https://pikme-football.onrender.com/shared/bot-ai.js | grep -c bodyScreen` — `0` means prod
+  is stale and the phone is running old bots.
+- Measure, don't assert: seed the harness (`state.rng` / `SEED=`), and use `SEEDS=6` on
+  `test-bot-ladder.mjs` before quoting a number. Unseeded runs of identical code have reported
+  wall-pinning anywhere from 0.27% to 0.51%.
+
 ## Working alongside the other agents
 
 - Take an orchestration lock before editing a shared file: `football-mock:<path>`.
