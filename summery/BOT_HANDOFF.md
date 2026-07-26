@@ -55,6 +55,35 @@ Three tunings, each measured, all in `2c73caa`:
 
 After: shots/match 232 -> 95-123, advance/release 6-12 -> 21px, notClosing 39.5-41.4%, touches 22.9-24.4.
 
+### THE LADDER COST THAT IS STILL OPEN — read this before "fixing" the difficulty ladder
+
+Four ladder runs this round, `SEEDS=6 ARENA=main`, 192 matches per anchor:
+
+| tree | goals rho (gate 0.85) | felt spread (gate ~0.45) | top beats bottom |
+|---|---|---|---|
+| round 10, before the asks | 0.70 | **0.50 = 48%** | PASS |
+| the five asks, first cut | 0.30 | 0.22 = 18% | PASS |
+| + the three tunings | **0.70** | 0.09 = 8% | PASS |
+| + a SKILL-SCALED bullet cadence | 0.40 | 0.12 = 10% | PASS |
+
+**Ranking is restored; the felt RANGE is not.** The tunings brought rho back to round 10's 0.70 but
+the top-vs-bottom spread is 0.09-0.12 goals/match against 0.50 before the asks. What compresses it is
+structural rather than a bad constant: every one of the five asks is an ABILITY, and the bottom of the
+ladder gains more from a new ability than the top does (the t=0.05 anchor went from -0.06 to +0.18
+against the same fixed t=0.50 reference). The L5 ramp is supposed to prevent exactly that and only
+partly does, because ask #4 (bomb yourself loose) and the bullet cadence apply at every level by
+design — the first because being stuck is not a difficulty setting, the second because it is a limit.
+
+**Measured and refuted while chasing it: scaling the bullet cadence by skill.** It is the obvious move
+(a flat limit takes most from the tiers that shoot most) and it traded 0.30 of goals rho for 2 points
+of spread. Ranking is the gate that says "a higher level is harder at all", so the flat cadence stays.
+**Do not re-propose a skill-scaled cadence without new evidence.**
+
+The user's call, recorded: ship it and keep tuning ("push now, keep tuning after"). The next thing to
+try is NOT another constant — it is the 12-level re-cut this handoff has been deferring, because the
+ladder's problem is now visibly at the BOTTOM (t=0.05 beating t=0.25 and the t=0.50 reference) and no
+amount of gating an ability at L5 fixes a bottom tier that is too strong.
+
 ### Two things worth knowing
 
 - **`pointInBush` still hides ENEMIES on the wrong geometry.** Round 10 removed the BALL's fog; enemy

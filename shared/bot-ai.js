@@ -3532,6 +3532,11 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   const bulletCadenceOk = isBallRelease || mem.t > (bm.nextBulletAt || 0);
   if (shoot && !bm.charging && !bulletCadenceOk) shoot = false;
   if (shoot && !bm.charging) {
+    // FLAT, AND THAT WAS MEASURED AGAINST THE ALTERNATIVE. Scaling the cadence by skill (1.15s at the
+    // bottom, 0.50s at the top) looked obviously right — a flat limit takes more away from the tiers
+    // that shoot most — and measured WORSE where it counts: goals rho 0.40 vs 0.70 flat, for +2 points
+    // of felt spread (10% vs 8%). Ranking is the gate that says "a higher level is harder at all", so
+    // the flat 0.70s stays and the spread cost is recorded as open (BOT_HANDOFF round 11).
     if (!isBallRelease) bm.nextBulletAt = mem.t + 0.70;
     if (isBallRelease || p.ammo > 0) { // don't start a BULLET wind-up we can't finish
       // A KICK's power IS its reach, so a ball release must fire at the charge it ASKED for.
