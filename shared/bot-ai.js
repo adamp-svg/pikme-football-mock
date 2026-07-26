@@ -113,10 +113,10 @@ export const BOT_SKILL = {
   // sends { botDifficulty }) carries the same gating scalar skillVec() now exposes. Without it
   // every t-gated behaviour below would read `undefined` on that path and silently never fire.
   // The values mirror SKILL_ANCHORS' own stops, so the two paths agree by construction.
-  easy:    { t: 0.25, react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, decisionHz: 10, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20, memoryS: 0.55 },
-  normal:  { t: 0.50, react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, decisionHz: 16, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12, memoryS: 0.90 },
-  hard:    { t: 0.82, react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, decisionHz: 26, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.40, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05, memoryS: 1.50 },
-  extreme: { t: 1.00, react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, decisionHz: 34, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 1.60, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, memoryS: 2.20, preChargeP: 0.55, cheatFlub: 0.34, flubMag: 0.10 },
+  easy:    { t: 0.25, react: 0.26, aimSigma: 0.09,  aimTau: 0.50, turnRate: 9.0,  leadGain: 0.85, toolSkill: 0.58, evade: 0.68, aggro: 0.86, chargeRate: 0.95, cdMul: 1.10, visionMul: 1.00, wallCommit: 0.45, detourRatio: 1.40, flowAhead: 2, navLag: 0.20, memoryS: 0.55 },
+  normal:  { t: 0.50, react: 0.16, aimSigma: 0.04,  aimTau: 0.24, turnRate: 16.0, leadGain: 1.00, toolSkill: 0.85, evade: 0.92, aggro: 1.02, chargeRate: 1.25, cdMul: 0.85, visionMul: 1.10, wallCommit: 0.50, detourRatio: 1.18, flowAhead: 3, navLag: 0.12, memoryS: 0.90 },
+  hard:    { t: 0.82, react: 0.08, aimSigma: 0.018, aimTau: 0.16, turnRate: 26.0, leadGain: 1.05, toolSkill: 0.97, evade: 1.00, aggro: 1.12, chargeRate: 2.05, cdMul: 0.55, visionMul: 1.40, wallCommit: 0.70, detourRatio: 1.10, flowAhead: 4, navLag: 0.05, memoryS: 1.50 },
+  extreme: { t: 1.00, react: 0.04, aimSigma: 0.016, aimTau: 0.13, turnRate: 38.0, leadGain: 1.15, toolSkill: 1.00, evade: 1.00, aggro: 1.25, chargeRate: 3.40, cdMul: 0.34, visionMul: 1.60, wallCommit: 0.90, detourRatio: 1.06, flowAhead: 5, navLag: 0.03, memoryS: 2.20, preChargeP: 0.55, cheatFlub: 0.34, flubMag: 0.10 },
 };
 export const DEFAULT_SKILL = 'normal';
 
@@ -124,7 +124,7 @@ export const DEFAULT_SKILL = 'normal';
 // t = 0 tutorial-weak, ~0.25 easy, 0.5 normal, ~0.82 hard, 1.0 extreme. Lets each SIDE of a
 // match carry its own continuous difficulty (see computeBotInputs' per-team skill), so enemy
 // and partner can be tuned independently and matched to game progression.
-const VERY_EASY = { t: 0.00, react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, decisionHz: 6, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30, memoryS: 0.35 };
+const VERY_EASY = { t: 0.00, react: 0.5, aimSigma: 0.17, aimTau: 0.75, turnRate: 5.0, leadGain: 0.7, toolSkill: 0.32, evade: 0.45, aggro: 0.6, chargeRate: 0.6, cdMul: 1.45, visionMul: 0.9, wallCommit: 0.45, detourRatio: 2.60, flowAhead: 2, navLag: 0.30, memoryS: 0.35 };
 const SKILL_ANCHORS = [
   { t: 0.00, v: VERY_EASY },
   { t: 0.25, v: BOT_SKILL.easy },
@@ -132,7 +132,7 @@ const SKILL_ANCHORS = [
   { t: 0.82, v: BOT_SKILL.hard },
   { t: 1.00, v: BOT_SKILL.extreme },
 ];
-const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'decisionHz', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul', 'wallCommit', 'detourRatio', 'flowAhead', 'navLag', 'memoryS'];
+const SKILL_KEYS = ['react', 'aimSigma', 'aimTau', 'turnRate', 'leadGain', 'toolSkill', 'evade', 'aggro', 'chargeRate', 'cdMul', 'visionMul', 'wallCommit', 'detourRatio', 'flowAhead', 'navLag', 'memoryS'];
 export function skillVec(t) {
   t = Math.max(0, Math.min(1, t));
   let a = SKILL_ANCHORS[0], b = SKILL_ANCHORS[SKILL_ANCHORS.length - 1];
@@ -167,6 +167,33 @@ function memSkillVec(mem, team) {
   if (mem.teamSkill && typeof mem.teamSkill[team] === 'number') return skillVec(mem.teamSkill[team]);
   if (typeof mem.skill === 'number') return skillVec(mem.skill);
   return BOT_SKILL[mem.skill] || BOT_SKILL[DEFAULT_SKILL];
+}
+
+// ---- PERSONALITY: two bots at the SAME level should not feel like the same bot ---------------
+// Every bot on a side shares one skill vector, so a 2v2 is one behaviour played twice and a rematch
+// at the same level is the same match. This tilts a few knobs per bot, keyed to a stable hash of
+// its id, so one presses and one hangs back, one loves its tools and one hoards them.
+// Deliberately NOT a difficulty change: the tilts are small and OPPOSED (more aggression is paid
+// for with less patience), and they are CLAMPED to the ladder's own ceiling, so a persona can never
+// make a bot simply stronger — test-bot-ladder.mjs would catch that as a ranking change.
+// Brawl Stars varies its bots by BRAWLER; we have one character, so the axis has to be temperament.
+// Deterministic (idHash, no Math.random), so replaying a match gives the identical result.
+const PERSONAS = [
+  { name: 'presser',  aggro: +0.14, toolSkill: +0.00, bushLove: -0.25, wallCommit: -0.08 },
+  { name: 'poacher',  aggro: -0.10, toolSkill: +0.00, bushLove: +0.30, wallCommit: +0.05 },
+  { name: 'tinkerer', aggro: -0.04, toolSkill: +0.10, bushLove: +0.05, wallCommit: +0.10 },
+  { name: 'anchor',   aggro: -0.12, toolSkill: -0.06, bushLove: -0.05, wallCommit: +0.12 },
+];
+export function personaOf(id) { return PERSONAS[idHash(String(id)) % PERSONAS.length]; }
+export function withPersonaForTest(sk, id) { return withPersona(sk, id); }
+function withPersona(sk, id) {
+  const pr = personaOf(id);
+  const out = { ...sk, persona: pr.name };
+  out.aggro = clamp((sk.aggro || 0.9) + pr.aggro, 0.5, 1.30);
+  out.toolSkill = clamp((sk.toolSkill || 0.5) + pr.toolSkill, 0.20, 1.00);
+  out.wallCommit = clamp((sk.wallCommit || 0.6) + pr.wallCommit, 0.30, 1.10);
+  out.bushLove = clamp(0.5 + pr.bushLove, 0, 1); // consumed by the off-ball lurk-vs-contest choice
+  return out;
 }
 
 export function createBotMemory(skill = DEFAULT_SKILL) {
@@ -813,9 +840,11 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
   for (const team of teams) {
     const role = mem.teams[team];
     if (!role) continue;
-    const sk = memSkillVec(mem, team); // per-team difficulty (enemy vs partner may differ)
+    const teamSk = memSkillVec(mem, team); // per-team difficulty (enemy vs partner may differ)
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
+      // PERSONALITY: same level, different temperament, keyed to a stable hash of the bot id.
+      const sk = withPersona(teamSk, p.id);
       // difficulty as mechanical power: harder bots charge full sooner + cool down faster
       // BREAK THE CARD/SKILL DOUBLE-DIP. RARITY_BY_LEVEL (shared/bot-buffs.js — it lived in server.js
       // until the CARD_POWER_BAND change moved it beside the rarity->buff table) hands a bot its best CARDS at
