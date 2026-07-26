@@ -728,7 +728,21 @@ function steer(bot, tgtx, tgty, state, bmem, sk, now = 0) {
     // so the bot makes lateral progress instead of grinding into the face.
     const wx = -uy * sgn + ux * 0.25, wy = ux * sgn + uy * 0.25;
     // ...but never into something even more solid: keep it only if it is genuinely clearer.
-    if (clearAt(bot.x + wx * LOOK, bot.y + wy * LOOK) > Math.min(HIT_PAD, c0 - 4)) best = unit(wx, wy);
+    // ...but never into something even more solid, and THIS TEST MUST BE A RAY, NOT A POINT.
+    // THE BUG THAT PUT BOTS INSIDE WALLS FOR 40 SECONDS. It used to sample clearance at the
+    // single point LOOK (120px) along the tangent. Every wall on MAIN_FIELD is THINNER than
+    // that probe — the hardWalls are ht=16 capsules (32px thick) and the crates are 50px boxes —
+    // so a probe aimed straight at a wall 40px away lands on the FAR SIDE, in free space, reads
+    // +41px of clearance and the guard passes. The bot then commits to a "detour" that is a
+    // direct march into the wall face, re-commits every wallCommit seconds because the geometry
+    // never changes, and grinds there until the ball comes to it.
+    // MEASURED on MAIN_FIELD at skill 0.50, 6 matches x 60s, paired seeds: longest single pinned
+    // run 15.65s -> 0.73s, pinned-while-wanting-to-move 3.25% -> 0.58%. The reason a whole
+    // session of tests missed it is §00 of BOT_HANDOFF: the DEFAULT arena's walls are 120px
+    // boxes, thick enough to swallow the probe, so the bug is invisible there.
+    // Sampling the same SAMP fractions as the interest loop keeps one geometry rule in the file.
+    const rayMin = (dx, dy) => { let c = 1e9; for (const s of SAMP) { const v = clearAt(bot.x + dx * LOOK * s, bot.y + dy * LOOK * s); if (v < c) c = v; } return c; };
+    if (rayMin(wx, wy) > Math.min(HIT_PAD, c0 - 4)) best = unit(wx, wy);
     else if (safest) best = safest;
   } else if (bmem.detourUntil && (now) > bmem.detourUntil) bmem.detourUntil = 0;
   // low-pass so movement doesn't twitch (sim MOVE_ACCEL snaps velocity).
@@ -2159,7 +2173,41 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
     if (slip > 1 - sk.cheatFlub * 2) noise += mag * seededNoise(mem.t * 5.1 + idHash(p.id) * 0.023);
   }
   const th = bm.aimTheta + noise;
-  const ax = Math.cos(th), ay = Math.sin(th);
+  let ax = Math.cos(th), ay = Math.sin(th);
+
+  // ---- CARRY-AIM DEFLECTION: stop kicking our own ball off a wall -------------------------
+  // sim.js:919-925 pops the held ball LOOSE the instant its GLUE SPOT — feet + aim x (radius +
+  // ballR) — intersects any wall, static or built ("walks it into a solid edge"), with a
+  // RELEASE_PICKUP_CD lockout so the carrier cannot even pick it back up. Nothing in this file
+  // knew that rule, and a carrier aims AT THE ENEMY GOAL while it dribbles, so on the arena the
+  // game actually ships the ball is ripped off it by the geometry, not by an opponent.
+  // MEASURED, MAIN_FIELD, 6 matches x 60s, skill 0.50: 28.3 wall-pops per match (the bare default
+  // arena: 1.2 — a 24x difference, which is why no test ever saw this either). MEDIAN POSSESSION
+  // WAS ONE TICK (0.02s) and only 18% of possessions ended in a kick; the rest were the carrier
+  // losing the ball to a wall it was facing. That is the "they don't go for the ball" report: the
+  // ball is loose 75% of the match, so every bot is permanently in the loose-ball branch.
+  // With this: pops 28.3 -> 3.2, median possession 0.02s -> 0.87s, 60% of possessions now end in
+  // a KICK, shots/match 27.7 -> 39.8, goals/match 0.33 -> 1.50.
+  // It rotates only the EMITTED aim, never bm.aimTheta, so the slew keeps converging on the real
+  // target — and it is DROPPED on the fire tick below, so the shot itself is untouched. Fairness:
+  // a human dribbling round a wall does exactly this with their thumb.
+  if (state.ball.owner === p.id) {
+    const ballR = BALL_RADIUS * (state.settings.ballSizeMul || 1);
+    const off = radOf(state) + ballR;
+    const gr = ballR * 0.6;                       // the sim's own probe radius at sim.js:919
+    const walls = arenaOf(state).walls.concat(state.builtWalls || []);
+    const glueClear = (cx, cy) => {
+      for (const w of walls) { const np = nearestOnWall(w, cx, cy); if (hyp(cx - np.x, cy - np.y) - (np.rad || 0) < gr) return false; }
+      return true;
+    };
+    if (!glueClear(p.x + ax * off, p.y + ay * off)) {
+      // nearest clear direction, alternating sides so the ball is nudged the short way round
+      for (const d of [0.35, -0.35, 0.7, -0.7, 1.05, -1.05, 1.4, -1.4, 1.75, -1.75, 2.1, -2.1, 2.6, -2.6, Math.PI]) {
+        const t2 = th + d, cx = Math.cos(t2), cy = Math.sin(t2);
+        if (glueClear(p.x + cx * off, p.y + cy * off)) { ax = cx; ay = cy; break; }
+      }
+    }
+  }
 
   let { shoot, charge, special, build, closeShot, forceRelease } = btn;
   if (opts.hold) bm.charging = null; // standing on a bomb plant — never charge a shot
@@ -2278,7 +2326,10 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
 
   return {
     seq: (bm.seq = (bm.seq || 0) + 1),
-    moveX: mvx, moveY: mvy, aimX: ax, aimY: ay,
+    moveX: mvx, moveY: mvy,
+    // On the FIRE tick the aim IS the kick/shot direction, so the carry deflection above is
+    // dropped there: the ball leaves along the aim the tactic actually chose.
+    aimX: fire ? Math.cos(th) : ax, aimY: fire ? Math.sin(th) : ay,
     // Bots always shoot deliberately AT a target (goal/enemy/mate), so a bot shot is an AIMED
     // shot — it must push/strip. Without this, every bot bullet degrades to a no-push quick shot.
     hold, fire, aimed: fire, special, build, buildHold, buildDist,

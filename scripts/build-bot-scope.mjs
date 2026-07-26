@@ -1,0 +1,111 @@
+// Bundles the REAL football-mock shared modules into one <script> so the artifact page runs the
+// same sim.js + bot-ai.js the server runs — no reimplementation, no drift.
+// ESM -> tiny registry: `import {a} from './x.js'` becomes `const {a} = __req('x')`, `export` is
+// stripped and the names are returned from the module factory.
+// It also plants two RUNTIME SWITCHES so the page can A/B the two bot fixes live.
+import fs from 'node:fs';
+import path from 'node:path';
+
+// repo root = the parent of scripts/. `--standalone <path>` also writes the single-file version
+// (that is what gets published as a shareable artifact); without it only the dev page is written.
+const REPO = path.resolve(new URL('.', import.meta.url).pathname, '..');
+const argi = process.argv.indexOf('--standalone');
+const STANDALONE = argi > 0 ? process.argv[argi + 1] : null;
+const ENTRIES = ['sim.js', 'bot-ai.js', 'difficulty.js', 'main-field.js', 'constants.js', 'arena.js'];
+
+const seen = new Map();
+function load(file) {
+  if (seen.has(file)) return;
+  const src = fs.readFileSync(path.join(REPO, 'shared', file), 'utf8');
+  seen.set(file, src);
+  for (const m of src.matchAll(/from\s+'\.\/([\w.-]+)'/g)) load(m[1]);
+}
+for (const e of ENTRIES) load(e);
+
+function transform(file, src) {
+  const exports = new Set();
+  let out = src;
+  // import { a, b as c } from './x.js';  (may span lines)
+  out = out.replace(/import\s*\{([\s\S]*?)\}\s*from\s*'\.\/([\w.-]+)'\s*;?/g, (_m, names, mod) => {
+    const cleaned = names.split(',').map((s) => s.trim()).filter(Boolean)
+      .map((s) => (s.includes(' as ') ? s.replace(/\s+as\s+/, ': ') : s)).join(', ');
+    return `const { ${cleaned} } = __req(${JSON.stringify(mod)});`;
+  });
+  if (/^\s*import\s/m.test(out)) throw new Error(`${file}: unhandled import form`);
+  // export { a, b };
+  out = out.replace(/export\s*\{([^}]*)\}\s*;?/g, (_m, names) => {
+    names.split(',').map((s) => s.trim()).filter(Boolean).forEach((n) => exports.add(n.split(/\s+as\s+/).pop()));
+    return '';
+  });
+  // export const|let|var|function|class NAME
+  out = out.replace(/export\s+(const|let|var|function\*?|class|async function)\s+([A-Za-z_$][\w$]*)/g, (_m, kind, name) => {
+    exports.add(name);
+    return `${kind} ${name}`;
+  });
+  if (/\bexport\b/.test(out.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, ''))) {
+    throw new Error(`${file}: leftover export`);
+  }
+  return { code: out, exports: [...exports] };
+}
+
+// ---- the two runtime switches (so the page can show the bug and the fix side by side) ----
+function plantSwitches(src) {
+  let n = 0;
+  const a0 = `    if (rayMin(wx, wy) > Math.min(HIT_PAD, c0 - 4)) best = unit(wx, wy);`;
+  const a1 = `    const _probe = globalThis.__BOTFIX_RAY === false ? clearAt(bot.x + wx * LOOK, bot.y + wy * LOOK) : rayMin(wx, wy);
+    if (_probe > Math.min(HIT_PAD, c0 - 4)) best = unit(wx, wy);`;
+  if (src.includes(a0)) { src = src.replace(a0, a1); n++; }
+  const b0 = `  if (state.ball.owner === p.id) {\n    const ballR = BALL_RADIUS`;
+  const b1 = `  if (state.ball.owner === p.id && globalThis.__BOTFIX_CARRY !== false) {\n    const ballR = BALL_RADIUS`;
+  if (src.includes(b0)) { src = src.replace(b0, b1); n++; }
+  if (n !== 2) throw new Error(`plantSwitches: expected 2 patches, made ${n} — the repo code moved`);
+  return src;
+}
+
+const parts = [];
+for (const [file, src0] of seen) {
+  const src = file === 'bot-ai.js' ? plantSwitches(src0) : src0;
+  const { code, exports } = transform(file, src);
+  parts.push(`__def(${JSON.stringify(file)}, function (__req) {\n${code}\nreturn { ${exports.join(', ')} };\n});`);
+}
+
+const bundle = `(() => {
+const __mods = {}, __cache = {};
+function __def(name, fn) { __mods[name] = fn; }
+function __req(name) {
+  if (!(name in __cache)) {
+    if (!__mods[name]) throw new Error('missing module ' + name);
+    __cache[name] = null;
+    __cache[name] = __mods[name](__req);
+  }
+  return __cache[name];
+}
+${parts.join('\n')}
+window.SALTIZ = { req: __req, ab: true };
+})();`;
+
+const tpl = fs.readFileSync(path.join(REPO, 'scripts', 'bot-scope.template.html'), 'utf8');
+if (!tpl.includes('<!--BUNDLE-->')) throw new Error('template is missing the <!--BUNDLE--> marker');
+
+// (a) STANDALONE (the shareable artifact): every module inlined, zero requests.
+const html = tpl.replace('<!--BUNDLE-->', `<script>\n${bundle}\n</script>`);
+if (STANDALONE) fs.writeFileSync(STANDALONE, html);
+
+// (b) IN-REPO dev page: `server.js` serves shared/ verbatim, so the page imports the LIVE modules
+// instead of a snapshot — restart the server and the scope shows the code you just edited.
+const names = [...seen.keys()];
+const live = `<script type="module">
+${names.map((n, i) => `import * as m${i} from '/shared/${n}';`).join('\n')}
+const __m = { ${names.map((n, i) => `${JSON.stringify(n)}: m${i}`).join(', ')} };
+window.SALTIZ = { req: (n) => __m[n] };
+</script>`;
+const page = tpl.replace('<!--BUNDLE-->', live)
+  .replace('<title>', '<!-- GENERATED by scripts/build-bot-scope.mjs from bot-scope.template.html — edit the template, not this file. -->\n<title>');
+fs.writeFileSync(path.join(REPO, 'public', '_bot-scope.html'), `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+</head><body>
+${page}
+</body></html>`);
+console.log(`bundled ${seen.size} modules: ${names.join(', ')}`);
+if (STANDALONE) console.log(`${STANDALONE} ${(html.length / 1024).toFixed(0)} KB (standalone)`);
+console.log(`public/_bot-scope.html written (live imports)`);

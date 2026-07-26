@@ -5,6 +5,110 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 000. ROUND 5 (2026-07-26 12:4x-13:2x, agent `bot-review`) — §00 WAS RIGHT, AND HERE ARE THE TWO BUGS
+
+§00 said "fix pinning on MAIN_FIELD, prime suspects the nav grid's `r+2` inflation / `detourRatio` /
+the locked-tangent fallback". Measured: **the nav grid is fine** (18.9% of cells blocked, free space is
+ONE connected component, so the flow field always has a route) and `detourRatio` is not the problem.
+It was the third suspect, and one nobody had listed.
+
+### The regression has a commit. `3ca355f`.
+
+`bot-feel.mjs` (new, in the repo root) is API-minimal on purpose, so the SAME file runs inside a
+`git archive <rev> shared` checkout of any old revision and the whole day can be bisected with paired
+seeds. On MAIN_FIELD at skill 0.50, 6 matches x 60s:
+
+| | `e5f97e7` 07-24 | `3d08e27` 01:53 | **`3ca355f` 02:18** | HEAD (before this round) | **fixed** |
+|---|---|---|---|---|---|
+| worst single wall-jam | 3.33s | 0.78s | **39.97s** | 15.65s | **0.73s** |
+| pinned % of move ticks | 1.75 | 1.27 | **7.63** | 3.25 | **0.58** |
+| loose-ball gap | 76px | 65px | **164px** | 124px | 166px* |
+| ball loose % of match | 66.5 | 63.6 | **77.2** | 74.8 | 62.7 |
+| "nobody reached the loose ball in 4s" /match | 0.17 | 0.17 | **4.67** | 4.33 | 2.33 |
+
+\* the gap is LARGER after the fix for a good reason: the ball is now HELD 37% of the time, so when it
+is loose it is because someone just kicked it a long way.
+
+**The user's memory was exact**: the last build that felt right is `e5f97e7` (07-24 19:05), and every
+bot commit after 02:18 on 07-26 is downstream of the break.
+
+### Bug 1 — the wall-detour guard TUNNELS THROUGH WALLS (`steer()`)
+
+The committed-tangent fallback validated its chosen direction with clearance at **one point, `LOOK`
+(120px) along the tangent**. Every wall on MAIN_FIELD is thinner than that probe — `hardWalls` are
+`ht:16` capsules (32px thick) and `crates` are 50px boxes — so a probe pointed at a wall 40px away
+lands on the **far side of it**, in free space, reads **+41px of clearance**, and the guard passes. The
+"detour" then IS a march into the wall face, and it is re-committed every `wallCommit` seconds because
+the geometry never changes.
+
+Traced, not guessed: bot `A1` at (927,133), 26px off the `cap(1000,175,hl150)` capsule, waypoint at
+(784,176) (i.e. "go LEFT round the end"), emitting **move = (0.05, 1.00) — straight down into the
+wall — for 8.5s**, `pressTicks` climbing to 509. Plug the numbers into the tangent formula and you get
+exactly (0.05, 1.03): the bot is obeying the guard.
+
+**Fix**: sample the same `SAMP` fractions the interest loop already uses (`rayMin`). One line of real
+change. **This is why the whole session missed it — the default arena's walls are 120px boxes, thick
+enough to swallow the probe.** §00's finding, with a name.
+
+### Bug 2 — bots kick their own ball off walls (nothing in this file knew `sim.js:919`)
+
+`sim.js:919-925`: the held ball sits at feet + aim x (radius + ballR) and pops **LOOSE** the instant
+that spot touches any wall, static or built, with a `RELEASE_PICKUP_CD` lockout so the carrier cannot
+even pick it back up. A bot carrier aims **at the enemy goal** while it dribbles.
+
+| | MAIN_FIELD | default arena |
+|---|---|---|
+| carrier wall-pops per match | **28.3** | 1.2 |
+
+Median possession across every revision measured was **ONE TICK (0.02s)**, and only 18% of possessions
+ended in a kick — the rest were the carrier losing the ball to a wall it was facing. **That is the "they
+don't go for the ball" report**: the ball is loose 75% of the match, so all four bots are permanently in
+the loose-ball branch, and the "bots" the user watches are four sprites converging on a rolling ball.
+
+**Fix**: `finalize()` rotates the **emitted** aim to the nearest direction whose glue spot is clear.
+Never `bm.aimTheta` (so the slew still converges on the real target) and **dropped on the fire tick**
+(so the shot direction is exactly what the tactic chose). A human does this with their thumb.
+
+### After both fixes (paired seeds, MAIN_FIELD, skill 0.50, 6x60s; second seed base agrees)
+
+worst jam **15.65s -> 0.73s** · pinned **3.25% -> 0.58%** · wall-pops **28.3 -> 3.2** · median
+possession **0.02s -> 0.87s** · kick-ended possessions **18% -> 60%** · shots **27.7 -> 39.8** ·
+goals **0.33 -> 1.50** · idle-with-ball **4.09% -> 2.37%**.
+
+### New instruments
+
+- **`bot-feel.mjs`** — the paired-seed feel meter above. Runs on old revisions. Not gated; it is an A/B.
+- **`public/_bot-scope.html`** — a bird's-eye 2v2 scope that imports the LIVE `shared/` modules, so it
+  shows the code you just edited (restart the server). All 12 levels, partner-vs-enemy or mirrored,
+  steering targets, flow-field waypoints, nav occupancy, tactic tags, vision, **the ball's glue spot**
+  (green = safe, red = about to pop), per-bot jam timers, and jam%/worst-jam/wall-pop counters.
+  Generated from `scripts/bot-scope.template.html` by `scripts/build-bot-scope.mjs` — **edit the
+  template, not the generated page**. `--standalone <path>` emits a single-file build with a
+  **Patched / Pre-fix** switch (that build was shared with the user). Pre-fix, 56s: jam 19.6%, worst
+  jam 41.7s, 23 pops, **0 shots**. Patched, 44s: 0.72%, 0.42s, 1 pop, 42 shots, 1 goal.
+
+### Two traps found in the instruments themselves
+
+1. **`test-behavior.mjs` tests pinning against the WRONG WALLS.** Its `nearWallOrEdge()` reads the
+   global `ARENA` even under `ARENA=main`, so on MAIN_FIELD it counts pins near four boxes that are not
+   there and MISSES every pin on the real capsules and crates. The 14.36% in §00 is measuring phantom
+   geometry. `bot-feel.mjs` uses `state.arena` + `builtWalls` with exact capsule geometry.
+2. **The browser is level 0.** `http://10.100.102.36:3012/` has no `window.SALTIZ_XP`, so it runs the
+   weakest tier in the game — enemy skill **0.05** after the 07-26 re-cut (it was 0.25). Any "the bots
+   are dumb" report from the LAN browser is a report about L0 unless it says `?diff=9`.
+
+### Still open after this round
+
+1. **`test-bot-ladder.mjs`**: pre-fix it passes with rho 0.90 and spread **exactly 0.60** — the gate is a
+   knife edge (§5.4 already says the headroom is spent). These fixes move possession and finishing, so
+   the spread must be re-measured at `SEEDS=6` and the levels retuned if it slipped; do NOT "fix" it by
+   lowering the gate. `test-bot-partner.mjs` is the previously-logged level-table conflict.
+2. The carry-aim deflection is a **local** dodge (nearest clear glue direction). The better version
+   biases toward the movement direction so the ball is nudged the way the bot is already going.
+3. `sim.js:919` itself deserves a look: popping the ball because the AIM grazes a wall punishes a human
+   dribbling along a wall too. This round deliberately fixed the BOT, not the rule.
+
+---
 ## 00. THE BIGGEST FINDING — every bot test ran on an arena the game does not use
 
 **Priority 1. This invalidates most of the numbers elsewhere in this document, including mine.**

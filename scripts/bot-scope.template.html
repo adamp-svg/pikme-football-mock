@@ -1,0 +1,579 @@
+<title>Bot Scope — Saltiz football 2v2</title>
+<style>
+  :root {
+    --bg: #f0f3f7;
+    --panel: #ffffff;
+    --panel-2: #e9eef4;
+    --rule: #ccd6e0;
+    --ink: #101a24;
+    --ink-dim: #5b6b7c;
+    --ink-faint: #8b9aa9;
+    --accent: #a26505;
+    --accent-soft: #f3e2c4;
+    --turf: #dfe8e0;
+    --turf-line: #b9c8bb;
+    --stone: #9aa6b2;
+    --crate: #b08a5a;
+    --bush: #8fb894;
+    --teamA: #2563eb;
+    --teamB: #dc2626;
+    --ball: #1a2330;
+    --ok: #157f4a;
+    --shadow: 0 1px 2px rgba(16, 26, 36, .08), 0 8px 24px rgba(16, 26, 36, .06);
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #080d14;
+      --panel: #101823;
+      --panel-2: #16202d;
+      --rule: #223044;
+      --ink: #e9eff7;
+      --ink-dim: #8496a9;
+      --ink-faint: #5d6d7f;
+      --accent: #f0a32b;
+      --accent-soft: #3a2a0d;
+      --turf: #101f19;
+      --turf-line: #1d3a2d;
+      --stone: #4a5a6b;
+      --crate: #7a5a34;
+      --bush: #1c4030;
+      --teamA: #4c8ffb;
+      --teamB: #f7554f;
+      --ball: #f4f8fc;
+      --ok: #35c46b;
+      --shadow: 0 1px 0 rgba(255, 255, 255, .03), 0 12px 32px rgba(0, 0, 0, .5);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f0f3f7; --panel: #ffffff; --panel-2: #e9eef4; --rule: #ccd6e0;
+    --ink: #101a24; --ink-dim: #5b6b7c; --ink-faint: #8b9aa9;
+    --accent: #a26505; --accent-soft: #f3e2c4;
+    --turf: #dfe8e0; --turf-line: #b9c8bb; --stone: #9aa6b2; --crate: #b08a5a; --bush: #8fb894;
+    --teamA: #2563eb; --teamB: #dc2626; --ball: #1a2330; --ok: #157f4a;
+    --shadow: 0 1px 2px rgba(16, 26, 36, .08), 0 8px 24px rgba(16, 26, 36, .06);
+  }
+  :root[data-theme="dark"] {
+    --bg: #080d14; --panel: #101823; --panel-2: #16202d; --rule: #223044;
+    --ink: #e9eff7; --ink-dim: #8496a9; --ink-faint: #5d6d7f;
+    --accent: #f0a32b; --accent-soft: #3a2a0d;
+    --turf: #101f19; --turf-line: #1d3a2d; --stone: #4a5a6b; --crate: #7a5a34; --bush: #1c4030;
+    --teamA: #4c8ffb; --teamB: #f7554f; --ball: #f4f8fc; --ok: #35c46b;
+    --shadow: 0 1px 0 rgba(255, 255, 255, .03), 0 12px 32px rgba(0, 0, 0, .5);
+  }
+
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1380px; margin: 0 auto; padding: 20px 18px 56px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ---------- header ---------- */
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 24px; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  h1 span { color: var(--ink-faint); font-weight: 500; }
+  .sub { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-dim); max-width: 62ch; line-height: 1.5; }
+  .src { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+
+  /* ---------- controls ---------- */
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .grp { display: flex; align-items: center; gap: 8px; }
+  .lbl { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); }
+  button, select { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 11px; font-size: 13px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--ink-faint); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--panel); }
+  .seg button { border: 0; border-radius: 0; padding: 6px 12px; }
+  .seg button + button { border-left: 1px solid var(--rule); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #0b1017; font-weight: 650; }
+  :root[data-theme="light"] .seg button[aria-pressed="true"], :root:not([data-theme]) .seg button[aria-pressed="true"] { color: #fff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme]) .seg button[aria-pressed="true"] { color: #0b1017; } }
+  .levels { display: flex; flex-wrap: wrap; gap: 4px; }
+  .levels button { font-family: var(--mono); padding: 5px 9px; font-size: 12px; min-width: 34px; }
+  .levels button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #0b1017; font-weight: 700; }
+  :root[data-theme="light"] .levels button[aria-pressed="true"] { color: #fff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme]) .levels button[aria-pressed="true"] { color: #0b1017; } }
+  :root:not([data-theme]) .levels button[aria-pressed="true"] { color: #fff; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .toggles label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); cursor: pointer; }
+  input[type="checkbox"] { accent-color: var(--accent); }
+
+  /* ---------- stage ---------- */
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 16px; align-items: start; }
+  @media (max-width: 980px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .stage { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 10px; box-shadow: var(--shadow); }
+  canvas { display: block; width: 100%; height: auto; border-radius: 6px; }
+  .under { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; padding: 10px 4px 2px; }
+  .key { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--ink-dim); font-family: var(--mono); }
+  .key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  /* ---------- rail ---------- */
+  .rail { display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .card > h2 { margin: 0; padding: 9px 12px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); border-bottom: 1px solid var(--rule); background: var(--panel-2); font-weight: 700; }
+  .card > div { padding: 10px 12px; }
+
+  .bot { display: grid; grid-template-columns: 22px 1fr auto; gap: 3px 9px; padding: 9px 12px; border-bottom: 1px solid var(--rule); font-size: 12px; align-items: center; }
+  .bot:last-child { border-bottom: 0; }
+  .chip { grid-row: span 2; width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; font-family: var(--mono); font-size: 11px; font-weight: 700; color: #fff; }
+  .bot b { font-weight: 650; }
+  .bot .role { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); text-align: right; }
+  .bot .meta { grid-column: 2 / 4; font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); display: flex; gap: 9px; flex-wrap: wrap; }
+  .bot .meta em { font-style: normal; color: var(--accent); }
+  .bot.jam { background: color-mix(in srgb, var(--teamB) 12%, transparent); }
+  .bot.jam .meta em { color: var(--teamB); }
+
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+  td { padding: 3.5px 0; }
+  td:last-child { text-align: right; font-weight: 650; }
+  tr.hi td:last-child { color: var(--accent); }
+
+  .log { max-height: 186px; overflow-y: auto; font-family: var(--mono); font-size: 11px; line-height: 1.65; color: var(--ink-dim); }
+  .log div { display: flex; gap: 8px; }
+  .log span { color: var(--ink-faint); }
+  .log b { color: var(--ink); font-weight: 650; }
+  .empty { color: var(--ink-faint); font-style: italic; }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 12px; font-size: 12px; color: var(--ink-dim); line-height: 1.6; }
+  footer code { font-family: var(--mono); font-size: 11.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  .warn { border-left: 2px solid var(--accent); padding-left: 10px; }
+  #prefix { margin: 0 0 8px; padding: 7px 10px; border-radius: 6px; font-size: 12px; line-height: 1.45;
+            background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink); }
+  #prefix b { color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Bot Scope <span>— 2v2, bird's-eye</span></h1>
+      <p class="sub">The real <span class="src">shared/sim.js</span> + <span class="src">shared/bot-ai.js</span> from <span class="src">football-mock</span>, bundled and run in this page at 60 Hz on the arena the game actually ships (<span class="src">MAIN_FIELD</span>). Nothing here is a mock-up of the bots — it is the bots.</p>
+    </div>
+  </header>
+
+  <div class="bar">
+    <div class="grp"><span class="lbl">Run</span>
+      <div class="seg">
+        <button id="play" aria-pressed="true">Pause</button>
+        <button id="stepBtn">Step</button>
+        <button id="reset">Restart</button>
+      </div>
+    </div>
+    <div class="grp"><span class="lbl">Speed</span>
+      <div class="seg" id="speed">
+        <button data-v="0.25">¼×</button><button data-v="1" aria-pressed="true">1×</button><button data-v="2">2×</button><button data-v="4">4×</button>
+      </div>
+    </div>
+    <div class="grp" id="fixGrp"><span class="lbl">Bot code</span>
+      <div class="seg" id="fix">
+        <button data-v="1" aria-pressed="true">Patched</button><button data-v="0">Pre-fix</button>
+      </div>
+    </div>
+    <div class="grp"><span class="lbl">Sides</span>
+      <div class="seg" id="mirror">
+        <button data-v="0" aria-pressed="true">Level (partner vs enemy)</button><button data-v="1">Mirror (both = enemy)</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <div class="grp"><span class="lbl">Difficulty level</span><div class="levels" id="levels"></div></div>
+    <div class="grp"><span class="lbl" id="lvlName"></span></div>
+  </div>
+
+  <main>
+    <section class="stage">
+      <p id="prefix" hidden>Running the <b>pre-fix</b> bot code: the wall-probe is a single point and the carrier aims through walls.</p>
+      <canvas id="pitch" width="1200" height="740"></canvas>
+      <div class="under">
+        <div class="toggles" id="ov">
+          <label><input type="checkbox" data-k="target" checked> steering target</label>
+          <label><input type="checkbox" data-k="path" checked> flow-field waypoint</label>
+          <label><input type="checkbox" data-k="grid"> nav occupancy</label>
+          <label><input type="checkbox" data-k="tag" checked> tactic tag</label>
+          <label><input type="checkbox" data-k="vision"> vision range</label>
+          <label><input type="checkbox" data-k="glue" checked> ball glue spot</label>
+        </div>
+        <div class="key">
+          <span><i style="background:var(--teamA)"></i>team A · partner side</span>
+          <span><i style="background:var(--teamB)"></i>team B · enemy side</span>
+          <span><i style="background:var(--stone)"></i>stone / crate</span>
+          <span><i style="background:var(--bush)"></i>bush (walk-through cover)</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="rail">
+      <div class="card"><h2>Bots</h2><div id="bots" style="padding:0"></div></div>
+      <div class="card"><h2>This run</h2><div><table id="stats"></table></div></div>
+      <div class="card"><h2>Events</h2><div class="log" id="log"><div class="empty">waiting…</div></div></div>
+    </aside>
+  </main>
+
+  <footer>
+    <p class="warn"><b>What to watch.</b> Flip <b>Pre-fix</b> and watch a bot pick a "detour" straight into a 32&nbsp;px wall and grind there for seconds — the old guard probed clearance at a single point 120&nbsp;px ahead, which lands on the <em>far side</em> of every wall on this arena. Then watch the carrier: pre-fix it aims at the goal while dribbling, so <code>sim.js</code> pops the ball off any wall the aim touches — 28 times a match, median possession one tick.</p>
+    <p>Measured on this arena, skill 0.50, 6 matches × 60 s, paired seeds: longest jam <b>15.65 s → 0.73 s</b>, wall-pops per match <b>28.3 → 3.2</b>, median possession <b>0.02 s → 0.87 s</b>, shots <b>27.7 → 39.8</b>, goals <b>0.33 → 1.50</b>.</p>
+  </footer>
+</div>
+
+<!--BUNDLE-->
+
+<script type="module">
+(() => {
+  const R = window.SALTIZ.req;
+  const AB = !!window.SALTIZ.ab;   // only the bundled artifact can flip the pre-fix switches
+  const { createState, addPlayer, attachBall, step, setField, makeRng } = R('sim.js');
+  const { computeBotInputs, createBotMemory, bmemForTest, navForTest, NAV_DIMS, personaOf } = R('bot-ai.js');
+  const { DIFFICULTY_LEVELS, skillWord } = R('difficulty.js');
+  const { MAIN_FIELD } = R('main-field.js');
+  const C = R('constants.js');
+  const { nearestOnWall } = R('arena.js');
+  const { FIELD, GOAL, PENALTY, DT, BALL_RADIUS, BOMB, CHARACTERS, VISION_RANGE } = C;
+
+  // ---------- view ----------
+  const PAD = 96;                                   // world margin so the net pockets are visible
+  const VW = FIELD.W + PAD * 2, VH = FIELD.H + PAD * 2;
+  const cv = document.getElementById('pitch'), ctx = cv.getContext('2d');
+  const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+  let scale = 1;
+  function fit() {
+    const cssW = cv.parentElement.clientWidth - 20;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.style.height = (cssW * VH / VW) + 'px';
+    cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssW * VH / VW * dpr);
+    scale = cv.width / VW;
+  }
+  const X = (x) => (x + PAD) * scale, Y = (y) => (y + PAD) * scale, S = (v) => v * scale;
+
+  let pal = {}, palV = -1, themeV = 0;
+  function palette() {
+    if (palV === themeV) return pal;
+    const cs = getComputedStyle(document.documentElement);
+    pal = {}; palV = themeV;
+    for (const k of ['turf', 'turf-line', 'stone', 'crate', 'bush', 'teamA', 'teamB', 'ball', 'accent', 'ink', 'ink-dim', 'ink-faint', 'panel', 'rule', 'ok'])
+      pal[k] = cs.getPropertyValue('--' + k).trim();
+    return pal;
+  }
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { themeV++; });
+  new MutationObserver(() => { themeV++; }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ---------- match ----------
+  const IDS = [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]];
+  let s, mem, seed = 7, level = 5, mirror = false, fixOn = true, speed = 1, running = true;
+  let stat, prev, jam, log = [];
+
+  function skills() {
+    const L = DIFFICULTY_LEVELS[level];
+    return mirror ? { A: L.enemy, B: L.enemy } : { A: L.partner, B: L.enemy };
+  }
+  function reset(newSeed) {
+    if (newSeed) seed = (seed * 1103515245 + 12345) % 2147483647;
+    s = createState(); s.resetTimer = 0.5; s.goalsToWin = 0;
+    setField(s, MAIN_FIELD);
+    s.rng = makeRng(seed);
+    for (const [id, team, slot] of IDS) addPlayer(s, id, { name: id, char: 'player', team, slot, isBot: true });
+    attachBall(s, s.rng() < 0.5 ? 'A' : 'B');
+    mem = createBotMemory('normal'); mem.teamSkill = skills();
+    stat = { ticks: 0, move: 0, pin: 0, pops: 0, shots: 0, poss: { A: 0, B: 0 }, held: 0, spells: [], jamWorst: 0, goalsAt: null };
+    prev = {}; jam = {};
+    for (const [id] of IDS) { prev[id] = null; jam[id] = 0; }
+    log = []; drawLog();
+    paintLevel();
+  }
+  const push = (kind, text) => {
+    log.unshift({ t: s.elapsed, kind, text });
+    if (log.length > 70) log.pop();
+    drawLog();
+  };
+
+  // the sim's own rule (sim.js:919): the held ball sits at feet + aim*(r+ballR) and pops LOOSE
+  // the instant that point touches a wall. Mirrored here so the page can count it.
+  function gluePoint(p) {
+    const ballR = BALL_RADIUS * (s.settings.ballSizeMul || 1);
+    const off = CHARACTERS[p.char || 'player'].radius * (s.settings.sizeMul || 1) + ballR;
+    return { x: p.x + p.aimX * off, y: p.y + p.aimY * off, r: ballR * 0.6 };
+  }
+  function glueInWall(g) {
+    for (const w of s.arena.walls.concat(s.builtWalls)) {
+      const np = nearestOnWall(w, g.x, g.y);
+      if (Math.hypot(g.x - np.x, g.y - np.y) - (np.rad || 0) < g.r) return true;
+    }
+    return false;
+  }
+  function touchingWall(p) {
+    const r = CHARACTERS[p.char || 'player'].radius * (s.settings.sizeMul || 1) + 14;
+    if (p.x < r || p.x > FIELD.W - r || p.y < r || p.y > FIELD.H - r) return true;
+    for (const w of s.arena.walls.concat(s.builtWalls)) {
+      const np = nearestOnWall(w, p.x, p.y);
+      if (Math.hypot(p.x - np.x, p.y - np.y) - (np.rad || 0) < r) return true;
+    }
+    return false;
+  }
+
+  function tick() {
+    globalThis.__BOTFIX_RAY = fixOn; globalThis.__BOTFIX_CARRY = fixOn;
+    const owner = s.ball.owner ? s.players[s.ball.owner] : null;
+    const wasGlued = owner ? glueInWall(gluePoint(owner)) : false;
+    const before = { A: s.score.A, B: s.score.B };
+
+    const inp = computeBotInputs(s, mem, DT);
+    for (const id in inp) if (inp[id] && inp[id].fire) stat.shots++;
+    step(s, inp, DT);
+
+    if (s.score.A !== before.A || s.score.B !== before.B) {
+      const who = s.score.A !== before.A ? 'A' : 'B';
+      push('goal', 'GOAL team ' + who + ' — ' + s.score.A + ':' + s.score.B);
+    }
+    if (s.resetTimer > 0) { for (const [id] of IDS) { prev[id] = null; jam[id] = 0; } return; }
+
+    stat.ticks++;
+    if (owner && !s.ball.owner && wasGlued) { stat.pops++; push('pop', owner.id + ' lost the ball to a wall it was facing'); }
+    if (s.ball.owner) { stat.held++; stat.poss[s.players[s.ball.owner].team]++; }
+
+    for (const [id] of IDS) {
+      const p = s.players[id], i = inp[id]; if (!p || !i) continue;
+      const want = Math.hypot(i.moveX, i.moveY) > 0.3;
+      const disp = prev[id] ? Math.hypot(p.x - prev[id].x, p.y - prev[id].y) : 9;
+      if (want && disp < 1.2 && touchingWall(p)) {
+        jam[id]++;
+        stat.jamWorst = Math.max(stat.jamWorst, jam[id] * DT);
+        if (jam[id] === 30) push('jam', id + ' jammed on a wall (0.5 s and counting)');
+      } else {
+        if (jam[id] * DT >= 0.5) push('free', id + ' broke free after ' + (jam[id] * DT).toFixed(1) + ' s');
+        jam[id] = 0;
+      }
+      if (want) { stat.move++; if (jam[id]) stat.pin++; }
+      prev[id] = { x: p.x, y: p.y };
+    }
+  }
+
+  // ---------- drawing ----------
+  function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+  function drawArena() {
+    const c = palette();
+    ctx.fillStyle = c.panel; ctx.fillRect(0, 0, cv.width, cv.height);
+    // turf + mown stripes
+    ctx.fillStyle = c.turf; ctx.fillRect(X(0), Y(0), S(FIELD.W), S(FIELD.H));
+    ctx.save(); ctx.beginPath(); ctx.rect(X(0), Y(0), S(FIELD.W), S(FIELD.H)); ctx.clip();
+    ctx.fillStyle = c['turf-line']; ctx.globalAlpha = .28;
+    for (let i = 0; i < 10; i += 2) ctx.fillRect(X(i * FIELD.W / 10), Y(0), S(FIELD.W / 10), S(FIELD.H));
+    ctx.restore();
+    // markings
+    ctx.strokeStyle = c['turf-line']; ctx.lineWidth = Math.max(1, S(4)); ctx.globalAlpha = 1;
+    ctx.strokeRect(X(0), Y(0), S(FIELD.W), S(FIELD.H));
+    ctx.beginPath(); ctx.moveTo(X(FIELD.W / 2), Y(0)); ctx.lineTo(X(FIELD.W / 2), Y(FIELD.H));
+    ctx.arc(X(FIELD.W / 2), Y(FIELD.H / 2), S(180), 0, Math.PI * 2); ctx.stroke();
+    const pt = (FIELD.H - PENALTY.width) / 2;
+    ctx.strokeRect(X(0), Y(pt), S(PENALTY.depth), S(PENALTY.width));
+    ctx.strokeRect(X(FIELD.W - PENALTY.depth), Y(pt), S(PENALTY.depth), S(PENALTY.width));
+    // goals + net pockets
+    const gt = (FIELD.H - GOAL.width) / 2;
+    for (const [gx, dir, team] of [[0, -1, 'A'], [FIELD.W, 1, 'B']]) {   // A defends left (it attacks right)
+      ctx.fillStyle = team === 'A' ? c.teamA : c.teamB; ctx.globalAlpha = .13;
+      ctx.fillRect(X(Math.min(gx, gx + dir * GOAL.depth)), Y(gt), S(GOAL.depth), S(GOAL.width));
+      ctx.globalAlpha = 1; ctx.strokeStyle = team === 'A' ? c.teamA : c.teamB; ctx.lineWidth = Math.max(1, S(6));
+      ctx.strokeRect(X(Math.min(gx, gx + dir * GOAL.depth)), Y(gt), S(GOAL.depth), S(GOAL.width));
+    }
+    // bushes
+    for (const b of s.arena.bushes) {
+      ctx.fillStyle = c.bush; ctx.globalAlpha = .55; rrect(X(b.x), Y(b.y), S(b.w), S(b.h), S(14)); ctx.fill();
+      ctx.globalAlpha = 1; ctx.strokeStyle = c.bush; ctx.lineWidth = Math.max(1, S(3)); ctx.setLineDash([S(14), S(10)]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // static walls: capsules + crates
+    for (const w of s.arena.walls) drawWall(w, w.crate ? c.crate : c.stone, 1);
+    for (const w of s.builtWalls) drawWall(w, c.accent, Math.max(.35, (w.hp || 1) / (w.maxHp || 3)));
+  }
+  function drawWall(w, col, alpha) {
+    ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = col;
+    if (w.angle != null) {
+      ctx.translate(X(w.cx), Y(w.cy)); ctx.rotate(w.angle);
+      rrect(-S(w.hl), -S(w.ht), S(w.hl * 2), S(w.ht * 2), S(Math.min(w.ht, 8))); ctx.fill();
+    } else { rrect(X(w.x), Y(w.y), S(w.w), S(w.h), S(4)); ctx.fill(); }
+    ctx.restore();
+  }
+  function drawNavGrid() {
+    const nav = navForTest(mem); if (!nav) return;
+    const c = palette(), { GW, GH, CELL } = NAV_DIMS;
+    ctx.fillStyle = c['ink-faint']; ctx.globalAlpha = .5;
+    for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+      if (!nav.occ[gy * GW + gx]) continue;
+      ctx.fillRect(X(gx * CELL + CELL / 2) - S(2.5), Y(gy * CELL + CELL / 2) - S(2.5), S(5), S(5));
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawPlayers() {
+    const c = palette(), role = { A: mem.teams.A, B: mem.teams.B };
+    for (const b of s.bombs) {
+      const k = 1 - (b.fuse / BOMB.fuse);
+      ctx.strokeStyle = c.accent; ctx.lineWidth = Math.max(1, S(5)); ctx.globalAlpha = .8;
+      ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), S(BOMB.radius) * (.35 + .65 * k), 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = c.accent; ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), S(16), 0, Math.PI * 2); ctx.fill();
+    }
+    for (const pr of s.projectiles) {
+      ctx.fillStyle = pr.team === 'A' ? c.teamA : c.teamB;
+      ctx.beginPath(); ctx.arc(X(pr.x), Y(pr.y), S(9), 0, Math.PI * 2); ctx.fill();
+    }
+    for (const [id] of IDS) {
+      const p = s.players[id]; if (!p) continue;
+      const col = p.team === 'A' ? c.teamA : c.teamB;
+      const bm = bmemForTest(mem, id);
+      const r = CHARACTERS[p.char || 'player'].radius * (s.settings.sizeMul || 1);
+      const onBall = role[p.team] && role[p.team].onBall === id;
+
+      if (ov.vision) { ctx.strokeStyle = col; ctx.globalAlpha = .12; ctx.lineWidth = Math.max(1, S(3)); ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(VISION_RANGE), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+      if (ov.target && bm.pg) {
+        ctx.strokeStyle = col; ctx.globalAlpha = .5; ctx.lineWidth = Math.max(1, S(3)); ctx.setLineDash([S(12), S(10)]);
+        ctx.beginPath(); ctx.moveTo(X(p.x), Y(p.y)); ctx.lineTo(X(bm.pg.tx), Y(bm.pg.ty)); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(X(bm.pg.tx), Y(bm.pg.ty), S(16), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+      }
+      if (ov.path && bm.wp) {
+        ctx.fillStyle = c.accent; ctx.save(); ctx.translate(X(bm.wp.x), Y(bm.wp.y)); ctx.rotate(Math.PI / 4);
+        ctx.fillRect(-S(11), -S(11), S(22), S(22)); ctx.restore();
+        ctx.strokeStyle = c.accent; ctx.lineWidth = Math.max(1, S(3)); ctx.globalAlpha = .7;
+        ctx.beginPath(); ctx.moveTo(X(p.x), Y(p.y)); ctx.lineTo(X(bm.wp.x), Y(bm.wp.y)); ctx.stroke(); ctx.globalAlpha = 1;
+      }
+      // jam marker
+      if (jam[id] * DT >= 0.35) {
+        ctx.strokeStyle = c.teamB; ctx.lineWidth = Math.max(1, S(5));
+        ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r + 16 + 6 * Math.sin(s.elapsed * 14)), 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = c.teamB; ctx.font = '700 ' + Math.round(S(30)) + 'px ' + MONO; ctx.textAlign = 'left';
+        ctx.fillText('JAMMED ' + (jam[id] * DT).toFixed(1) + 's', X(p.x) + S(r + 26), Y(p.y) + S(10));
+        ctx.textAlign = 'start';
+      }
+      // body
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r), 0, Math.PI * 2); ctx.fill();
+      if (onBall) { ctx.strokeStyle = c.ink; ctx.lineWidth = Math.max(1, S(4)); ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r + 7), 0, Math.PI * 2); ctx.stroke(); }
+      if (p.power) { ctx.strokeStyle = c.accent; ctx.lineWidth = Math.max(1, S(5)); ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r + 14), 0, Math.PI * 2); ctx.stroke(); }
+      // aim + charge
+      ctx.strokeStyle = col; ctx.globalAlpha = .9; ctx.lineWidth = Math.max(1, S(4));
+      ctx.beginPath(); ctx.moveTo(X(p.x), Y(p.y)); ctx.lineTo(X(p.x + p.aimX * (r + 26)), Y(p.y + p.aimY * (r + 26))); ctx.stroke(); ctx.globalAlpha = 1;
+      if ((p._charge || 0) > 0.02) {
+        ctx.strokeStyle = c.accent; ctx.lineWidth = Math.max(1, S(7));
+        ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r + 22), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, p._charge)); ctx.stroke();
+      }
+      // label
+      ctx.font = '700 ' + Math.round(S(30)) + 'px ' + MONO;
+      ctx.fillStyle = c.ink; ctx.textAlign = 'center';
+      const tag = ov.tag && bm.lastTrick ? bm.lastTrick : '';
+      ctx.fillText(id, X(p.x), Y(p.y - r - 20));
+      if (tag) { ctx.fillStyle = c.accent; ctx.font = '600 ' + Math.round(S(26)) + 'px ' + MONO; ctx.fillText(tag, X(p.x), Y(p.y + r + 46)); }
+      ctx.textAlign = 'start';
+    }
+    // ball + its glue spot
+    const c2 = palette();
+    ctx.fillStyle = c2.ball; ctx.beginPath(); ctx.arc(X(s.ball.x), Y(s.ball.y), S(BALL_RADIUS * (s.settings.ballSizeMul || 1)), 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = c2.panel; ctx.lineWidth = Math.max(1, S(3)); ctx.stroke();
+    if (ov.glue && s.ball.owner && s.players[s.ball.owner]) {
+      const g = gluePoint(s.players[s.ball.owner]), bad = glueInWall(g);
+      ctx.strokeStyle = bad ? c2.teamB : c2.ok; ctx.lineWidth = Math.max(1, S(4));
+      ctx.beginPath(); ctx.arc(X(g.x), Y(g.y), S(g.r + 8), 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  function draw() {
+    drawArena();
+    if (ov.grid) drawNavGrid();
+    drawPlayers();
+    // scoreboard
+    const c = palette();
+    ctx.font = '700 ' + Math.round(S(46)) + 'px ' + MONO;
+    ctx.fillStyle = c['ink-dim']; ctx.textAlign = 'center';
+    ctx.fillText(s.score.A + ' — ' + s.score.B + '   ' + s.elapsed.toFixed(0) + 's', X(FIELD.W / 2), Y(-34));
+    ctx.textAlign = 'start';
+  }
+
+  // ---------- rail ----------
+  const botsEl = document.getElementById('bots'), statsEl = document.getElementById('stats'), logEl = document.getElementById('log');
+  function drawRail() {
+    const sk = skills();
+    botsEl.innerHTML = IDS.map(([id, team, slot]) => {
+      const p = s.players[id]; if (!p) return '';
+      const bm = bmemForTest(mem, id), role = mem.teams[team];
+      const r = role ? (role.onBall === id ? 'onBall' : (role.support === id ? 'support' : 'cover')) : '—';
+      const jamS = jam[id] * DT;
+      const spd = Math.round(Math.hypot(p.vx || 0, p.vy || 0));
+      const pathTxt = bm.navPathPx > 0 && bm.pg
+        ? Math.round(bm.navPathPx) + '/' + Math.round(Math.hypot(bm.pg.tx - p.x, bm.pg.ty - p.y)) + 'px'
+        : 'direct';
+      return '<div class="bot' + (jamS >= 0.35 ? ' jam' : '') + '">'
+        + '<div class="chip" style="background:' + (team === 'A' ? 'var(--teamA)' : 'var(--teamB)') + '">' + id + '</div>'
+        + '<b>' + personaOf(slot, mem.personaRot || 0).name + '</b>'
+        + '<div class="role">' + r + (s.ball.owner === id ? ' · carrying' : '') + '</div>'
+        + '<div class="meta"><span>skill ' + sk[team].toFixed(2) + '</span><span>' + spd + 'px/s</span><span>path ' + pathTxt + '</span>'
+        + (jamS >= 0.2 ? '<em>jammed ' + jamS.toFixed(1) + 's</em>' : '<span>' + (bm.lastTrick || '—') + '</span>') + '</div>'
+        + '</div>';
+    }).join('');
+
+    const secs = Math.max(0.001, stat.ticks * DT), poss = Math.max(1, stat.poss.A + stat.poss.B);
+    const rows = [
+      ['clock', secs.toFixed(0) + 's'],
+      ['ball held', (100 * stat.held / Math.max(1, stat.ticks)).toFixed(0) + '%'],
+      ['possession A / B', (100 * stat.poss.A / poss).toFixed(0) + ' / ' + (100 * stat.poss.B / poss).toFixed(0) + '%'],
+      ['jammed on walls', (100 * stat.pin / Math.max(1, stat.move)).toFixed(2) + '%', stat.pin / Math.max(1, stat.move) > 0.02],
+      ['worst single jam', stat.jamWorst.toFixed(2) + 's', stat.jamWorst > 1],
+      ['ball popped off a wall', stat.pops + ' (' + (stat.pops / (secs / 60)).toFixed(1) + '/min)', stat.pops / Math.max(1, secs / 60) > 10],
+      ['shots fired', String(stat.shots)],
+      ['goals', s.score.A + ' — ' + s.score.B],
+    ];
+    statsEl.innerHTML = rows.map((r) => '<tr class="' + (r[2] ? 'hi' : '') + '"><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>').join('');
+  }
+  function drawLog() {
+    if (!log.length) { logEl.innerHTML = '<div class="empty">nothing yet…</div>'; return; }
+    logEl.innerHTML = log.map((e) => '<div><span>' + e.t.toFixed(1) + 's</span><b>' + e.text + '</b></div>').join('');
+  }
+
+  // ---------- controls ----------
+  const ov = { target: true, path: true, grid: false, tag: true, vision: false, glue: true };
+  document.getElementById('ov').addEventListener('change', (e) => {
+    const k = e.target.dataset.k; if (k) ov[k] = e.target.checked;
+  });
+  function segment(id, fn) {
+    const el = document.getElementById(id);
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      [...el.querySelectorAll('button')].forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      fn(b.dataset.v);
+    });
+  }
+  segment('speed', (v) => { speed = parseFloat(v); });
+  if (!AB) document.getElementById('fixGrp').hidden = true;   // live-module page: no pre-fix code to switch to
+  segment('fix', (v) => {
+    fixOn = v === '1'; reset(false);
+    document.getElementById('prefix').hidden = fixOn;
+    push('fix', fixOn ? 'running the PATCHED bot code' : 'running the PRE-FIX bot code');
+  });
+  segment('mirror', (v) => { mirror = v === '1'; mem.teamSkill = skills(); paintLevel(); });
+  const playBtn = document.getElementById('play');
+  playBtn.addEventListener('click', () => { running = !running; playBtn.textContent = running ? 'Pause' : 'Play'; playBtn.setAttribute('aria-pressed', String(running)); });
+  document.getElementById('stepBtn').addEventListener('click', () => { running = false; playBtn.textContent = 'Play'; for (let i = 0; i < 6; i++) tick(); draw(); drawRail(); });
+  document.getElementById('reset').addEventListener('click', () => reset(true));
+
+  const levelsEl = document.getElementById('levels'), lvlName = document.getElementById('lvlName');
+  levelsEl.innerHTML = DIFFICULTY_LEVELS.map((L, i) => '<button data-i="' + i + '" title="' + L.name + ' — ' + L.hint + '" aria-pressed="' + (i === 5) + '">' + i + '</button>').join('');
+  levelsEl.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    level = +b.dataset.i;
+    [...levelsEl.querySelectorAll('button')].forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    mem.teamSkill = skills(); paintLevel();
+  });
+  function paintLevel() {
+    const L = DIFFICULTY_LEVELS[level], sk = skills();
+    lvlName.innerHTML = 'L' + level + ' <bdi>' + L.name + '</bdi> — A ' + sk.A.toFixed(2)
+      + ' <bdi>' + skillWord(sk.A) + '</bdi> · B ' + sk.B.toFixed(2) + ' <bdi>' + skillWord(sk.B) + '</bdi>';
+  }
+
+  // ---------- loop ----------
+  let last = 0, acc = 0;
+  function frame(t) {
+    if (!last) last = t;
+    const dt = Math.min(0.25, (t - last) / 1000); last = t;
+    if (running) {
+      acc += dt * speed;
+      let n = 0;
+      while (acc >= DT && n < 40) { tick(); acc -= DT; n++; }
+      if (acc > DT) acc = 0;
+    }
+    draw(); drawRail();
+    requestAnimationFrame(frame);
+  }
+  addEventListener('resize', fit);
+  fit(); reset(false); draw(); drawRail();
+  requestAnimationFrame(frame);
+})();
+</script>
