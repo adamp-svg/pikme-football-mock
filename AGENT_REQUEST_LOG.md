@@ -26,6 +26,14 @@
 
 ## 2026-07-26
 
+- **🗂️ ICON/EMOTE LIBRARY HANDOFF — all 160 assets clearly registered for future agents (agent `root`, 14:0x–14:2x)** — User asked to make the assets unambiguous so Claude or another agent can safely add/integrate more later.
+  - Added `public/assets/pixel-icon-system-01/ASSET_HANDOFF.md` as the agent entry point, `NEW_ASSET_TEMPLATE.md` as the required extension record, and an auto-loaded pointer in `CLAUDE.md`.
+  - Added generated `ASSET_REGISTRY.json`: every asset has a stable ordinal/ID, category, purpose, collection, explicit `live` or `future` status, transparent/tile/sheet paths, combined-atlas cell, and runtime API when mapped. The 96 runtime assets are marked `live`; the 64 expansion assets stay `future`.
+  - Added `labeled-catalog-160.png`, one visual index showing all 160 assets with exact IDs.
+  - Added `scripts/validate-icon-assets.mjs`: regenerates the registry from the two CSV manifests and verifies 160 unique kebab-case IDs, purposes, 256×256 tile/alpha exports, sheets, pack/docs, and all 96 live CSS mappings. Validation passes: **160 unique (96 live, 64 future)**.
+  - Documentation-only asset handoff; no runtime sprite pixels/mapping changed, nothing pushed or deployed.
+
+
 - **🤖 BOT SKILLS ROUND 6 — 5 requests (agent `bot-review`, 13:2x–)** — User, running the L10 sim after the wall-jam fix: *"ok this is better, i think the walls are throwing the bots off. they are also sometimes get idle waiting for something."* Then five asks:
   1. Better obstacle awareness + wall planning.
   2. Let them **communicate** so they can decide to pass the ball to one another.

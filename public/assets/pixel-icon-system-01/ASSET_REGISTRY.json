@@ -1,0 +1,3513 @@
+{
+  "schemaVersion": 1,
+  "packId": "saltiz-pixel-icon-system-01",
+  "graphicLanguage": "GRAPHIC_LANGUAGE.md",
+  "agentHandoff": "ASSET_HANDOFF.md",
+  "totalAssets": 160,
+  "statusMeaning": {
+    "live": "Mapped in the current 96-icon game runtime.",
+    "future": "Approved matching artwork; not mapped into the live runtime yet."
+  },
+  "collections": [
+    {
+      "id": "core-96",
+      "count": 96,
+      "status": "live"
+    },
+    {
+      "id": "expansion-64",
+      "count": 64,
+      "status": "future"
+    }
+  ],
+  "assets": [
+    {
+      "ordinal": 1,
+      "id": "play",
+      "category": "lobby-navigation",
+      "purpose": "Quick Match and primary play",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/play.png",
+        "presentationTile": "tiles/play.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-play",
+        "javascript": "SaltizIcons.icon('play')"
+      }
+    },
+    {
+      "ordinal": 2,
+      "id": "shop",
+      "category": "lobby-navigation",
+      "purpose": "Shop",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/shop.png",
+        "presentationTile": "tiles/shop.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-shop",
+        "javascript": "SaltizIcons.icon('shop')"
+      }
+    },
+    {
+      "ordinal": 3,
+      "id": "news",
+      "category": "lobby-navigation",
+      "purpose": "News",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/news.png",
+        "presentationTile": "tiles/news.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-news",
+        "javascript": "SaltizIcons.icon('news')"
+      }
+    },
+    {
+      "ordinal": 4,
+      "id": "rank",
+      "category": "lobby-navigation",
+      "purpose": "Rank entry",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank.png",
+        "presentationTile": "tiles/rank.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank",
+        "javascript": "SaltizIcons.icon('rank')"
+      }
+    },
+    {
+      "ordinal": 5,
+      "id": "friends",
+      "category": "lobby-navigation",
+      "purpose": "Friends and play with friends",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/friends.png",
+        "presentationTile": "tiles/friends.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-friends",
+        "javascript": "SaltizIcons.icon('friends')"
+      }
+    },
+    {
+      "ordinal": 6,
+      "id": "club",
+      "category": "lobby-navigation",
+      "purpose": "Clubs",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/club.png",
+        "presentationTile": "tiles/club.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-club",
+        "javascript": "SaltizIcons.icon('club')"
+      }
+    },
+    {
+      "ordinal": 7,
+      "id": "settings",
+      "category": "lobby-navigation",
+      "purpose": "Settings",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/settings.png",
+        "presentationTile": "tiles/settings.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-settings",
+        "javascript": "SaltizIcons.icon('settings')"
+      }
+    },
+    {
+      "ordinal": 8,
+      "id": "cards",
+      "category": "lobby-navigation",
+      "purpose": "Card collection",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/cards.png",
+        "presentationTile": "tiles/cards.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-cards",
+        "javascript": "SaltizIcons.icon('cards')"
+      }
+    },
+    {
+      "ordinal": 9,
+      "id": "arena",
+      "category": "lobby-navigation",
+      "purpose": "Mode and arena selection",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/arena.png",
+        "presentationTile": "tiles/arena.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-arena",
+        "javascript": "SaltizIcons.icon('arena')"
+      }
+    },
+    {
+      "ordinal": 10,
+      "id": "training",
+      "category": "lobby-navigation",
+      "purpose": "Training",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/training.png",
+        "presentationTile": "tiles/training.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-training",
+        "javascript": "SaltizIcons.icon('training')"
+      }
+    },
+    {
+      "ordinal": 11,
+      "id": "field-builder",
+      "category": "lobby-navigation",
+      "purpose": "Field builder",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/field-builder.png",
+        "presentationTile": "tiles/field-builder.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-field-builder",
+        "javascript": "SaltizIcons.icon('field-builder')"
+      }
+    },
+    {
+      "ordinal": 12,
+      "id": "tournament",
+      "category": "lobby-navigation",
+      "purpose": "Tournament and best result",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/tournament.png",
+        "presentationTile": "tiles/tournament.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-tournament",
+        "javascript": "SaltizIcons.icon('tournament')"
+      }
+    },
+    {
+      "ordinal": 13,
+      "id": "best-loadout",
+      "category": "lobby-navigation",
+      "purpose": "Equip best cards",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/best-loadout.png",
+        "presentationTile": "tiles/best-loadout.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-best-loadout",
+        "javascript": "SaltizIcons.icon('best-loadout')"
+      }
+    },
+    {
+      "ordinal": 14,
+      "id": "hero-outfit",
+      "category": "lobby-navigation",
+      "purpose": "Hero appearance",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/hero-outfit.png",
+        "presentationTile": "tiles/hero-outfit.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-hero-outfit",
+        "javascript": "SaltizIcons.icon('hero-outfit')"
+      }
+    },
+    {
+      "ordinal": 15,
+      "id": "back",
+      "category": "lobby-navigation",
+      "purpose": "Back and leave",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/back.png",
+        "presentationTile": "tiles/back.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-back",
+        "javascript": "SaltizIcons.icon('back')"
+      }
+    },
+    {
+      "ordinal": 16,
+      "id": "close",
+      "category": "lobby-navigation",
+      "purpose": "Close and remove",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/close.png",
+        "presentationTile": "tiles/close.png",
+        "reviewSheet": "sheets/01-lobby-navigation.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 0
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-close",
+        "javascript": "SaltizIcons.icon('close')"
+      }
+    },
+    {
+      "ordinal": 17,
+      "id": "bomb",
+      "category": "gameplay-hud",
+      "purpose": "Bomb special",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/bomb.png",
+        "presentationTile": "tiles/bomb.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-bomb",
+        "javascript": "SaltizIcons.icon('bomb')"
+      }
+    },
+    {
+      "ordinal": 18,
+      "id": "build-wall",
+      "category": "gameplay-hud",
+      "purpose": "Wall build power",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/build-wall.png",
+        "presentationTile": "tiles/build-wall.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-build-wall",
+        "javascript": "SaltizIcons.icon('build-wall')"
+      }
+    },
+    {
+      "ordinal": 19,
+      "id": "power-kick",
+      "category": "gameplay-hud",
+      "purpose": "Kick and shot power",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/power-kick.png",
+        "presentationTile": "tiles/power-kick.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-power-kick",
+        "javascript": "SaltizIcons.icon('power-kick')"
+      }
+    },
+    {
+      "ordinal": 20,
+      "id": "speed",
+      "category": "gameplay-hud",
+      "purpose": "Speed power",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/speed.png",
+        "presentationTile": "tiles/speed.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-speed",
+        "javascript": "SaltizIcons.icon('speed')"
+      }
+    },
+    {
+      "ordinal": 21,
+      "id": "defense",
+      "category": "gameplay-hud",
+      "purpose": "Defense power",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/defense.png",
+        "presentationTile": "tiles/defense.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-defense",
+        "javascript": "SaltizIcons.icon('defense')"
+      }
+    },
+    {
+      "ordinal": 22,
+      "id": "hidden",
+      "category": "gameplay-hud",
+      "purpose": "Bush stealth cue",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/hidden.png",
+        "presentationTile": "tiles/hidden.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-hidden",
+        "javascript": "SaltizIcons.icon('hidden')"
+      }
+    },
+    {
+      "ordinal": 23,
+      "id": "move-joystick",
+      "category": "gameplay-hud",
+      "purpose": "Movement control",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/move-joystick.png",
+        "presentationTile": "tiles/move-joystick.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-move-joystick",
+        "javascript": "SaltizIcons.icon('move-joystick')"
+      }
+    },
+    {
+      "ordinal": 24,
+      "id": "aim",
+      "category": "gameplay-hud",
+      "purpose": "Aim and target",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/aim.png",
+        "presentationTile": "tiles/aim.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-aim",
+        "javascript": "SaltizIcons.icon('aim')"
+      }
+    },
+    {
+      "ordinal": 25,
+      "id": "sound-on",
+      "category": "gameplay-hud",
+      "purpose": "SFX enabled",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/sound-on.png",
+        "presentationTile": "tiles/sound-on.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-sound-on",
+        "javascript": "SaltizIcons.icon('sound-on')"
+      }
+    },
+    {
+      "ordinal": 26,
+      "id": "sound-off",
+      "category": "gameplay-hud",
+      "purpose": "SFX muted",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/sound-off.png",
+        "presentationTile": "tiles/sound-off.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-sound-off",
+        "javascript": "SaltizIcons.icon('sound-off')"
+      }
+    },
+    {
+      "ordinal": 27,
+      "id": "music",
+      "category": "gameplay-hud",
+      "purpose": "Music",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/music.png",
+        "presentationTile": "tiles/music.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-music",
+        "javascript": "SaltizIcons.icon('music')"
+      }
+    },
+    {
+      "ordinal": 28,
+      "id": "controls-edit",
+      "category": "gameplay-hud",
+      "purpose": "Control layout editor",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/controls-edit.png",
+        "presentationTile": "tiles/controls-edit.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-controls-edit",
+        "javascript": "SaltizIcons.icon('controls-edit')"
+      }
+    },
+    {
+      "ordinal": 29,
+      "id": "reset-ball",
+      "category": "gameplay-hud",
+      "purpose": "Reset training ball",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/reset-ball.png",
+        "presentationTile": "tiles/reset-ball.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-reset-ball",
+        "javascript": "SaltizIcons.icon('reset-ball')"
+      }
+    },
+    {
+      "ordinal": 30,
+      "id": "bot",
+      "category": "gameplay-hud",
+      "purpose": "Bot and difficulty",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/bot.png",
+        "presentationTile": "tiles/bot.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-bot",
+        "javascript": "SaltizIcons.icon('bot')"
+      }
+    },
+    {
+      "ordinal": 31,
+      "id": "network",
+      "category": "gameplay-hud",
+      "purpose": "Connection quality",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/network.png",
+        "presentationTile": "tiles/network.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-network",
+        "javascript": "SaltizIcons.icon('network')"
+      }
+    },
+    {
+      "ordinal": 32,
+      "id": "warning",
+      "category": "gameplay-hud",
+      "purpose": "Warning and error",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/warning.png",
+        "presentationTile": "tiles/warning.png",
+        "reviewSheet": "sheets/02-gameplay-hud.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 1
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-warning",
+        "javascript": "SaltizIcons.icon('warning')"
+      }
+    },
+    {
+      "ordinal": 33,
+      "id": "field-library",
+      "category": "field-builder",
+      "purpose": "Saved fields and copy",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/field-library.png",
+        "presentationTile": "tiles/field-library.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-field-library",
+        "javascript": "SaltizIcons.icon('field-library')"
+      }
+    },
+    {
+      "ordinal": 34,
+      "id": "undo",
+      "category": "field-builder",
+      "purpose": "Undo",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/undo.png",
+        "presentationTile": "tiles/undo.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-undo",
+        "javascript": "SaltizIcons.icon('undo')"
+      }
+    },
+    {
+      "ordinal": 35,
+      "id": "redo",
+      "category": "field-builder",
+      "purpose": "Redo",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/redo.png",
+        "presentationTile": "tiles/redo.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-redo",
+        "javascript": "SaltizIcons.icon('redo')"
+      }
+    },
+    {
+      "ordinal": 36,
+      "id": "mirror-sides",
+      "category": "field-builder",
+      "purpose": "Mirror left and right",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/mirror-sides.png",
+        "presentationTile": "tiles/mirror-sides.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-mirror-sides",
+        "javascript": "SaltizIcons.icon('mirror-sides')"
+      }
+    },
+    {
+      "ordinal": 37,
+      "id": "mirror-top",
+      "category": "field-builder",
+      "purpose": "Mirror top and bottom",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/mirror-top.png",
+        "presentationTile": "tiles/mirror-top.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-mirror-top",
+        "javascript": "SaltizIcons.icon('mirror-top')"
+      }
+    },
+    {
+      "ordinal": 38,
+      "id": "mirror-diagonal",
+      "category": "field-builder",
+      "purpose": "Mirror diagonally",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/mirror-diagonal.png",
+        "presentationTile": "tiles/mirror-diagonal.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-mirror-diagonal",
+        "javascript": "SaltizIcons.icon('mirror-diagonal')"
+      }
+    },
+    {
+      "ordinal": 39,
+      "id": "square-joint",
+      "category": "field-builder",
+      "purpose": "Square wall joint",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/square-joint.png",
+        "presentationTile": "tiles/square-joint.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-square-joint",
+        "javascript": "SaltizIcons.icon('square-joint')"
+      }
+    },
+    {
+      "ordinal": 40,
+      "id": "round-joint",
+      "category": "field-builder",
+      "purpose": "Round wall joint",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/round-joint.png",
+        "presentationTile": "tiles/round-joint.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-round-joint",
+        "javascript": "SaltizIcons.icon('round-joint')"
+      }
+    },
+    {
+      "ordinal": 41,
+      "id": "field-size",
+      "category": "field-builder",
+      "purpose": "Field size",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/field-size.png",
+        "presentationTile": "tiles/field-size.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-field-size",
+        "javascript": "SaltizIcons.icon('field-size')"
+      }
+    },
+    {
+      "ordinal": 42,
+      "id": "zoom-in",
+      "category": "field-builder",
+      "purpose": "Zoom in",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/zoom-in.png",
+        "presentationTile": "tiles/zoom-in.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-zoom-in",
+        "javascript": "SaltizIcons.icon('zoom-in')"
+      }
+    },
+    {
+      "ordinal": 43,
+      "id": "zoom-out",
+      "category": "field-builder",
+      "purpose": "Zoom out",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/zoom-out.png",
+        "presentationTile": "tiles/zoom-out.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-zoom-out",
+        "javascript": "SaltizIcons.icon('zoom-out')"
+      }
+    },
+    {
+      "ordinal": 44,
+      "id": "fit-view",
+      "category": "field-builder",
+      "purpose": "Fit or reset view",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/fit-view.png",
+        "presentationTile": "tiles/fit-view.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-fit-view",
+        "javascript": "SaltizIcons.icon('fit-view')"
+      }
+    },
+    {
+      "ordinal": 45,
+      "id": "hard-wall",
+      "category": "field-builder",
+      "purpose": "Hard steel wall material",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/hard-wall.png",
+        "presentationTile": "tiles/hard-wall.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-hard-wall",
+        "javascript": "SaltizIcons.icon('hard-wall')"
+      }
+    },
+    {
+      "ordinal": 46,
+      "id": "weak-wall",
+      "category": "field-builder",
+      "purpose": "Weak dry wall material",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/weak-wall.png",
+        "presentationTile": "tiles/weak-wall.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-weak-wall",
+        "javascript": "SaltizIcons.icon('weak-wall')"
+      }
+    },
+    {
+      "ordinal": 47,
+      "id": "bush",
+      "category": "field-builder",
+      "purpose": "Bush material",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/bush.png",
+        "presentationTile": "tiles/bush.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-bush",
+        "javascript": "SaltizIcons.icon('bush')"
+      }
+    },
+    {
+      "ordinal": 48,
+      "id": "crate",
+      "category": "field-builder",
+      "purpose": "Crate material",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/crate.png",
+        "presentationTile": "tiles/crate.png",
+        "reviewSheet": "sheets/03-field-builder.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 2
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-crate",
+        "javascript": "SaltizIcons.icon('crate')"
+      }
+    },
+    {
+      "ordinal": 49,
+      "id": "spawn-red",
+      "category": "builder-social",
+      "purpose": "Red team spawn",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/spawn-red.png",
+        "presentationTile": "tiles/spawn-red.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-spawn-red",
+        "javascript": "SaltizIcons.icon('spawn-red')"
+      }
+    },
+    {
+      "ordinal": 50,
+      "id": "spawn-blue",
+      "category": "builder-social",
+      "purpose": "Blue team spawn",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/spawn-blue.png",
+        "presentationTile": "tiles/spawn-blue.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-spawn-blue",
+        "javascript": "SaltizIcons.icon('spawn-blue')"
+      }
+    },
+    {
+      "ordinal": 51,
+      "id": "ball-placement",
+      "category": "builder-social",
+      "purpose": "Ball start position",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/ball-placement.png",
+        "presentationTile": "tiles/ball-placement.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-ball-placement",
+        "javascript": "SaltizIcons.icon('ball-placement')"
+      }
+    },
+    {
+      "ordinal": 52,
+      "id": "move-tool",
+      "category": "builder-social",
+      "purpose": "Move builder object",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/move-tool.png",
+        "presentationTile": "tiles/move-tool.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-move-tool",
+        "javascript": "SaltizIcons.icon('move-tool')"
+      }
+    },
+    {
+      "ordinal": 53,
+      "id": "eraser",
+      "category": "builder-social",
+      "purpose": "Erase builder object",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/eraser.png",
+        "presentationTile": "tiles/eraser.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-eraser",
+        "javascript": "SaltizIcons.icon('eraser')"
+      }
+    },
+    {
+      "ordinal": 54,
+      "id": "clear-all",
+      "category": "builder-social",
+      "purpose": "Clear field",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/clear-all.png",
+        "presentationTile": "tiles/clear-all.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-clear-all",
+        "javascript": "SaltizIcons.icon('clear-all')"
+      }
+    },
+    {
+      "ordinal": 55,
+      "id": "save",
+      "category": "builder-social",
+      "purpose": "Save",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/save.png",
+        "presentationTile": "tiles/save.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-save",
+        "javascript": "SaltizIcons.icon('save')"
+      }
+    },
+    {
+      "ordinal": 56,
+      "id": "rename",
+      "category": "builder-social",
+      "purpose": "Rename",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rename.png",
+        "presentationTile": "tiles/rename.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rename",
+        "javascript": "SaltizIcons.icon('rename')"
+      }
+    },
+    {
+      "ordinal": 57,
+      "id": "delete",
+      "category": "builder-social",
+      "purpose": "Delete",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/delete.png",
+        "presentationTile": "tiles/delete.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-delete",
+        "javascript": "SaltizIcons.icon('delete')"
+      }
+    },
+    {
+      "ordinal": 58,
+      "id": "load",
+      "category": "builder-social",
+      "purpose": "Load",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/load.png",
+        "presentationTile": "tiles/load.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-load",
+        "javascript": "SaltizIcons.icon('load')"
+      }
+    },
+    {
+      "ordinal": 59,
+      "id": "add",
+      "category": "builder-social",
+      "purpose": "Add friend or club",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/add.png",
+        "presentationTile": "tiles/add.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-add",
+        "javascript": "SaltizIcons.icon('add')"
+      }
+    },
+    {
+      "ordinal": 60,
+      "id": "search",
+      "category": "builder-social",
+      "purpose": "Search",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/search.png",
+        "presentationTile": "tiles/search.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-search",
+        "javascript": "SaltizIcons.icon('search')"
+      }
+    },
+    {
+      "ordinal": 61,
+      "id": "chat",
+      "category": "builder-social",
+      "purpose": "Chat and message",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/chat.png",
+        "presentationTile": "tiles/chat.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-chat",
+        "javascript": "SaltizIcons.icon('chat')"
+      }
+    },
+    {
+      "ordinal": 62,
+      "id": "share-field",
+      "category": "builder-social",
+      "purpose": "Share field",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/share-field.png",
+        "presentationTile": "tiles/share-field.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-share-field",
+        "javascript": "SaltizIcons.icon('share-field')"
+      }
+    },
+    {
+      "ordinal": 63,
+      "id": "invite",
+      "category": "builder-social",
+      "purpose": "Invite player",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/invite.png",
+        "presentationTile": "tiles/invite.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-invite",
+        "javascript": "SaltizIcons.icon('invite')"
+      }
+    },
+    {
+      "ordinal": 64,
+      "id": "accept",
+      "category": "builder-social",
+      "purpose": "Accept and approve",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/accept.png",
+        "presentationTile": "tiles/accept.png",
+        "reviewSheet": "sheets/04-builder-social-actions.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 3
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-accept",
+        "javascript": "SaltizIcons.icon('accept')"
+      }
+    },
+    {
+      "ordinal": 65,
+      "id": "decline",
+      "category": "economy-ranks",
+      "purpose": "Decline and reject",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/decline.png",
+        "presentationTile": "tiles/decline.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-decline",
+        "javascript": "SaltizIcons.icon('decline')"
+      }
+    },
+    {
+      "ordinal": 66,
+      "id": "coins",
+      "category": "economy-ranks",
+      "purpose": "Coins",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/coins.png",
+        "presentationTile": "tiles/coins.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-coins",
+        "javascript": "SaltizIcons.icon('coins')"
+      }
+    },
+    {
+      "ordinal": 67,
+      "id": "gem",
+      "category": "economy-ranks",
+      "purpose": "Gems",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/gem.png",
+        "presentationTile": "tiles/gem.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-gem",
+        "javascript": "SaltizIcons.icon('gem')"
+      }
+    },
+    {
+      "ordinal": 68,
+      "id": "gift",
+      "category": "economy-ranks",
+      "purpose": "Reward and starter pack",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/gift.png",
+        "presentationTile": "tiles/gift.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-gift",
+        "javascript": "SaltizIcons.icon('gift')"
+      }
+    },
+    {
+      "ordinal": 69,
+      "id": "season-star",
+      "category": "economy-ranks",
+      "purpose": "Season feature",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/season-star.png",
+        "presentationTile": "tiles/season-star.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-season-star",
+        "javascript": "SaltizIcons.icon('season-star')"
+      }
+    },
+    {
+      "ordinal": 70,
+      "id": "skin",
+      "category": "economy-ranks",
+      "purpose": "Skin and appearance category",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/skin.png",
+        "presentationTile": "tiles/skin.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-skin",
+        "javascript": "SaltizIcons.icon('skin')"
+      }
+    },
+    {
+      "ordinal": 71,
+      "id": "power",
+      "category": "economy-ranks",
+      "purpose": "Power category",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/power.png",
+        "presentationTile": "tiles/power.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-power",
+        "javascript": "SaltizIcons.icon('power')"
+      }
+    },
+    {
+      "ordinal": 72,
+      "id": "season-pass",
+      "category": "economy-ranks",
+      "purpose": "Season pass",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/season-pass.png",
+        "presentationTile": "tiles/season-pass.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-season-pass",
+        "javascript": "SaltizIcons.icon('season-pass')"
+      }
+    },
+    {
+      "ordinal": 73,
+      "id": "rank-bronze",
+      "category": "economy-ranks",
+      "purpose": "Bronze rank",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank-bronze.png",
+        "presentationTile": "tiles/rank-bronze.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank-bronze",
+        "javascript": "SaltizIcons.icon('rank-bronze')"
+      }
+    },
+    {
+      "ordinal": 74,
+      "id": "rank-silver",
+      "category": "economy-ranks",
+      "purpose": "Silver rank",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank-silver.png",
+        "presentationTile": "tiles/rank-silver.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank-silver",
+        "javascript": "SaltizIcons.icon('rank-silver')"
+      }
+    },
+    {
+      "ordinal": 75,
+      "id": "rank-gold",
+      "category": "economy-ranks",
+      "purpose": "Gold rank",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank-gold.png",
+        "presentationTile": "tiles/rank-gold.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank-gold",
+        "javascript": "SaltizIcons.icon('rank-gold')"
+      }
+    },
+    {
+      "ordinal": 76,
+      "id": "rank-platinum",
+      "category": "economy-ranks",
+      "purpose": "Platinum rank",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank-platinum.png",
+        "presentationTile": "tiles/rank-platinum.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank-platinum",
+        "javascript": "SaltizIcons.icon('rank-platinum')"
+      }
+    },
+    {
+      "ordinal": 77,
+      "id": "rank-diamond",
+      "category": "economy-ranks",
+      "purpose": "Diamond rank",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank-diamond.png",
+        "presentationTile": "tiles/rank-diamond.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank-diamond",
+        "javascript": "SaltizIcons.icon('rank-diamond')"
+      }
+    },
+    {
+      "ordinal": 78,
+      "id": "rank-champion",
+      "category": "economy-ranks",
+      "purpose": "Champion rank",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank-champion.png",
+        "presentationTile": "tiles/rank-champion.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank-champion",
+        "javascript": "SaltizIcons.icon('rank-champion')"
+      }
+    },
+    {
+      "ordinal": 79,
+      "id": "rank-legend",
+      "category": "economy-ranks",
+      "purpose": "Legend rank",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/rank-legend.png",
+        "presentationTile": "tiles/rank-legend.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-rank-legend",
+        "javascript": "SaltizIcons.icon('rank-legend')"
+      }
+    },
+    {
+      "ordinal": 80,
+      "id": "lock",
+      "category": "economy-ranks",
+      "purpose": "Locked content",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/lock.png",
+        "presentationTile": "tiles/lock.png",
+        "reviewSheet": "sheets/05-economy-ranks.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 4
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-lock",
+        "javascript": "SaltizIcons.icon('lock')"
+      }
+    },
+    {
+      "ordinal": 81,
+      "id": "hello",
+      "category": "reactions-system",
+      "purpose": "Hello reaction",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/hello.png",
+        "presentationTile": "tiles/hello.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-hello",
+        "javascript": "SaltizIcons.icon('hello')"
+      }
+    },
+    {
+      "ordinal": 82,
+      "id": "goal-celebration",
+      "category": "reactions-system",
+      "purpose": "Goal reaction",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/goal-celebration.png",
+        "presentationTile": "tiles/goal-celebration.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-goal-celebration",
+        "javascript": "SaltizIcons.icon('goal-celebration')"
+      }
+    },
+    {
+      "ordinal": 83,
+      "id": "champion-reaction",
+      "category": "reactions-system",
+      "purpose": "Champion reaction",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/champion-reaction.png",
+        "presentationTile": "tiles/champion-reaction.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-champion-reaction",
+        "javascript": "SaltizIcons.icon('champion-reaction')"
+      }
+    },
+    {
+      "ordinal": 84,
+      "id": "laugh",
+      "category": "reactions-system",
+      "purpose": "Laugh reaction",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/laugh.png",
+        "presentationTile": "tiles/laugh.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-laugh",
+        "javascript": "SaltizIcons.icon('laugh')"
+      }
+    },
+    {
+      "ordinal": 85,
+      "id": "fire",
+      "category": "reactions-system",
+      "purpose": "Fire reaction",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/fire.png",
+        "presentationTile": "tiles/fire.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-fire",
+        "javascript": "SaltizIcons.icon('fire')"
+      }
+    },
+    {
+      "ordinal": 86,
+      "id": "thumbs-up",
+      "category": "reactions-system",
+      "purpose": "Thumbs up reaction",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/thumbs-up.png",
+        "presentationTile": "tiles/thumbs-up.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-thumbs-up",
+        "javascript": "SaltizIcons.icon('thumbs-up')"
+      }
+    },
+    {
+      "ordinal": 87,
+      "id": "stadium",
+      "category": "reactions-system",
+      "purpose": "Stadium and shared arena",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/stadium.png",
+        "presentationTile": "tiles/stadium.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-stadium",
+        "javascript": "SaltizIcons.icon('stadium')"
+      }
+    },
+    {
+      "ordinal": 88,
+      "id": "goal-net",
+      "category": "reactions-system",
+      "purpose": "Goal mode",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/goal-net.png",
+        "presentationTile": "tiles/goal-net.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-goal-net",
+        "javascript": "SaltizIcons.icon('goal-net')"
+      }
+    },
+    {
+      "ordinal": 89,
+      "id": "notification",
+      "category": "reactions-system",
+      "purpose": "Notification and unread",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/notification.png",
+        "presentationTile": "tiles/notification.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-notification",
+        "javascript": "SaltizIcons.icon('notification')"
+      }
+    },
+    {
+      "ordinal": 90,
+      "id": "online",
+      "category": "reactions-system",
+      "purpose": "Online state",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/online.png",
+        "presentationTile": "tiles/online.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-online",
+        "javascript": "SaltizIcons.icon('online')"
+      }
+    },
+    {
+      "ordinal": 91,
+      "id": "pause",
+      "category": "reactions-system",
+      "purpose": "Pause",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/pause.png",
+        "presentationTile": "tiles/pause.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-pause",
+        "javascript": "SaltizIcons.icon('pause')"
+      }
+    },
+    {
+      "ordinal": 92,
+      "id": "resume",
+      "category": "reactions-system",
+      "purpose": "Resume",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/resume.png",
+        "presentationTile": "tiles/resume.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-resume",
+        "javascript": "SaltizIcons.icon('resume')"
+      }
+    },
+    {
+      "ordinal": 93,
+      "id": "confirm",
+      "category": "reactions-system",
+      "purpose": "Confirm",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/confirm.png",
+        "presentationTile": "tiles/confirm.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-confirm",
+        "javascript": "SaltizIcons.icon('confirm')"
+      }
+    },
+    {
+      "ordinal": 94,
+      "id": "cancel",
+      "category": "reactions-system",
+      "purpose": "Cancel",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/cancel.png",
+        "presentationTile": "tiles/cancel.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-cancel",
+        "javascript": "SaltizIcons.icon('cancel')"
+      }
+    },
+    {
+      "ordinal": 95,
+      "id": "refresh",
+      "category": "reactions-system",
+      "purpose": "Refresh and retry",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/refresh.png",
+        "presentationTile": "tiles/refresh.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-refresh",
+        "javascript": "SaltizIcons.icon('refresh')"
+      }
+    },
+    {
+      "ordinal": 96,
+      "id": "timer",
+      "category": "reactions-system",
+      "purpose": "Match timer",
+      "collection": "core-96",
+      "status": "live",
+      "files": {
+        "transparent": "transparent/timer.png",
+        "presentationTile": "tiles/timer.png",
+        "reviewSheet": "sheets/06-reactions-system.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 5
+      },
+      "runtime": {
+        "cssClass": "saltiz-icon si-timer",
+        "javascript": "SaltizIcons.icon('timer')"
+      }
+    },
+    {
+      "ordinal": 97,
+      "id": "goalkeeper",
+      "category": "future-gameplay",
+      "purpose": "Goalkeeper role or goalie-specific mode",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/goalkeeper.png",
+        "presentationTile": "expansion-64/tiles/goalkeeper.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 98,
+      "id": "striker",
+      "category": "future-gameplay",
+      "purpose": "Striker role and attacking specialization",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/striker.png",
+        "presentationTile": "expansion-64/tiles/striker.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 99,
+      "id": "defender",
+      "category": "future-gameplay",
+      "purpose": "Defender role and defensive specialization",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/defender.png",
+        "presentationTile": "expansion-64/tiles/defender.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 100,
+      "id": "formation",
+      "category": "future-gameplay",
+      "purpose": "Team formation and tactical layout",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/formation.png",
+        "presentationTile": "expansion-64/tiles/formation.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 101,
+      "id": "ranked-event",
+      "category": "future-gameplay",
+      "purpose": "Ranked event or competitive queue",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/ranked-event.png",
+        "presentationTile": "expansion-64/tiles/ranked-event.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 102,
+      "id": "daily-challenge",
+      "category": "future-gameplay",
+      "purpose": "Daily challenge and rotating objective",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/daily-challenge.png",
+        "presentationTile": "expansion-64/tiles/daily-challenge.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 103,
+      "id": "quest",
+      "category": "future-gameplay",
+      "purpose": "Quest list and multi-step objective",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/quest.png",
+        "presentationTile": "expansion-64/tiles/quest.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 104,
+      "id": "achievement",
+      "category": "future-gameplay",
+      "purpose": "Achievement and permanent accomplishment",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/achievement.png",
+        "presentationTile": "expansion-64/tiles/achievement.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 105,
+      "id": "replay",
+      "category": "future-gameplay",
+      "purpose": "Watch or review a saved replay",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/replay.png",
+        "presentationTile": "expansion-64/tiles/replay.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 106,
+      "id": "spectate",
+      "category": "future-gameplay",
+      "purpose": "Spectate a live match",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/spectate.png",
+        "presentationTile": "expansion-64/tiles/spectate.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 107,
+      "id": "rematch",
+      "category": "future-gameplay",
+      "purpose": "Request or begin a rematch",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/rematch.png",
+        "presentationTile": "expansion-64/tiles/rematch.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 108,
+      "id": "matchmaking",
+      "category": "future-gameplay",
+      "purpose": "Searching for opponents or joining teams",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/matchmaking.png",
+        "presentationTile": "expansion-64/tiles/matchmaking.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 109,
+      "id": "private-room",
+      "category": "future-gameplay",
+      "purpose": "Invite-only room and room code",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/private-room.png",
+        "presentationTile": "expansion-64/tiles/private-room.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 110,
+      "id": "voice-chat",
+      "category": "future-gameplay",
+      "purpose": "Voice chat and microphone channel",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/voice-chat.png",
+        "presentationTile": "expansion-64/tiles/voice-chat.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 111,
+      "id": "club-war",
+      "category": "future-gameplay",
+      "purpose": "Club-versus-club competitive event",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/club-war.png",
+        "presentationTile": "expansion-64/tiles/club-war.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 112,
+      "id": "training-drill",
+      "category": "future-gameplay",
+      "purpose": "Structured practice drill",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/training-drill.png",
+        "presentationTile": "expansion-64/tiles/training-drill.png",
+        "reviewSheet": "expansion-64/sheets/07-future-gameplay.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 6
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 113,
+      "id": "profile",
+      "category": "future-progression",
+      "purpose": "Player profile",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/profile.png",
+        "presentationTile": "expansion-64/tiles/profile.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 114,
+      "id": "edit-profile",
+      "category": "future-progression",
+      "purpose": "Edit player profile",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/edit-profile.png",
+        "presentationTile": "expansion-64/tiles/edit-profile.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 115,
+      "id": "inbox",
+      "category": "future-progression",
+      "purpose": "Messages rewards and system inbox",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/inbox.png",
+        "presentationTile": "expansion-64/tiles/inbox.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 116,
+      "id": "event-calendar",
+      "category": "future-progression",
+      "purpose": "Upcoming event schedule",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/event-calendar.png",
+        "presentationTile": "expansion-64/tiles/event-calendar.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 117,
+      "id": "leaderboard",
+      "category": "future-progression",
+      "purpose": "Leaderboard and podium",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/leaderboard.png",
+        "presentationTile": "expansion-64/tiles/leaderboard.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 118,
+      "id": "player-stats",
+      "category": "future-progression",
+      "purpose": "Player statistics and performance trends",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/player-stats.png",
+        "presentationTile": "expansion-64/tiles/player-stats.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 119,
+      "id": "match-history",
+      "category": "future-progression",
+      "purpose": "Previous match results",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/match-history.png",
+        "presentationTile": "expansion-64/tiles/match-history.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 120,
+      "id": "season-road",
+      "category": "future-progression",
+      "purpose": "Season progression road",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/season-road.png",
+        "presentationTile": "expansion-64/tiles/season-road.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 121,
+      "id": "reward-chest",
+      "category": "future-progression",
+      "purpose": "Closed reward chest",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/reward-chest.png",
+        "presentationTile": "expansion-64/tiles/reward-chest.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 122,
+      "id": "key",
+      "category": "future-progression",
+      "purpose": "Key currency and chest unlock",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/key.png",
+        "presentationTile": "expansion-64/tiles/key.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 123,
+      "id": "claim",
+      "category": "future-progression",
+      "purpose": "Claim an available reward",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/claim.png",
+        "presentationTile": "expansion-64/tiles/claim.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 124,
+      "id": "upgrade",
+      "category": "future-progression",
+      "purpose": "Upgrade a player card or power",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/upgrade.png",
+        "presentationTile": "expansion-64/tiles/upgrade.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 125,
+      "id": "merge",
+      "category": "future-progression",
+      "purpose": "Merge duplicate cards or players",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/merge.png",
+        "presentationTile": "expansion-64/tiles/merge.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 126,
+      "id": "favorite",
+      "category": "future-progression",
+      "purpose": "Favorite a player card field or mode",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/favorite.png",
+        "presentationTile": "expansion-64/tiles/favorite.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 127,
+      "id": "report-player",
+      "category": "future-progression",
+      "purpose": "Report unsafe or abusive player behavior",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/report-player.png",
+        "presentationTile": "expansion-64/tiles/report-player.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 128,
+      "id": "block-player",
+      "category": "future-progression",
+      "purpose": "Block communication and invitations from a player",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/block-player.png",
+        "presentationTile": "expansion-64/tiles/block-player.png",
+        "reviewSheet": "expansion-64/sheets/08-future-progression.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 7
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 129,
+      "id": "emote-wave",
+      "category": "social-emote",
+      "purpose": "Greeting",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-wave.png",
+        "presentationTile": "expansion-64/tiles/emote-wave.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 130,
+      "id": "emote-thumbs-up",
+      "category": "social-emote",
+      "purpose": "Approval and encouragement",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-thumbs-up.png",
+        "presentationTile": "expansion-64/tiles/emote-thumbs-up.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 131,
+      "id": "emote-clap",
+      "category": "social-emote",
+      "purpose": "Applause for a good play",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-clap.png",
+        "presentationTile": "expansion-64/tiles/emote-clap.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 132,
+      "id": "emote-heart",
+      "category": "social-emote",
+      "purpose": "Support and team appreciation",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-heart.png",
+        "presentationTile": "expansion-64/tiles/emote-heart.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 133,
+      "id": "emote-good-game",
+      "category": "social-emote",
+      "purpose": "Post-match sportsmanship",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-good-game.png",
+        "presentationTile": "expansion-64/tiles/emote-good-game.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 134,
+      "id": "emote-sorry",
+      "category": "social-emote",
+      "purpose": "Apology after a mistake",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-sorry.png",
+        "presentationTile": "expansion-64/tiles/emote-sorry.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 135,
+      "id": "emote-thanks",
+      "category": "social-emote",
+      "purpose": "Thank a teammate",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-thanks.png",
+        "presentationTile": "expansion-64/tiles/emote-thanks.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 136,
+      "id": "emote-celebrate",
+      "category": "social-emote",
+      "purpose": "Positive celebration",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-celebrate.png",
+        "presentationTile": "expansion-64/tiles/emote-celebrate.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 137,
+      "id": "emote-laugh",
+      "category": "social-emote",
+      "purpose": "Playful laughter",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-laugh.png",
+        "presentationTile": "expansion-64/tiles/emote-laugh.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 138,
+      "id": "emote-wow",
+      "category": "social-emote",
+      "purpose": "Surprise at an impressive moment",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-wow.png",
+        "presentationTile": "expansion-64/tiles/emote-wow.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 139,
+      "id": "emote-sad",
+      "category": "social-emote",
+      "purpose": "Disappointment",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-sad.png",
+        "presentationTile": "expansion-64/tiles/emote-sad.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 140,
+      "id": "emote-angry",
+      "category": "social-emote",
+      "purpose": "Frustration",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-angry.png",
+        "presentationTile": "expansion-64/tiles/emote-angry.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 141,
+      "id": "emote-confused",
+      "category": "social-emote",
+      "purpose": "Confusion or unclear play",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-confused.png",
+        "presentationTile": "expansion-64/tiles/emote-confused.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 142,
+      "id": "emote-nervous",
+      "category": "social-emote",
+      "purpose": "Pressure or close-call reaction",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-nervous.png",
+        "presentationTile": "expansion-64/tiles/emote-nervous.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 143,
+      "id": "emote-fire",
+      "category": "social-emote",
+      "purpose": "Hype and hot streak",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-fire.png",
+        "presentationTile": "expansion-64/tiles/emote-fire.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 144,
+      "id": "emote-mvp",
+      "category": "social-emote",
+      "purpose": "Praise an outstanding player",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/emote-mvp.png",
+        "presentationTile": "expansion-64/tiles/emote-mvp.png",
+        "reviewSheet": "expansion-64/sheets/09-social-emotes.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 8
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 145,
+      "id": "call-pass",
+      "category": "tactical-call",
+      "purpose": "Ask for or announce a pass",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-pass.png",
+        "presentationTile": "expansion-64/tiles/call-pass.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 0,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 146,
+      "id": "call-shoot",
+      "category": "tactical-call",
+      "purpose": "Ask teammate to shoot",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-shoot.png",
+        "presentationTile": "expansion-64/tiles/call-shoot.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 1,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 147,
+      "id": "call-defend",
+      "category": "tactical-call",
+      "purpose": "Call for defensive coverage",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-defend.png",
+        "presentationTile": "expansion-64/tiles/call-defend.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 2,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 148,
+      "id": "call-attack",
+      "category": "tactical-call",
+      "purpose": "Push the team forward",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-attack.png",
+        "presentationTile": "expansion-64/tiles/call-attack.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 3,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 149,
+      "id": "call-left",
+      "category": "tactical-call",
+      "purpose": "Move or play toward the left",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-left.png",
+        "presentationTile": "expansion-64/tiles/call-left.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 4,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 150,
+      "id": "call-right",
+      "category": "tactical-call",
+      "purpose": "Move or play toward the right",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-right.png",
+        "presentationTile": "expansion-64/tiles/call-right.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 5,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 151,
+      "id": "call-wait",
+      "category": "tactical-call",
+      "purpose": "Hold position or slow down",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-wait.png",
+        "presentationTile": "expansion-64/tiles/call-wait.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 6,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 152,
+      "id": "call-ready",
+      "category": "tactical-call",
+      "purpose": "Signal readiness at kickoff or set play",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-ready.png",
+        "presentationTile": "expansion-64/tiles/call-ready.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 7,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 153,
+      "id": "call-help",
+      "category": "tactical-call",
+      "purpose": "Request nearby support",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-help.png",
+        "presentationTile": "expansion-64/tiles/call-help.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 8,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 154,
+      "id": "call-mark",
+      "category": "tactical-call",
+      "purpose": "Mark the highlighted opponent",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-mark.png",
+        "presentationTile": "expansion-64/tiles/call-mark.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 9,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 155,
+      "id": "call-goalkeeper",
+      "category": "tactical-call",
+      "purpose": "Call goalkeeper positioning or coverage",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-goalkeeper.png",
+        "presentationTile": "expansion-64/tiles/call-goalkeeper.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 10,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 156,
+      "id": "call-spread",
+      "category": "tactical-call",
+      "purpose": "Ask teammates to spread out",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-spread.png",
+        "presentationTile": "expansion-64/tiles/call-spread.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 11,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 157,
+      "id": "call-group",
+      "category": "tactical-call",
+      "purpose": "Ask teammates to group up",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-group.png",
+        "presentationTile": "expansion-64/tiles/call-group.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 12,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 158,
+      "id": "call-retreat",
+      "category": "tactical-call",
+      "purpose": "Fall back and reset shape",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-retreat.png",
+        "presentationTile": "expansion-64/tiles/call-retreat.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 13,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 159,
+      "id": "call-rematch",
+      "category": "tactical-call",
+      "purpose": "Request another match",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-rematch.png",
+        "presentationTile": "expansion-64/tiles/call-rematch.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 14,
+        "row": 9
+      },
+      "runtime": null
+    },
+    {
+      "ordinal": 160,
+      "id": "call-well-played",
+      "category": "tactical-call",
+      "purpose": "Praise a smart team play",
+      "collection": "expansion-64",
+      "status": "future",
+      "files": {
+        "transparent": "expansion-64/transparent/call-well-played.png",
+        "presentationTile": "expansion-64/tiles/call-well-played.png",
+        "reviewSheet": "expansion-64/sheets/10-tactical-calls.png"
+      },
+      "combinedAtlas160": {
+        "file": "expansion-64/sprite-pack-160.webp",
+        "cellPx": 128,
+        "column": 15,
+        "row": 9
+      },
+      "runtime": null
+    }
+  ]
+}

@@ -28,6 +28,17 @@
   `test-bot-ladder.mjs` before quoting a number. Unseeded runs of identical code have reported
   wall-pinning anywhere from 0.27% to 0.51%.
 
+## Icon and emote assets
+
+- **Read
+  [`public/assets/pixel-icon-system-01/ASSET_HANDOFF.md`](public/assets/pixel-icon-system-01/ASSET_HANDOFF.md)
+  before adding or integrating artwork.**
+- `ASSET_REGISTRY.json` is the complete generated inventory: 96 assets are
+  `live`; 64 expansion icons/emotes are `future` until runtime mapping exists.
+- Never rename an established semantic ID or hand-edit the generated registry.
+  Follow `GRAPHIC_LANGUAGE.md` and `NEW_ASSET_TEMPLATE.md`, then run
+  `node scripts/validate-icon-assets.mjs --write` and the validator/tests.
+
 ## Working alongside the other agents
 
 - Take an orchestration lock before editing a shared file: `football-mock:<path>`.
