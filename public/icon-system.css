@@ -1,0 +1,174 @@
+/*
+ * Saltiz Chunky Pixel Icon System 01
+ *
+ * One 1.1 MB WebP is the production pack. Every icon below is a semantic view
+ * into its 12 x 8 sprite grid, so the phone downloads and caches one asset
+ * instead of negotiating dozens of individual PNG requests.
+ */
+.saltiz-icon {
+  --si-size: 1.22em;
+  display: inline-block;
+  width: var(--si-size);
+  height: var(--si-size);
+  flex: 0 0 var(--si-size);
+  vertical-align: -.19em;
+  background-image: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1');
+  background-repeat: no-repeat;
+  background-size: 1200% 800%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.saltiz-icon.si-flip { transform: scaleX(-1); }
+.hub-sat-ic .saltiz-icon,
+.hub-mic .saltiz-icon,
+.hub-arena-ic .saltiz-icon,
+.news-ic .saltiz-icon,
+.club-hero-ic .saltiz-icon,
+.club-cta-ic .saltiz-icon,
+.club-feat-ic .saltiz-icon { --si-size: 1.35em; }
+.shop-thumb .saltiz-icon { --si-size: 1.2em; }
+.special-btn > .saltiz-icon,
+.build-icon > .saltiz-icon { --si-size: 72%; vertical-align: 0; }
+.builder-title .saltiz-icon,
+.builder-btn .saltiz-icon,
+.bact .saltiz-icon,
+.btool .saltiz-icon { --si-size: 1.3em; }
+.px-ic .saltiz-icon { --si-size: 1.35em; vertical-align: -.25em; }
+
+.si-play{background-position:0.000000% 0.000000%}
+.si-shop{background-position:9.090909% 0.000000%}
+.si-news{background-position:18.181818% 0.000000%}
+.si-rank{background-position:27.272727% 0.000000%}
+.si-friends{background-position:36.363636% 0.000000%}
+.si-club{background-position:45.454545% 0.000000%}
+.si-settings{background-position:54.545455% 0.000000%}
+.si-cards{background-position:63.636364% 0.000000%}
+.si-arena{background-position:72.727273% 0.000000%}
+.si-training{background-position:81.818182% 0.000000%}
+.si-field-builder{background-position:90.909091% 0.000000%}
+.si-tournament{background-position:100.000000% 0.000000%}
+.si-best-loadout{background-position:0.000000% 14.285714%}
+.si-hero-outfit{background-position:9.090909% 14.285714%}
+.si-back{background-position:18.181818% 14.285714%}
+.si-close{background-position:27.272727% 14.285714%}
+.si-bomb{background-position:36.363636% 14.285714%}
+.si-build-wall{background-position:45.454545% 14.285714%}
+.si-power-kick{background-position:54.545455% 14.285714%}
+.si-speed{background-position:63.636364% 14.285714%}
+.si-defense{background-position:72.727273% 14.285714%}
+.si-hidden{background-position:81.818182% 14.285714%}
+.si-move-joystick{background-position:90.909091% 14.285714%}
+.si-aim{background-position:100.000000% 14.285714%}
+.si-sound-on{background-position:0.000000% 28.571429%}
+.si-sound-off{background-position:9.090909% 28.571429%}
+.si-music{background-position:18.181818% 28.571429%}
+.si-controls-edit{background-position:27.272727% 28.571429%}
+.si-reset-ball{background-position:36.363636% 28.571429%}
+.si-bot{background-position:45.454545% 28.571429%}
+.si-network{background-position:54.545455% 28.571429%}
+.si-warning{background-position:63.636364% 28.571429%}
+.si-field-library{background-position:72.727273% 28.571429%}
+.si-undo{background-position:81.818182% 28.571429%}
+.si-redo{background-position:90.909091% 28.571429%}
+.si-mirror-sides{background-position:100.000000% 28.571429%}
+.si-mirror-top{background-position:0.000000% 42.857143%}
+.si-mirror-diagonal{background-position:9.090909% 42.857143%}
+.si-square-joint{background-position:18.181818% 42.857143%}
+.si-round-joint{background-position:27.272727% 42.857143%}
+.si-field-size{background-position:36.363636% 42.857143%}
+.si-zoom-in{background-position:45.454545% 42.857143%}
+.si-zoom-out{background-position:54.545455% 42.857143%}
+.si-fit-view{background-position:63.636364% 42.857143%}
+.si-hard-wall{background-position:72.727273% 42.857143%}
+.si-weak-wall{background-position:81.818182% 42.857143%}
+.si-bush{background-position:90.909091% 42.857143%}
+.si-crate{background-position:100.000000% 42.857143%}
+.si-spawn-red{background-position:0.000000% 57.142857%}
+.si-spawn-blue{background-position:9.090909% 57.142857%}
+.si-ball-placement{background-position:18.181818% 57.142857%}
+.si-move-tool{background-position:27.272727% 57.142857%}
+.si-eraser{background-position:36.363636% 57.142857%}
+.si-clear-all{background-position:45.454545% 57.142857%}
+.si-save{background-position:54.545455% 57.142857%}
+.si-rename{background-position:63.636364% 57.142857%}
+.si-delete{background-position:72.727273% 57.142857%}
+.si-load{background-position:81.818182% 57.142857%}
+.si-add{background-position:90.909091% 57.142857%}
+.si-search{background-position:100.000000% 57.142857%}
+.si-chat{background-position:0.000000% 71.428571%}
+.si-share-field{background-position:9.090909% 71.428571%}
+.si-invite{background-position:18.181818% 71.428571%}
+.si-accept{background-position:27.272727% 71.428571%}
+.si-decline{background-position:36.363636% 71.428571%}
+.si-coins{background-position:45.454545% 71.428571%}
+.si-gem{background-position:54.545455% 71.428571%}
+.si-gift{background-position:63.636364% 71.428571%}
+.si-season-star{background-position:72.727273% 71.428571%}
+.si-skin{background-position:81.818182% 71.428571%}
+.si-power{background-position:90.909091% 71.428571%}
+.si-season-pass{background-position:100.000000% 71.428571%}
+.si-rank-bronze{background-position:0.000000% 85.714286%}
+.si-rank-silver{background-position:9.090909% 85.714286%}
+.si-rank-gold{background-position:18.181818% 85.714286%}
+.si-rank-platinum{background-position:27.272727% 85.714286%}
+.si-rank-diamond{background-position:36.363636% 85.714286%}
+.si-rank-champion{background-position:45.454545% 85.714286%}
+.si-rank-legend{background-position:54.545455% 85.714286%}
+.si-lock{background-position:63.636364% 85.714286%}
+.si-hello{background-position:72.727273% 85.714286%}
+.si-goal-celebration{background-position:81.818182% 85.714286%}
+.si-champion-reaction{background-position:90.909091% 85.714286%}
+.si-laugh{background-position:100.000000% 85.714286%}
+.si-fire{background-position:0.000000% 100.000000%}
+.si-thumbs-up{background-position:9.090909% 100.000000%}
+.si-stadium{background-position:18.181818% 100.000000%}
+.si-goal-net{background-position:27.272727% 100.000000%}
+.si-notification{background-position:36.363636% 100.000000%}
+.si-online{background-position:45.454545% 100.000000%}
+.si-pause{background-position:54.545455% 100.000000%}
+.si-resume{background-position:63.636364% 100.000000%}
+.si-confirm{background-position:72.727273% 100.000000%}
+.si-cancel{background-position:81.818182% 100.000000%}
+.si-refresh{background-position:90.909091% 100.000000%}
+.si-timer{background-position:100.000000% 100.000000%}
+
+/* Legacy pseudo-elements cannot be reached by the DOM compatibility layer. */
+.hub-tier.hub-tier-capped::after,
+.pick-hero.locked::after {
+  content: '';
+  width: 1.35em;
+  height: 1.35em;
+  background: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1') no-repeat;
+  background-size: 1200% 800%;
+  background-position: 63.636364% 85.714286%;
+  image-rendering: pixelated;
+}
+.hub-tier.hub-tier-capped::after {
+  top: 0;
+  inset-inline-start: 1px;
+}
+.pick-hero.locked::after {
+  top: 50%;
+  left: 50%;
+}
+.special-btn.cancel-armed::before,
+.build-btn.cancel-armed::before,
+.pslot-ghost-remove::after {
+  content: '';
+  background-color: transparent;
+  background-image: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1');
+  background-repeat: no-repeat;
+  background-size: 1200% 800%;
+  background-position: 81.818182% 100%;
+  image-rendering: pixelated;
+}
+.bel.ball::after {
+  content: '';
+  width: 18px;
+  height: 18px;
+  background: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1') no-repeat;
+  background-size: 1200% 800%;
+  background-position: 18.181818% 57.142857%;
+  image-rendering: pixelated;
+}

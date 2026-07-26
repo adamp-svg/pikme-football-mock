@@ -4,10 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>סולטיז כדורגל בלוקים</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%9A%BD%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" type="image/png" href="/assets/pixel-icon-system-01/transparent/play.png?v=1" />
   <link rel="stylesheet" href="/style.css" />
   <!-- rank badge + trophy bar layer, kept separate from style.css (see public/rank.css) -->
   <link rel="stylesheet" href="/rank.css" />
+  <!-- Loaded last so the sprite pack also replaces legacy CSS pseudo-element emoji. -->
+  <link rel="stylesheet" href="/icon-system.css" />
 </head>
 <body>
   <!-- Start screen retired: the user/home screen is shown first. Kept (empty, hidden)
@@ -806,6 +808,7 @@
        deferred, so this classic script runs first and its buttons exist before client.js binds
        [data-home-back]. Below it, the buttons would render and do nothing. -->
   <script src="/back-nav.js"></script>
+  <script src="/icon-system.js"></script>
   <script type="module" src="/client.js"></script>
   <!-- DEV-ONLY visual layout editor (feat/lobby-redesign). Self-gating and purely
        additive: it re-applies any saved lobby layout on every load (so the arrangement

@@ -76,6 +76,19 @@ If an icon is unclear at 24px, remove detail before increasing complexity.
 CSS should use `image-rendering: pixelated`. Do not use browser blur,
 drop-shadow blur, or non-integer scaling on final production assets.
 
+## Runtime integration
+
+- Production UI uses the single `sprite-pack.webp` atlas.
+- Use `<span class="saltiz-icon si-ASSET_ID" aria-hidden="true"></span>` in
+  new static markup.
+- In JavaScript, prefer `SaltizIcons.icon('ASSET_ID')`.
+- The mutation compatibility layer converts legacy emoji inserted through
+  `textContent`, but it is not the preferred API for new code.
+- Keep adjacent visible text or an `aria-label`; sprite icons are decorative
+  and marked `aria-hidden`.
+- Bump the `?v=` cache key in `icon-system.css` whenever the sprite pixels or
+  grid order changes, ensuring installed phone WebViews fetch the new pack.
+
 ## New-asset checklist
 
 Before accepting a new icon:

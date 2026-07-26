@@ -13,6 +13,8 @@ library for the football game.
 - `transparent/` — named 256px transparent PNG exports for integration.
 - `manifest.csv` — stable asset IDs, categories, and current UI meanings.
 - `GRAPHIC_LANGUAGE.md` — canonical rules for drawing new matching assets.
+- `ASSET_USAGE.md` — when and where to use every individual asset.
+- `sprite-pack.webp` — production 12-by-8 pack downloaded once by the phone.
 
 The six categories are:
 
@@ -25,3 +27,8 @@ The six categories are:
 
 Use the files in `transparent/` for UI prototypes. Keep the filename as the
 stable semantic ID even if the artwork is revised later.
+
+The live game uses `sprite-pack.webp` through `/icon-system.css` and
+`/icon-system.js`. The compatibility runtime also converts icons inserted later
+by `client.js`, so dynamic friends, bots, ranks, quick messages, and builder
+labels remain in the same visual language.
