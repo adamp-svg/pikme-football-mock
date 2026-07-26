@@ -1738,7 +1738,17 @@ function decideBot(p, role, state, mem, sk, dt) {
           const sc = adv + Math.min(foe, 520) * 0.5;
           if (sc > bestScore) { bestScore = sc; bestA = { cx, cy }; }
         }
-        if (bestA && gsign * bestA.cx > 0.2 && mem.t > (bm.nextClearAt || 0)) {
+        // PATIENCE IS THE SKILL. Two ladder runs said the same thing: with the clearance available to
+        // everyone, STRIPS ranked perfectly (1.01 -> 6.50 across the tiers) while EVERY tier's goal
+        // differential went negative and the top tier stopped beating the bottom. Strong bots were
+        // winning the ball and then hoofing away possession they could have converted.
+        // So the clearance stays exactly as requested for the tiers that need it — a weak bot boots
+        // it forward rather than dithering, which is the whole point — and above t=0.62 it becomes
+        // what it is for a good player: something you do UNDER PRESSURE or against the carry clock,
+        // not your first idea. That difference is nameable ("patience with the ball") and it is the
+        // kind of differentiator this file's §4 asks for: same verb, better judgement.
+        const clearNow = skT(sk) < 0.62 || nfd < 300 || bm.carryT > CARRY_HOLD_MAX * 0.6;
+        if (clearNow && bestA && gsign * bestA.cx > 0.2 && mem.t > (bm.nextClearAt || 0)) {
           aim = { x: bestA.cx, y: bestA.cy };
           charge = clearCharge;
           shoot = true; closeShot = true; bm.carryT = 0;

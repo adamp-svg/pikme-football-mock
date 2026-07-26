@@ -84,9 +84,59 @@ Measured after: retreat-while-nearest now **45.6% at t=0.05 · 16% at 0.50 · 25
 behaviour itself became a ladder, and skill 0.50 keeps the round-7 wins (advance/release 27px,
 backward releases 3.6%).
 
+### PATIENCE ABOVE t=0.62, and an honest correction about what proves a ladder
+
+The graded version STILL measured rho 0.10 / spread -0.03, and the run said something specific:
+**strips ranked perfectly (1.01 -> 6.50) while every tier's goal differential was negative.** Strong
+bots were winning the ball and then hoofing away possession they could convert. So above **t = 0.62**
+the forward clearance became what it is for a good player — something you do under PRESSURE or against
+the carry clock, not your first idea. Below that gate it is unchanged: a weak bot boots it forward
+instead of dithering, which is the requested behaviour and the reason it exists.
+
+Measured, symmetric matches, 12 x 60s: at skill 0.93 the top tier's ball-loose time fell **78.3% ->
+68.3%**, touches 21.8 -> 24, worst jam 2.67s -> 0.73s, reach-time 1.15s -> 0.86s. The ladder test's
+**"top beats bottom" gate flipped to PASS** (-0.28 vs -0.40) and the spread moved -0.03 -> 0.11.
+
+**CORRECTION, and it matters for anyone reading numbers out of `bot-feel.mjs`:** its `goalsPerMatch`
+is the **combined** score of BOTH teams in a symmetric match. So the 0.17 / 1.00 / 2.08 progression
+across skill 0.05 / 0.50 / 0.93 is the SCORING RATE of the match (high-skill games are more open), not
+a difficulty differential — a symmetric match cannot show one by construction. Only
+`test-bot-ladder.mjs`, which plays each anchor against a fixed reference, can. Do not quote
+`goalsPerMatch` as evidence that a tier is stronger; this session did, once, and it was wrong.
+
+### THE LADDER INSTRUMENT IS NOW AT ITS RESOLUTION LIMIT — this is the open decision
+
+Three runs at `SEEDS=6` (192 matches/anchor) across rounds 6-7:
+
+| | rho (goals) | spread | top>bottom | strips rho | zero-check |
+|---|---|---|---|---|---|
+| round 6 (gates spread) | 0.80 | 1.10 | PASS | 1.00 | -0.01 |
+| round 7 ungraded | 0.10 | -0.04 | FAIL | 1.00 | **0.18** |
+| round 7 graded | 0.10 | -0.03 | FAIL | 1.00 | **0.16** |
+| round 7 + patience | 0.10 | 0.11 | **PASS** | 1.00 | **0.16** |
+
+Per-seed rho on the last run: 0.70 / 0.30 / 0.60 / -0.60 / -0.50 / 0.10 — the sign flips with the seed
+base. And the **HARNESS ZERO-CHECK has been out of tolerance (0.16-0.18 vs +-0.15) ever since round 7
+landed**: that gate measures the t=0.50 anchor against its own mirror, where the true answer is 0.00,
+so the instrument is telling us its own noise floor is exceeded. §3 already recorded this exact limit
+for `test-bot-levels.mjs` ("gating them is a red/green light driven by the RNG, and chasing it produced
+two bad re-cuts before I stopped"); the new behaviours have now pushed the AXIS test into the same
+regime, because a forward clearance turns a possession into a scramble and scrambles are high-variance.
+
+**STRIPS still rank 1.00 at every single run**, which is the low-variance evidence that the skill axis
+itself is intact. What cannot currently be resolved is goal differential.
+
+So the next agent has three honest options, and it is the user's call, not a tuning problem:
+1. **Raise the sample** — the axis test needs far more than 192 matches/anchor to resolve ~0.1-0.2
+   goals/match against a 0.3-0.4 noise floor. Cheapest correct answer; costs wall-clock, not design.
+2. **Re-cut the 12 levels** against the new bots (pending since round 5 anyway).
+3. **Revert the reward rules** — they do exactly what was asked on their own metrics (advance per
+   release 4 -> 27px, backward releases 8% -> 3.6%, retreat-while-nearest 23% -> 16% at skill 0.50)
+   and they are the thing that pushed the instrument past its floor.
+
 ### Open after round 7
 
-1. **The skill-axis ladder is re-running on the graded version.** Round 6 read rho 0.80 (0.05 short)
+1. **The skill-axis ladder — see the section above.** Round 6 read rho 0.80 (0.05 short) Round 6 read rho 0.80 (0.05 short)
    with spread 1.10. If it is still flat, the honest options are a level re-cut (the user's call, and
    already pending from round 5) or accepting a wider-but-noisier ladder.
 2. `retreatWhileNearestPct` is still ~25% at skill 0.93 and the ball is loose ~79% of that match.

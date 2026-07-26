@@ -271,6 +271,31 @@ window.SALTIZ = { req: (n) => __m[n] };
 
   // ---------- match ----------
   const IDS = [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]];
+  // The plays worth ANNOUNCING: each one is a distinct decision, and several are rare enough that
+  // you would scroll past them. Keyed to the bot-ai tag so this list cannot drift from behaviour.
+  const NOTABLE = {
+    clearForward: 'cleared the ball up the pitch instead of dribbling nowhere',
+    fetchBall: 'was nearest the loose ball and went to get it',
+    passLatch: 'committed a pass — and it stays a pass now',
+    receivePass: 'answered the pass call and came to meet the ball',
+    kickAndFly: 'knocked the ball ahead, then bombed itself after it',
+    kickFlyCannon: 'kick-and-fly off a wall cannon',
+    catapultSetup: 'is setting up the catapult behind its team-mate',
+    catapultWall: 'raised the catapult wall',
+    catapult: 'planted the catapult bomb — watch the carrier fly WITH the ball',
+    catapultRide: 'is holding its heading to ride the catapult',
+    chaseJump: 'bomb-jumped after a far loose ball instead of walking',
+    catchUpJump: 'bomb-jumped to catch up with the play',
+    wallCannonJump: 'used a wall as a cannon to fly further',
+    coopPush: 'bomb-jumped into the attacking outlet',
+    pincer: 'is closing the escape lane — two-sided trap',
+    superBodyStrip: 'is walking through the carrier to strip it with super',
+    goalKeep: 'is playing keeper on its line',
+    bodyScreen: 'stepped in front of the defender chasing its carrier',
+    deflectSetup: 'built an angled wall for a bank shot',
+    deflectShot: 'banked the shot off its mate\'s wall',
+    walkIn: 'is walking the ball into the net (unsaveable)',
+  };
   // the tier's visionMul, so the drawn view box is the one this bot actually gets
   const VISION_MUL = { 0: 0.9, 0.25: 1.0, 0.5: 1.1, 0.82: 1.4, 1: 1.6 };
   const skillOf = (team) => {
@@ -282,7 +307,7 @@ window.SALTIZ = { req: (n) => __m[n] };
     return VISION_MUL[lo] + (VISION_MUL[hi] - VISION_MUL[lo]) * f;
   };
   let s, mem, seed = 7, level = 5, mirror = false, fixOn = true, speed = 1, running = true;
-  let stat, prev, jam, log = [];
+  let stat, prev, jam, lastTag = {}, tagAt = {}, log = [];
 
   function skills() {
     const L = DIFFICULTY_LEVELS[level];
@@ -297,7 +322,7 @@ window.SALTIZ = { req: (n) => __m[n] };
     attachBall(s, s.rng() < 0.5 ? 'A' : 'B');
     mem = createBotMemory('normal'); mem.teamSkill = skills();
     stat = { ticks: 0, move: 0, pin: 0, pops: 0, shots: 0, poss: { A: 0, B: 0 }, held: 0, spells: [], jamWorst: 0, goalsAt: null };
-    prev = {}; jam = {};
+    prev = {}; jam = {}; lastTag = {}; tagAt = {};
     for (const [id] of IDS) { prev[id] = null; jam[id] = 0; }
     log = []; drawLog();
     paintLevel();
@@ -354,6 +379,12 @@ window.SALTIZ = { req: (n) => __m[n] };
 
     for (const [id] of IDS) {
       const p = s.players[id], i = inp[id]; if (!p || !i) continue;
+      // announce a notable play the first time it fires (and at most once per 2s per bot per play)
+      const tag = bmemForTest(mem, id).lastTrick || null;
+      if (tag && tag !== lastTag[id] && NOTABLE[tag] && s.elapsed - (tagAt[id + tag] || -9) > 2) {
+        tagAt[id + tag] = s.elapsed; push('play', id + ' ' + NOTABLE[tag]);
+      }
+      lastTag[id] = tag;
       const want = Math.hypot(i.moveX, i.moveY) > 0.3;
       const disp = prev[id] ? Math.hypot(p.x - prev[id].x, p.y - prev[id].y) : 9;
       if (want && disp < 1.2 && touchingWall(p)) {
