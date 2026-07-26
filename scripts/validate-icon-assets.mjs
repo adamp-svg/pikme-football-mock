@@ -8,6 +8,24 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const assetRoot = path.join(repoRoot, 'public/assets/pixel-icon-system-01');
 const registryPath = path.join(assetRoot, 'ASSET_REGISTRY.json');
 
+const rebuiltArt = {
+  play: {
+    revision: 'v3-closed-outline',
+    date: '2026-07-26',
+    reason: 'Quick Play silhouette rebuilt for clean 30px phone readability.',
+  },
+  bomb: {
+    revision: 'v3-closed-outline',
+    date: '2026-07-26',
+    reason: 'Bomb rebuilt to remove transparent gaps and detached perimeter pixels.',
+  },
+  'build-wall': {
+    revision: 'v3-closed-outline',
+    date: '2026-07-26',
+    reason: 'Build Wall rebuilt to remove dotted brick and trowel outlines.',
+  },
+};
+
 const collections = [
   {
     id: 'core-96',
@@ -72,6 +90,7 @@ function buildRegistry() {
         purpose: row.purpose,
         collection: collection.id,
         status: collection.status,
+        artRevision: rebuiltArt[row.id] ?? null,
         files: {
           transparent: `${collection.transparentDir}/${row.id}.png`,
           presentationTile: `${collection.tileDir}/${row.id}.png`,

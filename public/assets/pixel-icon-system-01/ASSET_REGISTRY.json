@@ -28,6 +28,11 @@
       "purpose": "Quick Match and primary play",
       "collection": "core-96",
       "status": "live",
+      "artRevision": {
+        "revision": "v3-closed-outline",
+        "date": "2026-07-26",
+        "reason": "Quick Play silhouette rebuilt for clean 30px phone readability."
+      },
       "files": {
         "transparent": "transparent/play.png",
         "presentationTile": "tiles/play.png",
@@ -51,6 +56,7 @@
       "purpose": "Shop",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/shop.png",
         "presentationTile": "tiles/shop.png",
@@ -74,6 +80,7 @@
       "purpose": "News",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/news.png",
         "presentationTile": "tiles/news.png",
@@ -97,6 +104,7 @@
       "purpose": "Rank entry",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank.png",
         "presentationTile": "tiles/rank.png",
@@ -120,6 +128,7 @@
       "purpose": "Friends and play with friends",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/friends.png",
         "presentationTile": "tiles/friends.png",
@@ -143,6 +152,7 @@
       "purpose": "Clubs",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/club.png",
         "presentationTile": "tiles/club.png",
@@ -166,6 +176,7 @@
       "purpose": "Settings",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/settings.png",
         "presentationTile": "tiles/settings.png",
@@ -189,6 +200,7 @@
       "purpose": "Card collection",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/cards.png",
         "presentationTile": "tiles/cards.png",
@@ -212,6 +224,7 @@
       "purpose": "Mode and arena selection",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/arena.png",
         "presentationTile": "tiles/arena.png",
@@ -235,6 +248,7 @@
       "purpose": "Training",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/training.png",
         "presentationTile": "tiles/training.png",
@@ -258,6 +272,7 @@
       "purpose": "Field builder",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/field-builder.png",
         "presentationTile": "tiles/field-builder.png",
@@ -281,6 +296,7 @@
       "purpose": "Tournament and best result",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/tournament.png",
         "presentationTile": "tiles/tournament.png",
@@ -304,6 +320,7 @@
       "purpose": "Equip best cards",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/best-loadout.png",
         "presentationTile": "tiles/best-loadout.png",
@@ -327,6 +344,7 @@
       "purpose": "Hero appearance",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/hero-outfit.png",
         "presentationTile": "tiles/hero-outfit.png",
@@ -350,6 +368,7 @@
       "purpose": "Back and leave",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/back.png",
         "presentationTile": "tiles/back.png",
@@ -373,6 +392,7 @@
       "purpose": "Close and remove",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/close.png",
         "presentationTile": "tiles/close.png",
@@ -396,6 +416,11 @@
       "purpose": "Bomb special",
       "collection": "core-96",
       "status": "live",
+      "artRevision": {
+        "revision": "v3-closed-outline",
+        "date": "2026-07-26",
+        "reason": "Bomb rebuilt to remove transparent gaps and detached perimeter pixels."
+      },
       "files": {
         "transparent": "transparent/bomb.png",
         "presentationTile": "tiles/bomb.png",
@@ -419,6 +444,11 @@
       "purpose": "Wall build power",
       "collection": "core-96",
       "status": "live",
+      "artRevision": {
+        "revision": "v3-closed-outline",
+        "date": "2026-07-26",
+        "reason": "Build Wall rebuilt to remove dotted brick and trowel outlines."
+      },
       "files": {
         "transparent": "transparent/build-wall.png",
         "presentationTile": "tiles/build-wall.png",
@@ -442,6 +472,7 @@
       "purpose": "Kick and shot power",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/power-kick.png",
         "presentationTile": "tiles/power-kick.png",
@@ -465,6 +496,7 @@
       "purpose": "Speed power",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/speed.png",
         "presentationTile": "tiles/speed.png",
@@ -488,6 +520,7 @@
       "purpose": "Defense power",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/defense.png",
         "presentationTile": "tiles/defense.png",
@@ -511,6 +544,7 @@
       "purpose": "Bush stealth cue",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/hidden.png",
         "presentationTile": "tiles/hidden.png",
@@ -534,6 +568,7 @@
       "purpose": "Movement control",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/move-joystick.png",
         "presentationTile": "tiles/move-joystick.png",
@@ -557,6 +592,7 @@
       "purpose": "Aim and target",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/aim.png",
         "presentationTile": "tiles/aim.png",
@@ -580,6 +616,7 @@
       "purpose": "SFX enabled",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/sound-on.png",
         "presentationTile": "tiles/sound-on.png",
@@ -603,6 +640,7 @@
       "purpose": "SFX muted",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/sound-off.png",
         "presentationTile": "tiles/sound-off.png",
@@ -626,6 +664,7 @@
       "purpose": "Music",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/music.png",
         "presentationTile": "tiles/music.png",
@@ -649,6 +688,7 @@
       "purpose": "Control layout editor",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/controls-edit.png",
         "presentationTile": "tiles/controls-edit.png",
@@ -672,6 +712,7 @@
       "purpose": "Reset training ball",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/reset-ball.png",
         "presentationTile": "tiles/reset-ball.png",
@@ -695,6 +736,7 @@
       "purpose": "Bot and difficulty",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/bot.png",
         "presentationTile": "tiles/bot.png",
@@ -718,6 +760,7 @@
       "purpose": "Connection quality",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/network.png",
         "presentationTile": "tiles/network.png",
@@ -741,6 +784,7 @@
       "purpose": "Warning and error",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/warning.png",
         "presentationTile": "tiles/warning.png",
@@ -764,6 +808,7 @@
       "purpose": "Saved fields and copy",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/field-library.png",
         "presentationTile": "tiles/field-library.png",
@@ -787,6 +832,7 @@
       "purpose": "Undo",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/undo.png",
         "presentationTile": "tiles/undo.png",
@@ -810,6 +856,7 @@
       "purpose": "Redo",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/redo.png",
         "presentationTile": "tiles/redo.png",
@@ -833,6 +880,7 @@
       "purpose": "Mirror left and right",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/mirror-sides.png",
         "presentationTile": "tiles/mirror-sides.png",
@@ -856,6 +904,7 @@
       "purpose": "Mirror top and bottom",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/mirror-top.png",
         "presentationTile": "tiles/mirror-top.png",
@@ -879,6 +928,7 @@
       "purpose": "Mirror diagonally",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/mirror-diagonal.png",
         "presentationTile": "tiles/mirror-diagonal.png",
@@ -902,6 +952,7 @@
       "purpose": "Square wall joint",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/square-joint.png",
         "presentationTile": "tiles/square-joint.png",
@@ -925,6 +976,7 @@
       "purpose": "Round wall joint",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/round-joint.png",
         "presentationTile": "tiles/round-joint.png",
@@ -948,6 +1000,7 @@
       "purpose": "Field size",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/field-size.png",
         "presentationTile": "tiles/field-size.png",
@@ -971,6 +1024,7 @@
       "purpose": "Zoom in",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/zoom-in.png",
         "presentationTile": "tiles/zoom-in.png",
@@ -994,6 +1048,7 @@
       "purpose": "Zoom out",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/zoom-out.png",
         "presentationTile": "tiles/zoom-out.png",
@@ -1017,6 +1072,7 @@
       "purpose": "Fit or reset view",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/fit-view.png",
         "presentationTile": "tiles/fit-view.png",
@@ -1040,6 +1096,7 @@
       "purpose": "Hard steel wall material",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/hard-wall.png",
         "presentationTile": "tiles/hard-wall.png",
@@ -1063,6 +1120,7 @@
       "purpose": "Weak dry wall material",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/weak-wall.png",
         "presentationTile": "tiles/weak-wall.png",
@@ -1086,6 +1144,7 @@
       "purpose": "Bush material",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/bush.png",
         "presentationTile": "tiles/bush.png",
@@ -1109,6 +1168,7 @@
       "purpose": "Crate material",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/crate.png",
         "presentationTile": "tiles/crate.png",
@@ -1132,6 +1192,7 @@
       "purpose": "Red team spawn",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/spawn-red.png",
         "presentationTile": "tiles/spawn-red.png",
@@ -1155,6 +1216,7 @@
       "purpose": "Blue team spawn",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/spawn-blue.png",
         "presentationTile": "tiles/spawn-blue.png",
@@ -1178,6 +1240,7 @@
       "purpose": "Ball start position",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/ball-placement.png",
         "presentationTile": "tiles/ball-placement.png",
@@ -1201,6 +1264,7 @@
       "purpose": "Move builder object",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/move-tool.png",
         "presentationTile": "tiles/move-tool.png",
@@ -1224,6 +1288,7 @@
       "purpose": "Erase builder object",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/eraser.png",
         "presentationTile": "tiles/eraser.png",
@@ -1247,6 +1312,7 @@
       "purpose": "Clear field",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/clear-all.png",
         "presentationTile": "tiles/clear-all.png",
@@ -1270,6 +1336,7 @@
       "purpose": "Save",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/save.png",
         "presentationTile": "tiles/save.png",
@@ -1293,6 +1360,7 @@
       "purpose": "Rename",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rename.png",
         "presentationTile": "tiles/rename.png",
@@ -1316,6 +1384,7 @@
       "purpose": "Delete",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/delete.png",
         "presentationTile": "tiles/delete.png",
@@ -1339,6 +1408,7 @@
       "purpose": "Load",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/load.png",
         "presentationTile": "tiles/load.png",
@@ -1362,6 +1432,7 @@
       "purpose": "Add friend or club",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/add.png",
         "presentationTile": "tiles/add.png",
@@ -1385,6 +1456,7 @@
       "purpose": "Search",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/search.png",
         "presentationTile": "tiles/search.png",
@@ -1408,6 +1480,7 @@
       "purpose": "Chat and message",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/chat.png",
         "presentationTile": "tiles/chat.png",
@@ -1431,6 +1504,7 @@
       "purpose": "Share field",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/share-field.png",
         "presentationTile": "tiles/share-field.png",
@@ -1454,6 +1528,7 @@
       "purpose": "Invite player",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/invite.png",
         "presentationTile": "tiles/invite.png",
@@ -1477,6 +1552,7 @@
       "purpose": "Accept and approve",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/accept.png",
         "presentationTile": "tiles/accept.png",
@@ -1500,6 +1576,7 @@
       "purpose": "Decline and reject",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/decline.png",
         "presentationTile": "tiles/decline.png",
@@ -1523,6 +1600,7 @@
       "purpose": "Coins",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/coins.png",
         "presentationTile": "tiles/coins.png",
@@ -1546,6 +1624,7 @@
       "purpose": "Gems",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/gem.png",
         "presentationTile": "tiles/gem.png",
@@ -1569,6 +1648,7 @@
       "purpose": "Reward and starter pack",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/gift.png",
         "presentationTile": "tiles/gift.png",
@@ -1592,6 +1672,7 @@
       "purpose": "Season feature",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/season-star.png",
         "presentationTile": "tiles/season-star.png",
@@ -1615,6 +1696,7 @@
       "purpose": "Skin and appearance category",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/skin.png",
         "presentationTile": "tiles/skin.png",
@@ -1638,6 +1720,7 @@
       "purpose": "Power category",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/power.png",
         "presentationTile": "tiles/power.png",
@@ -1661,6 +1744,7 @@
       "purpose": "Season pass",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/season-pass.png",
         "presentationTile": "tiles/season-pass.png",
@@ -1684,6 +1768,7 @@
       "purpose": "Bronze rank",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank-bronze.png",
         "presentationTile": "tiles/rank-bronze.png",
@@ -1707,6 +1792,7 @@
       "purpose": "Silver rank",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank-silver.png",
         "presentationTile": "tiles/rank-silver.png",
@@ -1730,6 +1816,7 @@
       "purpose": "Gold rank",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank-gold.png",
         "presentationTile": "tiles/rank-gold.png",
@@ -1753,6 +1840,7 @@
       "purpose": "Platinum rank",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank-platinum.png",
         "presentationTile": "tiles/rank-platinum.png",
@@ -1776,6 +1864,7 @@
       "purpose": "Diamond rank",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank-diamond.png",
         "presentationTile": "tiles/rank-diamond.png",
@@ -1799,6 +1888,7 @@
       "purpose": "Champion rank",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank-champion.png",
         "presentationTile": "tiles/rank-champion.png",
@@ -1822,6 +1912,7 @@
       "purpose": "Legend rank",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/rank-legend.png",
         "presentationTile": "tiles/rank-legend.png",
@@ -1845,6 +1936,7 @@
       "purpose": "Locked content",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/lock.png",
         "presentationTile": "tiles/lock.png",
@@ -1868,6 +1960,7 @@
       "purpose": "Hello reaction",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/hello.png",
         "presentationTile": "tiles/hello.png",
@@ -1891,6 +1984,7 @@
       "purpose": "Goal reaction",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/goal-celebration.png",
         "presentationTile": "tiles/goal-celebration.png",
@@ -1914,6 +2008,7 @@
       "purpose": "Champion reaction",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/champion-reaction.png",
         "presentationTile": "tiles/champion-reaction.png",
@@ -1937,6 +2032,7 @@
       "purpose": "Laugh reaction",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/laugh.png",
         "presentationTile": "tiles/laugh.png",
@@ -1960,6 +2056,7 @@
       "purpose": "Fire reaction",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/fire.png",
         "presentationTile": "tiles/fire.png",
@@ -1983,6 +2080,7 @@
       "purpose": "Thumbs up reaction",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/thumbs-up.png",
         "presentationTile": "tiles/thumbs-up.png",
@@ -2006,6 +2104,7 @@
       "purpose": "Stadium and shared arena",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/stadium.png",
         "presentationTile": "tiles/stadium.png",
@@ -2029,6 +2128,7 @@
       "purpose": "Goal mode",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/goal-net.png",
         "presentationTile": "tiles/goal-net.png",
@@ -2052,6 +2152,7 @@
       "purpose": "Notification and unread",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/notification.png",
         "presentationTile": "tiles/notification.png",
@@ -2075,6 +2176,7 @@
       "purpose": "Online state",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/online.png",
         "presentationTile": "tiles/online.png",
@@ -2098,6 +2200,7 @@
       "purpose": "Pause",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/pause.png",
         "presentationTile": "tiles/pause.png",
@@ -2121,6 +2224,7 @@
       "purpose": "Resume",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/resume.png",
         "presentationTile": "tiles/resume.png",
@@ -2144,6 +2248,7 @@
       "purpose": "Confirm",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/confirm.png",
         "presentationTile": "tiles/confirm.png",
@@ -2167,6 +2272,7 @@
       "purpose": "Cancel",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/cancel.png",
         "presentationTile": "tiles/cancel.png",
@@ -2190,6 +2296,7 @@
       "purpose": "Refresh and retry",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/refresh.png",
         "presentationTile": "tiles/refresh.png",
@@ -2213,6 +2320,7 @@
       "purpose": "Match timer",
       "collection": "core-96",
       "status": "live",
+      "artRevision": null,
       "files": {
         "transparent": "transparent/timer.png",
         "presentationTile": "tiles/timer.png",
@@ -2236,6 +2344,7 @@
       "purpose": "Goalkeeper role or goalie-specific mode",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/goalkeeper.png",
         "presentationTile": "expansion-64/tiles/goalkeeper.png",
@@ -2256,6 +2365,7 @@
       "purpose": "Striker role and attacking specialization",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/striker.png",
         "presentationTile": "expansion-64/tiles/striker.png",
@@ -2276,6 +2386,7 @@
       "purpose": "Defender role and defensive specialization",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/defender.png",
         "presentationTile": "expansion-64/tiles/defender.png",
@@ -2296,6 +2407,7 @@
       "purpose": "Team formation and tactical layout",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/formation.png",
         "presentationTile": "expansion-64/tiles/formation.png",
@@ -2316,6 +2428,7 @@
       "purpose": "Ranked event or competitive queue",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/ranked-event.png",
         "presentationTile": "expansion-64/tiles/ranked-event.png",
@@ -2336,6 +2449,7 @@
       "purpose": "Daily challenge and rotating objective",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/daily-challenge.png",
         "presentationTile": "expansion-64/tiles/daily-challenge.png",
@@ -2356,6 +2470,7 @@
       "purpose": "Quest list and multi-step objective",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/quest.png",
         "presentationTile": "expansion-64/tiles/quest.png",
@@ -2376,6 +2491,7 @@
       "purpose": "Achievement and permanent accomplishment",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/achievement.png",
         "presentationTile": "expansion-64/tiles/achievement.png",
@@ -2396,6 +2512,7 @@
       "purpose": "Watch or review a saved replay",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/replay.png",
         "presentationTile": "expansion-64/tiles/replay.png",
@@ -2416,6 +2533,7 @@
       "purpose": "Spectate a live match",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/spectate.png",
         "presentationTile": "expansion-64/tiles/spectate.png",
@@ -2436,6 +2554,7 @@
       "purpose": "Request or begin a rematch",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/rematch.png",
         "presentationTile": "expansion-64/tiles/rematch.png",
@@ -2456,6 +2575,7 @@
       "purpose": "Searching for opponents or joining teams",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/matchmaking.png",
         "presentationTile": "expansion-64/tiles/matchmaking.png",
@@ -2476,6 +2596,7 @@
       "purpose": "Invite-only room and room code",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/private-room.png",
         "presentationTile": "expansion-64/tiles/private-room.png",
@@ -2496,6 +2617,7 @@
       "purpose": "Voice chat and microphone channel",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/voice-chat.png",
         "presentationTile": "expansion-64/tiles/voice-chat.png",
@@ -2516,6 +2638,7 @@
       "purpose": "Club-versus-club competitive event",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/club-war.png",
         "presentationTile": "expansion-64/tiles/club-war.png",
@@ -2536,6 +2659,7 @@
       "purpose": "Structured practice drill",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/training-drill.png",
         "presentationTile": "expansion-64/tiles/training-drill.png",
@@ -2556,6 +2680,7 @@
       "purpose": "Player profile",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/profile.png",
         "presentationTile": "expansion-64/tiles/profile.png",
@@ -2576,6 +2701,7 @@
       "purpose": "Edit player profile",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/edit-profile.png",
         "presentationTile": "expansion-64/tiles/edit-profile.png",
@@ -2596,6 +2722,7 @@
       "purpose": "Messages rewards and system inbox",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/inbox.png",
         "presentationTile": "expansion-64/tiles/inbox.png",
@@ -2616,6 +2743,7 @@
       "purpose": "Upcoming event schedule",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/event-calendar.png",
         "presentationTile": "expansion-64/tiles/event-calendar.png",
@@ -2636,6 +2764,7 @@
       "purpose": "Leaderboard and podium",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/leaderboard.png",
         "presentationTile": "expansion-64/tiles/leaderboard.png",
@@ -2656,6 +2785,7 @@
       "purpose": "Player statistics and performance trends",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/player-stats.png",
         "presentationTile": "expansion-64/tiles/player-stats.png",
@@ -2676,6 +2806,7 @@
       "purpose": "Previous match results",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/match-history.png",
         "presentationTile": "expansion-64/tiles/match-history.png",
@@ -2696,6 +2827,7 @@
       "purpose": "Season progression road",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/season-road.png",
         "presentationTile": "expansion-64/tiles/season-road.png",
@@ -2716,6 +2848,7 @@
       "purpose": "Closed reward chest",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/reward-chest.png",
         "presentationTile": "expansion-64/tiles/reward-chest.png",
@@ -2736,6 +2869,7 @@
       "purpose": "Key currency and chest unlock",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/key.png",
         "presentationTile": "expansion-64/tiles/key.png",
@@ -2756,6 +2890,7 @@
       "purpose": "Claim an available reward",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/claim.png",
         "presentationTile": "expansion-64/tiles/claim.png",
@@ -2776,6 +2911,7 @@
       "purpose": "Upgrade a player card or power",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/upgrade.png",
         "presentationTile": "expansion-64/tiles/upgrade.png",
@@ -2796,6 +2932,7 @@
       "purpose": "Merge duplicate cards or players",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/merge.png",
         "presentationTile": "expansion-64/tiles/merge.png",
@@ -2816,6 +2953,7 @@
       "purpose": "Favorite a player card field or mode",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/favorite.png",
         "presentationTile": "expansion-64/tiles/favorite.png",
@@ -2836,6 +2974,7 @@
       "purpose": "Report unsafe or abusive player behavior",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/report-player.png",
         "presentationTile": "expansion-64/tiles/report-player.png",
@@ -2856,6 +2995,7 @@
       "purpose": "Block communication and invitations from a player",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/block-player.png",
         "presentationTile": "expansion-64/tiles/block-player.png",
@@ -2876,6 +3016,7 @@
       "purpose": "Greeting",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-wave.png",
         "presentationTile": "expansion-64/tiles/emote-wave.png",
@@ -2896,6 +3037,7 @@
       "purpose": "Approval and encouragement",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-thumbs-up.png",
         "presentationTile": "expansion-64/tiles/emote-thumbs-up.png",
@@ -2916,6 +3058,7 @@
       "purpose": "Applause for a good play",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-clap.png",
         "presentationTile": "expansion-64/tiles/emote-clap.png",
@@ -2936,6 +3079,7 @@
       "purpose": "Support and team appreciation",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-heart.png",
         "presentationTile": "expansion-64/tiles/emote-heart.png",
@@ -2956,6 +3100,7 @@
       "purpose": "Post-match sportsmanship",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-good-game.png",
         "presentationTile": "expansion-64/tiles/emote-good-game.png",
@@ -2976,6 +3121,7 @@
       "purpose": "Apology after a mistake",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-sorry.png",
         "presentationTile": "expansion-64/tiles/emote-sorry.png",
@@ -2996,6 +3142,7 @@
       "purpose": "Thank a teammate",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-thanks.png",
         "presentationTile": "expansion-64/tiles/emote-thanks.png",
@@ -3016,6 +3163,7 @@
       "purpose": "Positive celebration",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-celebrate.png",
         "presentationTile": "expansion-64/tiles/emote-celebrate.png",
@@ -3036,6 +3184,7 @@
       "purpose": "Playful laughter",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-laugh.png",
         "presentationTile": "expansion-64/tiles/emote-laugh.png",
@@ -3056,6 +3205,7 @@
       "purpose": "Surprise at an impressive moment",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-wow.png",
         "presentationTile": "expansion-64/tiles/emote-wow.png",
@@ -3076,6 +3226,7 @@
       "purpose": "Disappointment",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-sad.png",
         "presentationTile": "expansion-64/tiles/emote-sad.png",
@@ -3096,6 +3247,7 @@
       "purpose": "Frustration",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-angry.png",
         "presentationTile": "expansion-64/tiles/emote-angry.png",
@@ -3116,6 +3268,7 @@
       "purpose": "Confusion or unclear play",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-confused.png",
         "presentationTile": "expansion-64/tiles/emote-confused.png",
@@ -3136,6 +3289,7 @@
       "purpose": "Pressure or close-call reaction",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-nervous.png",
         "presentationTile": "expansion-64/tiles/emote-nervous.png",
@@ -3156,6 +3310,7 @@
       "purpose": "Hype and hot streak",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-fire.png",
         "presentationTile": "expansion-64/tiles/emote-fire.png",
@@ -3176,6 +3331,7 @@
       "purpose": "Praise an outstanding player",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/emote-mvp.png",
         "presentationTile": "expansion-64/tiles/emote-mvp.png",
@@ -3196,6 +3352,7 @@
       "purpose": "Ask for or announce a pass",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-pass.png",
         "presentationTile": "expansion-64/tiles/call-pass.png",
@@ -3216,6 +3373,7 @@
       "purpose": "Ask teammate to shoot",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-shoot.png",
         "presentationTile": "expansion-64/tiles/call-shoot.png",
@@ -3236,6 +3394,7 @@
       "purpose": "Call for defensive coverage",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-defend.png",
         "presentationTile": "expansion-64/tiles/call-defend.png",
@@ -3256,6 +3415,7 @@
       "purpose": "Push the team forward",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-attack.png",
         "presentationTile": "expansion-64/tiles/call-attack.png",
@@ -3276,6 +3436,7 @@
       "purpose": "Move or play toward the left",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-left.png",
         "presentationTile": "expansion-64/tiles/call-left.png",
@@ -3296,6 +3457,7 @@
       "purpose": "Move or play toward the right",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-right.png",
         "presentationTile": "expansion-64/tiles/call-right.png",
@@ -3316,6 +3478,7 @@
       "purpose": "Hold position or slow down",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-wait.png",
         "presentationTile": "expansion-64/tiles/call-wait.png",
@@ -3336,6 +3499,7 @@
       "purpose": "Signal readiness at kickoff or set play",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-ready.png",
         "presentationTile": "expansion-64/tiles/call-ready.png",
@@ -3356,6 +3520,7 @@
       "purpose": "Request nearby support",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-help.png",
         "presentationTile": "expansion-64/tiles/call-help.png",
@@ -3376,6 +3541,7 @@
       "purpose": "Mark the highlighted opponent",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-mark.png",
         "presentationTile": "expansion-64/tiles/call-mark.png",
@@ -3396,6 +3562,7 @@
       "purpose": "Call goalkeeper positioning or coverage",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-goalkeeper.png",
         "presentationTile": "expansion-64/tiles/call-goalkeeper.png",
@@ -3416,6 +3583,7 @@
       "purpose": "Ask teammates to spread out",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-spread.png",
         "presentationTile": "expansion-64/tiles/call-spread.png",
@@ -3436,6 +3604,7 @@
       "purpose": "Ask teammates to group up",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-group.png",
         "presentationTile": "expansion-64/tiles/call-group.png",
@@ -3456,6 +3625,7 @@
       "purpose": "Fall back and reset shape",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-retreat.png",
         "presentationTile": "expansion-64/tiles/call-retreat.png",
@@ -3476,6 +3646,7 @@
       "purpose": "Request another match",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-rematch.png",
         "presentationTile": "expansion-64/tiles/call-rematch.png",
@@ -3496,6 +3667,7 @@
       "purpose": "Praise a smart team play",
       "collection": "expansion-64",
       "status": "future",
+      "artRevision": null,
       "files": {
         "transparent": "expansion-64/transparent/call-well-played.png",
         "presentationTile": "expansion-64/tiles/call-well-played.png",

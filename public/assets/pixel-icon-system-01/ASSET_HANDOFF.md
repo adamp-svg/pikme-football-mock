@@ -45,6 +45,20 @@ For each semantic ID:
 The filename is a stable API. Revise pixels without renaming an established
 semantic ID. Create a new ID when the meaning changes.
 
+## Current production art revision
+
+Sprite pack cache revision `v3` rebuilds three previously fragile assets:
+
+| ID | Reason |
+| --- | --- |
+| `play` | Larger closed silhouette that remains readable in the 30px Quick Play slot. |
+| `bomb` | Continuous outline with no transparent perimeter gaps at the 56px controller size. |
+| `build-wall` | Continuous brick/trowel outlines at the 40px controller size. |
+
+Their stable IDs and atlas coordinates did not change. The generated registry
+marks them `artRevision: v3-closed-outline`. Do not restore the old CSS
+drop-shadow mitigation; the repaired alpha masters are now authoritative.
+
 ## Adding an existing future asset to the game
 
 1. Find the ID in `ASSET_REGISTRY.json`; confirm `status` is `future`.

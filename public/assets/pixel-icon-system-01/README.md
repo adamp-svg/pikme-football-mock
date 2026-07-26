@@ -48,3 +48,7 @@ labels remain in the same visual language.
 The expansion artwork is deliberately marked `future` in the registry until
 each asset is added to the runtime atlas and CSS. Validate the complete library
 with `node scripts/validate-icon-assets.mjs`.
+
+Production sprite revision `v3` rebuilds `play`, `bomb`, and `build-wall` from
+closed-outline alpha masters. Their semantic IDs and atlas coordinates remain
+stable.
