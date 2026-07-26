@@ -51,6 +51,28 @@ The cost of getting this wrong, both ways round, in one session: `d01d3b8` shipp
 regression and a flattened ladder that its own frozen-base A/B could not see, and this file briefly
 recorded a phantom third test failure that only existed in the scratch copy.
 
+### THE SAME MISTAKE IN A SECOND COSTUME — never describe a WINDOW as the whole
+
+Both failures above are one habit: **measuring a bounded slice and reporting it as the population.** A
+frozen base is a window in TIME; `head -n` is a window in a LOG; and 6 matches of `bot-passes.mjs` is a
+window in SAMPLE. All three burned this session inside a few hours:
+
+| the window | what it said | the truth |
+|---|---|---|
+| a frozen `git archive` base | the receiver fix costs nothing (90 -> 92%) | 86 -> 70% on the tree that ships |
+| a scratch copy without the sibling repo | 3 pre-existing test failures | 2 — `test-rank-parity` needs `../pikme-server` |
+| `git reflog \| head -12`, then `head -14` | "12 pushes today from 00:58" / "14 from 00:43" | **117 pushes over 8 days**, today's first at 00:02 |
+| `bot-passes.mjs` at its default 6 matches | 22% or 96% completion, depending on the run | **~90%**, and it needs 60 matches to say so |
+
+The reflog one is the sharpest warning, because **two agents independently truncated the same log and both
+understated the same number in the same direction**, then each corrected the other and were still wrong.
+Agreement between two agents is not evidence; only the untruncated measurement is. `grep -c`, `wc -l` or
+`| tail -1` before quoting any range, and **state the window you measured** so the next reader can see
+what you did not look at.
+
+That last row is the one that will bite a bot agent soonest: `bot-passes.mjs` defaults to `MATCHES=6`,
+which swings a 10x spread between adjacent skills. **Use `MATCHES=60`.**
+
 ### THE SHIPPED FIX IS NOW A GROUND BUDGET (`RECV_GIVE_MAX = 20`)
 
 The per-tick close is left **exactly as it was**, because that is what completes passes (it is
