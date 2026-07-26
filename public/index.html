@@ -134,7 +134,11 @@
 
   <!-- ================= FIELD BUILDER ================= -->
   <div id="builder" class="screen hidden">
-    <div class="builder-top">
+    <!-- dir="rtl" so «‹ חזרה» sits at the RTL start edge (top-right), the same corner it occupies on
+         every sub-page. <html lang="he"> carries no dir attribute and no CSS sets `direction`, so
+         this bar used to be an LTR row and its back button was the MIRROR of every other page's.
+         .builder-body re-forces direction:ltr (style.css), so the tool rails are unaffected. -->
+    <div class="builder-top" dir="rtl">
       <button data-home-back class="builder-btn builder-back">‹ חזרה</button>
       <div class="builder-titlewrap">
         <span class="builder-title">🏗️ בונה מגרש</span>
