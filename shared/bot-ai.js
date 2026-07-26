@@ -183,12 +183,58 @@ function memSkillVec(mem, team, id) {
 // make a bot simply stronger — test-bot-ladder.mjs would catch that as a ranking change.
 // Brawl Stars varies its bots by BRAWLER; we have one character, so the axis has to be temperament.
 // Deterministic (idHash, no Math.random), so replaying a match gives the identical result.
+// ---- POLICY FIELDS, NOT SCALAR TILTS (summery/bots logic/BOT-PERSONALITIES-RESEARCH.md) --------
+// The four old personas were +-0.14 offsets on aggro/toolSkill/wallCommit/bushLove. That made bots
+// STATISTICALLY different and not VISIBLY different, which is the research doc's central complaint:
+// "three personalities a player recognises immediately are worth more than eight that differ only in
+// telemetry". So a persona now carries explicit POLICY: what it wants, where it stands, how much it
+// spends, and how it charges. Skill still decides how WELL it does those things — a weak Enforcer and
+// a strong Enforcer want the same things, and only one of them lands them.
+//
+// The fields are deliberately shaped like weights rather than behaviours, because
+// ARCHITECTURE-REVIEW §3's A2 plan object is the right home for a real scorer and it does not exist
+// yet. Building a persona-specific selection engine now would be the ninth hand-rolled instance of
+// that missing abstraction; instead these values BIAS gates the named plays already read, so when A2
+// lands they become its weights unchanged and nothing here has to be unpicked.
+//
+//   chase        how much this persona wants to be the loose-ball chaser (role tie-break only —
+//                it can never refuse the assignment, see design rule 3 / role.chaser)
+//   escort       how strongly it holds an escort station beside its own carrier
+//   guardGoal    how strongly it stays goal-side and plays last defender
+//   hunt         appetite for shooting a visible ENEMY (the Enforcer axis)
+//   wall/bomb    tool budgets: >1 spends earlier, <1 hoards
+//   maxCharge    the charge a BULLET is allowed to bank (see readyCharge below). 0.71 is the old
+//                clamp = FULL_CHARGE + 0.01, i.e. strip power with the WEAKEST legal knockback;
+//                1.0 is true maximum power (343px of drift instead of 250px, measured).
+//   ready        probability-free readiness: how far into a "charge before I have a target" hold
+//                this persona goes, scaled by skill in readyChargeWant()
 const PERSONAS = [
-  { name: 'presser',  aggro: +0.14, toolSkill: +0.00, bushLove: -0.25, wallCommit: -0.08 },
-  { name: 'poacher',  aggro: -0.10, toolSkill: +0.00, bushLove: +0.30, wallCommit: +0.05 },
-  { name: 'tinkerer', aggro: -0.04, toolSkill: +0.10, bushLove: +0.05, wallCommit: +0.10 },
-  { name: 'anchor',   aggro: -0.12, toolSkill: -0.06, bushLove: -0.05, wallCommit: +0.12 },
+  // Enforcer — "if I can see an enemy, I am preparing to hit them."
+  { name: 'enforcer',  chase: 0.5, escort: 0.4, guardGoal: 0.3, hunt: 1.00, wall: 0.7, bomb: 1.15, maxCharge: 1.00, ready: 1.00,
+    aggro: +0.14, toolSkill: +0.00, bushLove: -0.25, wallCommit: -0.08 },
+  // Fortress — "you do not get a clean route to our goal."
+  { name: 'fortress',  chase: 0.4, escort: 0.5, guardGoal: 1.00, hunt: 0.55, wall: 1.25, bomb: 0.85, maxCharge: 0.85, ready: 0.60,
+    aggro: -0.12, toolSkill: +0.06, bushLove: -0.05, wallCommit: +0.12 },
+  // Bodyguard — "the carrier gets a protected route; I do not compete with them for the ball."
+  { name: 'bodyguard', chase: 0.25, escort: 1.00, guardGoal: 0.4, hunt: 0.80, wall: 0.9, bomb: 0.9, maxCharge: 1.00, ready: 0.85,
+    aggro: -0.04, toolSkill: +0.04, bushLove: +0.05, wallCommit: +0.04 },
+  // Ball Hawk — "loose ball means my current plan is cancelled and I get there first."
+  { name: 'ballhawk',  chase: 1.00, escort: 0.5, guardGoal: 0.35, hunt: 0.50, wall: 0.8, bomb: 1.00, maxCharge: 0.75, ready: 0.30,
+    aggro: -0.02, toolSkill: -0.02, bushLove: -0.10, wallCommit: -0.04 },
 ];
+// COMPLEMENTARY PAIRS, not two independent draws (research doc §"Team composition"): two Bodyguards
+// both wait for a carrier, two Ball Hawks both fetch, two Enforcers can both abandon the ball. Slot 0
+// and slot 1 of every team therefore draw from one PAIR, and `rot` selects which pair the room uses —
+// so a room is "pressure + safety" or "escort + hunt", never "two of the same".
+// Still keyed on SLOT and mirrored across teams: keying on bot id once handed team A a permanent
+// +0.02 aggro edge and collapsed the ladder from rho 1.00 to -0.10.
+const PERSONA_PAIRS = [
+  ['enforcer', 'fortress'],   // pressure + defensive safety
+  ['bodyguard', 'enforcer'],  // escort + hunt
+  ['ballhawk', 'fortress'],   // reliable possession + territory
+  ['enforcer', 'ballhawk'],   // high pressure with an objective guarantee
+];
+const personaByName = (n) => PERSONAS.find((p) => p.name === n) || PERSONAS[0];
 // KEYED ON SLOT, NOT ON BOT ID. Keying on the id looked more varied and was measurably WRONG: with
 // the fixed ids A0/A1/B0/B1 it handed team A (anchor+presser, +0.02 aggro) a permanent edge over
 // team B (tinkerer+anchor, -0.16), a constant asymmetry unrelated to skill. Measured: it collapsed
@@ -197,16 +243,54 @@ const PERSONAS = [
 // personas across the two teams, so both sides always get the same multiset and the only thing
 // separating them is skill. `rot` (set per ROOM by the server, default 0) rotates which persona
 // each slot draws, so matches still vary without ever making a match unfair.
-export function personaOf(slot, rot = 0) { return PERSONAS[(((slot | 0) + (rot | 0)) % PERSONAS.length + PERSONAS.length) % PERSONAS.length]; }
-export function withPersonaForTest(sk, slot, rot = 0) { return withPersona(sk, slot, rot); }
-function withPersona(sk, slot, rot) {
-  const pr = personaOf(slot, rot);
-  const out = { ...sk, persona: pr.name };
+export function personaOf(slot, rot = 0) {
+  const pair = PERSONA_PAIRS[(((rot | 0) % PERSONA_PAIRS.length) + PERSONA_PAIRS.length) % PERSONA_PAIRS.length];
+  // Slots beyond 1 (3v3+) walk the pair and then the full list, so a third bot is never a duplicate
+  // of slot 0 — the doc's "avoid two of the same" rule, extended past 2v2.
+  const s = (slot | 0) % Math.max(1, PERSONAS.length);
+  return s < pair.length ? personaByName(pair[s]) : PERSONAS[(s + (rot | 0)) % PERSONAS.length];
+}
+export function withPersonaForTest(sk, slot, rot = 0, forced = null) { return withPersona(sk, slot, rot, forced); }
+function withPersona(sk, slot, rot, forced) {
+  const pr = forced ? personaByName(forced) : personaOf(slot, rot);
+  const out = { ...sk, persona: pr.name, pp: pr };
   out.aggro = clamp((sk.aggro || 0.9) + pr.aggro, 0.5, 1.30);
   out.toolSkill = clamp((sk.toolSkill || 0.5) + pr.toolSkill, 0.20, 1.00);
   out.wallCommit = clamp((sk.wallCommit || 0.6) + pr.wallCommit, 0.30, 1.10);
   out.bushLove = clamp(0.5 + pr.bushLove, 0, 1); // consumed by the off-ball lurk-vs-contest choice
+  // MAXIMUM POWER IS NOT THE FULL-EFFECT THRESHOLD. sim.js strips a carrier at FULL_CHARGE 0.70, and
+  // `finalize` used to clamp EVERY bullet to 0.71 — so no bot at any level could produce more than
+  // the weakest legal strip: 250px of knockback drift where 1.0 gives 343px, and a 50/50 break-even
+  // head start of 220px instead of 320px. A persona's `maxCharge` is now the ceiling it may bank, and
+  // it is gated on SKILL as well: at the bottom of the ladder nobody banks past the strip threshold,
+  // so this cannot hand low tiers a new weapon.
+  // Gated, not ramped from zero: below READY_SKILL_GATE a bot releases at the strip threshold exactly
+  // as it always did ("low skill may release at the minimum full threshold"), and above it the extra
+  // power ramps in to the persona's ceiling. So this cannot hand the bottom of the ladder a new weapon.
+  const mcSkill = clamp(((sk.t || 0) - READY_SKILL_GATE) / (1 - READY_SKILL_GATE), 0, 1);
+  out.maxCharge = clamp(FULL_CHARGE + 0.01 + (pr.maxCharge - FULL_CHARGE - 0.01) * mcSkill, FULL_CHARGE + 0.01, 1);
   return out;
+}
+// ---- readyCharge: bank power BEFORE a target exists (research doc §"Smart-bot full-power readiness")
+// The doc's ask is "smart bots power up before finding an enemy". The existing `preChargeP` does a
+// stochastic version of this above t=0.92 only; this is the deterministic, persona-shaped version:
+// how much of a wind-up this bot is willing to hold with no victim selected, as a fraction of its
+// maxCharge. Deterministic on purpose — a coin flip is the refuted `mistakeP` pattern.
+// It returns 0 below the skill gate, so the bottom of the ladder never pre-charges and the tell (a
+// visibly charged bot walking at you) is preserved where it matters.
+// TOOL BUDGET: a persona's own gap between uses of a tool. >1 hoards, <1 spends early. Bounded to
+// +-25% so a persona can never out-tool a whole difficulty tier (the ladder owns cdMul).
+function toolGap(sk, kind) {
+  const pr = sk.pp;
+  const want = pr && pr[kind] != null ? pr[kind] : 1;
+  return clamp(1 / clamp(want, 0.75, 1.25), 0.8, 1.34);
+}
+const READY_SKILL_GATE = 0.55;
+function readyChargeWant(sk) {
+  const pr = sk.pp;
+  if (!pr || !pr.ready) return 0;
+  const skill = clamp(((sk.t || 0) - READY_SKILL_GATE) / (1 - READY_SKILL_GATE), 0, 1);
+  return pr.ready * skill;   // 0 at/below t=0.55, pr.ready at the top of the ladder
 }
 
 export function createBotMemory(skill = DEFAULT_SKILL) {
@@ -878,6 +962,10 @@ const SWITCH_MARGIN = 120, MIN_HOLD = 0.5;
 // be assumed unable to move. BOMB.fuse is 1.725s and BUILD_WINDUP 0.5s; 1.2s is between them, so the
 // role goes to the free bot in both cases without over-punishing a wind-up that is nearly done.
 const FROZEN_ROOT_S = 1.2;
+// How much ground a persona will concede (or claim) on a loose ball, and the radius inside which no
+// persona may concede at all. 320px is one MIN_SEP — enough to beat the positional advantage an
+// escort persona gets for free, small enough that it never overrides a real distance gap.
+const CHASE_BIAS_PX = 320, CHASE_EMERGENCY_PX = 240;
 export function assignRoles(state, team, mem, dt) {
   const belief = updateBelief(state, team, mem);
   const bots = Object.values(state.players).filter((p) => p.team === team);
@@ -905,7 +993,20 @@ export function assignRoles(state, team, mem, dt) {
   };
   const reach = (p) => {
     const spd = Math.max(1, (CHARACTERS[p.char] || CHARACTERS[DEFAULT_CHAR]).speed * (state.settings.speedMul || 1));
-    return hyp(focus.x - p.x, focus.y - p.y) + (isRooted(p) ? spd * FROZEN_ROOT_S : 0);
+    // PERSONA `chase`: how much this bot WANTS the loose ball, as ground it is willing to concede.
+    // A multiplicative 10% tie-break was measured useless — a Bodyguard's own escort station keeps it
+    // near the play, so geometry beat the bias and the Bodyguard took 72.9% of the chases against a
+    // Ball Hawk's 27.1%. As an additive px bias it expresses the doc's actual rule ("Bodyguard rarely
+    // fetches; only if the team has no valid chaser or the ball is within an emergency radius"):
+    // a Bodyguard concedes up to CHASE_BIAS_PX of ground, a Ball Hawk claims it.
+    // AND THE EMERGENCY EXEMPTION IS ABSOLUTE: inside CHASE_EMERGENCY_PX no persona may concede a
+    // ball at its feet, which is what keeps design rule 3 ("both bots must never refuse") true even
+    // for the persona that wants it least.
+    const pr = (mem.personaFor && mem.personaFor[p.id]) ? personaByName(mem.personaFor[p.id]) : personaOf(p.slot, mem.personaRot || 0);
+    const raw = hyp(focus.x - p.x, focus.y - p.y);
+    const want = state.ball.owner ? 0.5 : (pr.chase != null ? pr.chase : 0.5);
+    const bias = raw < CHASE_EMERGENCY_PX ? 0 : (0.5 - want) * CHASE_BIAS_PX;
+    return raw + bias + (isRooted(p) ? spd * FROZEN_ROOT_S : 0);
   };
   const d0 = reach(bots[0]), d1 = reach(bots[1]);
   // candidate: best reach to the focus is onBall (deterministic slot tie-break).
@@ -1018,7 +1119,11 @@ export function computeBotInputs(state, mem, dt, opts = {}) {
     for (const p of Object.values(state.players)) {
       if (p.team !== team || !p.isBot) continue;
       // PERSONALITY: same level, different temperament, keyed to the SLOT so the two teams mirror.
-      const sk = withPersona(memSkillVec(mem, team, p.id), p.slot, mem.personaRot || 0);
+      // `mem.personaFor[id]` forces a persona for one bot. Used by test-bot-personas.mjs to measure a
+      // single identity in isolation, and it is the hook the research doc's "partner reacts to the
+      // human's style" idea would use — pick it at match start, never mid-match.
+      const forced = mem.personaFor && mem.personaFor[p.id];
+      const sk = withPersona(memSkillVec(mem, team, p.id), p.slot, mem.personaRot || 0, forced);
       // difficulty as mechanical power: harder bots charge full sooner + cool down faster
       // BREAK THE CARD/SKILL DOUBLE-DIP. RARITY_BY_LEVEL (shared/bot-buffs.js — it lived in server.js
       // until the CARD_POWER_BAND change moved it beside the rarity->buff table) hands a bot its best CARDS at
@@ -1329,7 +1434,7 @@ function mobilityJump(p, bm, mem, state, sk, tgt, visibleEnemies, bombReady, tag
   if (!cp) return null;                                     // every launch from here ends on stone
   if (cp.mul < 1.05 && d < JUMP_NO_CANNON_D) return null;   // no boost and not far enough: walk
   bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
-  bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+  bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb');
   bm.nextMobilityAt = mem.t + mobilityGap(sk);
   bm.lastTrick = cp.mul > 1.05 ? 'wallCannonJump' : tag;
   return { x: cp.dx, y: cp.dy };
@@ -1409,8 +1514,12 @@ function decideBot(p, role, state, mem, sk, dt) {
   // coefficient are calibrated so easy/normal land NEAR the old fixed 430/320/780 gates and
   // the ladder stays monotonic (easy least aggressive → extreme most).
   const AGG = sk.aggro != null ? sk.aggro : 0.9;
-  const PRESS_RANGE  = 160 + 300 * AGG; // enemy-carrier strip range (easy~400 / normal~436 / hard 460 / extreme~505)
-  const COVER_STRIP  = 120 + 200 * AGG; // plain-cover strip range   (easy~280 / normal~304 / hard 320 / extreme~350)
+  // PERSONA `hunt` scales both strip ranges: an Enforcer opens fire on an enemy a Ball Hawk would
+  // walk past. Bounded to +-18% so it cannot become a skill increase in disguise — the ladder test
+  // would read that as a ranking change (personas keyed on id once collapsed rho 1.00 -> -0.10).
+  const HUNT = clamp(0.82 + 0.36 * ((sk.pp && sk.pp.hunt != null ? sk.pp.hunt : 0.7) / 1.0), 0.82, 1.18);
+  const PRESS_RANGE  = (160 + 300 * AGG) * HUNT; // enemy-carrier strip range (easy~400 / normal~436 / hard 460 / extreme~505)
+  const COVER_STRIP  = (120 + 200 * AGG) * HUNT; // plain-cover strip range   (easy~280 / normal~304 / hard 320 / extreme~350)
   // FINISH_RANGE is now derived from what a kick CAN DO, not from a hand-picked constant. Max reach
   // is the roll at full charge (~647px on default settings); we shoot inside a safety margin of it,
   // and aggro only decides how close to the edge a tier is willing to try. Previously this said
@@ -1519,7 +1628,7 @@ function decideBot(p, role, state, mem, sk, dt) {
       const cp = cannonPlant(p, ex, ey, state, 420);
       if (cp) {
         bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 400, aimY: p.y + cp.dy * 400 };
-        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.stuck = 0; bm.lastTrick = 'cornerEscape';
+        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb'); bm.stuck = 0; bm.lastTrick = 'cornerEscape';
         return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
       }
     }
@@ -1535,7 +1644,7 @@ function decideBot(p, role, state, mem, sk, dt) {
     const cp = cannonPlant(p, bm.fly.x, bm.fly.y, state);
     if (cp) {
       bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
-      bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+      bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb');
       bm.lastTrick = cp.mul > 1.05 ? 'kickFlyCannon' : 'kickAndFly';
       bm.fly = null;
       return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
@@ -2098,7 +2207,7 @@ function decideBot(p, role, state, mem, sk, dt) {
           // this bot ends up standing.
           if (!bm.buildHold) bm.buildHold = { x: nx, y: ny, wx: Wx, wy: Wy, dist, until: mem.t + BUILD_WINDUP + 0.1 };
           else bm.buildHold.dist = dist;
-          bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.lastTrick = 'deflectSetup'; bm.deflect = null;
+          bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1) * toolGap(sk, 'wall'); bm.lastTrick = 'deflectSetup'; bm.deflect = null;
           (mem.setPiece || (mem.setPiece = {}))[team] = { x: Wx, y: Wy, by: p.id, until: mem.t + 3.0 };
           // Was `{x: p.x, y: p.y}` — pinned to its own feet for the whole wind-up so the wall
           // would not move. The latch above is what keeps the wall still now, so hold the build
@@ -2168,7 +2277,7 @@ function decideBot(p, role, state, mem, sk, dt) {
           const wcx = p.x - q.dx * 70, wcy = p.y - q.dy * 70;
           const dist = wallPush(p, wcx, wcy, -q.dx, -q.dy, sk);
           bm.buildHold = { x: -q.dx, y: -q.dy, wx: wcx, wy: wcy, dist, until: mem.t + BUILD_WINDUP + 0.1 };
-          bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1);
+          bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1) * toolGap(sk, 'wall');
           q.phase = 'build'; bm.lastTrick = 'catapultWall';
           return finalize(p, { x: p.x, y: p.y }, { x: -q.dx, y: -q.dy }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
         }
@@ -2186,7 +2295,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         if ((p.specialCd || 0) <= 0 && !bm.bombHold) {
           // plant at our FEET and stand on it: bomberOnCenter is what saves the carrier's ball
           bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + q.dx * 500, aimY: p.y + q.dy * 500 };
-          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb');
           bm.lastTrick = 'catapult';
           return finalize(p, { x: p.x, y: p.y }, { x: q.dx, y: q.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
         }
@@ -2423,7 +2532,7 @@ function decideBot(p, role, state, mem, sk, dt) {
           && !indestructibleBlocks(p.x, p.y, c.x, c.y, state) && mem.t > (bm.nextBombAt || 0)) {
         special = true; shoot = false; aim = { x: c.x - p.x, y: c.y - p.y };
         bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
-        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'bombTackle';
+        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb'); bm.lastTrick = 'bombTackle';
         // Signal a TWO-BOMB stack: tell a NEARBY support bot to drop a second bomb on the same
         // spot so the blasts COMBINE (bigger strip/knockback on the carrier).
         // WINDOW: the PHYSICAL deadline is the first bomb's detonation — a second bomb only
@@ -2485,7 +2594,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         // (verified: off-centre blast strips at 1.72s, feet plant 1.78s via the flying tackle,
         // sim.js:1516 only suppresses the ball-pop when the bomber stands ON its own bomb). That is
         // a new ability and needs sign-off, not a silent widening of this gate.
-        bm.lastTrick = 'doubleBomb'; bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+        bm.lastTrick = 'doubleBomb'; bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb');
         return finalize(p, { x: p.x, y: p.y }, { x: stk.x - p.x, y: stk.y - p.y },
           { shoot: false, charge: 0, special: true, build: false, lob: { x: stk.x, y: stk.y } }, state, mem, bm, sk, dt);
       }
@@ -2646,7 +2755,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         if (wallSpotOk(state, p, team, wallPt.x, wallPt.y)) {
           if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, wx: wallPt.x, wy: wallPt.y, dist: trapDist, until: mem.t + BUILD_WINDUP + 0.1 };
           else bm.buildHold.dist = trapDist;
-          bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = ambush ? 'ambushWall' : 'blockDrive';
+          bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1) * toolGap(sk, 'wall'); bm.lastTrick = ambush ? 'ambushWall' : 'blockDrive';
         }
       } else if (bm.trap) {
         bm.seekContact = true;                              // bursting out of the bush AT the carrier
@@ -2664,7 +2773,7 @@ function decideBot(p, role, state, mem, sk, dt) {
                  && distC < BOMB_CENTER_R + BOMB.radius && mem.t > (bm.nextBombAt || 0)) {
           special = true; aim = { x: c.x - p.x, y: c.y - p.y };
           bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, targetId: c.id, aimX: c.x, aimY: c.y };
-          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1); bm.lastTrick = 'bushSteal';
+          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1) * toolGap(sk, 'bomb'); bm.lastTrick = 'bushSteal';
         }
       } else {
         // plain cover fallback: shadow / mark the 2nd enemy + opportunistic screen-wall or strip
@@ -2713,7 +2822,7 @@ function decideBot(p, role, state, mem, sk, dt) {
             if (!bm.buildHold) bm.buildHold = { x: ogSign, y: 0, wx: screenPlaneX, wy: screenY, dist, until: mem.t + BUILD_WINDUP + 0.1 };
             else bm.buildHold.dist = dist;
             aim = { x: ogSign, y: 0 }; shoot = false; special = false;
-            bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.screenUntil = 0;
+            bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1) * toolGap(sk, 'wall'); bm.screenUntil = 0;
           }
         } else if (buildReady && liningUp && iGoalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)
                    && wallSpotOk(state, p, team, p.x + w2cx * BUILT_WALL.offset, p.y + w2cy * BUILT_WALL.offset)) {
@@ -2722,7 +2831,7 @@ function decideBot(p, role, state, mem, sk, dt) {
           // arm time (the same spot wallSpotOk was just checked against) so the wall still lands
           // between us and the carrier if this bot drifts during the wind-up.
           if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, wx: p.x + w2cx * BUILT_WALL.offset, wy: p.y + w2cy * BUILT_WALL.offset, dist: 0, until: mem.t + BUILD_WINDUP + 0.1 };
-          aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
+          aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1) * toolGap(sk, 'wall');
           bm.lastTrick = 'screenWall'; // was UNTAGGED, so every trick histogram reported it as dead
                                        // when it may simply have been invisible. Measure, then judge.
         } else if (canShoot && seeC && lane && distC < COVER_STRIP) { shoot = true; shootTgt = c.id; charge = 1; if (distC < 260) closeShot = true; }
@@ -2764,8 +2873,12 @@ function decideBot(p, role, state, mem, sk, dt) {
         if (j) return finalize(p, { x: p.x, y: p.y }, j, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
       }
     } else {
-      // hold a supporting spot between the ball and our goal (slightly toward a bush for ambush)
-      const holdX = (b.x + ogX) / 2, holdY = (b.y + GY) / 2;
+      // hold a supporting spot between the ball and our goal (slightly toward a bush for ambush).
+      // PERSONA `guardGoal` sets HOW deep: a Fortress sits most of the way home and covers the lane,
+      // an Enforcer holds much closer to the ball and looks for a body to hit.
+      const gg = (sk.pp && sk.pp.guardGoal != null) ? sk.pp.guardGoal : 0.5;
+      const homeW = clamp(0.30 + 0.45 * gg, 0.30, 0.75);   // 0.44 enforcer .. 0.75 fortress
+      const holdX = b.x + (ogX - b.x) * homeW, holdY = b.y + (GY - b.y) * homeW;
       tgt = { x: holdX, y: holdY };
       aim = { x: b.x - p.x, y: b.y - p.y };
     }
@@ -2796,9 +2909,23 @@ function decideBot(p, role, state, mem, sk, dt) {
       if (enemyHolds && !pressed) {
         tgt = interceptPoint(p, carrier, state, sk);
         if (!bm.lastTrick) bm.lastTrick = 'secondPress';
+      } else if (enemyHolds) {
+        // SOMEBODY IS PRESSING, so this bot holds the defensive shape — and PERSONA `guardGoal` sets
+        // how deep that shape sits. A Fortress drops most of the way onto the carrier-to-goal lane
+        // (its whole identity is "you do not get a clean route"), an Enforcer hangs near the ball
+        // looking for a body to hit. Measured as goal-side occupancy in test-bot-personas.mjs.
+        const gg = (sk.pp && sk.pp.guardGoal != null) ? sk.pp.guardGoal : 0.5;
+        const lane = { x: carrier.x + (ogX - carrier.x) * clamp(0.18 + 0.42 * gg, 0.18, 0.60),
+                       y: carrier.y + (GY - carrier.y) * clamp(0.18 + 0.42 * gg, 0.18, 0.60) };
+        const dx0 = lane.x - carrier.x, dy0 = lane.y - carrier.y, d0 = hyp(dx0, dy0), MIN_SEP = 320;
+        tgt = d0 < MIN_SEP ? { x: carrier.x + (dx0 / (d0 || 1)) * MIN_SEP, y: carrier.y + (dy0 / (d0 || 1)) * MIN_SEP } : lane;
       } else {
-        // CARRIED ball: keep real spacing so we don't both crowd the carrier.
-        const dx = tgt.x - carrier.x, dy = tgt.y - carrier.y, d = hyp(dx, dy), MIN_SEP = 320;
+        // CARRIED ball: keep real spacing so we don't both crowd the carrier. PERSONA `escort` sets
+        // how close: a Bodyguard stations itself at ~220px (the doc's 100-220px escort band) where a
+        // Fortress or Ball Hawk holds the full 320px and stays available instead of protective.
+        const esc = (sk.pp && sk.pp.escort != null) ? sk.pp.escort : 0.5;
+        const dx = tgt.x - carrier.x, dy = tgt.y - carrier.y, d = hyp(dx, dy);
+        const MIN_SEP = carrier.team === team ? clamp(340 - 130 * esc, 200, 340) : 320;
         if (d < MIN_SEP) { const [ux, uy] = unit(dx || (ogX - carrier.x), dy || (GY - carrier.y)); tgt = { x: carrier.x + ux * MIN_SEP, y: carrier.y + uy * MIN_SEP }; }
       }
     } else {
@@ -3196,9 +3323,17 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
       // possession — and since the range scales with aggro, the MORE aggressive (higher) tiers
       // wasted more, which is why the measured ladder came out INVERTED.
       // A BULLET is different: FULL_CHARGE is the strip threshold, so more is pointless there.
+      // A BULLET's ceiling is now the PERSONA's maxCharge, not a flat FULL_CHARGE + 0.01.
+      // 0.71 is the weakest charge that still strips, and it was applied to every bullet in the game:
+      // measured 250px of knockback drift where true maximum power gives 343px, and a 50/50
+      // break-even head start of 220px instead of 320px. An Enforcer that cannot hit harder than a
+      // Ball Hawk is not a personality (research doc §"Smart-bot full-power readiness"), so the
+      // ceiling is per-persona AND skill-scaled in withPersona — the bottom of the ladder still
+      // releases at the strip threshold and gains nothing here.
+      const bulletCeil = clamp(sk.maxCharge != null ? sk.maxCharge : FULL_CHARGE + 0.01, FULL_CHARGE + 0.01, 1);
       const fireAt = isBallRelease
         ? clamp(wantCharge, 0.02, 1) - 0.01
-        : (wantCharge >= FULL_CHARGE ? FULL_CHARGE + 0.01 : Math.max(0.02, wantCharge - 0.02));
+        : (wantCharge >= FULL_CHARGE ? Math.min(clamp(wantCharge, 0, 1), bulletCeil) : Math.max(0.02, wantCharge - 0.02));
       // `tgtId` is the LATCH (see the bullet latch above): the enemy this bullet is for. Ball
       // releases never carry one — the release path is the pass latch's, not this one's.
       bm.charging = { target: wantCharge, fireAt, tol: closeShot ? 0.85 : 0.45, ball: isBallRelease, until: mem.t + windupBudget(p, fireAt), tgtId: isBallRelease ? null : (btn.tgtId || null) };
@@ -3258,6 +3393,24 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   const pcp = sk.preChargeP != null ? sk.preChargeP : (sk.preCharge ? 0.55 : 0);
   if (pcp > 0 && !fire && !special && !build && (p._charge || 0) < 0.35 && (state.ball.owner === p.id || p.ammo > 0)) {
     if (seededNoise(Math.floor(mem.t * 0.9) + idHash(p.id) * 0.019) > 1 - pcp * 2) hold = true;
+  }
+  // ---- readyCharge: BANK POWER BEFORE THERE IS A TARGET (research doc's headline ask) ----------
+  // "A smart bot may enter a persistent readiness plan... it does not need a currently selected victim
+  // to start charging." Deterministic (no coin flip), persona-shaped, and skill-gated at t >= 0.55 so
+  // the low ladder never gets it. The four safeguards from the doc, in order:
+  //   * it must not freeze movement — `hold` only drives the trigger; mvx/mvy are untouched;
+  //   * a banked charge must not become a KICK on pickup — hence `!carrying`, and finalize's own
+  //     lostBall/latch logic still owns any wind-up that was armed by a branch;
+  //   * it must not fire just because an enemy exists — this only HOLDS. Every release still goes
+  //     through the branch gates (seeC / lane / range), which are untouched;
+  //   * the tell survives — it stops at the persona's own ceiling rather than sitting at 1.0 forever,
+  //     and a charged bot is visibly charged (the client draws the ring for every player).
+  if (!fire && !special && !build && !bm.charging && state.ball.owner !== p.id && p.ammo > 0) {
+    const want = readyChargeWant(sk);
+    if (want > 0) {
+      const ceil = clamp(sk.maxCharge != null ? sk.maxCharge : FULL_CHARGE + 0.01, FULL_CHARGE + 0.01, 1);
+      if ((p._charge || 0) < ceil * want) { hold = true; if (!bm.lastTrick) bm.lastTrick = 'readyCharge'; }
+    }
   }
 
   // Resolve a pending build-hold: hold the buildHold control until the windup completes,
