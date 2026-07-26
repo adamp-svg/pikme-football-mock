@@ -66,6 +66,7 @@ window in SAMPLE. All three burned this session inside a few hours:
 | a COMMIT MESSAGE, read as provenance | `9339cee` "chore: re-probe the Render webhook" | its diff is match-info / bot-dossier / 3v3 work — **zero** deploy lines |
 | a `grep` PATTERN | that commit "does mention render" — 29 hits | all 29 are `renderMatchInfo` / `renderNet`; the one real hit was the commit MESSAGE, which `git show` prints |
 | a LINE NUMBER in `AGENT_REQUEST_LOG.md` | "see lines 246 / 270 / 432" | the log is PREPENDED to, so every cited line drifts within hours |
+| a QUOTE from a file others are editing | `CLAUDE.md` "Both services autodeploy" | walked back one commit later (`af1b944`) to what was actually measured — prod matched HEAD, mechanism unknown |
 
 The reflog one is the sharpest warning, because **two agents independently truncated the same log and both
 understated the same number in the same direction**, then each corrected the other and were still wrong.
@@ -88,6 +89,18 @@ Use `git show --format='' <sha>` when you mean the diff.)
 
 **And cite log entries by their quoted text, never by line number** — `AGENT_REQUEST_LOG.md` is
 prepended to by several agents a day, so a line reference is stale almost immediately.
+
+**And when you quote a shared file, quote it WITH THE SHA you read it at** — `CLAUDE.md` was edited
+three times in twenty minutes by a third agent while two of us were quoting it, and the version I
+repeated ("both services autodeploy") had already been narrowed to the honest claim: prod came back
+byte-identical to HEAD after a push, which proves STATE and not MECHANISM — nobody established whether
+the webhook revived or someone ran the CLI. That is the correct shape for a measurement whose cause you
+did not isolate, and it is worth copying.
+
+**The scoreboard, because it is the point:** this one session produced SIX of these, and every agent
+involved made at least two. They are not carelessness — each one looked like evidence at the time. The
+only defence that worked was another agent re-running the measurement, which is why the mutual-checking
+in §6 earns its keep. **Agreement is not evidence; a re-run is.**
 
 ### THE SHIPPED FIX IS NOW A GROUND BUDGET (`RECV_GIVE_MAX = 20`)
 
