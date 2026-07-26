@@ -1270,6 +1270,29 @@ function decideBot(p, role, state, mem, sk, dt) {
         } else if (trick >= 0.7) { // corner covered → try a bank as a last resort
           const bk = bankAim(b.x, b.y, egX, clamp(GY + (keeper.y < GY ? 90 : -90), 420, 680), state, team, { goal: true, maxPath: 560 + 300 * trick, viewer: p });
           if (bk) { aim = { x: bk.aimX, y: bk.aimY }; shoot = true; charge = 1; bm.lastTrick = 'goalBank'; }
+          // ---- NEW SKILL: WALK-IN GOAL — carry it over the line instead of shooting -----------
+          // Deliberately ONLY here, in the genuine dead end: a keeper is parked, the open corner is
+          // covered AND the bank returned null. Every other path already has a shot, and putting
+          // this above the finish gate would replace ordinary finishing with walking.
+          // A keeper below overcharge SAVES everything (sim.js:915 catches tier < 2), so kicking
+          // here is pointless — but detachIntoNet (sim.js:863) bypasses the kick/save path
+          // entirely, making the walk-in UNSAVEABLE. Dribble-in goals measure 1/1/0/1 per tier
+          // against 11-18 kicked today, i.e. ~4% and all accidental.
+          // Geometry: the ball glues radiusOf + ballR = 58.25px ahead, so the BODY needs x > 1941.75
+          // inside the mouth band; clampBallCarryXY permits up to 2038.
+          // FAIRNESS: beatable by a counter the human already has and the bots already fire — a full
+          // bullet strips the walking carrier in 0.13s (bulletStripCarrier detaches BEFORE
+          // knockback, so the penalty-box knockback cut does not protect it).
+          else if (trick >= 0.70 && Math.abs(p.y - GY) < GOAL.width / 2 - 20) {
+            if (!bm.walkUntil || mem.t >= bm.walkUntil) bm.walkUntil = mem.t + 2.2; // WALK_MAX
+            if (mem.t < bm.walkUntil && nfd > 150) {
+              bm.carryT = 0;              // do not let CARRY_HOLD_MAX force-release us mid-walk
+              shoot = false; charge = 0;
+              bm.lastTrick = 'walkIn';
+              return finalize(p, { x: egX + (team === 'A' ? 40 : -40), y: clamp(p.y, GOAL_TOP + postIn, GOAL_BOT - postIn) },
+                { x: egX - p.x, y: 0 }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+            }
+          }
         }
       }
     }
@@ -1384,6 +1407,38 @@ function decideBot(p, role, state, mem, sk, dt) {
   } else if (carrier && carrier.team === team) {
     // ===== TEAMMATE CARRIES: I support (open a passing lane / trail for rebound) =====
     const ahead = egX - (team === 'A' ? 300 : -300);
+
+    // ---- NEW SKILL: BODY SCREEN — wall off the defender chasing our carrier ------------------
+    // The player sees their team-mate stop running for a pass and instead step IN FRONT of the
+    // defender hunting them. It works because steer() has NO body avoidance at all: it reacts to
+    // other players only when they are bomb-launched or moving > 700px/s, and the nav occupancy
+    // grid is built from WALLS only. So a parked body is a genuine obstacle — separatePlayers
+    // (sim.js:354) is a hard symmetric push with no pass-through rule.
+    // Measured: time-to-press 1.68s unscreened vs 6.67s screened; one fixture recorded NO CONTACT
+    // IN 10s. Costs no ammo, no bomb, no wall charge — it is the cheapest teamwork in the game.
+    // FAIRNESS: pure movement, nothing a human could not do, and legible — you see the body coming
+    // and can side-step it. NB sim.js:370 biases the shove 65/35 (SUPER_BODY_PUSH) toward whichever
+    // side is in super, so a screener without super loses the duel to a super chaser.
+    if (!isOnBall && sk.toolSkill >= 0.70 && !bm.bombHold && !bm.buildHold) {
+      let chaser = null, cd = 1e9;
+      for (const e of visibleEnemies) { const d = hyp(e.x - carrier.x, e.y - carrier.y); if (d < cd) { cd = d; chaser = e; } }
+      // ARM ONCE on entry (the `if (!bm.buildHold)` pattern). Re-arming every tick while a chaser
+      // stayed in range would make the hold a dead variable and the screen effectively permanent.
+      if (chaser && cd < 300 && mem.t > (bm.screenUntil || 0) && mem.t > (bm.nextScreenAt || 0)) {
+        bm.screenUntil = mem.t + 1.1; bm.nextScreenAt = mem.t + 2.6;
+      }
+      if (chaser && mem.t < (bm.screenUntil || 0)) {
+        const [sx, sy] = unit(chaser.x - carrier.x, chaser.y - carrier.y);
+        const standOff = radOf(state) * 2 + 8; // just in front of the carrier, in the chaser's path
+        // NB no bm.screening flag: the spec had one, and a challenger showed it was set and never
+        // cleared, so after its first screen a bot permanently lost the MIN_SEP 320 spacing rule.
+        // Returning early here already bypasses MIN_SEP for exactly the screening ticks.
+        bm.lastTrick = 'bodyScreen';
+        return finalize(p, { x: carrier.x + sx * standOff, y: carrier.y + sy * standOff },
+          { x: chaser.x - p.x, y: chaser.y - p.y },
+          { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+      }
+    }
     // TACTIC 9 — OFF-BALL CATCH-UP ROCKET-JUMP (hard/extreme): if we're lagging far behind the
     // play with a clear lane and no enemy on us, plant a bomb and rocket-jump toward the play so
     // the teammate isn't left alone (directly counters "the bot lags/hides instead of helping").
