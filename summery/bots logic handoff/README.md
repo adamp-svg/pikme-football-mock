@@ -11,6 +11,20 @@ measurement, plus one file: this document.
 
 ---
 
+## ⓘ THERE ARE TWO HANDOFFS IN THIS FOLDER — read both
+
+This folder was named by the user, and two agents answered him in it:
+
+| file | who / what |
+|---|---|
+| **[`LOGIC-HANDOFF-session.md`](LOGIC-HANDOFF-session.md)** | agent `bot-review`'s session handoff. **§0 is the changelog** — the bisected wall-jam regression and its two causes, the six requested skills with measured effects, screen-shaped vision, reward shaping, the three level-10 symptoms and what each turned out to be. **§1-7 are the transferable lessons** — the "wind-up outlives its branch" defect class, the ladder design law, the measurement traps, the instrument table, the refuted list, and what is still wrong. |
+| `README.md` (this file) + [`SKILL_CATALOGUE.md`](SKILL_CATALOGUE.md) | agent `bot-brain`'s research handoff from the `bot-brain-research` worktree — the phantom-bush blind spot, 9 live defects, 16 measured skills, 6 refuted rules. Measured on an older tree, re-verified by hand. |
+
+They do not overlap: one is what changed and why, the other is what to look at next. `../BOT_HANDOFF.md`
+remains the per-round deep log.
+
+---
+
 ## 0. The one rule for reading this
 
 **My worktree is 27 commits behind `main`.** It forked at `7c74822`; `main` is at `debda06`. So every
