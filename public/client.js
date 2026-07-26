@@ -3560,9 +3560,14 @@ function enterMatch(msg) {
   // Training-only bot-level chip: shows the live level and opens the difficulty grid (mid-game).
   document.getElementById('train-diff')?.classList.toggle('hidden', !training);
   syncDiffChips();
-  // Controls editor gets its OWN top-bar button beside ⚙ — training ground only (same tier as the
-  // settings panel's controls section), so a real match can't have someone editing mid-play.
-  document.getElementById('edit-controls-btn')?.classList.toggle('hidden', !training);
+  // Controls editor gets its OWN top-bar button beside ⚙ — in EVERY mode, not just the training
+  // ground (user, 2026-07-26: "in the games add the control edit icon"). It used to be training-only
+  // "so a real match can't have someone editing mid-play", but ⚙ הגדרות is already reachable
+  // mid-match and does not pause either, so the trade-off is one the player already owns: the editor
+  // hides the live sticks (openControlsEditor), so while it is open you are standing still. Being
+  // able to fix a badly-placed thumb button in the match where you noticed it beats remembering to
+  // go back to training. It lives inside #game, so leaving the pitch hides it with the screen.
+  document.getElementById('edit-controls-btn')?.classList.remove('hidden');
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
   renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
   showScreen('game');
