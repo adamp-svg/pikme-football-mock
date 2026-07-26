@@ -1305,6 +1305,24 @@ function decideBot(p, role, state, mem, sk, dt) {
       }
     }
 
+    // ---- WHY PASSING IS WEAK, MEASURED — AND WHY THE OBVIOUS FIX WAS REVERTED ---------------
+    // Instrumented over 8 matches at t=0.82: 98 pass INTENTS produced only 49 ball releases in
+    // total, and just 22% of releases reached a team-mate (16% reached an ENEMY, 41% nobody).
+    // ROOT CAUSE: a pass sets shoot+aim for ONE tick and finalize opens a wind-up, but on the next
+    // tick the branch is usually not re-selected, so `shoot` goes false. bm.charging survives with
+    // the pass's fireAt while the AIM is re-derived by whatever branch runs instead — normally
+    // "drive at goal". The wind-up then completes and fires the ball AT THE GOAL. The pass is not
+    // cancelled, it is silently converted into a long shot. Every other committed action here
+    // latches (bombHold, buildHold, screenUntil, walkUntil); passing is the one that does not.
+    // THE FIX WORKS AND WAS STILL REVERTED. A pass latch (re-aim at the receiver's led position
+    // each tick until release) raised completed passes 11 -> 31 and releases 49 -> 235. But it
+    // MEASURABLY FLATTENED THE LADDER: Spearman rho 0.90 -> 0.30, and the BOTTOM tier's goals
+    // doubled (40 -> 82). Gating the latch on toolSkill so only strong tiers get it did not rescue
+    // it either (rho 0.30, and the harness zero-check went out of tolerance at 0.25).
+    // The lesson is the useful part: DELIVERING A PASS UNDER PRESSURE IS ONE OF THE LARGEST
+    // DIFFICULTY LEVERS IN THE GAME. Making it reliable for everyone removes a differentiator the
+    // ladder was leaning on. Whoever fixes this properly must re-cut the 12 levels in the same
+    // change and re-measure with SEEDS=6 — it is a ladder change, not a passing change.
     // 2) marked & not shooting -> PASS to a better mate (direct, or BANK around a blocker); sets give-and-go
     if (!shoot && superKeep && mate && nfd < 260) {
       bm.lastTrick = 'superHold'; // B1a: keep the overcharge, take it to the goal yourself
