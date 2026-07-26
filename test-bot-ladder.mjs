@@ -17,6 +17,8 @@
 // If you are about to quote a number from this file in a commit message: run SEEDS=6.
 // =============================================================================================
 import { createState, addPlayer, attachBall, step, makeRng } from './shared/sim.js';
+import { setField } from './shared/sim.js';
+import { MAIN_FIELD } from './shared/main-field.js';
 import { DT } from './shared/constants.js';
 import { computeBotInputs, createBotMemory, skillVec } from './shared/bot-ai.js';
 
@@ -31,6 +33,13 @@ const TICKS = Math.round(SECS / DT);
 const REF = 0.50;                                  // the yardstick every anchor is measured against
 const ANCHORS = [0.05, 0.25, 0.50, 0.82, 1.00];
 
+// ARENA=main runs on the arena the GAME actually ships (MAIN_FIELD, 16 walls) instead of the
+// bare default (4 walls). This matters enormously and was missed for a whole session: measured
+// side by side, pinned-while-moving is 1.38% on the default arena and 14.36% on MAIN_FIELD, and
+// idle-with-ball 1.01% vs 20.42%. Every bot claim made against the default arena is a claim
+// about an arena nobody plays on.
+const ARENA_MAIN = process.env.ARENA === 'main';
+
 let fails = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fails++; };
 
@@ -40,6 +49,7 @@ const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail
 function match(skill, side, kickTo, seed) {
   const s = createState();
   s.resetTimer = 0;
+  if (ARENA_MAIN) setField(s, MAIN_FIELD);
   s.rng = makeRng(seed);
   const other = side === 'A' ? 'B' : 'A';
   for (const [id, team, slot] of [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]])

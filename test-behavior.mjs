@@ -1,9 +1,17 @@
+// ARENA=main runs on the arena the GAME actually ships (MAIN_FIELD, 16 walls) instead of the
+// bare default (4 walls). This matters enormously and was missed for a whole session: measured
+// side by side, pinned-while-moving is 1.38% on the default arena and 14.36% on MAIN_FIELD, and
+// idle-with-ball 1.01% vs 20.42%. Every bot claim made against the default arena is a claim
+// about an arena nobody plays on.
+const ARENA_MAIN = process.env.ARENA === 'main';
 // Measures the two reported feels on the NEW bots (all 4 bots = new AI):
 //  - pinnedRate: bot wants to move (|input|>0.3) but barely moves (<1.2px) while
 //    touching a wall or the pitch edge  -> "stuck in the stadium walls"
 //  - idleBallRate: the ball-carrier barely moves (<1.2px)                -> "idle with the ball"
 // Run: node test-behavior.mjs [matches] [seconds]
 import { createState, addPlayer, attachBall, step, makeRng } from './shared/sim.js';
+import { setField } from './shared/sim.js';
+import { MAIN_FIELD } from './shared/main-field.js';
 import { DT, FIELD } from './shared/constants.js';
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { ARENA } from './shared/arena.js';
@@ -26,6 +34,7 @@ function nearWallOrEdge(p) {
 let movingTicks = 0, pinned = 0, carryTicks = 0, idleBall = 0, playTicks = 0, longestIdleRun = 0;
 for (let mi = 0; mi < MATCHES; mi++) {
   const s = createState(); s.resetTimer = 0;
+  if (ARENA_MAIN) setField(s, MAIN_FIELD);
   if (seedRng) s.rng = makeRng(SEED * 7919 + mi); // per-match stream, deterministic across runs
   for (const [id, team, slot] of [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]])
     addPlayer(s, id, { name: id, char: 'player', team, slot, isBot: true });

@@ -1,10 +1,52 @@
 # Bot AI — full handoff
 
 **Written 2026-07-26 by agent `bot-fix`, at the end of a ~10h session.**
-Audience: the next agent(s) picking up bot work. Read §0 and §1 before touching anything.
+Audience: the next agent(s) picking up bot work. Read §00 and §0 before touching anything.
 
 ---
 
+## 00. THE BIGGEST FINDING — every bot test ran on an arena the game does not use
+
+**Priority 1. This invalidates most of the numbers elsewhere in this document, including mine.**
+
+The user reported, testing the CURRENT code on `http://10.100.102.36:3012/`:
+*"I see bots stuck behind walls, or not going for the ball."* He is right, and the tests said
+otherwise because **they all call `createState()` with no field**, so `state.arena` is undefined and
+`arenaOf()` falls back to the bare default arena.
+
+| | default ARENA (every test) | **MAIN_FIELD (the game)** |
+|---|---|---|
+| walls / bushes | 4 / 3 | **16 / 14** |
+| pinned while wanting to move | 1.38% | **14.36%**  (10×) |
+| idle with the ball | 1.01% | **20.42%**  (20×) |
+
+`server.js` starts real matches with `MAIN_FIELD_CLEAN` (`:582`) or `roomField(room)` (`:720`).
+The default arena is used by **nothing that ships**.
+
+So: the flow field, the steering rewrite, the stall detectors, the release ladder and the whole
+difficulty ladder were all validated against 4 walls and then shipped into 16. The nav grid and the
+ray-cast steering are almost certainly still *directionally* right — but they are untuned for the real
+geometry, and 14% pinned is a broken-feeling bot.
+
+**Reproduce in 30s:**
+```bash
+ARENA=main node test-behavior.mjs      # vs: node test-behavior.mjs
+ARENA=main SEEDS=3 node test-bot-ladder.mjs
+```
+`test-behavior.mjs` and `test-bot-ladder.mjs` now take `ARENA=main`. **`test-bot-stall.mjs`,
+`test-bot-tricks-fire.mjs`, `test-bot-newskills.mjs` and `test-bot-levels.mjs` still do NOT — porting
+them is step one**, and expect gates to fail when you do. That is the point.
+
+**What I would do first, in order:**
+1. Make `ARENA=main` the DEFAULT in every harness; keep the bare arena as the opt-out. Re-baseline
+   everything and expect several gates to go red.
+2. Fix pinning on MAIN_FIELD. Prime suspects, in order: the nav grid's `r+2` inflation closes real gaps
+   when walls are dense (a 60px gap has only a ~7.5px passable band, and MAIN_FIELD has 4× the walls);
+   the `detourRatio` engage threshold was tuned on an arena where the direct line was almost always
+   free; and the locked-tangent fallback has no escape when two walls form a pocket.
+3. Only then revisit the ladder — its spread was measured on the wrong arena too.
+
+---
 ## 0. START HERE — the bots on your phone are NOT the bots in this repo
 
 The user's doubt — *"I'm not sure if the bot logic fails or it doesn't load correctly to the game"* —
