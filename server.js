@@ -32,6 +32,7 @@ import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, bo
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
+import { isChatId, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1263,6 +1264,31 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field, msg.diffLevel); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
       if (msg.type === 'spectate') { startSpectate(member, msg.diffLevel); return; }
+      // IN-MATCH QUICK CHAT. The wire carries an ID only — never text — and the server validates it
+      // against the shared catalogue before relaying. A crafted frame therefore cannot broadcast
+      // arbitrary content to the room; the worst it can do is name a word that already exists.
+      // Rate limits are enforced HERE, not in the UI, for the same reason: the client's cooldown is a
+      // courtesy, this is the rule. Thresholds come from COMMUNICATION_SET.md.
+      if (msg.type === 'chat') {
+        const r = member.room;
+        if (!r || r.phase !== 'match' || !member.inMatch) return;   // no lobby/menu spam
+        if (!isChatId(msg.id)) return;                             // unknown id -> dropped silently
+        const now = Date.now();
+        if (member.chatMuteUntil && now < member.chatMuteUntil) return;
+        if (member.chatLastAt && now - member.chatLastAt < CHAT_SEND_GAP_MS) return;
+        member.chatBurst = (member.chatBurst || []).filter((t) => now - t < CHAT_BURST_MS);
+        if (member.chatBurst.length >= CHAT_BURST_N) { member.chatMuteUntil = now + CHAT_COOLDOWN_MS; return; }
+        member.chatBurst.push(now);
+        member.chatLastAt = now;
+        // Visible to EVERYONE in the room (the user's ask), attributed to the sender's PLAYER id so
+        // each client can draw the bubble over the right hero. Spectators included — they are watching
+        // the same match. Bots have no ws and are skipped by the readyState check.
+        for (const m of r.members) {
+          if (!m.inMatch || m.ws.readyState !== m.ws.OPEN) continue;
+          send(m.ws, { type: 'chat', pid: member.id, id: msg.id });
+        }
+        return;
+      }
       if (msg.type === 'resetBall') { // training only: recenter the ball on demand
         const r = member.room;
         if (r && r.mode === 'training' && r.phase === 'match') attachBall(r.state, member.team);

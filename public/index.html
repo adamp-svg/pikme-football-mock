@@ -723,6 +723,18 @@
     <!-- Controls-layout editor — its OWN top-bar button BESIDE the gear (it used to be buried
          inside the settings panel). Training ground only; client.js unhides it with the train tag. -->
     <button id="edit-controls-btn" class="edit-controls-btn hidden" title="עריכת בקרות" aria-label="עריכת בקרות">🎛️</button>
+    <!-- IN-MATCH QUICK CHAT. Fourth slot of the top-right cluster, immediately beside 🎛️
+         (12 ⚙ · 60 ‹ לובי · 133 🎛️ · 181 here). It reuses .edit-controls-btn so it is visually
+         identical to its neighbour — .chat-btn only moves it along the row.
+         The sheet is left EMPTY on purpose: client.js renders it from shared/quick-chat.js, so the
+         word list exists in exactly one place (same rule as the MODES table). -->
+    <button id="chat-btn" class="edit-controls-btn chat-btn hidden" title="צ'אט מהיר" aria-label="צ'אט מהיר">
+      <span class="saltiz-icon si-chat" aria-hidden="true"></span>
+    </button>
+    <div id="chat-sheet" class="chat-sheet hidden" role="dialog" aria-label="צ'אט מהיר">
+      <div id="chat-words" class="chat-row chat-words"></div>
+      <div id="chat-emotes" class="chat-row chat-emotes"></div>
+    </div>
     <!-- #17: always-available "back to lobby" — works in a match AND in the training ground -->
     <button id="leave-lobby-btn" class="leave-lobby-btn" aria-label="חזרה ללובי" title="חזרה ללובי">‹ לובי</button>
     <!-- #settings moved OUT of #game to top level (below) so the hub Settings icon can open

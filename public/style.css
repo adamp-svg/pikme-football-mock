@@ -229,6 +229,53 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .edit-controls-btn:active { transform: scale(.94); }
 
+/* ── IN-MATCH QUICK CHAT ──────────────────────────────────────────────────────────────────────
+   Fourth slot of the top-right cluster: 12 (⚙) · 60 (‹ לובי) · 133 (🎛️) · 181 (here). The button
+   carries .edit-controls-btn as well, so it inherits that exact box/border/blur and only the offset
+   differs — the cluster stays visually uniform.
+   The sheet drops DOWN from the cluster on purpose. COMMUNICATION_SET.md: "Never cover the ball,
+   goal, score, or aiming controls" — the top-right corner is the only region that satisfies all four
+   (the score is top-centre, the sticks are bottom-left/right, the ball is mid-pitch). */
+.chat-btn { right: max(181px, calc(env(safe-area-inset-right) + 177px)); }
+.chat-sheet {
+  position: fixed; top: 58px; right: max(12px, env(safe-area-inset-right)); z-index: 8;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; border-radius: 10px;
+  background: rgba(12,18,13,.92); border: 2px solid rgba(240,228,185,.55);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  max-width: min(360px, 62vw);
+}
+.chat-sheet.hidden { display: none; }
+.chat-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+/* Words: short pills. Sized so 4 fit a row on a 390px-tall landscape phone. */
+.chat-words button {
+  border: none; border-radius: 8px; padding: 6px 10px; cursor: pointer;
+  background: #33413a; color: #fff; font: 800 13px "Arial Black", sans-serif;
+  white-space: nowrap; touch-action: manipulation;
+}
+.chat-words button:active { transform: translateY(2px); }
+/* Emotes: the art is the label, so no text. 38px keeps a comfortable thumb target. */
+.chat-emotes button {
+  width: 38px; height: 38px; border: none; border-radius: 8px; cursor: pointer;
+  background: #2a3a30; display: grid; place-items: center; padding: 0;
+  touch-action: manipulation;
+}
+.chat-emotes button:active { transform: translateY(2px); }
+/* The emote sprite. This is the COMBINED 160-asset sheet (16x10 of 128px cells), which is a
+   DIFFERENT file from the 96-pack icon-system.css uses — hence its own rule rather than .saltiz-icon.
+   Deliberately defined here and not in icon-system.css: that file is regenerated whenever the pack is
+   rebuilt, which would silently delete this. background-position is set per-button by client.js from
+   shared/quick-chat.js, so the cell mapping lives in exactly one place. */
+.qc-emote {
+  width: 30px; height: 30px; display: block;
+  background-image: url('/assets/pixel-icon-system-01/expansion-64/sprite-pack-160.webp?v=1');
+  background-repeat: no-repeat; background-size: 1600% 1000%;
+  image-rendering: auto;   /* same reason as the ability icons: the art is anti-aliased, and
+                              nearest-neighbour magnifies its soft edges into holes */
+}
+.chat-cool { opacity: .45; pointer-events: none; }   /* during the anti-spam cooldown */
+
+
 /* Full-screen editor overlay. Sits above the pitch; pucks are dragged to reposition. */
 .controls-editor { position: fixed; inset: 0; z-index: 40; background: rgba(6,12,8,.55); touch-action: none; }
 .ce-hint {

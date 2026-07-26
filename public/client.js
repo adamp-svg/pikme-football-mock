@@ -23,6 +23,7 @@ import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
 import { QUICK_GROUPS, phraseById, REACTION_EMOJI } from '/shared/quick-messages.js';
+import { CHAT_WORDS, CHAT_EMOTES, CHAT_SHEET, chatById, CHAT_BUBBLE_MS, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from '/shared/quick-chat.js';
 import { rosterCounts } from '/shared/roster.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import { mountHeroFx } from '/hero-fx.js';
@@ -3509,6 +3510,8 @@ function connect(name, avatar) {
         _rankSelfAt = 0;
         simulateXpGainForDemo();             // localhost only (no native app to inject xp); no-op on device/Render
       }
+    } else if (msg.type === 'chat') {
+      onChatMessage(msg.pid, msg.id);   // someone spoke -> bubble over THEIR hero, for everyone
     } else if (msg.type === 'roomError') {
       quickVs = false; hideVs(); hideRoomWait(); partyFlow = false;
       showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
@@ -3657,6 +3660,9 @@ function enterMatch(msg) {
   // able to fix a badly-placed thumb button in the match where you noticed it beats remembering to
   // go back to training. It lives inside #game, so leaving the pitch hides it with the screen.
   document.getElementById('edit-controls-btn')?.classList.remove('hidden');
+  // Quick chat rides with it: same cluster, same lifetime. Inside #game, so leaving the pitch hides it.
+  document.getElementById('chat-btn')?.classList.remove('hidden');
+  document.getElementById('chat-sheet')?.classList.add('hidden');
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
   renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
   showScreen('game');
@@ -4929,6 +4935,132 @@ document.getElementById('ce-reset')?.addEventListener('click', () => {
   closeControlsEditor();
 });
 editBtn?.addEventListener('click', openControlsEditor);
+
+// ── IN-MATCH QUICK CHAT ──────────────────────────────────────────────────────────────────────────
+// A word/emote picker beside 🎛️. The wire carries an ID only; the server validates it against
+// shared/quick-chat.js and relays { pid, id } to everyone in the room, so a bubble appears over the
+// SENDER's hero for every player — which is what "the messages should appear from the player itself,
+// visible for all" asks for.
+//
+// The sheet is RENDERED from the catalogue, never hand-written: same rule as the MODES table, which
+// drifted across four hand-copied copies before it was centralised.
+const chatBtn = document.getElementById('chat-btn');
+const chatSheet = document.getElementById('chat-sheet');
+// pid -> { id, until }. One bubble per player: a second message REPLACES the first rather than
+// stacking, per COMMUNICATION_SET.md ("collapse duplicates instead of stacking").
+const chatBubbles = new Map();
+let _chatLastAt = 0, _chatBurst = [], _chatCoolUntil = 0;
+
+// The emote sheet, drawn onto the canvas for bubbles. Same file the CSS uses for the picker, so the
+// browser fetches it once.
+const chatSheetImg = new Image();
+chatSheetImg.src = CHAT_SHEET.url;
+
+function chatSheetOpen() { return chatSheet && !chatSheet.classList.contains('hidden'); }
+function closeChatSheet() { chatSheet?.classList.add('hidden'); }
+
+function renderChatSheet() {
+  if (!chatSheet || chatSheet.dataset.built) return;
+  chatSheet.dataset.built = '1';
+  const words = document.getElementById('chat-words');
+  const emotes = document.getElementById('chat-emotes');
+  for (const w of CHAT_WORDS) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = w.text; b.dataset.chatId = w.id;
+    words.appendChild(b);
+  }
+  for (const e of CHAT_EMOTES) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.chatId = e.id; b.setAttribute('aria-label', e.icon);
+    const sp = document.createElement('span');
+    sp.className = 'qc-emote';
+    // Percentage sprite maths for a cols x rows grid: n / (n-1) * 100. Set from the catalogue so the
+    // cell mapping is defined once.
+    sp.style.backgroundPosition = `${(e.col / (CHAT_SHEET.cols - 1)) * 100}% ${(e.row / (CHAT_SHEET.rows - 1)) * 100}%`;
+    b.appendChild(sp);
+    emotes.appendChild(b);
+  }
+  chatSheet.addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-chat-id]');
+    if (b) sendChat(b.dataset.chatId);
+  });
+}
+
+function sendChat(id) {
+  if (!chatById(id)) return;
+  const now = performance.now();
+  // The client cooldown is a courtesy so the UI feels honest; the SERVER enforces the real rule.
+  if (now < _chatCoolUntil || now - _chatLastAt < CHAT_SEND_GAP_MS) return;
+  _chatBurst = _chatBurst.filter((t) => now - t < CHAT_BURST_MS);
+  if (_chatBurst.length >= CHAT_BURST_N) { _chatCoolUntil = now + CHAT_COOLDOWN_MS; paintChatCooldown(); return; }
+  _chatBurst.push(now); _chatLastAt = now;
+  sendMsg({ type: 'chat', id });
+  closeChatSheet();                       // one tap sends and gets out of the way
+  paintChatCooldown();
+}
+
+function paintChatCooldown() {
+  if (!chatBtn) return;
+  const cool = () => {
+    const now = performance.now();
+    const busy = now < _chatCoolUntil || now - _chatLastAt < CHAT_SEND_GAP_MS;
+    chatBtn.classList.toggle('chat-cool', busy);
+    if (busy) setTimeout(cool, 120);
+  };
+  cool();
+}
+
+// Called from the message router when the server relays someone's message.
+function onChatMessage(pid, id) {
+  if (!chatById(id)) return;
+  chatBubbles.set(pid, { id, until: performance.now() + CHAT_BUBBLE_MS });
+}
+
+// Draw the bubble ABOVE a player's head, in the same art-pixel space as the hero.
+function drawChatBubble(p) {
+  const e = chatBubbles.get(p.id);
+  if (!e) return;
+  if (performance.now() > e.until) { chatBubbles.delete(p.id); return; }
+  const item = chatById(e.id);
+  if (!item) return;
+  const cx = wx(p.x);
+  const top = wy(p.y) - ws_(58);          // clear of the hero + its name/health furniture
+  ctx.save();
+  if (item.kind === 'emote') {
+    const S = ws_(26), c = CHAT_SHEET.cell;
+    // A dark plate behind it so a dark emote still reads against the pitch.
+    roundRectPath(cx - S * 0.62, top - S * 0.62, S * 1.24, S * 1.24, S * 0.28);
+    ctx.fillStyle = 'rgba(10,16,11,.78)'; ctx.fill();
+    if (chatSheetImg.complete && chatSheetImg.naturalWidth) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(chatSheetImg, item.col * c, item.row * c, c, c, cx - S / 2, top - S / 2, S, S);
+    }
+  } else {
+    ctx.font = '900 ' + Math.round(ws_(13)) + 'px ' + CELEB_FONT;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const w = ctx.measureText(item.text).width + ws_(14);
+    const h = ws_(22);
+    roundRectPath(cx - w / 2, top - h / 2, w, h, ws_(7));
+    ctx.fillStyle = 'rgba(10,16,11,.82)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(240,228,185,.5)'; ctx.lineWidth = Math.max(1, ws_(1.5)); ctx.stroke();
+    ctx.fillStyle = '#fff4ca';
+    ctx.fillText(item.text, cx, top + ws_(0.5));
+  }
+  ctx.restore();
+}
+
+// (roundRectPath already exists further down — reused, not redefined.)
+
+chatBtn?.addEventListener('click', () => {
+  renderChatSheet();
+  chatSheet?.classList.toggle('hidden');
+});
+// Tapping the pitch dismisses the sheet, so it never sits between you and the ball.
+addEventListener('pointerdown', (ev) => {
+  if (!chatSheetOpen()) return;
+  if (chatSheet.contains(ev.target) || chatBtn.contains(ev.target)) return;
+  closeChatSheet();
+}, true);
 
 applyCtlLayout();                       // apply any saved layout on load
 addEventListener('resize', applyCtlLayout); // keep locked px in sync with orientation
@@ -6736,6 +6868,7 @@ function renderFrame() {
       }
       if (alpha < 1) { ctx.save(); ctx.globalAlpha = alpha; drawPlayer(dp); ctx.restore(); }
       else drawPlayer(dp);
+      chatBubbles.size && drawChatBubble(dp);   // above the head; skipped entirely when nobody has spoken
       // "spotted!" pop when a bushed enemy is first revealed to me
       if (!isMe && dp.team !== me.team && spotStart[p.id]) {
         const el = (performance.now() - spotStart[p.id]) / 1000;
