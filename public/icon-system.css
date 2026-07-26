@@ -12,7 +12,7 @@
   height: var(--si-size);
   flex: 0 0 var(--si-size);
   vertical-align: -.19em;
-  background-image: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1');
+  background-image: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=2');
   background-repeat: no-repeat;
   background-size: 1200% 800%;
   image-rendering: pixelated;
@@ -161,7 +161,7 @@
   content: '';
   width: 1.35em;
   height: 1.35em;
-  background: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1') no-repeat;
+  background: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=2') no-repeat;
   background-size: 1200% 800%;
   background-position: 63.636364% 85.714286%;
   image-rendering: pixelated;
@@ -179,7 +179,7 @@
 .pslot-ghost-remove::after {
   content: '';
   background-color: transparent;
-  background-image: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1');
+  background-image: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=2');
   background-repeat: no-repeat;
   background-size: 1200% 800%;
   background-position: 81.818182% 100%;
@@ -189,7 +189,7 @@
   content: '';
   width: 18px;
   height: 18px;
-  background: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=1') no-repeat;
+  background: url('/assets/pixel-icon-system-01/sprite-pack.webp?v=2') no-repeat;
   background-size: 1200% 800%;
   background-position: 18.181818% 57.142857%;
   image-rendering: pixelated;

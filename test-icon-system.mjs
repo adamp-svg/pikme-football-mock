@@ -23,7 +23,14 @@ console.log('pack + manifest');
 ok('96 stable semantic IDs', manifest.length === 96, String(manifest.length));
 const ids = manifest.map((row) => row.split(',')[0]);
 ok('every ID has a sprite CSS position', ids.every((id) => css.includes(`.si-${id}{background-position:`)));
-ok('one WebP is the runtime source', css.includes("sprite-pack.webp?v=1"));
+// Version-AGNOSTIC on purpose. This used to assert the literal `?v=1`, which made the test fail the
+// moment the cache-buster was bumped — and bumping it is mandatory whenever the sheet's pixels change,
+// or phones keep serving the cached old art. Assert the intent instead: exactly one webp is the
+// runtime source, and it is cache-busted.
+const srcRefs = [...css.matchAll(/sprite-pack\.webp\?v=(\d+)/g)].map((m) => m[1]);
+ok('one WebP is the runtime source', srcRefs.length > 0 && new Set(srcRefs).size === 1,
+  srcRefs.length ? `?v=${srcRefs[0]} x${srcRefs.length}` : 'no cache-busted webp reference');
+ok('the PNG is never the runtime source (it is the 5 MB master)', !/sprite-pack\.png\?v=/.test(css));
 const webp = statSync(join(here, 'public/assets/pixel-icon-system-01/sprite-pack.webp'));
 ok('phone pack stays below 1.5 MB', webp.size < 1_500_000, `${Math.round(webp.size / 1024)} KB`);
 
