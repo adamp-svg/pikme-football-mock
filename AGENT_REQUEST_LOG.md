@@ -26,6 +26,13 @@
 
 ## 2026-07-26
 
+- **💣 BOMB/WALL ICON CORRUPTION — source diagnosis confirmed (agent `root`, 14:3x)** — User shared Claude's report that the controller Bomb and Build Wall icons still look corrupt and asked what it means and what Codex can do.
+  - Confirmed visually in the canonical 256×256 alpha masters: `transparent/bomb.png` and `transparent/build-wall.png` contain scattered/dotted perimeter pixels instead of a closed chunky outline. The atlas faithfully carries that source defect; it is not a decode failure.
+  - Claude's four-direction CSS shadow is a reasonable scoped mitigation and is committed locally in `bd4c7a6`, but **origin/main remains `79d0e60`**, so it is not on the phone until the user explicitly approves push/deploy.
+  - Durable fix specification: redraw/re-export only these two masters with a continuous closed outline; preserve stable IDs; replace atlas cells bomb `(column 4,row 1)` and build-wall `(column 5,row 1)`; bump the immutable cache key; remove the two-icon CSS filter; verify at actual 56px/40px sizes on a DPR-3 phone. Do not heuristically rewrite all 96 cells.
+  - A generated redraw attempt was rejected rather than committed because it changed the original silhouette and baked in a checkerboard instead of true alpha. No source artwork or runtime code changed in this diagnosis.
+
+
 - **🗂️ ICON/EMOTE LIBRARY HANDOFF — all 160 assets clearly registered for future agents (agent `root`, 14:0x–14:2x)** — User asked to make the assets unambiguous so Claude or another agent can safely add/integrate more later.
   - Added `public/assets/pixel-icon-system-01/ASSET_HANDOFF.md` as the agent entry point, `NEW_ASSET_TEMPLATE.md` as the required extension record, and an auto-loaded pointer in `CLAUDE.md`.
   - Added generated `ASSET_REGISTRY.json`: every asset has a stable ordinal/ID, category, purpose, collection, explicit `live` or `future` status, transparent/tile/sheet paths, combined-atlas cell, and runtime API when mapped. The 96 runtime assets are marked `live`; the 64 expansion assets stay `future`.
