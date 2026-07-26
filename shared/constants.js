@@ -64,7 +64,15 @@ export const OVERTIME_DURATION = 45;
 export const KICKOFF_FREEZE = 0.7; // brief reset pause at match start
 export const GOAL_RESET = 5;       // post-goal countdown before play resumes
 export const GOAL_FREEZE_HOLD = 2; // of GOAL_RESET, hold in the scoring positions this long before snapping to kickoff
-export const ENDED_HOLD = 6; // seconds the final score shows before returning to lobby
+// Seconds the final score + the win/lose overlay hold before the room returns everyone to the lobby.
+// 6 -> 1 (user, 2026-07-26: "taking too long from game end to returning to lobby, should be after
+// 1 second"). Safe to cut this far because nothing in the result path waits on the hold: the server
+// broadcasts matchStats on the FIRST tick of `ended` (one-shot, room.statsSent), so the client
+// already has myMatchStats and posts matchResult immediately rather than falling back to its 1.2s
+// timer. The reward moment is the trophy reveal in the HUB anyway, so getting there sooner shows it
+// sooner. Note the win/lose celebration is dur:0 — it persists for the hold rather than self-
+// expiring, so this is also what decides how long «ניצחון!» stays on screen.
+export const ENDED_HOLD = 1;
 export const INTRO_PROMO = 4.6; // pre-kickoff promo hold: server freezes stepping so the clock waits while the client plays the card-meteor intro
 
 // One player type. `speed`/`radius` are live-tunable via settings multipliers.
