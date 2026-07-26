@@ -1514,10 +1514,13 @@ function decideBot(p, role, state, mem, sk, dt) {
   // coefficient are calibrated so easy/normal land NEAR the old fixed 430/320/780 gates and
   // the ladder stays monotonic (easy least aggressive → extreme most).
   const AGG = sk.aggro != null ? sk.aggro : 0.9;
-  // PERSONA `hunt` scales both strip ranges: an Enforcer opens fire on an enemy a Ball Hawk would
-  // walk past. Bounded to +-18% so it cannot become a skill increase in disguise — the ladder test
-  // would read that as a ranking change (personas keyed on id once collapsed rho 1.00 -> -0.10).
-  const HUNT = clamp(0.82 + 0.36 * ((sk.pp && sk.pp.hunt != null ? sk.pp.hunt : 0.7) / 1.0), 0.82, 1.18);
+  // PERSONA `hunt` DELIBERATELY DOES NOT SCALE THE STRIP RANGES. Scaling them +-18% measured as part
+  // of the round's pinning regression (wall-pinned 0.56% -> 0.86%, worst jam 0.85s -> 1.65s on its
+  // own): a wider press range means more ticks inside `seekContact`, which suppresses body avoidance
+  // on purpose. The Enforcer identity lives in its CHARGE (maxCharge 1.0 + readyCharge) and its
+  // positioning, both of which measure clean. `hunt` is still read by the persona table for future
+  // use and by the tests; it must not come back here without its own n=24 x 2 measurement.
+  const HUNT = 1;
   const PRESS_RANGE  = (160 + 300 * AGG) * HUNT; // enemy-carrier strip range (easy~400 / normal~436 / hard 460 / extreme~505)
   const COVER_STRIP  = (120 + 200 * AGG) * HUNT; // plain-cover strip range   (easy~280 / normal~304 / hard 320 / extreme~350)
   // FINISH_RANGE is now derived from what a kick CAN DO, not from a hand-picked constant. Max reach
@@ -2909,16 +2912,15 @@ function decideBot(p, role, state, mem, sk, dt) {
       if (enemyHolds && !pressed) {
         tgt = interceptPoint(p, carrier, state, sk);
         if (!bm.lastTrick) bm.lastTrick = 'secondPress';
-      } else if (enemyHolds) {
-        // SOMEBODY IS PRESSING, so this bot holds the defensive shape — and PERSONA `guardGoal` sets
-        // how deep that shape sits. A Fortress drops most of the way onto the carrier-to-goal lane
-        // (its whole identity is "you do not get a clean route"), an Enforcer hangs near the ball
-        // looking for a body to hit. Measured as goal-side occupancy in test-bot-personas.mjs.
-        const gg = (sk.pp && sk.pp.guardGoal != null) ? sk.pp.guardGoal : 0.5;
-        const lane = { x: carrier.x + (ogX - carrier.x) * clamp(0.18 + 0.42 * gg, 0.18, 0.60),
-                       y: carrier.y + (GY - carrier.y) * clamp(0.18 + 0.42 * gg, 0.18, 0.60) };
-        const dx0 = lane.x - carrier.x, dy0 = lane.y - carrier.y, d0 = hyp(dx0, dy0), MIN_SEP = 320;
-        tgt = d0 < MIN_SEP ? { x: carrier.x + (dx0 / (d0 || 1)) * MIN_SEP, y: carrier.y + (dy0 / (d0 || 1)) * MIN_SEP } : lane;
+      } else if (enemyHolds && false) {
+        // MEASURED AND REMOVED — a "Fortress drops onto the carrier-to-goal lane" shape. It read well
+        // and it was the worst regression of the round: wall-pinned-while-moving 0.55% -> 1.52%,
+        // WORST JAM 0.85s -> 6.55s, carrier-idle 1.0% -> 3.9% (n=24, two seed bases). The spot is
+        // computed from carrier+goal geometry and is never validated against the arena, so on a
+        // crate-heavy map it lands inside stone and the bot grinds at it — the fifth instance of this
+        // repo's "walking to a computed spot" failure (LOGIC-HANDOFF §5). A Fortress gets its depth
+        // from the LOOSE-BALL hold spot instead, which measures clean.
+        // Kept as dead code with the numbers attached so it is not re-proposed from scratch.
       } else {
         // CARRIED ball: keep real spacing so we don't both crowd the carrier. PERSONA `escort` sets
         // how close: a Bodyguard stations itself at ~220px (the doc's 100-220px escort band) where a
