@@ -6,7 +6,81 @@ traps, and the one design law that decided every argument today. The blow-by-blo
 [`BOT_HANDOFF.md`](BOT_HANDOFF.md) (read §00000b → §00000 → §0000 → §000 → §4) and the request history
 in [`../AGENT_REQUEST_LOG.md`](../AGENT_REQUEST_LOG.md).
 
-Read this file first. It is short on purpose.
+Read this file first. **§0 is what changed and what it measured; §1-7 are the transferable lessons.**
+
+---
+
+## 0. WHAT WAS ACTUALLY CHANGED (2026-07-26) — the changelog, so this file stands alone
+
+Every number here is MAIN_FIELD (the arena the game ships), paired seeds, stated sample. Commits are
+on `main`; the deep write-up per round is `BOT_HANDOFF.md` §000 → §00000b.
+
+### The regression the user reported, and its two causes — `dcf6508`
+Bisected with `bot-feel.mjs` across 12 revisions: stable through `3d08e27`, broken by **`3ca355f`**
+("real routing / flow field").
+1. **`steer()`'s detour guard tunnelled through walls.** It probed clearance at ONE point 120px along
+   the tangent; every wall on MAIN_FIELD is thinner than that probe (`ht:16` capsules = 32px, crates
+   50px), so the probe landed on the far side, read +41px clear, and the "detour" was a march into the
+   wall face — re-committed forever. Now sampled along the ray. **Longest jam 15.65s → 0.73s**,
+   pinned-while-moving **3.25% → 0.58%**.
+2. **Carriers kicked their own ball off walls.** `sim.js:919` pops the held ball loose when its glue
+   spot (feet + aim × (r+ballR)) touches a wall — and a carrier aims AT THE GOAL while dribbling.
+   **28.3 wall-pops/match on MAIN_FIELD vs 1.2 on the bare arena.** Median possession was ONE TICK.
+   `finalize()` now rotates the EMITTED aim to the nearest clear glue direction, dropped on the fire
+   tick. **Median possession 0.02s → 0.87s**, kick-ended possessions 18% → 60%.
+
+### The six requested skills — `8b7d44a`, `2d7e689`
+| # | what | measured |
+|---|---|---|
+| 1 | **body avoidance** in `steer()` (weight below a wall, above a graze; suppressed for enemies only during real contact plays) | team-mate body blocking **28.6% → ~1%** of stuck ticks |
+| 2 | **wall planning** — `wallSpotOk()` refuses a wall within 90px of a partner or across our own carrier's lane | build-windup freeze **3.5s → 2.0s/match** |
+| 3 | **pass communication** — the latch + `mem.pass` call the receiver reads and comes to meet | passes reaching a mate **22% → ~90%** |
+| 4 | **bomb mobility, measured** — over one fuse+glide (2.92s) walking covers 400px, a rocket-jump **653px**, and **869px** with stone behind the bomb. Refuses a plain feet-plant under 620px; now also fires when left behind on a LOOSE ball (`chaseJump`) | `MOBILITY_GAP` 8.1s→5.5s by tier; bomb-fuse time at skill 0.93 **14.3% → 5.1%** of bot-ticks |
+| 5 | **kick-and-fly** (`t >= 0.58`) — kick the ball ahead, then plant and fly after it. Two phases, because `sim.js:840` means a carrier can never plant | 3-9 fires/match above the gate, 0 below |
+| 6 | **the catapult** (`t >= 0.74`) — a mate's on-centre bomb behind the carrier. Works because `explode()` skips the ball-detach when `bomberOnCenter && b.owner` | fixture: carrier **+490px AND KEEPS THE BALL** (595 with stone), mate +539 |
+
+### Vision became a RECTANGLE — `8b7d44a`
+`botCanSee` tested a 620px RADIUS; the client camera shows 1212×682 world px (`CAM_ZOOM` 1.65), i.e.
+**606 × 341 half-extents**. The circle gave bots ~**2× the vertical awareness of the human they play
+against**. Now a screen-shaped box (`VIEW_BOX`, exported), with `BALL_VISION` a scale on the same box.
+
+### Reward shaping — `60050e9`, `a5c6dc5`, `2d7e689`
+`clearForward` (put it up the pitch when nothing is on, lane checked for the whole roll, never onto an
+opponent), **no backward outlet** (the outlet pass had no direction requirement at all), and
+`fetchBall` (nearest to a loose ball goes and gets it, with the user's trick exemptions in
+`FETCH_EXEMPT`). **Advance per release 4px → 29px** at skill 0.50, **10px → 176px** at 0.93; backward
+releases 8.0% → 3.7%; retreat-while-nearest 23.2% → 15.1%. Then graded by tier and given **patience
+above t=0.62**, because ungraded it flattened the ladder — see §2.
+
+### The three L10 symptoms the user reported while watching — `176f525`, `62f9a10`, `427e16e`
+- **"still idle moments"** → 67% of it was the 0.5s wall wind-up, and the measurement itself was wrong
+  (§3.2). Under it: `bm.buildHold` stored a distance but never the wall's AIM, so the wall was placed
+  with whatever aim the branch running on the COMMIT tick supplied. Drift up to **156°** and **206px**
+  of placement error → **0°**; walls miss perpendicular-to-lane by **22° → 4°** median; **64% → 97%**
+  span the lane they were built for; builds **+9%** (so nothing was fixed by not building).
+- **"the friend goes the other way"** → `receivePass` recomputed "check back 90px" from the LIVE
+  position every tick: an unbounded **~210px retreat** (§1b). Fixed as a ground budget
+  (`RECV_GIVE_MAX = 20`) plus a bearing-based latch abort. Pass completion at skill 0.93 86% → **89%**
+  (n=60); releases to a mate BEHIND on the attacking axis **25% → 0%**.
+- **"the enemy shoots the other way"** → 34% were pass releases 91-109° off (same bug as above) and
+  54% were **bullets** whose wind-up outlived its branch (§1). Bullets >45° off every enemy
+  **8-13% → 0.0%** in six cells; bullets that **hit a player 11-31% → 44-53%**; wasted on a wall
+  40-60% → 21-27%; strips held.
+
+### Instruments and pages built
+`bot-feel.mjs` · `bot-idle.mjs` · `bot-passes.mjs` · `bot-aim.mjs` · `bot-noise.mjs` (`e59c1dd`) ·
+`bot-support.mjs` · `shared/arena-plan.js` + `test-arena-plan.mjs` (`15dc0a6`, deliberately unwired) ·
+`public/_bot-scope.html` + `scripts/bot-scope.template.html` + `scripts/build-bot-scope.mjs` ·
+**`?watch=1&diff=N` — watch an ALL-BOT match in the real game** (`12f4541`), and `ARENA=main` is now
+the DEFAULT in `test-bot-ladder.mjs` with the felt-range gate re-derived against the arena's own
+scoring rate (bare 1.55 goals/match vs MAIN_FIELD 0.72, so the old flat 0.60 differential was
+unreachable there).
+
+### The ladder, honestly
+It ranks: **goals rho 0.90, strips 0.90, shots-on-goal 0.90, zero-check 0.04** on the real arena. The
+felt RANGE reached ~36% of the arena's scoring rate against a 39% design ask, and the per-anchor order
+in the middle three tiers still scrambles. A 12-level re-cut is pending the user's decision — it
+changes difficulty for every player, so it is not a tuning task.
 
 ---
 
