@@ -52,10 +52,43 @@ at everything the request was about: advance per release stayed at 4px, retreat-
 worse (23% -> 29%), touches fell 27% and the ball was loose 8 points more of the match. The ladder
 POSITION is already the gate: that rung only runs after ~0.4s of holding with nothing on.
 
+### THE LADDER COLLAPSED, AND THE FIX IS THE FILE'S OLDEST LESSON
+
+Round 7 as first written shipped `clearForward` and `fetchBall` with **one quality for every tier**,
+and the ladder came back:
+
+| | round 6 | round 7 (ungraded) | gate |
+|---|---|---|---|
+| rho (goals) | 0.80 | **0.10** | >= 0.85 |
+| top-vs-bottom spread | 1.10 | **-0.04** | >= 0.60 |
+| top beats bottom | yes | **NO** (-0.41 vs -0.37) | — |
+| strips rho | 1.00 | **1.00** | — |
+| harness zero-check | -0.01 | **0.18 (out of tolerance)** | +-0.15 |
+
+Per-seed rho went 0.50 / 0.30 / 0.60 / 0.00 / -0.30 / -0.50 — goal differential had become almost
+random across tiers, while STRIPS still ranked perfectly (1.00 -> 6.39). So the strong bots were still
+strong defensively; what vanished was their attacking edge.
+
+**Cause, and it is the same one as the pass latch in §5.2:** "hoof it up the pitch" and "always go and
+get the ball" are **skill-INDEPENDENT** actions. Handing them to every tier gave the bottom the ground
+the top used to have to earn with possession play. *Making a useful action equally reliable for
+everyone deletes a differentiator the ladder was leaning on.*
+
+**Fix — same verb, tier-scaled EXECUTION** (the model this file already prefers):
+* the clearance's "don't hoof it onto a defender" veto scales `60 + 200*t` px, so a weak bot really
+  does clear it to an opponent's feet while a strong one only accepts space;
+* the fetch override only fires inside `300 + 900*t` px, so a weak bot simply does not notice a ball
+  it is nearest to across the pitch.
+
+Measured after: retreat-while-nearest now **45.6% at t=0.05 · 16% at 0.50 · 25% at 0.93**, i.e. the
+behaviour itself became a ladder, and skill 0.50 keeps the round-7 wins (advance/release 27px,
+backward releases 3.6%).
+
 ### Open after round 7
 
-1. **The skill-axis ladder needs a re-run.** Last measured before these three rules (round 6: rho
-   0.80 — 0.05 short of its gate — and spread 1.10, the widest ever recorded here).
+1. **The skill-axis ladder is re-running on the graded version.** Round 6 read rho 0.80 (0.05 short)
+   with spread 1.10. If it is still flat, the honest options are a level re-cut (the user's call, and
+   already pending from round 5) or accepting a wider-but-noisier ladder.
 2. `retreatWhileNearestPct` is still ~25% at skill 0.93 and the ball is loose ~79% of that match.
    Strong bots shoot long and the off-ball bot holds MIN_SEP; §0000's open item 1 is the same thing.
 3. `backwardReleasePct` stays ~15% at 0.93 against 3.7% at 0.50. It is not the opponent's counter-kick

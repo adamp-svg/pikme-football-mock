@@ -1724,7 +1724,16 @@ function decideBot(p, role, state, mem, sk, dt) {
           if (!laneClear(p.x, p.y, lx, ly, state, team, { enemies: false })) continue;
           let foe = 1e9;
           for (const e of visibleEnemies) foe = Math.min(foe, hyp(e.x - lx, e.y - ly));
-          if (foe < 200) continue;                              // never clear it onto an opponent
+          // TIER-SCALED EXECUTION, not tier-gated availability. Round 7 shipped this clearance with
+          // ONE quality for every tier and it FLATTENED THE LADDER: Spearman rho 0.80 -> 0.10 and the
+          // top-vs-bottom spread 1.10 -> -0.04, because "hoof it up the pitch" is a skill-INDEPENDENT
+          // action, so it handed the bottom tier the ground the top tier used to have to earn with
+          // possession play. Same lesson as the pass latch (§5.2) — making a useful action equally
+          // reliable for everyone deletes a differentiator the ladder was leaning on.
+          // So: everyone still clears it forward (the requested behaviour), but a weak bot clears it
+          // CARELESSLY — it will happily hoof the ball to a defender's feet — while a strong bot only
+          // accepts a clearance into real space. 60px at t=0 (basically no care) to 260px at the top.
+          if (foe < 60 + 200 * skT(sk)) continue;
           const adv = gsign * cx * CLEAR_REACH;                 // ground gained toward their goal
           const sc = adv + Math.min(foe, 520) * 0.5;
           if (sc > bestScore) { bestScore = sc; bestA = { cx, cy }; }
@@ -2521,7 +2530,10 @@ function decideBot(p, role, state, mem, sk, dt) {
       && !(bm.dodgeUntil && mem.t < bm.dodgeUntil) && !FETCH_EXEMPT.has(bm.lastTrick)) {
     let nearest = null, nd = 1e9;
     for (const q of Object.values(state.players)) { const d = hyp(q.x - b.x, q.y - b.y); if (d < nd) { nd = d; nearest = q; } }
-    if (nearest && nearest.id === p.id) {
+    // ...and a WEAK bot only notices at close range. Same reason as the clearance above: an
+    // unconditional "always go and get it" is skill-independent and helped the bottom tier most.
+    // 345px of attention at t=0.05, the whole pitch by the top of the ladder.
+    if (nearest && nearest.id === p.id && nd < 300 + 900 * skT(sk)) {
       const [bx2, by2] = predictBall(b, clamp(nd / 900, 0.05, 0.4));
       const [tx, ty] = unit(tgt.x - p.x, tgt.y - p.y);
       const [gx2, gy2] = unit(bx2 - p.x, by2 - p.y);
