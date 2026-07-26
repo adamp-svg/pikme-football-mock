@@ -81,9 +81,11 @@ Body avoidance took team-mate blocking to **~1%**.
 *"They sometimes get idle waiting for something"* at L10 — and this round's own new bomb plays made it
 worse before it was measured: **14.3% of every bot-tick standing on a bomb fuse, 7.3s per bot per
 match over 14.2 plants**, because `nextBombAt` is `3.0 * cdMul` and cdMul at the top is ~0.4, so four
-branches could re-plant every ~1.2s. **A flat `MOBILITY_GAP` of 6.5s that deliberately does NOT scale
-with cdMul** (a stronger bot should use the bomb BETTER, not MORE): **14.3% → 5.1%** at skill 0.93,
-and the same ~5% at 0.50 — the rate is now tier-independent. Build-windup freeze also fell 3.5s → 2.0s
+branches could re-plant every ~1.2s. Fixed with `mobilityGap(sk)` — **8.1s at the bottom easing to
+5.5s at the top, deliberately NOT cdMul** (a stronger bot should use the bomb BETTER, not MORE):
+**14.3% → 5.1%** at skill 0.93, 4.2% at 0.50, 0.4% at 0.05. It was FLAT at first, which fixed the
+idle but removed one of the few honest mechanical edges the top of the ladder has — part of why the
+re-measured ladder ranked 0.80 rather than 0.90 — so a mild tier tilt was restored. Build-windup freeze also fell 3.5s → 2.0s
 per match once `wallSpotOk()` stopped bots walling their own partner.
 
 ### Vision is a RECTANGLE now (and the circle was a real advantage)
