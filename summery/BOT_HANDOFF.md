@@ -105,8 +105,36 @@ UNCHANGED build `backwardReleasePct` at skill 0.93 ranges **9.8% to 39.8%** acro
 its noise floor is enormous — do not read a single run of it.
 
 **BOTH CHANGES ARE SKILL-INDEPENDENT. No tier scaling ships** (see refuted item 3 for the one that was
-tried). §00000 is explicit that this is what flattened the ladder twice, so the ladder wants a look
-before this is trusted at the top tiers.
+tried). §00000 is explicit that this is what flattened the ladder twice, and **it happened again — this
+is measured, not feared.** `test-bot-ladder.mjs` at `SEEDS=6` (192 matches/anchor), paired on a matched
+base (`66b7934` vs `d01d3b8`, so the other three agents' bot commits are present in BOTH sides):
+
+| | before | after |
+|---|---|---|
+| goals rho | 0.50 (already FAIL) | **-0.10** |
+| top-vs-bottom spread | 0.58 (already FAIL) | **0.07** |
+| top beats bottom | PASS | PASS, but the margin is gone |
+| **strips rho** | 0.90 | **1.00** |
+| harness zero-check | -0.07 PASS | -0.04 PASS |
+| per-seed rho | 0.90/0.60/0.20/0.50/0.60/0.20 | 0.00/0.10/-0.60/-0.20/0.10/0.10 |
+
+And the per-anchor rows say exactly what §00000 predicted: **t=0.05 IMPROVED -0.79 -> -0.46 while
+t=0.82 went -0.36 -> -0.49 and t=1.00 -0.21 -> -0.39.** The bottom tier gained the ground the top used
+to have to earn with possession play, because "don't run backwards" and "don't play a backward pass"
+are things every tier now does equally well. **Strips rank a perfect 1.00**, which is the low-variance
+evidence that the skill axis itself is intact — it is the ATTACKING edge that flattened, the same
+signature as round 7.
+
+Two honest caveats, in the change's favour: both failing gates were ALREADY failing before it, and the
+spread moved 0.51 against a 3-SE resolution of 0.42 — real, but only just.
+
+**THIS IS THE USER'S CALL, not a tuning problem** (§00000 reached the same conclusion). The options:
+1. **Keep it.** The reported bug is fixed and measured fixed; the two gates it worsens were already red.
+2. **Keep only the RECEIVER half** (`bm.recvSpot`) and drop the latch abort — but note it is the ABORT
+   that takes "passed backwards to a mate behind me" to 0/0/0%; the receiver fix alone leaves 11-20%.
+   Needs its own `SEEDS=6` run before anyone believes a number about it.
+3. **Revert both** — `d01d3b8` is a single commit and reverts cleanly.
+4. **Re-cut the 12 levels** against the new bots. Pending since round 5, and this is one more reason.
 
 ### Suite
 
