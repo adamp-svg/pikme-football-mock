@@ -52,11 +52,25 @@ ok('the dead onrender host is gone from the code', !code.includes('pikme-server.
 ok('a true localhost page still assumes a local api', /localhost:3001/.test(api ? api[0] : ''));
 
 console.log('rank self-fetch');
-ok('fetchOwnRank exists', /async function fetchOwnRank\(\)/.test(src));
-ok('an app inject is never overwritten', (src.match(/if \(window\.SALTIZ_RANK\) return;/g) || []).length >= 2);
+// These assert INTENT, not source shape. The first version pinned exact strings like
+// `async function fetchOwnRank()` and `if (window.SALTIZ_RANK) return;`, and every one of them broke
+// the moment the function was legitimately extended to fetch trophies too — the same brittleness as
+// pinning a cache-buster version. Test what must remain true.
+ok('the self-fetch exists and is callable as fetchOwnRank', /async function fetchOwnProgress\(\)/.test(src) && /fetchOwnRank = fetchOwnProgress/.test(src));
+ok('it fetches TROPHIES as well as rank', /window\.SALTIZ_XP = /.test(src) && /const xp = Number\(r\.xp\)/.test(src));
+ok('an app inject is never overwritten — writes are gated on "did we write it"',
+  /_mineRank/.test(src) && /_mineXp/.test(src)
+  && /!window\.SALTIZ_RANK \|\| _mineRank/.test(src) && /!window\.SALTIZ_XP \|\| _mineXp/.test(src));
 ok('token path uses /handle-friends/rank', /apiGet\('\/handle-friends\/rank'\)/.test(src));
 ok('browser path uses ?phone= against football\/stats', /handle-user\/football\/stats\?phone=/.test(src));
-ok('a missing rankPoints is treated as "not deployed", not 0', /if \(!Number\.isFinite\(rp\)\) return;/.test(src));
+ok('a missing rankPoints is treated as "not deployed", not rank 0',
+  /Number\.isFinite\(rp\) && \(!window\.SALTIZ_RANK/.test(src));
+ok('xp 0 is a legitimate value, so the guard is isFinite not truthiness',
+  /Number\.isFinite\(xp\) && \(!window\.SALTIZ_XP/.test(src));
+// The API's CORS is an allowlist covering the Render origin but not localhost/LAN, so a dev surface
+// must not call it directly — that silently returned nothing and left the bar reading a hardcoded 0.
+ok('dev hosts route through the same-origin /dev/progress passthrough', /DEV_HOST\s*\n?\s*\?\s*await apiGet\(`\/dev\/progress/.test(src));
+ok('apiGet supports a same-origin call for it', /async function apiGet\(path, sameOrigin\)/.test(src));
 ok('delta is 0 on a standing read', /delta: 0, botLevel: null/.test(src));
 ok('it is rate-limited', /RANK_SELF_MS/.test(src));
 ok('the hub loop calls it', /fetchOwnRank\(\);\s*\n\s*pollRank\(\);/.test(src));

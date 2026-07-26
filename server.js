@@ -50,8 +50,36 @@ const MIME = {
   '.mp3': 'audio/mpeg',
 };
 
+// pikme-server's CORS is an ALLOWLIST: it echoes access-control-allow-origin for
+// https://pikme-football.onrender.com but sends NONE for http://localhost:* or a LAN IP. So in the
+// app and on prod the client can call the API directly, while on the dev surfaces the browser
+// discards every response — which is why the גביעים bar read a hardcoded 0 on 10.100.102.36 while
+// the account actually held 1840 trophies.
+// This is a SAME-ORIGIN read-only passthrough for exactly the progression read, so the dev surface
+// behaves like the app without needing the API's allowlist widened. Server-to-server, so CORS never
+// applies. Whitelisted to one upstream path, GET only, and it forwards the football token when the
+// caller has one. Harmless on prod, where the direct call already works.
+const PIKME_UPSTREAM = process.env.PIKME_API || 'https://server.pikme.tv';
+function proxyProgress(req, res) {
+  const q = new URL(req.url, 'http://x').searchParams;
+  const phone = (q.get('phone') || '').replace(/[^\d+]/g, '').slice(0, 20);
+  const auth = req.headers['football-auth'];
+  const upstream = auth
+    ? `${PIKME_UPSTREAM}/handle-friends/rank`
+    : `${PIKME_UPSTREAM}/handle-user/football/stats?phone=${encodeURIComponent(phone)}`;
+  if (!auth && !phone) { res.writeHead(400); return res.end('{"error":"phone or football-auth required"}'); }
+  fetch(upstream, { headers: auth ? { 'football-auth': auth } : {} })
+    .then(async (r) => {
+      const body = await r.text();
+      res.writeHead(r.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(body);
+    })
+    .catch(() => { res.writeHead(502); res.end('{"error":"upstream unreachable"}'); });
+}
+
 const server = http.createServer((req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
+  if (urlPath === '/dev/progress') return proxyProgress(req, res);
   if (urlPath === '/') urlPath = '/public/index.html';
   if (!urlPath.startsWith('/shared/') && !urlPath.startsWith('/public/')) {
     urlPath = '/public' + urlPath;

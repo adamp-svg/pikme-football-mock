@@ -820,8 +820,23 @@ const PIKME_API = (window.PIKME_API || (location.hostname === 'localhost' ? 'htt
 // fine; `let`/`const` state is not hoisted, which is the whole trap.
 const RANK_SELF_MS = 60000;      // standing barely moves outside a match; don't hammer the API
 let _rankSelfAt = 0, _rankSelfBusy = false;
-async function fetchOwnRank() {
-  if (window.SALTIZ_RANK) return;                       // the app injected — it wins, always
+// Which globals did WE fill? We may refresh our own values, but an app inject is authoritative and
+// must never be clobbered — so we only ever overwrite what we wrote.
+let _mineRank = false, _mineXp = false;
+// Fetches BOTH progression numbers, because they have the same problem and the same source.
+//
+// גביעים/xp used to be app-inject-only with no fallback: renderHubXp() reads window.SALTIZ_XP and
+// otherwise shows `DEV_LOCAL ? 1240 : 0`, and DEV_LOCAL is only localhost/127.0.0.1/0.0.0.0. So on
+// ANY other surface — the LAN IP the user tests from, prod in a browser, or an app build older than
+// the SALTIZ_XP inject — the trophies bar sat at 0 and could never move, no matter what the server
+// held. That is exactly what "I won against bots and my trophies did not go up" was: the server had
+// 1840, the bar was reading its own hardcoded 0.
+// One call serves both: /handle-friends/rank and /football/stats?phone= each return xp, level AND
+// rankPoints/rankTier.
+async function fetchOwnProgress() {
+  const needRank = !window.SALTIZ_RANK || _mineRank;
+  const needXp = !window.SALTIZ_XP || _mineXp;
+  if (!needRank && !needXp) return;                     // the app injected both — it wins, always
   if (_rankSelfBusy) return;
   const now = performance.now();
   if (_rankSelfAt && now - _rankSelfAt < RANK_SELF_MS) return;
@@ -829,18 +844,37 @@ async function fetchOwnRank() {
   if (!FOOTBALL_TOKEN && !phone) return;                // no identity, nothing to ask for
   _rankSelfBusy = true;
   try {
-    const r = FOOTBALL_TOKEN
-      ? await apiGet('/handle-friends/rank')
-      : await apiGet(`/handle-user/football/stats?phone=${encodeURIComponent(phone)}`);
+    // pikme-server's CORS is an allowlist that covers the Render game origin but NOT localhost or a
+    // LAN IP, so on a dev surface the direct call is discarded by the browser no matter what the API
+    // returns. DEV_HOST (localhost + private ranges) routes through the game server's own
+    // same-origin /dev/progress passthrough instead; the app and prod keep calling the API directly.
+    const r = DEV_HOST
+      ? await apiGet(`/dev/progress${FOOTBALL_TOKEN ? '' : `?phone=${encodeURIComponent(phone)}`}`, true)
+      : FOOTBALL_TOKEN
+        ? await apiGet('/handle-friends/rank')
+        : await apiGet(`/handle-user/football/stats?phone=${encodeURIComponent(phone)}`);
     _rankSelfAt = performance.now();
+    if (!r) return;
     // A pre-rank backend answers 200 with no rankPoints — that is "not deployed yet", not rank 0,
     // so leave SALTIZ_RANK unset and let the legacy xp badge stand.
-    const rp = Number(r && r.rankPoints);
-    if (!Number.isFinite(rp)) return;
-    if (window.SALTIZ_RANK) return;                      // an inject landed while we awaited
-    window.SALTIZ_RANK = { rankPoints: rp, rankTier: (r && r.rankTier) || null, delta: 0, botLevel: null };
+    const rp = Number(r.rankPoints);
+    if (Number.isFinite(rp) && (!window.SALTIZ_RANK || _mineRank)) {
+      window.SALTIZ_RANK = { rankPoints: rp, rankTier: r.rankTier || null, delta: 0, botLevel: null };
+      _mineRank = true;
+    }
+    // Trophies. Only `xp` is required — `level` is derived by levelFromXp() when absent, so a
+    // backend that stops sending it still works. 0 is a legitimate value for a new player, so the
+    // test is isFinite, not truthiness.
+    const xp = Number(r.xp);
+    if (Number.isFinite(xp) && (!window.SALTIZ_XP || _mineXp)) {
+      const lvl = Number(r.level);
+      window.SALTIZ_XP = Number.isFinite(lvl) && lvl > 0 ? { xp, level: lvl } : { xp };
+      _mineXp = true;
+    }
   } finally { _rankSelfBusy = false; }
 }
+// Kept as an alias: the hub loop and any other caller still say fetchOwnRank().
+const fetchOwnRank = fetchOwnProgress;
 let MY_USER_ID = null; // filled from the welcome message (authenticated connections only)
 
 // ---- Player album (cards) -------------------------------------------------
@@ -2487,9 +2521,11 @@ function hideRoomWait() { if (roomWaitEl) roomWaitEl.classList.add('hidden'); }
 function apiHeaders() { return { 'content-type': 'application/json', 'football-auth': FOOTBALL_TOKEN || '' }; }
 // #3: returns null on FAILURE (so callers can show an inline error/retry state) vs an
 // array/object on success — a silent [] used to hide "couldn't load" behind "no friends".
-async function apiGet(path) {
+async function apiGet(path, sameOrigin) {
   try {
-    const r = await fetch(`${PIKME_API}${path}`, { headers: apiHeaders() });
+    // sameOrigin: hit THIS server instead of PIKME_API (used by the /dev/progress passthrough, which
+    // exists precisely because the API's CORS allowlist excludes dev hosts).
+    const r = await fetch(sameOrigin ? path : `${PIKME_API}${path}`, { headers: apiHeaders() });
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
