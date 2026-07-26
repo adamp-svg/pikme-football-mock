@@ -74,6 +74,17 @@ ok('apiGet supports a same-origin call for it', /async function apiGet\(path, sa
 ok('delta is 0 on a standing read', /delta: 0, botLevel: null/.test(src));
 ok('it is rate-limited', /RANK_SELF_MS/.test(src));
 ok('the hub loop calls it', /fetchOwnRank\(\);\s*\n\s*pollRank\(\);/.test(src));
+// The post-match trophy REVEAL only fires when the client OBSERVES xp increase, so a stale local
+// value means no animation at all. Measured: after rolling the client's number back, the bar did not
+// correct until t=62s — the 60s RANK_SELF_MS limit was the only thing gating it. Match-end must
+// therefore invalidate the timer, or the reveal silently never plays on any surface where WE own the
+// value (a browser, or an app build older than the SALTIZ_XP inject).
+const meStart = src.indexOf('if (matchResultSent) {');
+const matchEnd = meStart < 0 ? '' : src.slice(meStart, src.indexOf('simulateXpGainForDemo()', meStart));
+ok('match end arms the xp reveal', /_awaitXpReveal = true/.test(matchEnd));
+ok('match end arms the rank reveal', /armRankReveal\(\)/.test(matchEnd));
+ok('match end INVALIDATES the progression fetch timer (else the reveal never fires)',
+  /_rankSelfAt = 0/.test(matchEnd));
 
 // TDZ ORDER — this shipped broken once. startHomeDance() is INVOKED at module level and its loop()
 // runs synchronously on the first frame, so it reaches fetchOwnRank() during module evaluation.

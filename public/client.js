@@ -3497,6 +3497,16 @@ function connect(name, avatar) {
       if (matchResultSent) {                 // a real match just finished -> celebrate the XP the app injects on return
         _awaitXpReveal = true;
         armRankReveal();                     // ...and reveal the RANK change, which may be a DROP
+        // Force the progression re-read NOW instead of waiting out RANK_SELF_MS. The reveal only
+        // fires when the client OBSERVES xp increase (see the hub loop), and when we own the value
+        // rather than the app -- an app build older than the SALTIZ_XP inject, or any browser
+        // surface -- that observation is gated behind a 60s rate limit. So the match ends, the
+        // server credits the trophies, and the animation silently never plays because the client is
+        // still holding the pre-match number. Reported as "I don't see the score increase animation
+        // after a bot game". Zero-ing the timestamp lets the next 700ms poll fetch immediately.
+        // Harmless when the app DOES inject: _mineXp is false then, so fetchOwnProgress leaves
+        // window.SALTIZ_XP alone and the app's own injectXp drives the reveal as before.
+        _rankSelfAt = 0;
         simulateXpGainForDemo();             // localhost only (no native app to inject xp); no-op on device/Render
       }
     } else if (msg.type === 'roomError') {
