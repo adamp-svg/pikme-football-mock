@@ -205,3 +205,11 @@ Additions to §4's refuted list. **Do not re-propose these without new evidence:
   agent's commit and needed recovery.
 - Numbers are only comparable within one snapshot. Say which arena, which seeds, and how many matches
   every time you quote one.
+- **"Commit locally, never push" IS NOT A SAFETY BOUNDARY IN THIS REPO — measured 2026-07-26.**
+  `git reflog show origin/main --date=iso` shows **12+ pushes in one day, 00:43 → 17:07, on a ~10-40
+  minute cadence**, and one of them carried this agent's commits **5 minutes** after they were made.
+  Nothing on this machine explains it — no git hooks in the clone or its worktree, no `push.*` config,
+  no crontab, no launchd job, no script in the repo — so it is a sibling Claude session the user has
+  authorised, on its own clock. The consequence for you: **whatever you commit reaches production
+  within the hour whether or not you push it**, and (see CLAUDE.md) the game service autodeploys. So
+  the decision point is the **commit**, not the push. Do not commit a change you would not ship.
