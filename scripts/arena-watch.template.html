@@ -284,7 +284,7 @@
   'use strict';
   const R = window.SALTIZ.req;
   const { createState, addPlayer, attachBall, step, setField, makeRng } = R('sim.js');
-  const { computeBotInputs, createBotMemory, bmemForTest, VIEW_BOX } = R('bot-ai.js');
+  const { computeBotInputs, createBotMemory, bmemForTest, VIEW_BOX, personaOf } = R('bot-ai.js');
   const { DIFFICULTY_LEVELS, skillWord } = R('difficulty.js');
   const { MAIN_FIELD } = R('main-field.js');
   const { FIELD_3V3 } = R('field-3v3.js');
@@ -366,6 +366,11 @@
   // One entry per `bm.lastTrick` tag in shared/bot-ai.js. `flaw: true` marks a tag whose own
   // source comments record it as broken or unreachable, so the log can call it out.
   const PLAYS = {
+    // added 2026-07-26 round 10 (chase/press/persona work)
+    chaseCommit: 'is committed to the loose ball — nothing else outranks it now',
+    pressIntercept: 'is cutting the carrier off where they are GOING, not chasing their body',
+    secondPress: 'nobody was pressing, so it broke shape to contest the ball',
+    readyCharge: 'is walking in with the weapon already banked',
     drive: 'shot at the middle of the goal',
     postFinish: 'went for a post instead of the middle',
     cornerFinish: 'picked the corner the keeper is leaving',
@@ -820,8 +825,9 @@
       return `<div class="bot">
         <div class="chip" style="background:var(--team${team})">${id}</div>
         <div><b>${tag ? (PLAYS[tag] || tag) : 'holding shape'}</b></div>
-        <div class="role">${r.onBall === id ? 'on ball' : 'support'}</div>
+        <div class="role">${personaOf(p.slot, mem.personaRot || 0).name}<br>${r.chaser === id ? 'CHASER' : (r.onBall === id ? 'on ball' : 'support')}</div>
         <div class="meta"><span>ammo ${p.ammo}</span><span>walls ${p.buildAmmo}</span>
+          <span>chg ${(p._charge || 0).toFixed(2)}</span>
           <span>bomb ${p.specialCd > 0 ? p.specialCd.toFixed(1) + 's' : 'ready'}</span>
           ${p.power ? '<em>SUPER</em>' : ''}${s.ball.owner === id ? '<em>ball</em>' : ''}</div>
       </div>`;
