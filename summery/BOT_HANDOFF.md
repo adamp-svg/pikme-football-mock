@@ -5,6 +5,93 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 0000. ROUND 6 (2026-07-26 13:2x-, agent `bot-review`) — 6 requested features, and the L10 "idle"
+
+Requests: better obstacle awareness + wall planning · bots that COMMUNICATE to pass · a left-behind
+bot should bomb-propel instead of walking · kick the ball ahead then bomb-fly after it · a team
+wall+bomb catapult that flings the carrier WITH the ball · and (mid-round) **rectangular,
+screen-shaped vision instead of a circle**.
+
+### The two feels, diagnosed before touching anything
+
+*"The walls are throwing them off"* — after round 5's probe fix, they are not. Of every L10 tick where
+a bot WANTED to move and barely did: **team-mate body 28.6% · enemy body 16.3% · pitch edge 2.3% ·
+WALL 1.0%**, rest = the legit build/carry slow. The obstacle was each OTHER: `steer()` reacted to a
+player only when it was bomb-launched or >700px/s, and `separatePlayers` is a hard symmetric shove.
+Body avoidance took team-mate blocking to **~1%**.
+
+*"They sometimes get idle waiting for something"* at L10 — and this round's own new bomb plays made it
+worse before it was measured: **14.3% of every bot-tick standing on a bomb fuse, 7.3s per bot per
+match over 14.2 plants**, because `nextBombAt` is `3.0 * cdMul` and cdMul at the top is ~0.4, so four
+branches could re-plant every ~1.2s. **A flat `MOBILITY_GAP` of 6.5s that deliberately does NOT scale
+with cdMul** (a stronger bot should use the bomb BETTER, not MORE): **14.3% → 5.1%** at skill 0.93,
+and the same ~5% at 0.50 — the rate is now tier-independent. Build-windup freeze also fell 3.5s → 2.0s
+per match once `wallSpotOk()` stopped bots walling their own partner.
+
+### Vision is a RECTANGLE now (and the circle was a real advantage)
+
+`botCanSee` tested a 620px RADIUS. The client camera is `scale = CAM_ZOOM * canvasW / FIELD.W`,
+CAM_ZOOM 1.65, so the visible world is 1212px wide by ~682 tall: **half-extents 606 x 341**. The
+circle gave bots nearly **2x the vertical awareness of the human they play against**. Vision is now a
+screen-shaped box (`VIEW_BOX`, exported for tests/overlays) and BALL_VISION became a SCALE on that box
+rather than a second circle. A phone in landscape is tighter still (~560 tall), so 341 is generous.
+
+### Measured, per feature
+
+| | |
+|---|---|
+| rocket-jump vs walking (one fuse + glide, 2.92s) | walk **400px** · jump **653px** · jump + stone behind **869px** |
+| the catapult (fixture) | carrier **+490px AND KEEPS THE BALL** (+595 with stone), mate +539/+649 |
+| passes reaching a team-mate | **90%** (32.7 releases/match) — was 22% before the latch |
+| pass GAIN sweep (the counter-intuitive one) | GAIN 100px → 53% complete · **GAIN 40px → 90%**: a longer pass is easier to cut out |
+| team-mate body blocking | 28.6% → **~1%** of stuck ticks |
+| bomb-fuse time at skill 0.93 | 14.3% → **5.1%** of bot-ticks |
+| skill 0.50, 12 matches | pinned 0.52% · worst jam 0.82s · idle-with-ball 1.21% · shots 51.8 · loose 62.3% |
+
+The catapult works because of ONE line in `explode()`: the ball is only knocked loose
+`if (bd < radius && !(bomberOnCenter && b.owner))`. A team-mate standing on its own bomb is the only
+blast in the game that can move a carrier without taking the ball off them. Geometry is
+**wall → bomb → carrier** (a built wall BETWEEN bomb and carrier soaks 75% of the blast), the bomb
+leads the carrier by its own speed × `BOMB.fuse`, and `mem.cata` asks the carrier to hold that heading
+so the prediction lands — that call is why it is a communication feature and not two bots guessing.
+
+### Two "test failures" that were real bugs
+
+- **`cornerFinish` was shooting at the keeper it had gone around.** It picked its corner as a FRACTION
+  OF THE MOUTH (0.30 → 90px) and re-picked it every tick. With a keeper parked on GY, `kyFut` flips
+  sign constantly, so the aim flip-flopped between both corners for the whole wind-up; and 90px at the
+  GOAL LINE is only ~42px of clearance at the KEEPER, who stands far closer to the shooter and slides
+  ~22px during the ball's 0.16s flight. Now the required miss is computed AT the keeper
+  (body + ball + slide), projected out to the line, LATCHED for 1.2s, and if the woodwork cannot fit
+  it the corner is genuinely covered — so the bank / walk-in dead-end ladder finally gets its turn.
+  That is what `test-bot-newskills` was reporting.
+- **A one-tick window let a CARRIER hold a bomb plant** — the deleted `carryJump` in another costume.
+  `finalize()` now enforces the sim's own rule (`sim.js:840`, a carrier cannot plant) at the funnel,
+  so no future play can reintroduce it.
+
+### Gates are SPREAD, not stacked — measured the hard way
+
+Both new plays first landed on t >= 0.50 together. The ladder said: spread **0.50 → 1.04** (the
+features are real and they fixed round 5's spread loss) but Spearman rho **0.90 → 0.40** — two
+powerful plays arriving at the same anchor scramble the middle order. Re-placed in the free slots:
+**kick-and-fly 0.58, catapult 0.74**, so the climb now reads 0.50 super-hold → 0.58 kick-and-fly →
+0.68 keeper → 0.74 catapult → 0.82 super-body/far-wall → 0.92 pincer. Re-measured after that.
+
+### Still open after round 6
+
+1. **Strong bots leave the ball loose.** At symmetric skill 0.93: loose 78% of the match, 5.5
+   "nobody reached it in 4s" events per match, ball-gap 143px — against 62% / 2.2 / 125px at 0.50.
+   They take more long shots and the off-ball bot sits at MIN_SEP. Not caused by this round (the same
+   shape is in the round-5 numbers) but it is the next thing a player would notice at L10+.
+2. `test-bot-cannon`'s absolute "8% of self-launches are wall-boosted" gate was **re-based with the
+   arithmetic**: the two new open-space mobility plays moved the denominator (265 self-launches over
+   10 matches × 3 levels; the bot's own mirror now sees a chance on 4% of launches vs 11% when the gate
+   was written), so 8% is above the ceiling. The gate that carries the fix — `agree >= 75`, "when a
+   chance existed the boost landed" — still passes at 80%, and the absolute rate is printed instead.
+3. The carry-aim deflection and the catapult both dodge/aim LOCALLY; neither biases toward the
+   movement direction yet.
+
+---
 ## 000. ROUND 5 (2026-07-26 12:4x-13:2x, agent `bot-review`) — §00 WAS RIGHT, AND HERE ARE THE TWO BUGS
 
 §00 said "fix pinning on MAIN_FIELD, prime suspects the nav grid's `r+2` inflation / `detourRatio` /

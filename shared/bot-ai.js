@@ -413,9 +413,29 @@ function bankAim(sx, sy, tx, ty, state, team, { goal = false, maxPath = 780, vie
 // A bot only perceives an enemy within its VIEW (~on-screen); it can't track a foe
 // across the whole pitch. Within view, bush stealth then applies. (The BALL itself is
 // always known — the shared objective — this gates enemy-PLAYER awareness only.)
+// ---- THE VIEW IS A RECTANGLE, NOT A CIRCLE -------------------------------------------------
+// A circular VISION_RANGE gave bots ~620px of awareness in EVERY direction, but the player's
+// awareness is their SCREEN, and the screen is wide and short. The client's camera is
+// `scale = CAM_ZOOM * canvasW / FIELD.W` with CAM_ZOOM 1.65 (client.js:4935/4983), so the visible
+// world is FIELD.W / 1.65 = 1212px wide — half-width 606, which is where the old 620 radius came
+// from — and 1212 / (16:9) = 682px tall, half-height 341. A phone in landscape (844x390) is
+// TIGHTER still vertically (~560 tall), so 341 is the generous end of what a player can actually
+// see. The circle was handing bots nearly 2x the vertical awareness of the human they play against.
+// Team B renders mirrored horizontally; the box is symmetric, so it needs no mirroring.
+const VIEW_HALF_W = 606, VIEW_HALF_H = 341;
+// The ball-carrier is the tracked objective and is seen further (BALL_VISION 950 vs VISION_RANGE
+// 620). Keep that as a SCALE on the same screen-shaped box rather than a second circle, so the
+// concession stays "a wider screen", not "a rounder one".
+const CARRIER_VIEW_K = BALL_VISION / VISION_RANGE;
+function inView(dx, dy, mul, k = 1) {
+  return Math.abs(dx) <= VIEW_HALF_W * mul * k && Math.abs(dy) <= VIEW_HALF_H * mul * k;
+}
+export const VIEW_BOX = { halfW: VIEW_HALF_W, halfH: VIEW_HALF_H, carrierK: CARRIER_VIEW_K }; // for tests/overlays
+
 export function botCanSee(viewer, target, state, sk) {
   if (viewer.team === target.team) return true;          // teammates always
   const dist = hyp(viewer.x - target.x, viewer.y - target.y);
+  const vdx = target.x - viewer.x, vdy = target.y - viewer.y;
   const inBush = pointInBush(target.x, target.y);
   // EXTREME CHEAT (x-ray): an OPEN enemy is seen anywhere on the pitch, ignoring fog.
   // CRITICAL: a BUSHED enemy stays hidden even to EXTREME — cover still works.
@@ -428,8 +448,8 @@ export function botCanSee(viewer, target, state, sk) {
   // The ball-carrier is the tracked objective — seen at a longer (tier-scaled) range so
   // bots keep pressing instead of losing it to fog mid-chase. BUT a carrier hiding IN A
   // BUSH stays concealed (falls to the bush rules below) — carrying in a bush is safe.
-  if (state.ball.owner === target.id && !inBush && dist <= BALL_VISION * vMul) return true;
-  if (dist > VISION_RANGE * vMul) return false;          // an OFF-ball enemy out of view — no seeing across the field
+  if (state.ball.owner === target.id && !inBush && inView(vdx, vdy, vMul, CARRIER_VIEW_K)) return true;
+  if (!inView(vdx, vdy, vMul)) return false;             // an OFF-ball enemy off-SCREEN — no seeing across the field
   if (!inBush) return true;                              // in the open (and in view) = seen
   if (target.firing) return true;                        // muzzle flash reveals
   if (dist < BUSH_REVEAL_DIST) return true;              // close enough to spot in the bush
@@ -616,6 +636,7 @@ function steer(bot, tgtx, tgty, state, bmem, sk, now = 0) {
   // tangent -0.35 (wins) / away -1.00, where before tangent scored DEAD LAST.
   const c0 = clearAt(bot.x, bot.y);
   const LOOK = 120, SAMP = [0.34, 0.67, 1.0], HIT_PAD = 2, GRAZE_R = 22, W_BLOCK = 2.2, W_GRAZE = 0.6, W_HITFRAC = 0.6;
+  const BODY_LOOK = 96, W_BODY = 1.1;
   let best = null, bestScore = -1e9, safest = null, safeD = 1e9;
   for (const [dx, dy] of DIRS) {
     const interest = dx * tox + dy * toy;            // -1..1
@@ -670,6 +691,38 @@ function steer(bot, tgtx, tgty, state, bmem, sk, now = 0) {
       const along = Math.abs(dx * evx + dy * evy);        // flee perpendicular, not along its line
       dyn = Math.max(dyn, along * (1 - rel / 300) * sk.evade);
     }
+    // ---- BODIES ARE OBSTACLES TOO -----------------------------------------------------------
+    // MEASURED at L10 on MAIN_FIELD, over every tick where a bot WANTED to move and barely did:
+    //   team-mate body 28.6% · enemy body 16.3% · pitch edge 2.3% · WALL 1.0% · rest = the legit
+    //   build-windup / carry slow.
+    // So once the wall-probe was fixed, "the walls are throwing the bots off" is mostly bots
+    // SHOVING EACH OTHER: steer() reacted to another player only when it was bomb-launched or
+    // moving >700px/s, and separatePlayers (sim.js:354) is a hard symmetric push with no
+    // pass-through, so a parked body is a real obstacle the steering could not see.
+    // Weight sits BELOW W_BLOCK (a wall still dominates) and ABOVE W_GRAZE, so a body BENDS the
+    // path — it can never make a bot refuse to advance.
+    // Skipped entirely when this bot WANTS contact (pressing a carrier, super body-strip, body
+    // screen, pincer, ambush strip): those are contact plays, and BODY SCREEN in particular is
+    // built on the shove — see its comment. A team-mate costs more than an enemy: there is
+    // nothing to win by walking into your own partner.
+    let bodyD = 0;
+    {
+      for (const q of Object.values(state.players)) {
+        if (q.id === bot.id) continue;
+        const rel = hyp(q.x - bot.x, q.y - bot.y);
+        if (rel > r * 2 + BODY_LOOK) continue;
+        // seekContact suppresses the ENEMY term only — a contact play is about walking into an
+        // OPPONENT, and there is never a reason to walk into your own partner.
+        if (q.team !== bot.team && (bmem.seekContact || !botCanSee(bot, q, state))) continue;
+        const [qx, qy] = unit(q.x - bot.x, q.y - bot.y);
+        const align = dx * qx + dy * qy;
+        if (align <= 0.15) continue;                                    // only dirs pointing INTO them
+        const close = clamp(1 - (rel - r * 2) / BODY_LOOK, 0, 1);
+        const cost = align * close * (q.team === bot.team ? 1 : 0.7);
+        if (cost > bodyD) bodyD = cost;
+      }
+    }
+    danger += W_BODY * bodyD;
     danger += 2.2 * dyn;                 // the 2.2 stays explicit, on the DYNAMIC term only
     const score = interest - danger;
     if (score > bestScore) { bestScore = score; best = [dx, dy]; }
@@ -980,6 +1033,23 @@ const T_KEEPER     = 0.68;  // B2  — play a real goalkeeper instead of chasing
 const T_SUPER_BODY = 0.82;  // B1b — spend the overcharge as a body-strip on contact
 const T_FAR_WALL   = 0.82;  // B3  — push the built wall out with buildDist
 const T_PINCER     = 0.92;  // B4  — break MIN_SEP and trap the carrier from two sides
+// round 6 additions, placed in the gaps: 0.58 kick-and-fly, 0.74 catapult (see their constants)
+// SPREAD ACROSS THE LADDER, not stacked. The design rule this file already follows (§4 / the gate
+// table above) is that each new nameable behaviour should arrive at a DIFFERENT level, so a player
+// climbing meets something new instead of one step where everything switches on. Both of these first
+// landed on 0.50 together and the ladder measured spread 1.04 (up from 0.50 — the features are real)
+// but Spearman rho 0.40: two powerful plays arriving at the same anchor scrambled the middle order.
+// Placed in the two free slots between the existing 0.50 / 0.68 / 0.82 / 0.92 gates.
+const T_KICK_FLY   = 0.58;  // C1  — kick the ball ahead, then bomb-jump after it (requested)
+const T_CATAPULT   = 0.74;  // C2  — the team wall+bomb catapult (requested)
+// C1 sizing: the launch covers ~650px of open ground (measured), so the ball is kicked a little
+// SHORTER than that — landing past the ball is fine (we run back a step), landing short of it is
+// not, because an opponent gets there first.
+const FLY_DIST = 560;
+// C2 geometry: how far BEHIND the carrier's predicted position the bomb goes. Inside BOMB.radius
+// (168) so the carrier is pushed, and inside BOMB_CENTER_R (95)... of the PLANTER, who stands on it.
+const CATA_BACK = 110;
+const CATA_WINDOW = 3.4;    // seconds the whole play may take before it gives up
 // Default 0 (not 0.5): an unknown/legacy skill object must get NO new behaviour rather than
 // silently landing in the middle of the ladder. Every real path supplies `t` (skillVec sets it;
 // BOT_SKILL's tiers carry their own).
@@ -1001,6 +1071,24 @@ const SUPER_BODY_CLOSE = 220;
 // the same BUILD_WINDUP ghost telegraph players already see.
 // COUNTER: a built wall is hp3 and one full-charge shot destroys it; or walk round it; and
 // BUILD_RELOAD is 15s per charge, so a spent wall is 15s of free lane.
+// ---- WALL PLANNING: would this wall get in OUR OWN way? --------------------------------------
+// Requested ("better obstacle awareness and wall planning"). A built wall lives for BUILT_WALL.ttl
+// and the bots had no notion of their own team's lines at all, so a defensive screen could land on
+// top of a team-mate (who then has to walk round it — and body/wall blocking is 45%/1% of the
+// stuck ticks, so we were manufacturing our own obstacles) or straight across the lane our own
+// carrier was about to run. Two cheap exact tests, applied at every DEFENSIVE build site.
+// The deflect set-piece is deliberately exempt: its whole purpose is a wall in the attacking lane
+// to bank a shot off.
+function wallSpotOk(state, p, team, cx, cy) {
+  for (const q of Object.values(state.players)) {
+    if (q.team !== team || q.id === p.id) continue;
+    if (hyp(q.x - cx, q.y - cy) < 90) return false;              // don't wall in your own partner
+  }
+  const owner = state.ball.owner ? state.players[state.ball.owner] : null;
+  if (owner && owner.team === team && pointSegDist(cx, cy, owner.x, owner.y, enemyGoalX(team), GY) < 80) return false;
+  return true;                                                    // ...or our own lane to their goal
+}
+
 function wallReach(sk) { return skT(sk) >= T_FAR_WALL ? BUILT_WALL.offset + BUILD_DIST_MAX : BUILT_WALL.offset; }
 // The buildDist that puts the wall on (wx,wy) when building along the unit aim (nx,ny). Clamped
 // into the tier's reach, so below the gate this is exactly 0 — today's at-your-feet wall.
@@ -1059,6 +1147,88 @@ function cannonPlant(p, dx, dy, state) {
   return best || { x: p.x, y: p.y, dx, dy, mul: 1, back: 0 };
 }
 
+// ==================== MOBILITY: IS A ROCKET-JUMP ACTUALLY FASTER THAN WALKING? ================
+// Requested: "if a bot is left behind he can use the bomb to propel forward instead of walking."
+// It only pays if it BEATS walking, and the bot is frozen on its plant for BOMB.fuse (1.725s)
+// first, so this had to be measured rather than assumed. In the sim, over one fuse + glide (2.92s),
+// launching across open ground:
+//     walking .......................... 400px
+//     rocket-jump ...................... 653px   (+63%)
+//     rocket-jump, STONE behind the bomb 869px   (+117%)
+// So a plain feet-plant wins from ~430px out, and a wall-cannoned one wins from much closer. Below
+// that the honest answer is "just run", which is why the two existing mobility jumps (catchUpJump,
+// coopPush) asked for 620px: that was conservative rather than wrong. This helper is the shared
+// decision so every branch can use it — being "left behind" is not something that only happens
+// while your team-mate carries the ball, which is the only branch that had it.
+const JUMP_MIN_D = 430;          // ≈ the walking distance over one fuse+glide
+const JUMP_NO_CANNON_D = 620;    // without a wall boost, insist on a trip long enough to be sure
+// A FLAT FLOOR BETWEEN MOBILITY BOMBS, DELIBERATELY NOT SCALED BY cdMul. Measured after this round's
+// three new bomb plays landed: at skill 0.93 the bots spent **14.3% of every tick standing on a bomb
+// fuse — 7.3 seconds per bot per match over 14.2 plants** — because nextBombAt is `3.0 * cdMul` and
+// cdMul at the top of the ladder is ~0.4, so a strong bot could re-plant every ~1.2s while four
+// separate branches competed for the charge. That is exactly the "they sometimes get idle waiting for
+// something" the user reported at level 10: a bot standing on a fuse is committed for 1.725s and
+// looks like it is doing nothing. A stronger bot should use the bomb BETTER, not MORE, so the gap
+// between MOBILITY bombs is a constant. The tackle bomb and the corner escape keep their own
+// cdMul-scaled cooldown — those are reactions, not travel.
+const MOBILITY_GAP = 6.5;
+function mobilityJump(p, bm, mem, state, sk, tgt, visibleEnemies, bombReady, tag) {
+  if (!bombReady || (sk.toolSkill || 0) < TOOL_MOBILITY_MIN) return null;
+  if (mem.t <= (bm.nextBombAt || 0) || mem.t <= (bm.nextMobilityAt || 0) || !toolNotice(sk, p, mem)) return null;
+  const d = hyp(tgt.x - p.x, tgt.y - p.y);
+  if (d < JUMP_MIN_D) return null;
+  // Freezing for 1.725s next to an opponent is how you get stripped, and freezing while somebody
+  // else is closer to the destination is how you arrive second.
+  for (const e of visibleEnemies) {
+    if (hyp(e.x - p.x, e.y - p.y) < 300) return null;
+    if (hyp(e.x - tgt.x, e.y - tgt.y) < 420) return null;
+  }
+  if (!laneClear(p.x, p.y, tgt.x, tgt.y, state, p.team, { enemies: false })) return null;
+  const [ex, ey] = unit(tgt.x - p.x, tgt.y - p.y);
+  const cp = cannonPlant(p, ex, ey, state);
+  if (cp.mul < 1.05 && d < JUMP_NO_CANNON_D) return null;   // no boost and not far enough: walk
+  bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
+  bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+  bm.nextMobilityAt = mem.t + MOBILITY_GAP;
+  bm.lastTrick = cp.mul > 1.05 ? 'wallCannonJump' : tag;
+  return { x: cp.dx, y: cp.dy };
+}
+
+// ---- THE PASS CALL: bots telling each other what they are about to do -----------------------
+// Requested: "let them communicate so they can decide to pass the ball from one another."
+// Two halves, and the file was missing BOTH:
+//  * the carrier LATCHES its pass (see the autopsy at the pass sites) so the ball actually goes to
+//    the receiver instead of being silently re-aimed at the goal on the next tick;
+//  * the receiver READS the call and comes to meet it, instead of holding an outlet spot chosen
+//    for a pass that was never coming.
+// mem.pass[team] is the channel. It is a CALL, not a contract: it expires, and either bot can be
+// pulled off it by anything higher-value.
+function callPass(p, mate, bm, mem, team) {
+  bm.passTo = { id: mate.id, until: mem.t + 1.1 };
+  bm.giveGo = { until: mem.t + 1.0 };
+  bm.nextPassAt = mem.t + PASS_COOLDOWN;
+  (mem.pass || (mem.pass = {}))[team] = { from: p.id, to: mate.id, until: mem.t + 1.4 };
+}
+// Is a pass to `mate` worth making? THIS HAD TO BE RETUNED THE MOMENT THE LATCH WORKED. The old
+// gate ("mate is 30px closer to goal") was written when 78% of pass intents were silently converted
+// into shots at goal, so it was effectively a no-op; with the latch honouring every call the bots
+// immediately started ping-ponging — MEASURED 33.7 completed pass releases per match, one every
+// 1.8s, which is not football, it is hot potato. A pass now has to actually GAIN ground and arrive
+// somewhere safe, and there is a per-bot cooldown so the receiver cannot instantly pass it back.
+// SWEPT, 12 matches x 60s per cell, on the real arena. The gain requirement is the interesting one:
+// asking for MORE ground per pass makes the receiver further away, which makes the pass longer and
+// easier to cut out — GAIN 100 completed 53%, GAIN 40 completes 90%. So the bots keep possession by
+// playing the short one that is on, which is also what the player sees as teamwork.
+const PASS_COOLDOWN = 1.0;   // seconds before this bot may call another pass (stops hot-potato)
+const PASS_GAIN = 40;        // px closer to the enemy goal the receiver must be
+const PASS_MARK = 130;       // don't pass to a mate with a defender this close
+function passWorthIt(p, mate, bm, mem, team, state, egX, visibleEnemies) {
+  if (mem.t <= (bm.nextPassAt || 0)) return false;
+  if (hyp(egX - mate.x, GY - mate.y) > hyp(egX - p.x, GY - p.y) - PASS_GAIN) return false;
+  for (const e of visibleEnemies) if (hyp(e.x - mate.x, e.y - mate.y) < PASS_MARK) return false; // don't pass into a marker
+  return true;
+}
+
 // Decide one bot's input: role tactics -> desired {move target, aim, buttons},
 // then apply steering + skill (reaction latency, aim slew + noise).
 function decideBot(p, role, state, mem, sk, dt) {
@@ -1066,6 +1236,9 @@ function decideBot(p, role, state, mem, sk, dt) {
   bm.lastTrick = null; // reset each tick — it's a per-tick behaviour tag, not sticky state
                        // (histogramming a sticky tag over-counted ~9x and hid the real behaviour)
   bm.slideAngle = false; // ditto: "the release ladder fell through to (d)" is a per-tick fact
+  bm.seekContact = false; // per-tick: "I am deliberately walking INTO a body" — steer()'s body
+                          // avoidance reads it, and a contact play must re-assert it every tick
+                          // (the bm.screening flag that was never cleared is why this is per-tick)
   const b = state.ball;
   const team = p.team, egX = enemyGoalX(team), ogX = ownGoalX(team);
   const isOnBall = role.onBall === p.id;
@@ -1192,6 +1365,21 @@ function decideBot(p, role, state, mem, sk, dt) {
     }
   }
 
+  // ===== KICK-AND-FLY, phase 2: the ball is away, now plant and fly after it ==================
+  // Phase 1 (in the carry branch) kicked the ball ahead and armed bm.fly. A carrier can never plant
+  // (sim.js:840 gates the bomb on !carrying), so the plant has to wait for the release to land —
+  // hence two phases. The window is short on purpose: if the release did NOT happen (a wind-up can
+  // cancel), the play is abandoned instead of leaving the bot planting a bomb for no reason.
+  if (bm.fly && mem.t - bm.fly.at > 0.7) bm.fly = null;
+  if (bm.fly && b.owner !== p.id && !bm.bombHold && (p.specialCd || 0) <= 0) {
+    const cp = cannonPlant(p, bm.fly.x, bm.fly.y, state);
+    bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
+    bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+    bm.lastTrick = cp.mul > 1.05 ? 'kickFlyCannon' : 'kickAndFly';
+    bm.fly = null;
+    return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+  }
+
   if (b.owner === p.id) {
     // ===== I CARRY: attack =====
     bm.carryT = (bm.carryT || 0) + dt;
@@ -1260,6 +1448,14 @@ function decideBot(p, role, state, mem, sk, dt) {
     // or simply wait: OVERCHARGE_TTL is 4s.
     const superKeep = !!p.power && skT(sk) >= T_SUPER_HOLD && distGoal < FINISH_RANGE + 260;
 
+    // ===== RIDING THE CATAPULT — my mate has a wall+bomb set for me (mem.cata) =================
+    // The carrier's half of the requested combo. It has exactly one job: HOLD THE HEADING, so the
+    // mate's prediction of where I will be when the fuse ends is still true. That is why this is a
+    // communication channel and not two bots guessing — the zigzag alone would put me 200px off.
+    // It deliberately does NOT stop me shooting: if a finish appears, take the finish.
+    const cataCall = mem.cata && mem.cata[team];
+    const riding = !!cataCall && mem.t < cataCall.until && cataCall.by !== p.id;
+
     // TACTIC 2 (shooter side) — if a mate has set up a DEFLECT wall (mem.setPiece) and we have a
     // clear lane to it, shoot FULL at the wall so the ball banks off it into the net.
     const sp = mem.setPiece && mem.setPiece[team];
@@ -1289,8 +1485,32 @@ function decideBot(p, role, state, mem, sk, dt) {
         // keeper's slide (lead its vy) and pick the corner it is moving AWAY from.
         const leadT = clamp(distGoal / ((settings.shotPower || 1850) * 0.9), 0, 0.6);
         const kyFut = keeper.y + (keeper.vy || 0) * leadT * (sk.leadGain || 1);
-        const cornerY = kyFut > GY ? GY - GOAL.width * 0.30 : GY + GOAL.width * 0.30;
-        if (Math.abs(kyFut - cornerY) > radOf(state) + ballR + 12) {
+        // THE CORNER IS MEASURED AT THE KEEPER, NOT AT THE GOAL LINE, AND IT IS LATCHED.
+        // Two defects, both traced on the walk-in fixture rather than reasoned about:
+        //  (1) the corner was a FRACTION OF THE MOUTH (0.30 => 90px off centre). The keeper stands
+        //      far closer to the shooter than the goal line does, so 90px at the line is only ~42px
+        //      of clearance where it actually matters — and the keeper SLIDES ~22px during the
+        //      ball's 0.16s flight, eating it. Measured: the "corner" finish was caught by a keeper
+        //      it had supposedly gone around. Now the required miss distance is computed AT the
+        //      keeper (body + ball + how far it can slide in the flight time) and projected out to
+        //      the goal line — and if the woodwork cannot fit that, the corner is genuinely COVERED
+        //      and we fall through to the bank / walk-in dead-end ladder, which is what those
+        //      branches exist for.
+        //  (2) it was re-chosen every tick. With a keeper parked ON GY, kyFut flips sign constantly,
+        //      so the aim flip-flopped between both corners for the whole wind-up and the shot
+        //      released wherever it happened to be pointing. Latched for 1.2s: commit, then honour
+        //      it — the same rule as every other committed action in this file.
+        const flightT = distGoal / Math.max(1, (settings.shotPower || 1850));
+        const kSlide = (CHARACTERS[keeper.char] || CHARACTERS[DEFAULT_CHAR]).speed * (settings.speedMul || 1) * flightT;
+        const needMiss = radOf(state) + ballR + kSlide + 14;
+        const spread = needMiss * Math.abs(egX - p.x) / Math.max(1, Math.abs(keeper.x - p.x));
+        if (!bm.cornerLatch || mem.t > bm.cornerLatch.until) {
+          const want = kyFut > GY ? kyFut - spread : kyFut + spread;
+          const y = clamp(want, GOAL_TOP + postIn, GOAL_BOT - postIn);
+          bm.cornerLatch = { y, open: Math.abs(y - want) < 1, until: mem.t + 1.2 };
+        }
+        const cornerY = bm.cornerLatch.y;
+        if (bm.cornerLatch.open) {
           aim = { x: egX - p.x, y: cornerY - p.y }; shoot = true; charge = 1; bm.lastTrick = 'cornerFinish';
           if (distGoal < 300) closeShot = true;
         } else if (trick >= 0.7) { // corner covered → try a bank as a last resort
@@ -1323,7 +1543,53 @@ function decideBot(p, role, state, mem, sk, dt) {
       }
     }
 
-    // ---- WHY PASSING IS WEAK, MEASURED — AND WHY THE OBVIOUS FIX WAS REVERTED ---------------
+    // ===== THE PASS LATCH — a committed pass now stays a pass =================================
+    // Requested: "let them communicate so they can decide to pass the ball from one another."
+    // This is the missing half of that: without it the CALL below is a lie, because the pass was
+    // silently converted into a shot at goal one tick later (autopsy immediately below). The latch
+    // re-derives the aim at the receiver's LED position EVERY tick until the ball actually leaves,
+    // exactly like bombHold / buildHold / screenUntil / walkUntil — passing was the only committed
+    // action in the file that did not latch. `closeShot` widens the aim tolerance so the release
+    // can actually happen: `fire` needs charge >= fireAt AND |dTheta| <= tol, and it was the
+    // TOLERANCE that stalled passes at close range.
+    // It sits BELOW the finish block on purpose: a real shot at goal outranks a pass, always.
+    if (bm.passTo && (mem.t > bm.passTo.until || !state.players[bm.passTo.id])) bm.passTo = null;
+    if (bm.passTo && !shoot) {
+      const rx = state.players[bm.passTo.id];
+      const full = settings.shotPower || 1850;
+      charge = clamp(hyp(rx.x - p.x, rx.y - p.y) / 950, 0.4, 0.85);
+      const [pax, pay] = leadAim(p.x, p.y, rx.x, rx.y, rx.vx || 0, rx.vy || 0, full * clamp(charge, 0.33, 1), sk);
+      aim = { x: pax, y: pay }; shoot = true; closeShot = true;
+      bm.lastTrick = 'passLatch';
+    }
+
+    // ===== KICK-AND-FLY, phase 1 (requested) ==================================================
+    // "make the bot also quick shot to detach ball and then place bomb and aim to fly and pick it up"
+    // Measured, one fuse + glide (2.92s), open ground: walking 400px, rocket-jump 653px, and 869px
+    // with a stone wall behind the bomb. So this genuinely covers ground a dribble cannot — it is
+    // the bot version of knocking the ball past a defender and sprinting.
+    // It insists on SPACE, because the ball is loose for the whole fuse: nobody within 420px of me,
+    // nobody within 520px of where the ball will stop, a wall-clear lane, and a real trip left to
+    // make. The charge is sized from ballRollPx's inverse so the ball stops a little SHORT of where
+    // the launch drops me — landing past the ball costs a step, landing short of it costs the ball.
+    if (!shoot && !special && !riding && skT(sk) >= T_KICK_FLY && bombReady && distGoal > 700
+        && mem.t > (bm.nextFlyAt || 0) && mem.t > (bm.nextBombAt || 0) && mem.t > (bm.nextMobilityAt || 0)
+        && toolNotice(sk, p, mem)) {
+      const [fx, fy] = unit(egX - p.x, GY - p.y);
+      const land = { x: clamp(p.x + fx * FLY_DIST, 70, FIELD.W - 70), y: clamp(p.y + fy * FLY_DIST, 70, FIELD.H - 70) };
+      let space = true;
+      for (const e of visibleEnemies) if (hyp(e.x - p.x, e.y - p.y) < 420 || hyp(e.x - land.x, e.y - land.y) < 520) space = false;
+      if (space && laneClear(p.x, p.y, land.x, land.y, state, team, { enemies: false })) {
+        aim = { x: fx, y: fy };
+        charge = clamp(chargeForRoll(state, FLY_DIST * 0.8), 0.30, 0.85);
+        shoot = true; closeShot = true; bm.carryT = 0;
+        bm.fly = { x: fx, y: fy, at: mem.t };
+        bm.nextFlyAt = mem.t + 9.0; bm.nextMobilityAt = mem.t + MOBILITY_GAP;   // flat: see MOBILITY_GAP
+        bm.lastTrick = 'kickAndFly';
+      }
+    }
+
+    // ---- WHY PASSING WAS WEAK, MEASURED — AND WHY THE FIRST FIX WAS REVERTED ----------------
     // Instrumented over 8 matches at t=0.82: 98 pass INTENTS produced only 49 ball releases in
     // total, and just 22% of releases reached a team-mate (16% reached an ENEMY, 41% nobody).
     // ROOT CAUSE: a pass sets shoot+aim for ONE tick and finalize opens a wind-up, but on the next
@@ -1342,19 +1608,20 @@ function decideBot(p, role, state, mem, sk, dt) {
     // ladder was leaning on. Whoever fixes this properly must re-cut the 12 levels in the same
     // change and re-measure with SEEDS=6 — it is a ladder change, not a passing change.
     // 2) marked & not shooting -> PASS to a better mate (direct, or BANK around a blocker); sets give-and-go
-    if (!shoot && superKeep && mate && nfd < 260) {
+    if (!shoot && riding) {
+      bm.lastTrick = bm.lastTrick || 'catapultRide';   // hold it: the ride is worth more than the pass
+    } else if (!shoot && superKeep && mate && nfd < 260) {
       bm.lastTrick = 'superHold'; // B1a: keep the overcharge, take it to the goal yourself
     } else if (!shoot && mate && nfd < 260) {
-      const mateBetter = hyp(egX - mate.x, GY - mate.y) < distGoal - 30;
-      if (mateBetter) {
+      if (passWorthIt(p, mate, bm, mem, team, state, egX, visibleEnemies)) {
         const full = settings.shotPower || 1850;
         if (laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
           charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
           const [pax, pay] = leadAim(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, full * clamp(charge, 0.33, 1), sk);
-          aim = { x: pax, y: pay }; shoot = true; bm.giveGo = { until: mem.t + 1.0 };
+          aim = { x: pax, y: pay }; shoot = true; callPass(p, mate, bm, mem, team);
         } else if (trick > 0.6) {
           const bk = bankAim(b.x, b.y, mate.x + (mate.vx || 0) * 0.25, mate.y + (mate.vy || 0) * 0.25, state, team, { goal: false, maxPath: 560 + 260 * trick, viewer: p });
-          if (bk) { aim = { x: bk.aimX, y: bk.aimY }; shoot = true; charge = 1; bm.lastTrick = 'passBank'; bm.giveGo = { until: mem.t + 1.0 }; }
+          if (bk) { aim = { x: bk.aimX, y: bk.aimY }; shoot = true; charge = 1; bm.lastTrick = 'passBank'; callPass(p, mate, bm, mem, team); }
         }
       }
     }
@@ -1388,14 +1655,15 @@ function decideBot(p, role, state, mem, sk, dt) {
         const gy = clamp(p.y, goalBlock.y, goalBlock.y + goalBlock.h);
         aim = { x: gx - p.x, y: gy - p.y }; shoot = true; charge = 1; bm.carryT = 0;
         closeShot = true; bm.lastTrick = 'smashWall';
-      } else if (mate && !superKeep && laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
+      } else if (mate && !superKeep && mem.t > (bm.nextPassAt || 0)
+                 && laneClear(p.x, p.y, mate.x, mate.y, state, team, { margin: 4, viewer: p })) {
         // (c) can't shoot at all (indestructible stone, or out of range) → give it to the mate
         //     ...unless B1a is protecting an overcharge that is still inside finishing reach.
         const full = settings.shotPower || 1850;
         charge = clamp(hyp(mate.x - p.x, mate.y - p.y) / 950, 0.4, 0.85);
         const [pax, pay] = leadAim(p.x, p.y, mate.x, mate.y, mate.vx || 0, mate.vy || 0, full * clamp(charge, 0.33, 1), sk);
         aim = { x: pax, y: pay }; shoot = true; bm.carryT = 0;
-        bm.giveGo = { until: mem.t + 1.0 }; bm.lastTrick = 'outletPass';
+        callPass(p, mate, bm, mem, team); bm.lastTrick = 'outletPass';
       } else {
         // (d) nothing is on — STOP grinding into the blocker and work an angle instead. Slide
         // along the wall toward whichever post is more open; the ladder re-tests every tick, so
@@ -1427,7 +1695,11 @@ function decideBot(p, role, state, mem, sk, dt) {
     if (bm.slideAngle) { // (d): slide across the blocker's face, not into it
       tgt = { x: p.x + (egX - p.x) * 0.12, y: clamp(p.y + bm.workAngle * 260, 120, FIELD.H - 120) };
     }
-    if (nearFoe && nfd < 300) {
+    if (riding) {
+      // straight along the launch line — no weave, no angle-working: the blast is coming
+      tgt = { x: clamp(p.x + cataCall.dx * 320, 90, FIELD.W - 90), y: clamp(p.y + cataCall.dy * 320, 90, FIELD.H - 90) };
+      if (!bm.lastTrick) bm.lastTrick = 'catapultRide';
+    } else if (nearFoe && nfd < 300) {
       const [gx, gy] = unit(egX - p.x, GY - p.y);
       let perpx = -gy, perpy = gx;
       // start the weave toward the MORE-OPEN side (away from the marker), then oscillate
@@ -1458,25 +1730,14 @@ function decideBot(p, role, state, mem, sk, dt) {
     // Gated on TOOL_MOBILITY_MIN + toolNotice (a skill-scaled chance of spotting the opportunity)
     // rather than a hard toolSkill cliff — see the comment on those two: the previous 0.72 cliff
     // muted the human's PARTNER on 7 of the 12 difficulty levels.
-    if (!isOnBall && sk.toolSkill >= TOOL_MOBILITY_MIN && bombReady
-        && mem.t > (bm.nextBombAt || 0) && toolNotice(sk, p, mem)) {
-      const dPlay = hyp(carrier.x - p.x, carrier.y - p.y);
-      const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(e.x - p.x, e.y - p.y)), 1e9);
-      if (dPlay > 620 && foeNear > 300 && laneClear(p.x, p.y, carrier.x, carrier.y, state, team, { enemies: false })) {
-        const [ex, ey] = unit(carrier.x - p.x, carrier.y - p.y);
-        // "PUT A BOMB NEAR A WALL TO FLY FURTHER" (explicitly requested) — see cannonPlant above:
-        // lob the bomb backwards into the gap between us and a stone wall so the sim's wallCannonMul
-        // boosts the launch. A MOBILITY play only, never the tackle-steal: relocating the plant on a
-        // tackle rocket-jumps the planter AWAY from the loose ball (measured 0% steal on hard), which
-        // is why the old wall-cannon nudge was deleted from that path and must stay deleted.
-        const cp = cannonPlant(p, ex, ey, state);
-        // aimX/aimY is the point the bombHold branch edges toward, and that displacement is what sets
-        // the sim's radial launch direction — so it MUST be cp.dx/dy, not the raw ex/ey.
-        bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
-        bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
-        bm.lastTrick = cp.mul > 1.05 ? 'wallCannonJump' : 'catchUpJump';
-        return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
-      }
+    if (!isOnBall) {
+      // "PUT A BOMB NEAR A WALL TO FLY FURTHER" (explicitly requested) lives inside mobilityJump ->
+      // cannonPlant: the bomb is lobbed BACKWARDS into the gap between us and a stone wall so the
+      // sim's wallCannonMul boosts the launch. A MOBILITY play only, never the tackle-steal:
+      // relocating the plant on a tackle rocket-jumps the planter AWAY from the loose ball
+      // (measured 0% steal on hard), which is why that nudge was deleted and must stay deleted.
+      const j = mobilityJump(p, bm, mem, state, sk, carrier, visibleEnemies, bombReady, 'catchUpJump');
+      if (j) return finalize(p, { x: p.x, y: p.y }, j, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
     }
     // TACTIC 2 — COORDINATED DEFLECT SET-PIECE (hard/extreme). When our carrier is near the
     // enemy goal but a DIRECT finish is blocked, the support bot builds an ANGLED wall just
@@ -1542,6 +1803,109 @@ function decideBot(p, role, state, mem, sk, dt) {
         return finalize(p, { x: Wx - nx * reach, y: Wy - ny * reach }, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
       }
     }
+    // ===== THE CATAPULT (requested) — wall + bomb behind the carrier, who flies WITH the ball ===
+    // "give them a skill where one has the ball and the friend puts a wall and a bomb behind it so
+    //  it would propel with the ball" — and it works because of ONE line in explode():
+    //     if (bd < radius && !(bomberOnCenter && b.owner)) { ...knock the ball loose... }
+    // When the PLANTER is standing on its own bomb and somebody owns the ball, the ball is NOT
+    // stripped. So a team-mate's on-centre bomb is the only blast in the game that can move a
+    // carrier without taking the ball off them.
+    // MEASURED with a scripted fixture: mate plants on-centre 110px behind the carrier -> carrier
+    // +490px and KEEPS THE BALL, mate +539px. With a stone wall behind the bomb: +595 / +649. A
+    // carrier walking the same 2.92s covers 400px, and less while carrying.
+    // GEOMETRY — wall -> bomb -> carrier, all on the carrier's run, and every part matters:
+    //   * the wall must be BEHIND the bomb: wallCannonMul only boosts a wall in the cone OPPOSITE
+    //     the push (built wall peak 1.15, scaled by HP);
+    //   * it must NOT be between bomb and carrier, where a full-HP built wall soaks 75% of the
+    //     blast (BLAST_WALL_PASS_MIN 0.25);
+    //   * the bomb must be behind the carrier AT DETONATION, not now. The carrier keeps running, so
+    //     the plant spot leads it by its own speed x BOMB.fuse and the DIRECTION is latched while
+    //     the point is re-derived — the point translates smoothly along a fixed line, which is what
+    //     makes re-deriving safe here and fatal in the old walk-to-a-pad code (there the point
+    //     flipped SIDES mid-walk). mem.cata asks the carrier to hold that heading.
+    if (bm.cata && (mem.t > bm.cata.until || state.ball.owner !== carrier.id || isOnBall)) bm.cata = null;
+    if (!isOnBall && !bm.cata && skT(sk) >= T_CATAPULT && bombReady
+        && mem.t > (bm.nextCataAt || 0) && mem.t > (bm.nextBombAt || 0) && toolNotice(sk, p, mem)) {
+      const cSpd = hyp(carrier.vx || 0, carrier.vy || 0);
+      const [cdx, cdy] = cSpd > 40 ? unit(carrier.vx, carrier.vy) : unit(egX - carrier.x, GY - carrier.y);
+      const towardGoal = (egX - carrier.x) * cdx + (GY - carrier.y) * cdy > 0;   // never launch them backwards
+      const lead = Math.max(90, cSpd) * BOMB.fuse - CATA_BACK;
+      const spot = { x: clamp(carrier.x + cdx * lead, 120, FIELD.W - 120), y: clamp(carrier.y + cdy * lead, 120, FIELD.H - 120) };
+      const chSpeed = (CHARACTERS[p.char] || CHARACTERS[DEFAULT_CHAR]).speed * (settings.speedMul || 1);
+      const reachable = hyp(spot.x - p.x, spot.y - p.y) / Math.max(1, chSpeed) < CATA_WINDOW - BOMB.fuse - BUILD_WINDUP;
+      let ok = towardGoal && reachable
+        && laneClear(carrier.x, carrier.y, carrier.x + cdx * 420, carrier.y + cdy * 420, state, team, { enemies: false })
+        && laneClear(p.x, p.y, spot.x, spot.y, state, team, { enemies: false });
+      for (const e of visibleEnemies) if (hyp(e.x - carrier.x, e.y - carrier.y) < 220) ok = false; // they'd strip it first
+      if (ok) {
+        bm.cata = { dx: cdx, dy: cdy, phase: 'walk', until: mem.t + CATA_WINDOW };
+        bm.nextCataAt = mem.t + 14.0;   // flat, for the same reason as MOBILITY_GAP
+        (mem.cata || (mem.cata = {}))[team] = { dx: cdx, dy: cdy, by: p.id, until: mem.t + CATA_WINDOW };
+      }
+    }
+    if (bm.cata) {
+      const q = bm.cata;
+      const cSpd = hyp(carrier.vx || 0, carrier.vy || 0);
+      const lead = Math.max(90, cSpd) * BOMB.fuse - CATA_BACK;
+      const spot = { x: clamp(carrier.x + q.dx * lead, 120, FIELD.W - 120), y: clamp(carrier.y + q.dy * lead, 120, FIELD.H - 120) };
+      if (q.phase === 'walk') {
+        if (hyp(spot.x - p.x, spot.y - p.y) > 46) {
+          bm.lastTrick = 'catapultSetup';
+          return finalize(p, spot, { x: q.dx, y: q.dy }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+        }
+        if (buildReady && !bm.buildHold && mem.t > (bm.nextBuildAt || 0)) {
+          // aim BACKWARDS so the capsule lands behind the plant spot — that is the cannon side
+          const dist = wallPush(p, p.x - q.dx * 70, p.y - q.dy * 70, -q.dx, -q.dy, sk);
+          bm.buildHold = { x: -q.dx, y: -q.dy, dist, until: mem.t + BUILD_WINDUP + 0.1 };
+          bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1);
+          q.phase = 'build'; bm.lastTrick = 'catapultWall';
+          return finalize(p, { x: p.x, y: p.y }, { x: -q.dx, y: -q.dy }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+        }
+        q.phase = 'plant';                                   // no wall charge: the bomb alone still flings them
+      }
+      if (q.phase === 'build') {
+        if (bm.buildHold) {
+          bm.lastTrick = 'catapultWall';
+          return finalize(p, { x: p.x, y: p.y }, { x: -q.dx, y: -q.dy }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+        }
+        q.phase = 'plant';
+      }
+      if (q.phase === 'plant') {
+        bm.cata = null;
+        if ((p.specialCd || 0) <= 0 && !bm.bombHold) {
+          // plant at our FEET and stand on it: bomberOnCenter is what saves the carrier's ball
+          bm.bombHold = { x: p.x, y: p.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + q.dx * 500, aimY: p.y + q.dy * 500 };
+          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
+          bm.lastTrick = 'catapult';
+          return finalize(p, { x: p.x, y: p.y }, { x: q.dx, y: q.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+        }
+      }
+    }
+
+    // ---- RECEIVE THE CALL: my mate has committed a pass to ME --------------------------------
+    // The other half of the communication. Measured before the latch existed: of 49 releases only
+    // 22% reached a team-mate and 16% reached an ENEMY — the receiver was standing on an outlet spot
+    // it had chosen for its own reasons, sometimes with a defender in the lane.
+    // So: if the lane from the carrier to me is dirty, slide PERPENDICULAR until it is clean (a
+    // committed side, so it doesn't dither); otherwise close a little toward the carrier to shorten
+    // the pass. Above the body screen, because a screen while the ball is on its way to me is the
+    // wrong job; below the deflect set-piece, which is rarer and worth more.
+    const call = mem.pass && mem.pass[team];
+    if (call && call.to === p.id && mem.t < call.until && state.players[call.from] && !bm.bombHold && !bm.buildHold) {
+      const from = state.players[call.from];
+      const [lx, ly] = unit(p.x - from.x, p.y - from.y);
+      let want = { x: p.x - lx * 90, y: p.y - ly * 90 };                     // show for it
+      if (!laneClear(from.x, from.y, p.x, p.y, state, team, { margin: 6, viewer: p })) {
+        const side = (bm.recvSide = bm.recvSide || ((idHash(p.id) & 1) ? 1 : -1));
+        want = { x: clamp(p.x - ly * 190 * side, 80, FIELD.W - 80), y: clamp(p.y + lx * 190 * side, 80, FIELD.H - 80) };
+      }
+      bm.lastTrick = 'receivePass';
+      bm.nextPassAt = mem.t + PASS_COOLDOWN * 0.75;   // take a touch before you give it back
+      // early return ON PURPOSE: the MIN_SEP floor below exists to stop both bots crowding the
+      // ball, and it would drag the receiver away from the pass it was just called for.
+      return finalize(p, want, { x: from.x - p.x, y: from.y - p.y }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
+    }
+
     // PRECEDENCE: the BODY SCREEN sits here, BELOW the deflect set-piece, and that order is
     // load-bearing. It was originally first, and it starved the set-piece completely: measured,
     // on 47 of 47 ticks where the deflect was available the screen latch was already active and
@@ -1574,7 +1938,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         // NB no bm.screening flag: the spec had one, and a challenger showed it was set and never
         // cleared, so after its first screen a bot permanently lost the MIN_SEP 320 spacing rule.
         // Returning early here already bypasses MIN_SEP for exactly the screening ticks.
-        bm.lastTrick = 'bodyScreen';
+        bm.lastTrick = 'bodyScreen'; bm.seekContact = true;  // stepping INTO the chaser's path is the point
         return finalize(p, { x: carrier.x + sx * standOff, y: carrier.y + sy * standOff },
           { x: chaser.x - p.x, y: chaser.y - p.y },
           { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
@@ -1602,21 +1966,14 @@ function decideBot(p, role, state, mem, sk, dt) {
       // TACTIC 10 — COOPERATIVE PUSH (hard/extreme): rocket-jump into the open attacking outlet so
       // the carrier can hit a fast one-two (the pass arrives via the pass-to-mate logic below). We
       // signal mem.push so the carrier prioritises the pass. A bomb-jump into space, no enemy near.
-      if (sk.toolSkill >= TOOL_MOBILITY_MIN && bombReady
-          && mem.t > (bm.nextBombAt || 0) && toolNotice(sk, p, mem)) { // rate, not a cliff — see TOOL_MOBILITY_MIN
-        const dOut = hyp(ahead - p.x, bestY - p.y);
-        const foeNear = visibleEnemies.reduce((m, e) => Math.min(m, hyp(ahead - e.x, bestY - e.y)), 1e9);
-        if (dOut > 620 && foeNear > 260 && laneClear(p.x, p.y, ahead, bestY, state, team, { enemies: false })) {
-          const [ex, ey] = unit(ahead - p.x, bestY - p.y);
-          // Same wall-cannon lob as the catch-up jump: this is the OTHER mobility jump, and it is
-          // the one that was quietly winning the race for the bomb charge (118-150 commits vs the
-          // cannon's 9-14) while planting at its feet with nothing behind it.
-          const cp = cannonPlant(p, ex, ey, state);
-          bm.bombHold = { x: cp.x, y: cp.y, until: mem.t + BOMB.fuse + 0.1, aimX: p.x + cp.dx * 500, aimY: p.y + cp.dy * 500 };
-          bm.nextBombAt = mem.t + 3.0 * (sk.cdMul || 1);
-          bm.lastTrick = cp.mul > 1.05 ? 'wallCannonJump' : 'coopPush';
+      // Same measured decision as the catch-up jump — this is the OTHER mobility jump, and it is
+      // the one that was quietly winning the race for the bomb charge (118-150 commits vs the
+      // cannon's 9-14) while planting at its feet with nothing behind it.
+      {
+        const j = mobilityJump(p, bm, mem, state, sk, { x: ahead, y: bestY }, visibleEnemies, bombReady, 'coopPush');
+        if (j) {
           (mem.push || (mem.push = {}))[team] = { x: ahead, y: bestY, by: p.id, until: mem.t + 2.4 };
-          return finalize(p, { x: p.x, y: p.y }, { x: cp.dx, y: cp.dy }, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+          return finalize(p, { x: p.x, y: p.y }, j, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
         }
       }
     }
@@ -1662,13 +2019,17 @@ function decideBot(p, role, state, mem, sk, dt) {
     if (p.power && skT(sk) >= T_SUPER_BODY && seeC && distC < SUPER_BODY_CLOSE
         && !indestructibleBlocks(p.x, p.y, c.x, c.y, state)) {
       const lead = clamp(distC / 400, 0, 0.35);           // run at where they WILL be, not where they are
-      bm.lastTrick = 'superBodyStrip';
+      bm.lastTrick = 'superBodyStrip'; bm.seekContact = true;   // the whole play IS the body contact
       return finalize(p, { x: c.x + (c.vx || 0) * lead, y: c.y + (c.vy || 0) * lead },
         { x: c.x - p.x, y: c.y - p.y }, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
     }
 
     if (isOnBall) {
       tgt = { x: c.x, y: c.y };
+      // Only CLOSE contact counts as wanted: a strip is a BULLET at up to PRESS_RANGE (~436px), so a
+      // presser has no reason to grind into the carrier's body — measured, keeping the whole press
+      // range as "seek contact" tripled enemy-body blocking. Inside 140px the shove is the point.
+      bm.seekContact = distC < 140;
       if (pc) {
         const [ax, ay] = leadAim(p.x, p.y, pc.x, pc.y, pc.vx, pc.vy, bulletSpeed, sk);
         aim = { x: ax, y: ay };
@@ -1827,7 +2188,7 @@ function decideBot(p, role, state, mem, sk, dt) {
         const q = bm.pincer; // the lane is latched; the POINT still tracks the carrier's live spot
         tgt = { x: clamp(c.x + q.hx * 150 + q.px * 120, 60, FIELD.W - 60), y: clamp(c.y + q.hy * 150 + q.py * 120, 60, FIELD.H - 60) };
         if (pc) aim = { x: pc.x - p.x, y: pc.y - p.y };
-        bm.lastTrick = 'pincer';
+        bm.lastTrick = 'pincer'; bm.seekContact = true;      // closing the trap means closing the gap
         // returns early ON PURPOSE — this is the one behaviour allowed past the MIN_SEP floor
         return finalize(p, tgt, aim, { shoot: false, charge: 0, special: false, build: false }, state, mem, bm, sk, dt);
       }
@@ -1904,12 +2265,15 @@ function decideBot(p, role, state, mem, sk, dt) {
         // would perpetually push completion out of reach. `dist` DOES refresh each tick: the
         // bot is still walking, and the drag it commits should match where it actually stands.
         const trapDist = wallPush(p, wallPt.x, wallPt.y, lux, luy, sk);
-        if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, dist: trapDist, until: mem.t + BUILD_WINDUP + 0.1 };
-        else bm.buildHold.dist = trapDist;
         aim = { x: lux, y: luy };
         tgt = { x: c.x + lux * 150, y: c.y + luy * 150 };
-        bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = ambush ? 'ambushWall' : 'blockDrive';
+        if (wallSpotOk(state, p, team, wallPt.x, wallPt.y)) {
+          if (!bm.buildHold) bm.buildHold = { x: lux, y: luy, dist: trapDist, until: mem.t + BUILD_WINDUP + 0.1 };
+          else bm.buildHold.dist = trapDist;
+          bm.trap = { until: mem.t + 1.4 }; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1); bm.lastTrick = ambush ? 'ambushWall' : 'blockDrive';
+        }
       } else if (bm.trap) {
+        bm.seekContact = true;                              // bursting out of the bush AT the carrier
         // STRIP/STEAL (TACTIC 8): burst out and full-charge strip the wall-blocked carrier;
         // if no bullet is available, plant a bomb-tackle to STEAL instead (the bush hid us — now
         // we strike). Prefer the bullet (never override a live strip with a bomb).
@@ -1966,14 +2330,15 @@ function decideBot(p, role, state, mem, sk, dt) {
         if (bm.screenUntil && buildReady) {
           tgt = screenSpot;
           bm.lastTrick = 'goalScreen'; // tagged for the WALK too: this is a committed play now
-          if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 85) { // on the plane -> raise the screen
+          if (hyp(p.x - screenSpot.x, p.y - screenSpot.y) < 85 && wallSpotOk(state, p, team, screenPlaneX, screenY)) { // on the plane -> raise the screen
             const dist = wallPush(p, screenPlaneX, screenY, ogSign, 0, sk);
             if (!bm.buildHold) bm.buildHold = { x: ogSign, y: 0, dist, until: mem.t + BUILD_WINDUP + 0.1 };
             else bm.buildHold.dist = dist;
             aim = { x: ogSign, y: 0 }; shoot = false; special = false;
             bm.nextBuildAt = mem.t + 8.0 * (sk.cdMul || 1); bm.screenUntil = 0;
           }
-        } else if (buildReady && liningUp && iGoalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)) {
+        } else if (buildReady && liningUp && iGoalSide && wallWouldPlace(p, w2cx, w2cy) && distC > 140 && mem.t > (bm.nextBuildAt || 0)
+                   && wallSpotOk(state, p, team, p.x + w2cx * BUILT_WALL.offset, p.y + w2cy * BUILT_WALL.offset)) {
           // fallback: opportunistic screen wall at our current position (aim toward the carrier)
           if (!bm.buildHold) bm.buildHold = { x: w2cx, y: w2cy, dist: 0, until: mem.t + BUILD_WINDUP + 0.1 };
           aim = { x: w2cx, y: w2cy }; shoot = false; special = false; bm.nextBuildAt = mem.t + 4.0 * (sk.cdMul || 1);
@@ -1989,6 +2354,14 @@ function decideBot(p, role, state, mem, sk, dt) {
       const [bx, by] = predictBall(b, clamp(len(b.x - p.x, b.y - p.y) / 900, 0.05, 0.5));
       tgt = { x: bx, y: by };
       aim = { x: egX - p.x, y: GY - p.y };
+      // LEFT BEHIND ON A LOOSE BALL — the case the two old jumps could not cover, because both
+      // lived in the "my team-mate is carrying" branch. mobilityJump refuses when an enemy is
+      // within 420px of the ball (they would simply arrive first while we stood on a fuse), so
+      // this only fires on a genuinely uncontested long chase.
+      {
+        const j = mobilityJump(p, bm, mem, state, sk, tgt, visibleEnemies, bombReady, 'chaseJump');
+        if (j) return finalize(p, { x: p.x, y: p.y }, j, { shoot: false, charge: 0, special: true, build: false }, state, mem, bm, sk, dt);
+      }
     } else {
       // hold a supporting spot between the ball and our goal (slightly toward a bush for ambush)
       const holdX = (b.x + ogX) / 2, holdY = (b.y + GY) / 2;
@@ -2104,6 +2477,12 @@ function finalize(p, tgt, aimVec, btn, state, mem, bm, sk, dt, opts = {}) {
   // The bottom tier is already clearly weakest (-0.41 vs +0.23 goals/match, strips 0.76 vs 5.84).
   // It is not CHARACTERFULLY dumb, and that is still unsolved — but not by rate-limiting decisions.
   // If you try an eighth version, measure it with SEEDS=6 first.
+  // INVARIANT, enforced at the funnel: a ball-CARRIER can never plant (sim.js:840 gates the bomb on
+  // !carrying), so a carrier sitting on a bomb-hold is the deleted carryJump bug in another costume
+  // — it froze the carrier for a 1.725s fuse waiting for a bomb that never spawned (~50s/match at
+  // the top tiers). decideBot clears it at the top of the next tick; this closes the arming tick
+  // too, so no new play can reintroduce it by accident. test-bot-tricks-fire gates on exactly this.
+  if (state.ball.owner === p.id && bm.bombHold) { bm.bombHold = null; btn = { ...btn, special: false }; }
   bm.wantMove = opts.hold ? 0 : 1;
   let mvx = 0, mvy = 0;
   if (opts.hold) { bm.mvx = 0; bm.mvy = 0; bm.lastX = p.x; bm.lastY = p.y; bm.stuck = 0; } // stand ON the bomb plant

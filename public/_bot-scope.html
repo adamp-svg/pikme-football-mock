@@ -192,7 +192,7 @@
           <label><input type="checkbox" data-k="path" checked> flow-field waypoint</label>
           <label><input type="checkbox" data-k="grid"> nav occupancy</label>
           <label><input type="checkbox" data-k="tag" checked> tactic tag</label>
-          <label><input type="checkbox" data-k="vision"> vision range</label>
+          <label><input type="checkbox" data-k="vision"> view box (screen-shaped)</label>
           <label><input type="checkbox" data-k="glue" checked> ball glue spot</label>
         </div>
         <div class="key">
@@ -235,7 +235,7 @@ window.SALTIZ = { req: (n) => __m[n] };
   const R = window.SALTIZ.req;
   const AB = !!window.SALTIZ.ab;   // only the bundled artifact can flip the pre-fix switches
   const { createState, addPlayer, attachBall, step, setField, makeRng } = R('sim.js');
-  const { computeBotInputs, createBotMemory, bmemForTest, navForTest, NAV_DIMS, personaOf } = R('bot-ai.js');
+  const { computeBotInputs, createBotMemory, bmemForTest, navForTest, NAV_DIMS, personaOf, VIEW_BOX } = R('bot-ai.js');
   const { DIFFICULTY_LEVELS, skillWord } = R('difficulty.js');
   const { MAIN_FIELD } = R('main-field.js');
   const C = R('constants.js');
@@ -271,6 +271,16 @@ window.SALTIZ = { req: (n) => __m[n] };
 
   // ---------- match ----------
   const IDS = [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]];
+  // the tier's visionMul, so the drawn view box is the one this bot actually gets
+  const VISION_MUL = { 0: 0.9, 0.25: 1.0, 0.5: 1.1, 0.82: 1.4, 1: 1.6 };
+  const skillOf = (team) => {
+    const t = (mem && mem.teamSkill && mem.teamSkill[team]) || 0;
+    const stops = Object.keys(VISION_MUL).map(Number).sort((a, b) => a - b);
+    let lo = stops[0], hi = stops[stops.length - 1];
+    for (let i = 0; i < stops.length - 1; i++) if (t >= stops[i] && t <= stops[i + 1]) { lo = stops[i]; hi = stops[i + 1]; break; }
+    const f = hi > lo ? (t - lo) / (hi - lo) : 0;
+    return VISION_MUL[lo] + (VISION_MUL[hi] - VISION_MUL[lo]) * f;
+  };
   let s, mem, seed = 7, level = 5, mirror = false, fixOn = true, speed = 1, running = true;
   let stat, prev, jam, log = [];
 
@@ -432,7 +442,16 @@ window.SALTIZ = { req: (n) => __m[n] };
       const r = CHARACTERS[p.char || 'player'].radius * (s.settings.sizeMul || 1);
       const onBall = role[p.team] && role[p.team].onBall === id;
 
-      if (ov.vision) { ctx.strokeStyle = col; ctx.globalAlpha = .12; ctx.lineWidth = Math.max(1, S(3)); ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(VISION_RANGE), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+      if (ov.vision) {
+        // The view is a RECTANGLE, not a circle: it is the player's screen (the client camera is
+        // FIELD.W / CAM_ZOOM = 1212px wide at 16:9, so 606 x 341 half-extents). A circle handed bots
+        // ~2x the vertical awareness of the human they play against.
+        const mul = (mem.teamSkill && skillOf(p.team)) || 1;
+        ctx.strokeStyle = col; ctx.globalAlpha = .16; ctx.lineWidth = Math.max(1, S(3));
+        ctx.setLineDash([S(16), S(12)]);
+        ctx.strokeRect(X(p.x - VIEW_BOX.halfW * mul), Y(p.y - VIEW_BOX.halfH * mul), S(VIEW_BOX.halfW * 2 * mul), S(VIEW_BOX.halfH * 2 * mul));
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
       if (ov.target && bm.pg) {
         ctx.strokeStyle = col; ctx.globalAlpha = .5; ctx.lineWidth = Math.max(1, S(3)); ctx.setLineDash([S(12), S(10)]);
         ctx.beginPath(); ctx.moveTo(X(p.x), Y(p.y)); ctx.lineTo(X(bm.pg.tx), Y(bm.pg.ty)); ctx.stroke(); ctx.setLineDash([]);
