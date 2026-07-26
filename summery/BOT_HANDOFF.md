@@ -5,6 +5,116 @@ Audience: the next agent(s) picking up bot work. Read §00 and §0 before touchi
 
 ---
 
+## 0000000. ROUND 9 (2026-07-26 15:0x-17:3x, agent `pass-direction`) — THE RECEIVER WAS ON A CARROT AND A STICK
+
+Requested, from a tracked L10 run: *"the friend sometimes goes the other way"* (22.1% of support ticks
+running away from the goal its own team is attacking) and *"the enemy shoots the other way"* (19.4% of
+shots, the biggest slice `[passLatch]` releases aimed **91-109 degrees** off the enemy goal).
+
+### New instrument: `bot-support.mjs`
+
+Measures the DECISION, tagged by the branch (`bm.lastTrick`) that made it, so a percentage points at
+code. Defaults to the real L10 pair from `shared/difficulty.js` (partner 0.42 vs enemy 0.93) and
+reports both teams. Two things in it are worth reusing:
+
+* **`awayNoDetour%` — always read this one, not the raw `away%`.** `bm.wp` is set only while the flow
+  field has overridden the straight line, so it separates "the branch chose a backward target" from
+  "the bot is walking round a capsule". **87-91% of the raw number is the second thing.**
+* per-team numbers are useless at this sample size. The sim diverges chaotically, so which team ends
+  up doing the passing flips between builds; the tracker prints a BOTH TEAMS aggregate for that reason.
+
+### The `[none]` slice is NOT a bug — measured, and it is the answer to "which support logic is wrong"
+
+Of the untagged (plain support / outlet / cover) away-ticks: **navDetour 91% at skill 0.42 and 87% at
+0.93**, `behindCarrier(shape)` 7-12%, MIN_SEP 1-2%, `pastOutletLine` ~0%. That is arithmetic, not
+opinion: the support target is `ahead = egX -/+ 300`, i.e. 300px from the ENEMY goal, so it is
+maximally forward by construction, and MIN_SEP can only relocate it backwards when the carrier is
+deeper than that line — which is the ~0% case. The loose-ball `fastBreak` "stay home" branch and the
+3v3 cover lane cannot appear here at all (one needs a loose ball, the other needs a third bot).
+**Nothing in that slice was changed. There is nothing there to fix.**
+
+### The real bug was one line, and it was not the 90px
+
+`receivePass` computed `want` from the receiver's **LIVE** position every tick: 90px behind wherever it
+had just got to, re-issued ~50x a second for the whole 1.4s call. A carrot on a stick. The receiver
+did not check back 90px, it **RETREATED CONTINUOUSLY** — up to ~210px at walking pace — and the latch,
+which re-aims at the receiver's led position each tick, followed it backwards. Both reported symptoms
+are that one bug seen from the two ends. Confirmed before touching anything: the receiver was already
+AHEAD of the carrier on **88%** of those ticks.
+
+Fixed by choosing the rendezvous ONCE per call and holding it as an **absolute** spot (`bm.recvSpot`),
+which may never lose ground toward the enemy goal; if the clamp eats the whole run (receiver directly
+in front of the carrier) it shows sideways rather than freezing. Plus a latch abort on the pass
+**BEARING** (`PASS_BACK_COS`, ~100deg) that hands the carrier a fresh decision.
+
+| L10, 12 x 60s, 3 seed bases | before | after |
+|---|---|---|
+| support running away from the attack | 28.7 / 18.9 / 20.1% | **22.1 / 19.2 / 20.3%** |
+| ...excluding flow-field wall detours | 7.4 / 4.6 / 6.6% | **5.0 / 3.9 / 5.9%** |
+| `receivePass` share of that | 60% | **21%** |
+| of >90deg latch releases: mate was BEHIND me on the attacking axis | 44 / 50 / 13% | **0 / 0 / 0%** |
+| ...and their mean receiver bearing | 118 / 123 / 97deg | **87 / 88 / 89deg** |
+| pass completion (`bot-passes`, 60 matches) 0.42 / 0.93 / 0.50 | 86 / 90 / 94% | **95 / 92 / 93%** |
+
+The bearing column is the useful one: what is left past 90deg is a SQUARE ball pushed over the line by
+`leadAim` + the aim slew, not a backward pass. Square balls are ~58% of every release in this game and
+were deliberately left alone.
+
+### THREE THINGS MEASURED AND REFUTED — do not re-propose
+
+1. **A DISTANCE-based abort** ("drop the latch once the receiver is further from the enemy goal than I
+   am, plus a small tolerance"). This is the obvious reading of the bug and it **cost 81% of all
+   passes** — latched releases 197 -> 37 per 12 matches at skill 0.42, total releases 270 -> 104.
+   The common case is not a receiver drifting back, it is **the CARRIER DRIVING FORWARD past its own
+   outlet during the wind-up**, which trips a distance test every time while the pass is still a good
+   square ball. Note the geometry that makes the bearing test safe instead: `passWorthIt`'s radial gate
+   is provably under 90deg at the call (if `|R-G| < |P-G|` then `(R-P)·(G-P) > |R-P|^2/2 > 0`), so a
+   called pass never starts out aborted and the two gates cannot fight.
+2. **The never-backwards clamp WITHOUT latching the spot first.** As a two-line clamp on the old
+   per-tick target it reproduced in full: **86% -> 72% of passes reaching a team-mate at 0.93, and 37%
+   of all pass releases gone.** Mechanism, and it generalises to anything that moves a bot the carrier
+   is aiming at: **closing straight along the pass line is ANGULARLY STATIONARY from the carrier's
+   point of view**, so its slewing aim converges and `fire` passes its `|dTheta| <= tol` gate. Clamp
+   one axis of a target that is re-derived every tick and the receiver sweeps sideways forever, the aim
+   never settles, and the wind-up times out on `windupBudget`. Latch the spot first and the same clamp
+   is nearly free. **A bounded run is what a human does; an unbounded one is what broke the aim.**
+3. **A tier-scaled "pick the OPEN lateral lane" for the receiver** (openness vs visible enemies +
+   `laneClear`, gated `skT >= 0.55`, committed per call). Built specifically to give §00000 its tier
+   differentiator, and it measured **EXACTLY neutral** — 84%/90% completion and identical release
+   counts with it and without. Deleted rather than kept as dead complexity. The old per-bot latched
+   side (`bm.recvSide`) is still there and still right: "a committed side, so it doesn't dither".
+
+### The interaction that wrecked a match, and the two lines that fix it
+
+The abort and the receiver fix were each harmless alone (abort alone at skill 0.42: touches 17.9, ball
+loose 69.7% — indistinguishable from before) and **together they destroyed the game**: touches 18 -> 9,
+shots 41 -> 13, ball loose 69% -> 85% of the match and **320px** from the nearest player, reproduced on
+three seed bases. Cause: `bm.carryT` had been running for the whole wind-up, so `carryT > CARRY_IDLE`
+was already true, and `bm.charging` still held the pass's low `fireAt` — so the abort did not "fall
+through to the forward options", it fell through to the LAST rung and fired a forward CLEARANCE on the
+very next tick, every time. `bm.carryT = 0; bm.charging = null` on abort is the whole fix. **A bad pass
+should cost nothing: a player who looks up, sees it is not on and keeps dribbling has not lost a thing.**
+
+### Honest cost, and the ladder warning
+
+The carrier now clears forward where it used to square it to a mate who had fallen behind:
+`advancePerRelease` 68 -> 119px (a round-7 goal) but `backwardReleasePct` 8.5 -> 17.5% (a round-7
+anti-goal) and shots/match 37.9 -> 28.6 at L10. Measured separately, **that is the RECEIVER fix, not
+the abort**. `touchesPerMatch`, `loosePct` and `ballGapPx` are flat. Caveat on that metric: in the
+UNCHANGED build `backwardReleasePct` at skill 0.93 ranges **9.8% to 39.8%** across five seed bases, so
+its noise floor is enormous — do not read a single run of it.
+
+**BOTH CHANGES ARE SKILL-INDEPENDENT. No tier scaling ships** (see refuted item 3 for the one that was
+tried). §00000 is explicit that this is what flattened the ladder twice, so the ladder wants a look
+before this is trusted at the top tiers.
+
+### Suite
+
+69 pass. `test-bot-ladder.mjs`, `test-bot-partner.mjs` and `test-rank-parity.mjs` fail — **all three
+also fail on pristine HEAD**, verified in a separate `git archive` checkout, so zero new failures.
+`test-rank-parity.mjs` is new to this list and is nothing to do with bots.
+
+---
 ## 000000. ROUND 8 (2026-07-26 15:0x-, agent `wall-windup`) — THE L10 "IDLE" WAS THE THRESHOLD, NOT THE BOTS
 
 Requested: *"there are still idle moments"* at difficulty 10, with round 7's attribution pointing at the
