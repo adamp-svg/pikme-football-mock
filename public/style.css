@@ -583,7 +583,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .team-title { font: 900 13px "Arial Black", sans-serif; letter-spacing: 2px; text-align: center; padding: 4px 0 8px; }
 .team-panel.team1 .team-title { color: #7db0ff; }
 .team-panel.team2 .team-title { color: #ff8f86; }
-.team-members { flex: 1; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: 34vh; }
+.team-members { flex: 1; display: flex; flex-direction: column; gap: 6px; overflow-y: auto;
+  /* 34vh fitted two rows. THREE rows at 3v3 — each of which can carry a chat bubble on a second line —
+     clipped the third member mid-name on a 390x844 phone. 46vh fits 3 rows with bubbles and still
+     leaves the join button and «שחק עכשיו» on screen; it stays scrollable for anything taller. */
+  max-height: 46vh; }
 .team-join {
   margin-top: 8px; padding: 8px; cursor: pointer;
   border: 2px solid #39463b; background: #141d15; color: #c8d4bf;
@@ -2587,24 +2591,43 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* ---- party chat: preset row + 40-char free text, and the bubbles on the roster --------------- */
 /* The bubble hangs above a member's hero. `position:relative` on the blocks is what anchors it, and
    it is deliberately allowed to shrink-wrap short messages so "מוכן?" is not a full-width banner. */
-/* The bubble sits in the block's own flow, in a slot that is always reserved, so six of them at 3v3
-   cannot overlap and an arriving message does not jolt the roster. `min-height` is one line; a longer
-   message grows the slot and the roster's `align-items: flex-end` keeps every hero on one line. */
-.pr-say { min-height: 22px; display: flex; align-items: flex-end; justify-content: center;
-  /* BOUNDED, so a 40-character message wraps INSIDE the block instead of stretching it — an
-     unbounded bubble made one member's block twice the width of the others and wrapped the roster
-     onto a second row. */
+/* ---- CHAT BUBBLES: the in-match look, one size up -------------------------------------------
+   The match draws its bubble on canvas: a dark rounded plate at ~72% opacity with light text, and
+   emotes as hard-edged pixel sprites. This mirrors that in CSS so the lobby and the game read as the
+   same feature, then makes it BIGGER AND MORE DEFINED as asked: 13px text instead of the in-game
+   ~11px, a solid plate rather than a translucent one, and a 2px outline plus a drop shadow so it
+   stands off the roster art instead of dissolving into it.
+   IN FLOW, in a reserved slot: six blocks at 3v3 on a 390px phone had absolute bubbles overlapping
+   and clipping each other. */
+.pr-say { min-height: 24px; display: flex; align-items: flex-end; justify-content: center;
   max-width: 124px; }
 .pr-me .pr-say { max-width: 152px; }
-.pr-say.has > span {
-  display: inline-block; max-width: 100%; padding: 4px 8px; border-radius: 11px;
-  background: #fffdf3; color: #22303c; border: 2px solid #22303c;
-  font: 600 11px/1.3 inherit; text-align: center; overflow-wrap: anywhere;
-  box-shadow: 0 2px 0 rgba(34, 48, 60, .35);
-  animation: pr-bubble-in .16s ease-out;
+/* On a team row the bubble takes its OWN LINE (flex-basis 100% after a wrap) rather than sitting
+   inline: inline, it stole width from the name — "Friend3" rendered as "…end3" — and a longer message
+   was clipped by the row. The row is allowed to wrap for exactly this. */
+.member-row { flex-wrap: wrap; }
+.mr-say { display: none; }
+.mr-say.has { display: flex; flex: 1 0 100%; justify-content: flex-start; margin-top: 4px; }
+.pr-say.has > span, .mr-say.has > span {
+  display: inline-block; max-width: 100%; padding: 5px 9px; border-radius: 12px;
+  background: #101a12; color: #fdfbe9; border: 2px solid #fdfbe9;
+  font: 700 13px/1.25 inherit; text-align: center; overflow-wrap: anywhere;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, .55);
+  animation: bub-in .16s ease-out;
 }
-@keyframes pr-bubble-in { from { opacity: 0; transform: translateY(4px) scale(.96); } }
-@media (prefers-reduced-motion: reduce) { .pr-say.has > span { animation: none; } }
+/* An emote bubble is the pixel sprite itself, sampled hard like the in-match one. */
+.pr-say.has > span.bub-emote, .mr-say.has > span.bub-emote {
+  width: 34px; height: 34px; padding: 3px; background-repeat: no-repeat;
+  background-color: #101a12; image-rendering: pixelated;
+}
+@keyframes bub-in { from { opacity: 0; transform: translateY(4px) scale(.96); } }
+@media (prefers-reduced-motion: reduce) { .pr-say.has > span, .mr-say.has > span { animation: none; } }
+
+/* Empty seats + the per-side counter, so a 3v3 team page reads as 3-a-side before the bots arrive. */
+.member-ghost { opacity: .45; }
+.member-ghost .member-av { border-style: dashed; }
+.member-ghost .member-name { font-style: italic; }
+.team-seats { font: 900 11px "Arial Black", sans-serif; color: #ffce4a; margin-inline-start: 6px; }
 
 .party-chat { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .pchat-presets { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2614,6 +2637,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   cursor: pointer;
 }
 .pchat-pre:active { transform: translateY(1px); }
+.pchat-pre.is-emote {
+  width: 38px; height: 38px; padding: 0; background-repeat: no-repeat; background-color: rgba(0, 0, 0, .3);
+  image-rendering: pixelated; border-radius: 10px;
+}
 .pchat-row { display: flex; align-items: center; gap: 6px; }
 .pchat-row.hidden { display: none; }
 .pchat-input {

@@ -23,7 +23,7 @@ import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
 import { SALTIZ_BOTS, SALTIZ_BOT_BY_ID, botLevelOf, xpForSaltizBot, saltizBotLoadout, searchSaltizBots } from '/shared/saltiz-bots.js';
-import { QUICK_GROUPS, phraseById, REACTION_EMOJI, QUICK_PHRASES, sanitizeFreeText, freeTextLeft, FREE_TEXT_MAX } from '/shared/quick-messages.js';
+import { QUICK_GROUPS, phraseById, REACTION_EMOJI, sanitizeFreeText, freeTextLeft, FREE_TEXT_MAX } from '/shared/quick-messages.js';
 import { CHAT_WORDS, CHAT_EMOTES, CHAT_SHEET, chatById, CHAT_BUBBLE_MS, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from '/shared/quick-chat.js';
 import { rosterCounts } from '/shared/roster.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
@@ -3448,8 +3448,8 @@ function partyBlock({ big, name, cosmetic, cards, rankText, chat }) {
   // shove the roster around, and `textContent` (never innerHTML) is what makes a player-authored
   // string safe to render.
   const say = document.createElement('div');
-  say.className = 'pr-say' + (chat && chat.text ? ' has' : '');
-  if (chat && chat.text) { const b = document.createElement('span'); b.textContent = chat.text; say.appendChild(b); }
+  say.className = 'pr-say' + (chat && (chat.text || chat.chatId) ? ' has' : '');
+  if (chat && (chat.text || chat.chatId)) say.appendChild(chatBubbleNode(chat));
   wrap.appendChild(say);
   if (rankText) { const r = document.createElement('div'); r.className = 'pr-rank'; r.textContent = rankText; wrap.appendChild(r); }
   wrap.appendChild(partyHeroCanvas(cosmetic, big));
@@ -3504,43 +3504,93 @@ function renderParty(msg) {
 //
 // Free text is PARTY-ONLY and the server enforces it (shared/quick-messages.js FREE_TEXT_ROOMS);
 // this hides the input rather than relying on that refusal, so the affordance matches the rule.
-const PCHAT_PRESETS = ['play_ready', 'play_lets', 'greet_hi', 'praise_wd', 'react_ok', 'react_lol'];
-let pchatWired = false;
-function renderPartyChat(lob) {
-  const box = document.getElementById('party-chat'); if (!box) return;
-  const presets = document.getElementById('pchat-presets');
-  const form = document.getElementById('pchat-form');
-  const input = document.getElementById('pchat-text');
-  const left = document.getElementById('pchat-left');
-  // Presets are static, so build them once.
+// The lobby composer speaks the IN-MATCH vocabulary (shared/quick-chat.js), not the friend-thread
+// presets: a team page is the moment before a match, so "פס!" and a thumbs-up are the right words and
+// «בוא נתאמן» is not. Words send as an id; emotes send as an id and render as the sprite the match
+// uses, so the same message looks the same in the lobby and in the game.
+// CSS percentage background-position is `(container - image) * pct`, NOT a per-cell offset, so
+// `-col * 100%` (the obvious-looking formula) puts the sheet in the wrong place and the bubble renders
+// blank — which is exactly how the first emote bubble looked. For an N x M sheet the cell sits at
+// col/(cols-1) by row/(rows-1).
+function chatSpriteStyle(el, item) {
+  const { url, cols, rows } = CHAT_SHEET;
+  el.style.backgroundImage = `url(${url})`;
+  el.style.backgroundSize = `${cols * 100}% ${rows * 100}%`;
+  el.style.backgroundPosition = `${(item.col / (cols - 1)) * 100}% ${(item.row / (rows - 1)) * 100}%`;
+}
+function chatBubbleNode(chat) {
+  // ONE renderer for every surface (roster blocks and team rows), so a bubble cannot look like two
+  // different things in two places. Emote → the pixel sprite from the shared sheet; word or free text
+  // → the text itself, always via textContent.
+  const span = document.createElement('span');
+  const item = chat.chatId ? chatById(chat.chatId) : null;
+  if (item && item.kind === 'emote') {
+    span.className = 'bub-emote';
+    chatSpriteStyle(span, item);
+    span.setAttribute('aria-label', item.icon || item.id);
+  } else {
+    span.textContent = chat.text || (item ? item.text : '');
+  }
+  return span;
+}
+// The composer lives on BOTH team surfaces (the party roster and the lobby's team page), so it is
+// BUILT here rather than written twice in the markup — two hand-copied copies of one control is how the
+// MODES list drifted into four different versions.
+function pchatMarkup(box) {
+  if (box.childElementCount) return;
+  box.innerHTML = '';
+  const presets = document.createElement('div'); presets.className = 'pchat-presets';
+  const form = document.createElement('form'); form.className = 'pchat-row'; form.autocomplete = 'off';
+  const input = document.createElement('input');
+  input.type = 'text'; input.className = 'pchat-input'; input.placeholder = 'כתבו הודעה…';
+  input.maxLength = 80; input.setAttribute('aria-label', 'הודעה לקבוצה');
+  const left = document.createElement('span'); left.className = 'pchat-left'; left.textContent = String(FREE_TEXT_MAX);
+  const send = document.createElement('button'); send.type = 'submit'; send.className = 'pchat-send'; send.textContent = 'שלח';
+  form.append(input, left, send);
+  box.append(presets, form);
+}
+const pchatWired = new WeakSet();
+function renderPartyChat(lob, boxId) {
+  const box = document.getElementById(boxId || 'party-chat'); if (!box) return;
+  pchatMarkup(box);
+  const presets = box.querySelector('.pchat-presets');
+  const form = box.querySelector('.pchat-row');
+  const input = box.querySelector('.pchat-input');
+  const left = box.querySelector('.pchat-left');
+  // The picker is static, so build it once: the 8 calls, then the 8 emotes.
   if (presets && !presets.childElementCount) {
-    for (const id of PCHAT_PRESETS) {
-      const ph = phraseById(id) || QUICK_PHRASES.find((q) => q.id === id);
-      if (!ph) continue;                                   // an id this build does not know — skip it
+    for (const w of CHAT_WORDS) {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = 'pchat-pre'; b.textContent = ph.text; b.dataset.preset = ph.id;
+      b.type = 'button'; b.className = 'pchat-pre'; b.textContent = w.text; b.dataset.chatId = w.id;
+      presets.appendChild(b);
+    }
+    for (const e of CHAT_EMOTES) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'pchat-pre is-emote'; b.dataset.chatId = e.id;
+      b.setAttribute('aria-label', e.icon || e.id);
+      chatSpriteStyle(b, e);
       presets.appendChild(b);
     }
   }
-  // Free text only where the server would accept it.
-  const canType = lob && lob.freeText !== false;
+  const canType = lob && lob.freeText !== false;   // free text is party-only; the server agrees
   if (form) form.classList.toggle('hidden', !canType);
-  if (!pchatWired) {
-    pchatWired = true;
+  if (!pchatWired.has(box)) {
+    pchatWired.add(box);
+    const sendChat = (o) => sendMsg({ type: 'partyChat', ...o });
     presets?.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-preset]'); if (!b) return;
-      sendMsg({ type: 'partyChat', presetId: b.dataset.preset });
+      const b = e.target.closest('[data-chat-id]'); if (!b) return;
+      sendChat({ chatId: b.dataset.chatId });
     });
     form?.addEventListener('submit', (e) => {
       e.preventDefault();
       const text = sanitizeFreeText(input ? input.value : '');
       if (!text) return;
-      sendMsg({ type: 'partyChat', text });
+      sendChat({ text });
       if (input) input.value = '';
       if (left) left.textContent = String(FREE_TEXT_MAX);
     });
-    // The counter uses the SHARED sanitizer, so what it counts is what the server will keep — an
-    // emoji is one character in both places, and trailing spaces never count.
+    // The counter uses the SHARED sanitizer, so what it counts is what the server keeps: an emoji is
+    // one character in both places and trailing spaces never count.
     input?.addEventListener('input', () => {
       if (!left) return;
       const rem = freeTextLeft(input.value);
@@ -4130,7 +4180,10 @@ function buildMemberRow(m, listEl) {
   // #14: host-only kick control (shown/wired per-update in updateLobbyUI). 4th child —
   // the [av,nm,st] destructure below stays valid.
   const kick = document.createElement('button'); kick.className = 'member-kick hidden'; kick.textContent = '✕'; kick.setAttribute('aria-label', 'הסרה מהחדר');
-  row.append(av, nm, st, kick);
+  // 5th child: the chat bubble slot. Appended AFTER kick so the existing [av, nm, st] destructure and
+  // `row.children[3]` kick lookup both keep working.
+  const say = document.createElement('div'); say.className = 'mr-say';
+  row.append(av, nm, st, kick, say);
   memberRows.set(m.id, row);
   listEl.appendChild(row);
   return row;
@@ -4199,12 +4252,46 @@ function updateLobbyUI(msg) {
       kick.onclick = canKick ? () => kickMember(m.id) : null;
     }
     if (m.id === myMemberId) myLobbyTeam = m.team === 'B' ? 'B' : 'A';
+    // The member's last message, as a bubble on their row — same renderer the party roster uses.
+    const say = row.children[4];
+    if (say) {
+      const stamp = (m.chat && m.chat.at) || 0;
+      if (say._stamp !== stamp) {
+        say._stamp = stamp;
+        say.innerHTML = '';
+        say.classList.toggle('has', !!(m.chat && (m.chat.text || m.chat.chatId)));
+        if (m.chat && (m.chat.text || m.chat.chatId)) say.appendChild(chatBubbleNode(m.chat));
+      }
+    }
   }
   for (const [id, row] of memberRows) {
     if (!seen.has(id)) { row.remove(); memberRows.delete(id); }
   }
+  // EMPTY SEATS. The columns were purely a list of who had joined, so a 3v3 room looked exactly like a
+  // 2v2 one until the sixth player arrived — nothing on the page said how many seats a side has, and
+  // the bots that fill them appear only at kickoff. One placeholder per unfilled seat, so the shape of
+  // the match is visible while you wait.
+  const size = msg.teamSize || 2;
+  for (const t of ['A', 'B']) {
+    const listEl = teamListEl[t]; if (!listEl) continue;
+    const taken = msg.members.filter((m) => (m.team === 'B' ? 'B' : 'A') === t).length;
+    for (const ghost of [...listEl.querySelectorAll('.member-ghost')]) ghost.remove();
+    for (let i = taken; i < size; i++) {
+      const g = document.createElement('div');
+      g.className = 'member-row member-ghost';
+      const av = document.createElement('div'); av.className = 'member-av';
+      const nm = document.createElement('div'); nm.className = 'member-name';
+      nm.textContent = 'מקום פנוי · בוט';
+      g.append(av, nm);
+      listEl.appendChild(g);
+    }
+    const head = document.querySelector(`[data-team-head="${t}"]`);
+    if (head) head.textContent = `${taken}/${size}`;
+  }
   joinBtn.A.classList.toggle('current', myLobbyTeam === 'A');
   joinBtn.B.classList.toggle('current', myLobbyTeam === 'B');
+  // The lobby gets the same composer as the roster page: this IS the team page.
+  renderPartyChat(msg, 'lobby-chat');
 }
 
 function sendPing() {

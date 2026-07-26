@@ -527,17 +527,20 @@
       <div id="party-invite" class="party-invite hidden" dir="rtl"></div>
       <div class="teams">
         <div class="team-panel team1">
-          <div class="team-title">קבוצה 1</div>
+          <div class="team-title">קבוצה 1 <span class="team-seats" data-team-head="A"></span></div>
           <div id="team-a-list" class="team-members"></div>
           <button id="join-a" class="team-join">הצטרף</button>
         </div>
         <div class="vs">נגד</div>
         <div class="team-panel team2">
-          <div class="team-title">קבוצה 2</div>
+          <div class="team-title">קבוצה 2 <span class="team-seats" data-team-head="B"></span></div>
           <div id="team-b-list" class="team-members"></div>
           <button id="join-b" class="team-join">הצטרף</button>
         </div>
       </div>
+      <!-- TEAM-PAGE CHAT (same composer as the party roster: the in-match words + emotes, plus a
+           short free text in private rooms). Bubbles appear on each member's row above. -->
+      <div id="lobby-chat" class="party-chat"></div>
       <button id="play-now" class="play"><span>שחק עכשיו</span><b>›</b></button>
       <!-- Party flow: host's start CTA — opens the game picker instead of starting directly. -->
       <button id="pick-game-btn" class="play hidden"><span>בחר משחק</span><b>›</b></button>
@@ -564,15 +567,9 @@
         <!-- CHAT: preset phrases + up to 40 characters of free text. Party rooms only (the server
              refuses free text elsewhere — shared/quick-messages.js FREE_TEXT_ROOMS). The bubbles
              themselves render on each member's block in the roster above. -->
-        <div id="party-chat" class="party-chat">
-          <div class="pchat-presets" id="pchat-presets"></div>
-          <form class="pchat-row" id="pchat-form" autocomplete="off">
-            <input id="pchat-text" class="pchat-input" type="text" inputmode="text"
-                   placeholder="כתבו הודעה…" maxlength="80" aria-label="הודעה לקבוצה">
-            <span id="pchat-left" class="pchat-left">40</span>
-            <button id="pchat-send" class="pchat-send" type="submit">שלח</button>
-          </form>
-        </div>
+        <!-- TEAM-PAGE CHAT — built by renderPartyChat() from shared/quick-chat.js so the lobby and
+             the roster cannot drift apart. -->
+        <div id="party-chat" class="party-chat"></div>
         <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
       </div>
     </div>

@@ -22,7 +22,7 @@ import { ARENA } from './shared/arena.js';
 import { coalesceInput, consumeEdges } from './shared/input-merge.js';
 import { MAIN_FIELD } from './shared/main-field.js';
 import { FIELD_3V3 } from './shared/field-3v3.js';
-import { phraseById, sanitizeFreeText, FREE_TEXT_ROOMS } from './shared/quick-messages.js';
+import { sanitizeFreeText, FREE_TEXT_ROOMS } from './shared/quick-messages.js';
 import { sizeOfField, canHost, sizeOf } from './shared/field-sizes.js';
 import { normSpawns, normBall } from './shared/field-spawns.js';
 import { encodeKeyframe } from './shared/wire.js';
@@ -33,7 +33,7 @@ import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, bo
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
-import { isChatId, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
+import { isChatId, chatById, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
 import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout } from './shared/saltiz-bots.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
 
@@ -132,9 +132,9 @@ const FORMATS = {
 // Players per side / total cap for a room. Private + training rooms keep the MAX_PLAYERS default.
 const roomTeamSize = (room) => Math.max(1, (room && room.teamSize) | 0 || MAX_PLAYERS / 2);
 const roomMax = (room) => roomTeamSize(room) * 2;
-// How long a chat bubble lives on the team page. Long enough to read a 40-char line, short enough
-// that the roster is not permanently covered in speech bubbles.
-const CHAT_BUBBLE_MS = 8000;
+// How long a chat bubble lives on the TEAM PAGE. The in-match bubble is 2.2s because you are also
+// playing; in a lobby you are reading, and a 40-character line needs longer than that.
+const LOBBY_BUBBLE_MS = 8000;
 // The arena a room plays on: its format's field, else the shared main one.
 const roomField = (room) => ((FORMATS[room && room.format] || {}).cleanField) || MAIN_FIELD_CLEAN;
 // MODES card id (client-side) -> FORMATS key (server-side). The picker's '2v2' card is the 'quick'
@@ -1004,7 +1004,7 @@ function lobbyPayload(room) {
   // `chat` is the member's LAST message and when it was sent; the client fades the bubble itself, so
   // one field carries it and no extra packet type is needed. Expired bubbles are dropped here rather
   // than kept forever, so a member who spoke once at the start of a long lobby is not still talking.
-  const chatOf = (m) => (m.chat && nowMs() - m.chat.at < CHAT_BUBBLE_MS ? { text: m.chat.text, at: m.chat.at } : null);
+  const chatOf = (m) => (m.chat && nowMs() - m.chat.at < LOBBY_BUBBLE_MS ? { text: m.chat.text, chatId: m.chat.chatId || null, at: m.chat.at } : null);
   const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cosmetic: m.cosmetic || DEFAULT_COSMETIC, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards), chat: chatOf(m) }));
   // Invited lobby bots render as members (isBot) so the party looks populated before kickoff.
   // A NAMED bot (שובל/נווה/פז/אורי) carries its own cards + level, so the party lobby shows the same
@@ -1499,7 +1499,16 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'setTeam') {
         // Team picking only in a private room's lobby.
         if (!room || !room.isPrivate || member.inMatch || room.phase === 'match') return;
-        if (msg.team === 'A' || msg.team === 'B') { member.team = msg.team; broadcastLobby(room); }
+        if (msg.team === 'A' || msg.team === 'B') {
+          // A SIDE HOLDS teamSize, NO MORE. Nothing enforced this: at 2v2 the roster was small enough
+          // that it never showed, but a 3v3 party could put five members on team A and the match then
+          // started with one side over-filled and slots stolen from the other.
+          const size = roomTeamSize(room);
+          const onTeam = [...room.members].filter((q) => q !== member && q.team === msg.team).length
+            + (room.lobbyBots || []).filter((b) => b.team === msg.team).length;
+          if (onTeam >= size) { send(ws, { type: 'partyError', msg: `קבוצה זו מלאה (${size})` }); return; }
+          member.team = msg.team; broadcastLobby(room);
+        }
         return;
       }
       // THE HOST'S GAME PICK, APPLIED TO THE ROOM (not just remembered by their client).
@@ -1527,27 +1536,36 @@ wss.on('connection', (ws, req) => {
         broadcastLobby(room);
         return;
       }
-      // ---- PARTY CHAT: a preset phrase, or up to 40 characters of free text ----------------------
-      // Free text is allowed ONLY in a private party room (shared/quick-messages.js FREE_TEXT_ROOMS
-      // is where that policy lives). Presets are allowed in any room the member is in, since a preset
-      // cannot say anything the game did not ship.
+      // ---- TEAM-PAGE CHAT: the IN-MATCH vocabulary, plus up to 40 characters of free text --------
+      // Deliberately the same catalogue as the in-game wheel (shared/quick-chat.js: 8 calls + 8
+      // emotes), not the friend-thread presets — a lobby is a moment before a match, so "פס!" and a
+      // thumbs-up are the right words and «בוא נתאמן» is not. Same wire shape as the in-game chat too:
+      // an ID is relayed and the words are looked up on receipt, so a crafted frame cannot broadcast
+      // arbitrary text. FREE TEXT is the one exception and it is private-rooms-only (FREE_TEXT_ROOMS).
+      // The in-game anti-spam numbers are reused rather than reinvented: one send per 1.5s, and three
+      // in six seconds earns a 5s cooldown.
       if (msg.type === 'partyChat') {
         if (!room) return;
         const now = nowMs();
-        if (now - (member.lastChatAt || 0) < 1200) return;      // ~1 message every 1.2s per member
-        let text = '';
-        if (msg.presetId) {
-          const p = phraseById(String(msg.presetId));
-          if (!p) return;                                        // unknown id (newer client) — ignore
-          text = p.text;
+        if (member.chatMuteUntil && now < member.chatMuteUntil) return;
+        if (member.lastChatAt && now - member.lastChatAt < CHAT_SEND_GAP_MS) return;
+        member.chatBurstLobby = (member.chatBurstLobby || []).filter((t) => now - t < CHAT_BURST_MS);
+        if (member.chatBurstLobby.length >= CHAT_BURST_N) { member.chatMuteUntil = now + CHAT_COOLDOWN_MS; return; }
+        let text = '', chatId = null;
+        if (msg.chatId) {
+          const item = chatById(String(msg.chatId));
+          if (!item) return;                                     // unknown id (newer client) — ignore
+          chatId = item.id;
+          text = item.kind === 'word' ? item.text : '';          // an emote has no words: the client draws the sprite
         } else {
           const kind = room.isPrivate ? 'private' : 'public';
           if (!FREE_TEXT_ROOMS.includes(kind)) { send(ws, { type: 'partyError', msg: 'אין צ׳אט חופשי במשחק ציבורי' }); return; }
           text = sanitizeFreeText(msg.text);
           if (!text) return;                                     // empty after sanitizing — drop it
         }
+        member.chatBurstLobby.push(now);
         member.lastChatAt = now;
-        member.chat = { text, at: now };
+        member.chat = { text, chatId, at: now };
         broadcastLobby(room);
         return;
       }
