@@ -1,0 +1,818 @@
+<title>Arena Watch — level 10 bots, 2v2, any pitch</title>
+<style>
+  /* Palette inherited from the repo's own instrument page (scripts/bot-scope.template.html) so the
+     two read as one family. Added only what this page needs: the two audit severities. */
+  :root {
+    --bg: #f0f3f7; --panel: #ffffff; --panel-2: #e9eef4; --rule: #ccd6e0;
+    --ink: #101a24; --ink-dim: #5b6b7c; --ink-faint: #8b9aa9;
+    --accent: #a26505; --accent-soft: #f3e2c4;
+    --turf: #dfe8e0; --turf-line: #b9c8bb; --stone: #9aa6b2; --crate: #b08a5a; --bush: #8fb894;
+    --teamA: #2563eb; --teamB: #dc2626; --ball: #1a2330;
+    --ok: #157f4a; --warn: #9a6410; --crit: #b3261e;
+    --shadow: 0 1px 2px rgba(16,26,36,.08), 0 8px 24px rgba(16,26,36,.06);
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #080d14; --panel: #101823; --panel-2: #16202d; --rule: #223044;
+      --ink: #e9eff7; --ink-dim: #8496a9; --ink-faint: #5d6d7f;
+      --accent: #f0a32b; --accent-soft: #3a2a0d;
+      --turf: #101f19; --turf-line: #1d3a2d; --stone: #4a5a6b; --crate: #7a5a34; --bush: #1c4030;
+      --teamA: #4c8ffb; --teamB: #f7554f; --ball: #f4f8fc;
+      --ok: #35c46b; --warn: #f0a32b; --crit: #f7554f;
+      --shadow: 0 1px 0 rgba(255,255,255,.03), 0 12px 32px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f0f3f7; --panel: #ffffff; --panel-2: #e9eef4; --rule: #ccd6e0;
+    --ink: #101a24; --ink-dim: #5b6b7c; --ink-faint: #8b9aa9;
+    --accent: #a26505; --accent-soft: #f3e2c4;
+    --turf: #dfe8e0; --turf-line: #b9c8bb; --stone: #9aa6b2; --crate: #b08a5a; --bush: #8fb894;
+    --teamA: #2563eb; --teamB: #dc2626; --ball: #1a2330;
+    --ok: #157f4a; --warn: #9a6410; --crit: #b3261e;
+    --shadow: 0 1px 2px rgba(16,26,36,.08), 0 8px 24px rgba(16,26,36,.06);
+  }
+  :root[data-theme="dark"] {
+    --bg: #080d14; --panel: #101823; --panel-2: #16202d; --rule: #223044;
+    --ink: #e9eff7; --ink-dim: #8496a9; --ink-faint: #5d6d7f;
+    --accent: #f0a32b; --accent-soft: #3a2a0d;
+    --turf: #101f19; --turf-line: #1d3a2d; --stone: #4a5a6b; --crate: #7a5a34; --bush: #1c4030;
+    --teamA: #4c8ffb; --teamB: #f7554f; --ball: #f4f8fc;
+    --ok: #35c46b; --warn: #f0a32b; --crit: #f7554f;
+    --shadow: 0 1px 0 rgba(255,255,255,.03), 0 12px 32px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 22px 18px 60px; display: flex; flex-direction: column; gap: 16px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 28px; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
+  h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.02em; text-wrap: balance; }
+  h1 em { font-style: normal; color: var(--ink-faint); font-weight: 500; }
+  .sub { margin: 5px 0 0; font-size: 13px; color: var(--ink-dim); max-width: 68ch; line-height: 1.55; }
+  .src { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); text-align: right; line-height: 1.7; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; }
+  .grp { display: flex; align-items: center; gap: 8px; }
+  .lbl { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+  button, select { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 11px; font-size: 13px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--ink-faint); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 650; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme]) button.primary { color: #0b1017; } }
+  :root[data-theme="dark"] button.primary { color: #0b1017; }
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--panel); }
+  .seg button { border: 0; border-radius: 0; padding: 6px 12px; }
+  .seg button + button { border-left: 1px solid var(--rule); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 650; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme]) .seg button[aria-pressed="true"] { color: #0b1017; } }
+  :root[data-theme="dark"] .seg button[aria-pressed="true"] { color: #0b1017; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .toggles label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); cursor: pointer; }
+  input[type="checkbox"] { accent-color: var(--accent); }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  @media (max-width: 1020px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .stage { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 10px; box-shadow: var(--shadow); }
+  canvas { display: block; width: 100%; height: auto; border-radius: 6px; }
+  .under { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; padding: 10px 4px 2px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+  .key { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .key i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  .rail { display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .card > h2 { margin: 0; padding: 9px 12px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); border-bottom: 1px solid var(--rule); background: var(--panel-2); font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
+  .card > h2 span { color: var(--ink-dim); letter-spacing: .04em; text-transform: none; font-weight: 600; font-family: var(--mono); }
+  .pad { padding: 10px 12px; }
+
+  .score { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; padding: 12px; }
+  .score .t { font-family: var(--mono); font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .score .t.a { color: var(--teamA); } .score .t.b { color: var(--teamB); text-align: right; }
+  .score .clock { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); text-align: center; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--rule); }
+  .stat { background: var(--panel); padding: 8px 12px; }
+  .stat b { display: block; font-family: var(--mono); font-size: 16px; font-variant-numeric: tabular-nums; font-weight: 650; }
+  .stat span { font-size: 10.5px; color: var(--ink-faint); letter-spacing: .04em; text-transform: uppercase; }
+  .stat.bad b { color: var(--crit); }
+
+  .bot { display: grid; grid-template-columns: 24px 1fr auto; gap: 3px 9px; padding: 9px 12px; border-bottom: 1px solid var(--rule); font-size: 12px; align-items: center; }
+  .bot:last-child { border-bottom: 0; }
+  .chip { grid-row: span 2; width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-family: var(--mono); font-size: 11px; font-weight: 700; color: #fff; }
+  .bot .role { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); text-align: right; }
+  .bot .meta { grid-column: 2 / 4; font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); display: flex; gap: 10px; flex-wrap: wrap; }
+  .bot .meta em { font-style: normal; color: var(--accent); }
+
+  #log { max-height: 300px; overflow-y: auto; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+  #log li { display: grid; grid-template-columns: 42px 1fr; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--rule); line-height: 1.4; }
+  #log li:last-child { border-bottom: 0; }
+  #log time { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; padding-top: 1px; }
+  #log b { font-weight: 650; }
+  #log li.goal { background: var(--accent-soft); }
+  #log li.flaw b, #log li.flaw { color: var(--crit); }
+  #log li.play b { color: var(--ink); }
+
+  .skills { margin: 0; padding: 0; list-style: none; font-size: 12px; }
+  .skills li { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--rule); line-height: 1.35; }
+  .skills li > span:nth-child(2) { color: var(--ink); font-weight: 650; }
+  .skills li:last-child { border-bottom: 0; }
+  .skills .n { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+  .pill { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+  .pill.live { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
+  .pill.rare { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 45%, transparent); }
+  .pill.never { color: var(--crit); border-color: color-mix(in oklab, var(--crit) 45%, transparent); }
+  .skills li.dim { opacity: .72; }
+
+  .notes { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); padding: 16px 18px; }
+  .notes h2 { margin: 0 0 4px; font-size: 14px; letter-spacing: -.01em; }
+  .notes p { margin: 0 0 10px; font-size: 13px; line-height: 1.6; color: var(--ink-dim); max-width: 78ch; }
+  .notes ul { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.65; color: var(--ink-dim); }
+  .notes li + li { margin-top: 7px; }
+  .notes b { color: var(--ink); font-weight: 650; }
+  .notes code { font-family: var(--mono); font-size: 11.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  .fig { font-family: var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Arena Watch <em>— level 10 bots, 2v2, on a pitch that keeps changing</em></h1>
+      <p class="sub">The real <code>shared/sim.js</code> and <code>shared/bot-ai.js</code> from <code>football-mock</code>, bundled and run in this page — a fresh random seed and (optionally) a freshly generated layout every match. Every named play the bots run is announced in words, and the panel on the right keeps score of which skills from the catalogue have actually appeared.</p>
+    </div>
+    <div class="src" id="srcline">difficulty level 10 · enemy skill 0.93</div>
+  </header>
+
+  <div class="bar">
+    <div class="grp">
+      <button class="primary" id="newmatch">New random match</button>
+      <div class="seg" role="group" aria-label="playback">
+        <button id="pp" aria-pressed="true">Pause</button>
+        <button data-speed="0.5">0.5×</button>
+        <button data-speed="1" aria-pressed="true">1×</button>
+        <button data-speed="3">3×</button>
+      </div>
+    </div>
+    <div class="grp">
+      <span class="lbl">Pitch</span>
+      <select id="arena">
+        <option value="main">ראשי — the layout that ships</option>
+        <option value="threes">שלושות — the 3v3 layout</option>
+        <option value="classic">קלאסי — the old default arena</option>
+        <option value="empty">ריק — bare pitch</option>
+        <option value="random" selected>Random layout (new every match)</option>
+      </select>
+    </div>
+    <div class="grp">
+      <span class="lbl">Sides</span>
+      <div class="seg" role="group" aria-label="skill pairing">
+        <button id="mirrorOn" aria-pressed="true">Both 0.93</button>
+        <button id="mirrorOff">As shipped (0.42 v 0.93)</button>
+      </div>
+    </div>
+    <div class="toggles">
+      <label><input type="checkbox" id="ovReach" checked> Kick range (647 px)</label>
+      <label><input type="checkbox" id="ovVision"> What each bot can see</label>
+      <label><input type="checkbox" id="ovBlind" checked> Ball nobody can see</label>
+      <label><input type="checkbox" id="ovAim" checked> Aim &amp; charge</label>
+    </div>
+  </div>
+
+  <main>
+    <div class="stage">
+      <canvas id="cv" width="1600" height="880" aria-label="Top view of a 2v2 bot match"></canvas>
+      <div class="under">
+        <div class="key">
+          <span><i style="background:var(--teamA)"></i>team A → right</span>
+          <span><i style="background:var(--teamB)"></i>team B → left</span>
+          <span><i style="background:var(--bush)"></i>bush (cover)</span>
+          <span><i style="background:var(--stone)"></i>stone</span>
+          <span><i style="background:var(--crate)"></i>crate</span>
+          <span><i style="background:var(--accent)"></i>built wall / bomb</span>
+        </div>
+        <div id="arenaline"></div>
+      </div>
+    </div>
+
+    <div class="rail">
+      <div class="card">
+        <div class="score">
+          <div class="t a" id="sa">0</div>
+          <div class="clock"><span id="clock">0:00</span><br><span id="phase">kickoff</span></div>
+          <div class="t b" id="sb">0</div>
+        </div>
+        <div class="stats">
+          <div class="stat"><b id="mPoss">50 / 50</b><span>possession A / B</span></div>
+          <div class="stat"><b id="mLoose">0%</b><span>ball loose</span></div>
+          <div class="stat bad"><b id="mShort">0 / 0</b><span>shots out of range</span></div>
+          <div class="stat bad"><b id="mBlind">0.0 s</b><span>nobody can see the ball</span></div>
+        </div>
+      </div>
+
+      <div class="card"><h2>The four bots <span id="skillline"></span></h2><div id="bots"></div></div>
+
+      <div class="card"><h2>Play by play</h2><ul id="log"></ul></div>
+
+      <div class="card">
+        <h2>Skill census <span id="censusline">this session</span></h2>
+        <ul class="skills" id="skills"></ul>
+      </div>
+    </div>
+  </main>
+
+  <div class="notes" id="notes">
+    <h2>What this page is for</h2>
+    <p>The two research handoffs in <code>summery/bots logic handoff/</code> measured sixteen skills in hand-built fixtures. This page runs the opposite test: whole matches, at the difficulty a real level-10 player meets, on layouts the bots were never tuned against — and counts what the bots actually reach for. Everything below was measured with <code>bot-skill-census.mjs</code> (7 arenas × 4 × 60 s, seeded) and shows up live in the panels above.</p>
+    <ul>
+      <li><b>Range, not aim, is the leak.</b> A full-charge kick rolls <span class="fig">647 px</span> on a 2000 px pitch, but the release ladder still shoots at the mouth from anywhere inside <span class="fig">1150 px</span> (<code>bot-ai.js:1727</code>). Measured: <span class="fig">5.8 of 7.5</span> shots at goal per match — <b>77%</b> — are fired from beyond the distance the ball can travel. Turn on <em>Kick range</em> and watch the ring: shots taken with the goal outside it cannot arrive.</li>
+      <li><b>Cover is modelled on the wrong pitch.</b> <code>pointInBush()</code> takes no state and reads the <em>default</em> arena's three rectangles, so on every other layout the bots' stealth model is fiction. That is what the red ball marker shows: a loose ball the bots believe is hidden, with nobody inside the 110 px reveal radius, is invisible to <em>both</em> teams. Worst single blind spell measured: <span class="fig">48 s</span> on the classic layout, <span class="fig">21 s</span> on the one that ships.</li>
+      <li><b>Most tricks work; a few are unreachable.</b> The bank shot (<code>goalBank</code>) fired <b>zero</b> times in 28 matches, the full catapult combo <span class="fig">0.07</span> times a match, the cannon pass (a mate's bomb flinging the carrier, ball attached) <span class="fig">0.04</span>, and a bomb used to clear a loose ball <span class="fig">0.2</span>. Bots also cannot fire a quick tap at all — <code>aimed: fire</code> at <code>bot-ai.js:3124</code> makes every bot bullet an aimed shot — so slow stacks and the ⅓ super are player-only.</li>
+      <li><b>Passing is technically sound and tactically catchable.</b> <span class="fig">80%</span> of releases leave below <code>FULL_CHARGE</code> (0.70), and a kick under that threshold is caught outright by any field defender in the lane. The pass charge is sized by <code>dist / 950</code>, which only reaches full power at 665 px — past the 558 px where the same kick stops reaching the receiver.</li>
+      <li><b>What changing the pitch really costs.</b> Layout-driven skills simply vanish: no fragile-wall snipes and no walls shot down at all on the 3v3 layout or two of the three generated ones, because fragile walls only exist where a wall can be built over a bush. The bots never notice the difference.</li>
+    </ul>
+  </div>
+</div>
+
+<!--BUNDLE-->
+
+<script>
+(() => {
+  'use strict';
+  const R = window.SALTIZ.req;
+  const { createState, addPlayer, attachBall, step, setField, makeRng } = R('sim.js');
+  const { computeBotInputs, createBotMemory, bmemForTest, VIEW_BOX } = R('bot-ai.js');
+  const { DIFFICULTY_LEVELS, skillWord } = R('difficulty.js');
+  const { MAIN_FIELD } = R('main-field.js');
+  const { FIELD_3V3 } = R('field-3v3.js');
+  const { nearestOnWall, pointInBush } = R('arena.js');
+  const C = R('constants.js');
+  const { FIELD, GOAL, PENALTY, DT, BALL_RADIUS, BOMB, CHARACTERS, BUSH_REVEAL_DIST, FULL_CHARGE, MATCH_DURATION } = C;
+
+  const LEVEL = 10;                                    // "bots level 10", as the user asked
+  const LV = DIFFICULTY_LEVELS[LEVEL];
+  const IDS = [['A0', 'A', 0], ['A1', 'A', 1], ['B0', 'B', 0], ['B1', 'B', 1]];
+  const REACH = 0.468 * ((1400) * 1 - 18);             // ballRollPx(state, 1): a full kick's roll
+  const hyp = Math.hypot;
+
+  // ---------- the pitches ----------
+  // CLASSIC is the pre-builder arena expressed as a saved layout; EMPTY is a bare pitch. Both
+  // mirror shared/field-presets.js, which is what the in-game picker offers.
+  const CLASSIC = {
+    version: 1,
+    bushes: [{ x: 850, y: 430, w: 300, h: 240 }, { x: 250, y: 470, w: 180, h: 160 }, { x: 1570, y: 470, w: 180, h: 160 }],
+    hardWalls: [], dryWalls: [],
+    crates: [{ x: 560, y: 250, w: 120, h: 120 }, { x: 1320, y: 250, w: 120, h: 120 },
+             { x: 560, y: 730, w: 120, h: 120 }, { x: 1320, y: 730, w: 120, h: 120 }],
+  };
+  const EMPTY = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
+
+  // A generated layout, mirror-symmetric about both axes like every shipped field. This is the
+  // "the arena can change" case: the game ships a field builder, so a match can be played on a
+  // layout no bot was ever measured against.
+  function randomField(seed) {
+    let r = seed >>> 0;
+    const rnd = () => ((r = (r * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const pick = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+    const snap = (v) => Math.round(v / 50) * 50;
+    const f = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
+    const quad = (x, y, w, h, into) => {
+      into.push({ x, y, w, h });
+      into.push({ x: FIELD.W - x - w, y, w, h });
+      into.push({ x, y: FIELD.H - y - h, w, h });
+      into.push({ x: FIELD.W - x - w, y: FIELD.H - y - h, w, h });
+    };
+    for (let i = 0; i < pick(1, 3); i++) {
+      const w = snap(pick(120, 320)), h = snap(pick(120, 300));
+      quad(snap(pick(150, 860 - w / 2)), snap(pick(60, 470 - h / 2)), w, h, f.bushes);
+    }
+    for (let i = 0; i < pick(1, 3); i++) {
+      const s = snap(pick(50, 150));
+      quad(snap(pick(250, 880)), snap(pick(100, 480)), s, s, f.crates);
+    }
+    for (let i = 0; i < pick(1, 2); i++) {
+      const hl = pick(90, 200), ang = rnd() < 0.5 ? Math.PI / 2 : 0;
+      const cx = snap(pick(330, 880)), cy = snap(pick(180, 470));
+      for (const [mx, my] of [[cx, cy], [FIELD.W - cx, cy], [cx, FIELD.H - cy], [FIELD.W - cx, FIELD.H - cy]])
+        f.hardWalls.push({ cx: mx, cy: my, angle: ang, hl, ht: 16 });
+    }
+    return f;
+  }
+  const FIELDS = { main: () => MAIN_FIELD, threes: () => FIELD_3V3, classic: () => CLASSIC, empty: () => EMPTY };
+  const ARENA_NAMES = { main: 'ראשי (ships)', threes: 'שלושות (3v3)', classic: 'קלאסי', empty: 'ריק', random: 'generated' };
+
+  // ---------- every named play, in words ----------
+  // One entry per `bm.lastTrick` tag in shared/bot-ai.js. `flaw: true` marks a tag whose own
+  // source comments record it as broken or unreachable, so the log can call it out.
+  const PLAYS = {
+    drive: 'shot at the middle of the goal',
+    postFinish: 'went for a post instead of the middle',
+    cornerFinish: 'picked the corner the keeper is leaving',
+    overFinish: 'spent the overcharge to beat the keeper',
+    walkIn: 'is walking the ball into the net',
+    goalBank: 'banked a shot at goal off the stone',
+    passBank: 'banked a pass off the stone',
+    deflectSetup: 'built an angled wall for a bank shot',
+    deflectShot: "banked the shot off its mate's wall",
+    smashWall: 'smashed a full kick through a fragile wall',
+    passLatch: 'committed a pass to its mate',
+    outletPass: 'played the outlet ball',
+    receivePass: 'answered the call and came to meet the pass',
+    giveGo: 'give-and-go: passed and broke forward',
+    clearForward: 'cleared it up the pitch rather than dribble nowhere',
+    fetchBall: 'was nearest the loose ball and went for it',
+    zigzag: 'is zig-zagging past the marker',
+    dodge: 'sidestepped the incoming shot',
+    workAngle: 'is working an angle for a shot',
+    cornerEscape: 'bombed itself out of the corner',
+    watchdogRelease: 'force-released the ball (held it too long)',
+    kickAndFly: 'knocked the ball ahead, then bombed itself after it',
+    kickFlyCannon: 'kick-and-fly, launched off a wall',
+    chaseJump: 'bomb-jumped after a far loose ball',
+    catchUpJump: 'bomb-jumped to catch up with the play',
+    wallCannonJump: 'used a wall as a cannon to fly further',
+    coopPush: 'bomb-jumped into the attacking outlet',
+    catapultSetup: 'is setting up the catapult behind its mate',
+    catapultWall: 'raised the catapult wall',
+    catapult: 'planted the catapult bomb — the carrier flies WITH the ball',
+    catapultRide: 'is holding its heading to ride the catapult',
+    bombTackle: 'planted a bomb on the carrier',
+    doubleBomb: 'stacked a second bomb on the first',
+    bushSteal: 'bombed the carrier hiding in the bush',
+    blockDrive: "built a wall across the carrier's path",
+    ambushWall: 'built the ambush wall',
+    ambushLurk: 'is lurking in a bush',
+    ambushStrip: 'struck from the bush to strip the ball',
+    pincer: 'is closing the escape lane — two-sided trap',
+    superBodyStrip: 'is walking through the carrier to strip it with super',
+    superHold: 'is keeping the overcharge for a finish',
+    superDump: 'dumped the super on the first shot it had',
+    clearMarker: 'shot the defender off its mate',
+    bodyScreen: 'stepped in front of the chasing defender',
+    goalScreen: 'is screening the goal',
+    screenWall: 'walled off the shooting lane',
+    goalKeep: 'is playing keeper on its line',
+  };
+
+  // ---------- the skill catalogue, and how each one is detected ----------
+  // `tags` = any of these lastTrick tags counts; `ev` = a mechanical event detected from the sim.
+  // `ref` = episodes per match measured by bot-skill-census.mjs over 28 matches (7 arenas x 4 x 60 s,
+  // both sides at the level-10 enemy skill 0.93, seeded). The pill reads off `ref`, because a single
+  // 2-minute match is far too short a sample to call a skill dead; the live count is what THIS
+  // session has produced.
+  const CATALOGUE = [
+    { name: 'Pass to a mate', tags: ['passLatch', 'outletPass'], ref: 14.68 },
+    { name: 'Meet the pass', tags: ['receivePass', 'giveGo'], ref: 7.82 },
+    { name: 'Body screen', tags: ['bodyScreen', 'goalScreen', 'screenWall'], ref: 7.43 },
+    { name: 'Rocket mobility', ev: 'rocketJump', ref: 6.29 },
+    { name: 'Trap the carrier', tags: ['pincer'], ref: 5.96 },
+    { name: 'Super body strip', tags: ['superBodyStrip'], ref: 5.07 },
+    { name: 'Clear it up the pitch', tags: ['clearForward'], ref: 3.68 },
+    { name: 'Bush ambush', tags: ['ambushLurk', 'ambushStrip', 'bushSteal'], ref: 3.50 },
+    { name: 'Kick and fly', tags: ['kickAndFly', 'kickFlyCannon'], ref: 3.21 },
+    { name: 'Finish at the mouth', tags: ['drive'], ref: 2.75 },
+    { name: 'Bomb the carrier', tags: ['bombTackle', 'doubleBomb'], ref: 2.57 },
+    { name: 'Anticipation wall', tags: ['blockDrive', 'ambushWall'], ref: 2.25 },
+    { name: 'Keeper on the line', tags: ['goalKeep'], ref: 1.96 },
+    { name: 'Fragile-wall snipe', ev: 'fragileSnipe', ref: 1.18 },
+    { name: 'Shoot them off the ball', tags: ['clearMarker'], ref: 1.00 },
+    { name: 'Wall cannon', tags: ['wallCannonJump'], ref: 0.93 },
+    { name: 'Bullet at a loose ball', ev: 'bulletBall', ref: 0.68 },
+    { name: 'Post / corner finish', tags: ['postFinish', 'cornerFinish'], ref: 0.57 },
+    { name: 'Snooker deflection', ev: 'snooker', ref: 0.54 },
+    { name: 'Overcharge finish', tags: ['overFinish'], ref: 0.36 },
+    { name: 'Bank off the stone', tags: ['goalBank', 'passBank', 'deflectShot'], ref: 0.36 },
+    { name: 'Bomb a loose ball clear', ev: 'bombClear', ref: 0.21 },
+    { name: 'Smash a fragile wall', tags: ['smashWall'], ref: 0.14 },
+    { name: 'Walk it in', tags: ['walkIn'], ref: 0.07 },
+    { name: 'Catapult (full combo)', tags: ['catapult'], ref: 0.07 },
+    { name: 'Cannon pass (ball kept)', ev: 'cannonPass', ref: 0.00 },
+    { name: 'Quick tap (slow stacks)', ev: '__impossible', ref: 0.00, note: 'aimed: fire — bots cannot' },
+  ];
+
+  // ---------- state ----------
+  const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+  let s = null, mem = null, seed = 1, arenaKey = 'random', arenaLabel = '', mirror = true;
+  let running = true, speed = 1, acc = 0, last = 0;
+  let stat = null, log = [], lastTag = {}, tagAt = {}, session = { tags: {}, ev: {} }, matches = 0;
+  const ov = { reach: true, vision: false, blind: true, aim: true };
+  const skillsOf = () => (mirror ? { A: LV.enemy, B: LV.enemy } : { A: LV.partner, B: LV.enemy });
+
+  function reset(newSeed) {
+    matches++;
+    seed = newSeed != null ? newSeed : (Math.floor(Math.random() * 2147483646) + 1);
+    const key = arenaKey;
+    const field = key === 'random' ? randomField(seed) : FIELDS[key]();
+    arenaLabel = ARENA_NAMES[key] + (key === 'random' ? ' #' + (seed % 9999) : '');
+    s = createState();
+    s.resetTimer = 0.6;              // a short kickoff beat, same as the game's
+    s.goalsToWin = 0;                // timed match: play the clock out, then roll a new one
+    setField(s, field);
+    s.rng = makeRng(seed);
+    for (const [id, team, slot] of IDS) addPlayer(s, id, { name: id, char: 'player', team, slot, isBot: true });
+    attachBall(s, s.rng() < 0.5 ? 'A' : 'B');
+    mem = createBotMemory('normal');
+    mem.teamSkill = skillsOf();
+    stat = {
+      ticks: 0, loose: 0, poss: { A: 0, B: 0 }, blindTicks: 0, blindRun: 0, blindWorst: 0,
+      goalShots: 0, goalShort: 0, releases: 0, weak: 0, ev: {},
+    };
+    log = []; lastTag = {}; tagAt = {};
+    push('info', 'new match', `${arenaLabel} · seed ${seed} · ${s.arena.walls.length} obstacles, ${s.arena.bushes.length} bushes`);
+    paintChrome();
+  }
+
+  function push(kind, who, text) {
+    log.unshift({ t: s ? s.elapsed : 0, kind, who, text });
+    if (log.length > 60) log.pop();
+  }
+  const bump = (key) => {
+    stat.ev[key] = (stat.ev[key] || 0) + 1;
+    session.ev[key] = (session.ev[key] || 0) + 1;
+  };
+
+  // ---------- the sim's own glue rule, mirrored so the page can SEE a wall-pop ----------
+  function gluePoint(p) {
+    const ballR = BALL_RADIUS * (s.settings.ballSizeMul || 1);
+    const off = CHARACTERS[p.char || 'player'].radius * (s.settings.sizeMul || 1) + ballR;
+    return { x: p.x + p.aimX * off, y: p.y + p.aimY * off, r: ballR * 0.6 };
+  }
+  function glueInWall(g) {
+    for (const w of s.arena.walls.concat(s.builtWalls)) {
+      const np = nearestOnWall(w, g.x, g.y);
+      if (hyp(g.x - np.x, g.y - np.y) - (np.rad || 0) < g.r) return true;
+    }
+    return false;
+  }
+  const inRealBush = (x, y) => s.arena.bushes.some((g) => x > g.x && x < g.x + g.w && y > g.y && y < g.y + g.h);
+  let blindNow = false;
+
+  function tick() {
+    const owner = s.ball.owner ? s.players[s.ball.owner] : null;
+    const wasGlued = owner ? glueInWall(gluePoint(owner)) : false;
+    const before = { A: s.score.A, B: s.score.B };
+    const frozen = s.resetTimer > 0;                 // the goal celebration: the sim skips the players
+
+    const inp = computeBotInputs(s, mem, DT);
+
+    const pre = {
+      owner: s.ball.owner,
+      ball: { x: s.ball.x, y: s.ball.y, sp: hyp(s.ball.vx, s.ball.vy) },
+      bombs: s.bombs.map((b) => ({ id: b.id, x: b.x, y: b.y, owner: b.owner, fuse: b.fuse })),
+      walls: s.builtWalls.map((w) => ({ id: w.wallId != null ? w.wallId : w.id, maxHp: w.maxHp || w.hp || 3, cx: w.cx, cy: w.cy, x: w.x, y: w.y })),
+      proj: s.projectiles.map((p) => ({ x: p.x, y: p.y, vx: p.vx, vy: p.vy })),
+      pl: {},
+    };
+    for (const id in s.players) {
+      const p = s.players[id];
+      pre.pl[id] = { x: p.x, y: p.y, sp: hyp((p.vx || 0) + (p.kvx || 0), (p.vy || 0) + (p.kvy || 0)), kv: hyp(p.kvx || 0, p.kvy || 0) };
+    }
+
+    // A release, classified by its own aim — the release ladder's first rung sets no tag, so this
+    // is the only way to catch a shot fired from beyond the distance a kick can travel.
+    if (!frozen) for (const id in inp) {
+      const i = inp[id];
+      if (!i || !i.fire || s.ball.owner !== id) continue;
+      const p = s.players[id];
+      const egX = p.team === 'A' ? FIELD.W : 0, GY = FIELD.H / 2;
+      const dGoal = hyp(egX - p.x, GY - p.y);
+      const ga = Math.atan2(GY - p.y, egX - p.x), aa = Math.atan2(i.aimY, i.aimX);
+      const off = Math.abs(((aa - ga + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      stat.releases++;
+      if ((p._charge || 0) < FULL_CHARGE) stat.weak++;
+      if (off < 0.44) {
+        stat.goalShots++;
+        if (dGoal > REACH) {
+          stat.goalShort++;
+          push('flaw', id, `shot at goal from ${Math.round(dGoal)} px — a full kick only rolls ${Math.round(REACH)} px`);
+        }
+      }
+    }
+
+    step(s, inp, DT);
+
+    if (s.score.A !== before.A || s.score.B !== before.B) {
+      const who = s.score.A !== before.A ? 'A' : 'B';
+      push('goal', 'goal', `team ${who} scores — ${s.score.A}:${s.score.B}`);
+    }
+    if (frozen || s.resetTimer > 0) { stat.blindRun = 0; blindNow = false; return; }
+
+    stat.ticks++;
+    if (owner && !s.ball.owner && wasGlued) push('flaw', owner.id, 'popped its own ball on a wall it was facing');
+    if (s.ball.owner) stat.poss[s.players[s.ball.owner].team]++; else stat.loose++;
+
+    // named plays
+    for (const [id] of IDS) {
+      const tag = bmemForTest(mem, id).lastTrick || null;
+      if (tag && tag !== lastTag[id] && s.elapsed - (tagAt[id + tag] || -9) > 1.6) {
+        tagAt[id + tag] = s.elapsed;
+        session.tags[tag] = (session.tags[tag] || 0) + 1;
+        if (PLAYS[tag]) push('play', id, PLAYS[tag]);
+      } else if (tag && tag !== lastTag[id]) {
+        session.tags[tag] = (session.tags[tag] || 0) + 1;
+      }
+      lastTag[id] = tag;
+    }
+
+    // mechanical events the tags do not cover
+    const nowSp = hyp(s.ball.vx, s.ball.vy);
+    if (!pre.owner && !s.ball.owner && nowSp > pre.ball.sp + 120) {
+      let bd = 1e9, near = null;
+      for (const pr of pre.proj) { const d = hyp(pr.x - pre.ball.x, pr.y - pre.ball.y); if (d < bd) { bd = d; near = pr; } }
+      if (near && bd < 90) {
+        bump('bulletBall');
+        const a0 = Math.atan2(near.vy, near.vx), a1 = Math.atan2(s.ball.vy, s.ball.vx);
+        const dth = Math.abs(((a1 - a0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+        if (dth > 0.35) { bump('snooker'); push('play', 'ball', `a bullet knocked the loose ball ${Math.round(dth * 57.3)}° off the shot line`); }
+        else push('play', 'ball', 'shot the loose ball on');
+      }
+    }
+    for (const b of pre.bombs) {
+      if (s.bombs.some((x) => x.id === b.id) || b.fuse > DT * 2 + 0.001) continue;   // still ticking, not a blast
+      if (!pre.owner && hyp(b.x - pre.ball.x, b.y - pre.ball.y) < BOMB.radius && nowSp > pre.ball.sp + 80) {
+        bump('bombClear'); push('play', b.owner, 'blew the loose ball clear');
+      }
+      for (const [id] of IDS) {
+        const p = s.players[id], q = pre.pl[id];
+        if (!p || hyp(b.x - q.x, b.y - q.y) > BOMB.radius) continue;
+        const flung = hyp((p.vx || 0) + (p.kvx || 0), (p.vy || 0) + (p.kvy || 0)) > q.sp + 250 || hyp(p.kvx || 0, p.kvy || 0) > q.kv + 250;
+        if (!flung) continue;
+        if (b.owner === id) bump('rocketJump');
+        else if (pre.owner === id) {
+          if (s.ball.owner === id) { bump('cannonPass'); push('play', id, "flew off its mate's bomb AND KEPT THE BALL"); }
+          else push('flaw', id, "was flung by its mate's bomb and lost the ball");
+        }
+      }
+    }
+    for (const w of pre.walls) {
+      if (s.builtWalls.some((x) => (x.wallId != null ? x.wallId : x.id) === w.id)) continue;
+      const wx = w.cx != null ? w.cx : (w.x || 0), wy = w.cy != null ? w.cy : (w.y || 0);
+      if (!pre.proj.some((pr) => hyp(pr.x - wx, pr.y - wy) < 190)) continue;
+      bump('wallShotDown');
+      if ((w.maxHp || 3) <= 1) { bump('fragileSnipe'); push('play', 'shot', 'one tap deleted a fragile wall'); }
+    }
+
+    // the phantom-bush blind spot, live
+    blindNow = false;
+    if (!s.ball.owner) {
+      const phantom = pointInBush(s.ball.x, s.ball.y);           // what bot-ai believes
+      let close = false;
+      for (const [id] of IDS) { const p = s.players[id]; if (p && hyp(p.x - s.ball.x, p.y - s.ball.y) < BUSH_REVEAL_DIST) close = true; }
+      if (phantom && !close) {
+        blindNow = true; stat.blindTicks++; stat.blindRun++;
+        if (stat.blindRun * DT > stat.blindWorst) stat.blindWorst = stat.blindRun * DT;
+        if (stat.blindRun === 90) push('flaw', 'ball', `nobody can see the ball${inRealBush(s.ball.x, s.ball.y) ? '' : ' — and it is not in a bush on this pitch'}`);
+      } else stat.blindRun = 0;
+    } else stat.blindRun = 0;
+
+    if (s.elapsed >= MATCH_DURATION) reset();                    // roll straight into the next one
+  }
+
+  // ---------- drawing ----------
+  let SCALE = 1, OX = 0, OY = 0;
+  function fit() {
+    const cssW = cv.clientWidth || 1000;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const pad = 26;
+    SCALE = (cssW - pad * 2) / FIELD.W;
+    const cssH = FIELD.H * SCALE + pad * 2;
+    cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+    cv.style.height = cssH + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    OX = pad; OY = pad;
+  }
+  const X = (x) => OX + x * SCALE, Y = (y) => OY + y * SCALE, S = (v) => v * SCALE;
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  let P = {};
+  function paintChrome() {
+    P = {};
+    for (const n of ['bg', 'panel', 'panel-2', 'rule', 'ink', 'ink-dim', 'ink-faint', 'accent', 'turf', 'turf-line',
+      'stone', 'crate', 'bush', 'teamA', 'teamB', 'ball', 'ok', 'crit']) P[n] = css('--' + n);
+  }
+
+  function rrect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+  function drawWall(w, col, alpha) {
+    ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = col;
+    if (w.angle != null) {
+      ctx.translate(X(w.cx), Y(w.cy)); ctx.rotate(w.angle);
+      rrect(-S(w.hl), -S(w.ht), S(w.hl * 2), S(w.ht * 2), S(Math.min(w.ht, 8))); ctx.fill();
+    } else { rrect(X(w.x), Y(w.y), S(w.w), S(w.h), S(4)); ctx.fill(); }
+    ctx.restore();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = P.panel; ctx.fillRect(0, 0, cv.width, cv.height);
+    // turf + mown stripes
+    ctx.fillStyle = P.turf; ctx.fillRect(X(0), Y(0), S(FIELD.W), S(FIELD.H));
+    ctx.save(); ctx.beginPath(); ctx.rect(X(0), Y(0), S(FIELD.W), S(FIELD.H)); ctx.clip();
+    ctx.fillStyle = P['turf-line']; ctx.globalAlpha = 0.3;
+    for (let i = 0; i < 10; i += 2) ctx.fillRect(X(i * FIELD.W / 10), Y(0), S(FIELD.W / 10), S(FIELD.H));
+    ctx.restore();
+    // markings
+    ctx.strokeStyle = P['turf-line']; ctx.lineWidth = Math.max(1, S(4));
+    ctx.strokeRect(X(0), Y(0), S(FIELD.W), S(FIELD.H));
+    ctx.beginPath();
+    ctx.moveTo(X(FIELD.W / 2), Y(0)); ctx.lineTo(X(FIELD.W / 2), Y(FIELD.H));
+    ctx.arc(X(FIELD.W / 2), Y(FIELD.H / 2), S(180), 0, Math.PI * 2); ctx.stroke();
+    const pt = (FIELD.H - PENALTY.width) / 2;
+    ctx.strokeRect(X(0), Y(pt), S(PENALTY.depth), S(PENALTY.width));
+    ctx.strokeRect(X(FIELD.W - PENALTY.depth), Y(pt), S(PENALTY.depth), S(PENALTY.width));
+    // goals — team A attacks right, so the RIGHT goal is A's target
+    const gt = (FIELD.H - GOAL.width) / 2;
+    for (const [gx, dir, team] of [[0, -1, 'B'], [FIELD.W, 1, 'A']]) {
+      const col = team === 'A' ? P.teamA : P.teamB;
+      const x0 = Math.min(gx, gx + dir * GOAL.depth);
+      ctx.globalAlpha = 0.14; ctx.fillStyle = col; ctx.fillRect(X(x0), Y(gt), S(GOAL.depth), S(GOAL.width));
+      ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, S(7));
+      ctx.strokeRect(X(x0), Y(gt), S(GOAL.depth), S(GOAL.width));
+    }
+    // bushes, stone, crates, built walls
+    for (const b of s.arena.bushes) {
+      ctx.fillStyle = P.bush; ctx.globalAlpha = 0.5; rrect(X(b.x), Y(b.y), S(b.w), S(b.h), S(14)); ctx.fill();
+      ctx.globalAlpha = 1; ctx.strokeStyle = P.bush; ctx.lineWidth = Math.max(1, S(3));
+      ctx.setLineDash([S(14), S(10)]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (const w of s.arena.walls) drawWall(w, w.crate ? P.crate : P.stone, 1);
+    for (const w of s.builtWalls) drawWall(w, w.field ? P.stone : P.accent, Math.max(0.35, (w.hp || 1) / (w.maxHp || 3)));
+
+    // bombs (fuse ring) and bullets
+    for (const b of s.bombs) {
+      const k = 1 - b.fuse / BOMB.fuse;
+      ctx.strokeStyle = P.accent; ctx.lineWidth = Math.max(1, S(5)); ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), S(BOMB.radius) * (0.35 + 0.65 * k), 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = P.accent;
+      ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), S(15), 0, Math.PI * 2); ctx.fill();
+    }
+    for (const pr of s.projectiles) {
+      ctx.fillStyle = pr.team === 'A' ? P.teamA : P.teamB;
+      ctx.beginPath(); ctx.arc(X(pr.x), Y(pr.y), S(9), 0, Math.PI * 2); ctx.fill();
+    }
+
+    // players
+    const role = { A: mem.teams.A, B: mem.teams.B };
+    for (const [id] of IDS) {
+      const p = s.players[id]; if (!p) continue;
+      const col = p.team === 'A' ? P.teamA : P.teamB;
+      const r = CHARACTERS[p.char || 'player'].radius * (s.settings.sizeMul || 1);
+      const carrying = s.ball.owner === id;
+
+      if (ov.vision) {
+        const mul = 1.6;                                   // the visionMul of the top tier
+        ctx.strokeStyle = col; ctx.globalAlpha = 0.14; ctx.lineWidth = Math.max(1, S(3));
+        ctx.setLineDash([S(16), S(12)]);
+        ctx.strokeRect(X(p.x - VIEW_BOX.halfW * mul), Y(p.y - VIEW_BOX.halfH * mul), S(VIEW_BOX.halfW * 2 * mul), S(VIEW_BOX.halfH * 2 * mul));
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+      if (ov.reach && carrying) {                          // how far this kick can actually go
+        ctx.save();
+        ctx.beginPath(); ctx.rect(X(0), Y(0), S(FIELD.W), S(FIELD.H)); ctx.clip();   // keep it on the pitch
+        ctx.strokeStyle = P.accent; ctx.globalAlpha = 0.55; ctx.lineWidth = Math.max(1, S(3));
+        ctx.setLineDash([S(10), S(12)]);
+        ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(REACH), 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      }
+      if (ov.aim) {                                        // aim, and the wind-up as a growing wedge
+        const ch = p._charge || 0;
+        ctx.strokeStyle = col; ctx.globalAlpha = 0.7; ctx.lineWidth = Math.max(1, S(4));
+        ctx.beginPath(); ctx.moveTo(X(p.x), Y(p.y));
+        ctx.lineTo(X(p.x + p.aimX * (r + 26 + 44 * ch)), Y(p.y + p.aimY * (r + 26 + 44 * ch))); ctx.stroke();
+        ctx.globalAlpha = 1;
+        if (ch > 0.02) {
+          ctx.strokeStyle = ch >= FULL_CHARGE ? P.accent : P['ink-faint'];
+          ctx.lineWidth = Math.max(1.5, S(6));
+          ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r + 12), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ch); ctx.stroke();
+        }
+      }
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r), 0, Math.PI * 2); ctx.fill();
+      if (p.power) {                                       // the overcharge ring the client draws too
+        ctx.strokeStyle = P.crit; ctx.lineWidth = Math.max(1.5, S(6));
+        ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r + 7), 0, Math.PI * 2); ctx.stroke();
+      }
+      if (carrying) {
+        ctx.strokeStyle = P.ball; ctx.lineWidth = Math.max(1, S(3));
+        ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), S(r + 14), 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.fillStyle = P.panel; ctx.font = `700 ${Math.max(9, S(20))}px ${css('--mono')}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(id, X(p.x), Y(p.y) + 1);
+      if (role[p.team] && role[p.team].onBall === id) {     // the team's designated ball-chaser
+        ctx.fillStyle = col; ctx.globalAlpha = 0.9;
+        ctx.beginPath(); ctx.arc(X(p.x), Y(p.y - r - 16), S(7), 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // the ball, and the blind-ball marker
+    const bR = BALL_RADIUS * (s.settings.ballSizeMul || 1);
+    ctx.fillStyle = P.ball;
+    ctx.beginPath(); ctx.arc(X(s.ball.x), Y(s.ball.y), S(bR), 0, Math.PI * 2); ctx.fill();
+    if (ov.blind && blindNow) {
+      ctx.strokeStyle = P.crit; ctx.lineWidth = Math.max(1.5, S(5));
+      ctx.setLineDash([S(9), S(9)]);
+      ctx.beginPath(); ctx.arc(X(s.ball.x), Y(s.ball.y), S(BUSH_REVEAL_DIST), 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = P.crit; ctx.font = `700 ${Math.max(9, S(26))}px ${css('--sans')}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('nobody can see the ball', X(s.ball.x), Y(s.ball.y) - S(BUSH_REVEAL_DIST + 18));
+    }
+  }
+
+  // ---------- panels ----------
+  const el = (id) => document.getElementById(id);
+  function paintPanels() {
+    el('sa').textContent = s.score.A; el('sb').textContent = s.score.B;
+    const t = Math.max(0, MATCH_DURATION - s.elapsed);
+    el('clock').textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    el('phase').textContent = s.resetTimer > 0 ? 'kickoff' : 'match ' + matches;
+    const held = stat.poss.A + stat.poss.B || 1;
+    el('mPoss').textContent = `${Math.round(100 * stat.poss.A / held)} / ${Math.round(100 * stat.poss.B / held)}`;
+    el('mLoose').textContent = Math.round(100 * stat.loose / (stat.ticks || 1)) + '%';
+    el('mShort').textContent = `${stat.goalShort} / ${stat.goalShots}`;
+    el('mBlind').textContent = (stat.blindTicks * DT).toFixed(1) + ' s';
+    el('arenaline').textContent = `${arenaLabel} · seed ${seed} · worst blind spell ${stat.blindWorst.toFixed(1)}s · ${stat.weak}/${stat.releases} kicks under full charge`;
+    el('skillline').textContent = `A ${skillsOf().A} · B ${skillsOf().B}`;
+    el('srcline').innerHTML = `level ${LEVEL} — ${LV.name} · enemy ${LV.enemy} (${skillWord(LV.enemy)})<br>real sim.js + bot-ai.js, bundled`;
+
+    const bots = IDS.map(([id, team]) => {
+      const p = s.players[id]; if (!p) return '';
+      const bm = bmemForTest(mem, id);
+      const r = mem.teams[team] || {};
+      const tag = bm.lastTrick;
+      return `<div class="bot">
+        <div class="chip" style="background:var(--team${team})">${id}</div>
+        <div><b>${tag ? (PLAYS[tag] || tag) : 'holding shape'}</b></div>
+        <div class="role">${r.onBall === id ? 'on ball' : 'support'}</div>
+        <div class="meta"><span>ammo ${p.ammo}</span><span>walls ${p.buildAmmo}</span>
+          <span>bomb ${p.specialCd > 0 ? p.specialCd.toFixed(1) + 's' : 'ready'}</span>
+          ${p.power ? '<em>SUPER</em>' : ''}${s.ball.owner === id ? '<em>ball</em>' : ''}</div>
+      </div>`;
+    }).join('');
+    el('bots').innerHTML = bots;
+
+    el('log').innerHTML = log.map((L) => {
+      const cls = L.kind === 'goal' ? 'goal' : L.kind === 'flaw' ? 'flaw' : L.kind === 'info' ? 'info' : 'play';
+      return `<li class="${cls}"><time>${L.t.toFixed(1)}s</time><span><b>${L.who}</b> ${L.text}</span></li>`;
+    }).join('');
+
+    let seen = 0;
+    const rows = CATALOGUE.map((sk) => {
+      const n = sk.ev ? (session.ev[sk.ev] || 0)
+        : sk.tags.reduce((a, t) => a + (session.tags[t] || 0), 0);
+      if (n > 0) seen++;
+      const cls = sk.ref === 0 ? 'never' : sk.ref < 0.5 ? 'rare' : 'live';
+      const word = sk.ref === 0 ? 'never' : sk.ref < 0.5 ? 'rare' : 'used';
+      const ref = sk.note ? sk.note : sk.ref.toFixed(2) + '/match';
+      return `<li class="${sk.ref === 0 ? 'dim' : ''}">
+        <span>${sk.name}<br><span class="n">${ref} measured</span></span>
+        <span class="n" title="seen live in this session">${n}</span>
+        <span class="pill ${cls}">${word}</span></li>`;
+    }).join('');
+    el('skills').innerHTML = rows;
+    el('censusline').textContent = `${matches} match${matches === 1 ? '' : 'es'} watched · ${seen}/${CATALOGUE.length} seen live`;
+  }
+
+  // ---------- loop ----------
+  function frame(ts) {
+    if (!last) last = ts;
+    let dtReal = Math.min(0.25, (ts - last) / 1000); last = ts;
+    if (running) {
+      acc += dtReal * speed;
+      let guard = 0;
+      while (acc >= DT && guard++ < 400) { tick(); acc -= DT; }
+    }
+    draw(); paintPanels();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- controls ----------
+  el('newmatch').addEventListener('click', () => reset());
+  el('pp').addEventListener('click', (e) => {
+    running = !running; e.target.textContent = running ? 'Pause' : 'Play';
+    e.target.setAttribute('aria-pressed', String(running));
+  });
+  for (const b of document.querySelectorAll('[data-speed]')) {
+    b.addEventListener('click', () => {
+      speed = parseFloat(b.dataset.speed);
+      for (const o of document.querySelectorAll('[data-speed]')) o.setAttribute('aria-pressed', String(o === b));
+    });
+  }
+  el('arena').addEventListener('change', (e) => { arenaKey = e.target.value; reset(); });
+  el('mirrorOn').addEventListener('click', () => {
+    mirror = true; el('mirrorOn').setAttribute('aria-pressed', 'true'); el('mirrorOff').setAttribute('aria-pressed', 'false');
+    mem.teamSkill = skillsOf();
+  });
+  el('mirrorOff').addEventListener('click', () => {
+    mirror = false; el('mirrorOff').setAttribute('aria-pressed', 'true'); el('mirrorOn').setAttribute('aria-pressed', 'false');
+    mem.teamSkill = skillsOf();
+  });
+  for (const [id, key] of [['ovReach', 'reach'], ['ovVision', 'vision'], ['ovBlind', 'blind'], ['ovAim', 'aim']])
+    el(id).addEventListener('change', (e) => { ov[key] = e.target.checked; });
+  window.addEventListener('resize', () => { fit(); paintChrome(); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintChrome);
+  new MutationObserver(paintChrome).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  fit(); paintChrome(); reset(); requestAnimationFrame(frame);
+})();
+</script>
