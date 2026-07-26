@@ -99,10 +99,28 @@ goals **0.33 -> 1.50** · idle-with-ball **4.09% -> 2.37%**.
 
 ### Still open after this round
 
-1. **`test-bot-ladder.mjs`**: pre-fix it passes with rho 0.90 and spread **exactly 0.60** — the gate is a
-   knife edge (§5.4 already says the headroom is spent). These fixes move possession and finishing, so
-   the spread must be re-measured at `SEEDS=6` and the levels retuned if it slipped; do NOT "fix" it by
-   lowering the gate. `test-bot-partner.mjs` is the previously-logged level-table conflict.
+1. **`test-bot-ladder.mjs` — MEASURED, both ways, `SEEDS=6` (192 matches/anchor) on the same machine:**
+
+   | | rho (goals) | spread | strips rho |
+   |---|---|---|---|
+   | pre-fix | 0.90 | **0.60** (exactly on the gate) | 1.00 |
+   | **shipped fix** | **0.90** | **0.50** ❌ | 1.00 |
+   | fix + a skill-gated deflection (below) | **0.70** ❌ | **0.47** ❌ | 1.00 |
+
+   So the fix costs 0.10 goals/match of felt spread while the RANKING survives intact (goals 0.90,
+   strips 1.00, top still beats bottom 0.13 vs −0.38). §5.4 already recorded that this gate has zero
+   headroom. The remaining path is a **level re-cut** measured at `SEEDS=6` — a ladder change that needs
+   the user's sign-off, not a lowered gate and not a bot handicap. `test-bot-partner.mjs` is the
+   previously-logged level-table conflict.
+
+   **MEASURED AND REFUTED — do not re-propose: "make weak bots dribble the ball into walls."** It is the
+   obvious way to buy the spread back, it looked like the *characterfully dumb bottom tier* §4 says has
+   no working lever, and it FAILED THE SAME WAY the seven `decisionHz` variants did. Gating the
+   carry-aim deflection on a skill-scaled notice probability (`care = 0.25 + 0.85·t`, deterministic
+   `seededNoise` on a ~2.2Hz bucket) left skill 0.50 unchanged (median possession 0.87s, jam 0.58%) and
+   visibly clumsy at 0.05 (loose ball 68%, gap 295px) — and still **collapsed the ladder to rho 0.70**.
+   Same root cause as the `decisionHz` autopsy: a stochastic handicap adds variance faster than it adds
+   ranking, and the high tiers pay for it too.
 2. The carry-aim deflection is a **local** dodge (nearest clear glue direction). The better version
    biases toward the movement direction so the ball is nudged the way the bot is already going.
 3. `sim.js:919` itself deserves a look: popping the ball because the AIM grazes a wall punishes a human
