@@ -1203,7 +1203,8 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* ---- Play With Friends · party roster (YOU centered, party members flanking) ---- */
 .party-roster { width: 100%; max-width: 640px; display: flex; flex-direction: row; flex-wrap: wrap;
-  align-items: flex-end; justify-content: center; gap: 12px; }
+  align-items: flex-end; justify-content: center; gap: 12px;
+  padding-top: 6px; }
 .pr-me, .pr-mate { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 12px;
   background: rgba(19,27,22,.9); border: 2px solid #46543f; box-shadow: 0 3px 0 #070b08; }
 .pr-me { border-color: #7ea862; background: rgba(28,40,28,.94); padding: 10px 16px; }
@@ -2465,7 +2466,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 .fp-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(3,6,4,.72); }
 .fp-modal.hidden { display: none; }
-.fp-card { position: relative; width: min(88vw, 340px); background: #16211a; border: 3px solid #3a4a3c; border-radius: 14px; padding: 18px 16px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+/* max-height + scroll because the card grew a הסר חבר row: measured at 337px against a 333px landscape
+   phone viewport (844x390 → ~333px usable), i.e. the button's bottom border was clipped off-screen. */
+.fp-card { position: relative; width: min(88vw, 340px); max-height: 92vh; overflow-y: auto; background: #16211a; border: 3px solid #3a4a3c; border-radius: 14px; padding: 18px 16px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
 .fp-close { position: absolute; top: 8px; left: 8px; width: 30px; height: 30px; border-radius: 50%; background: #2c3a2e; color: #e7dcae; border: 2px solid #4a5a4c; font-weight: 900; cursor: pointer; }
 .fp-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .fp-pfp { width: 72px; height: 72px; border-radius: 50%; overflow: hidden; background: #2c3a2e; display: flex; align-items: center; justify-content: center; font: 900 26px "Arial Black", sans-serif; color: #e7dcae; }
@@ -2475,6 +2478,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .fp-div { font: 900 12px "Arial Black", sans-serif; color: #b9c7ab; margin-top: 2px; }
 .fp-slots { justify-content: center; margin: 12px 0; }
 .fp-stats { font: 900 11px "Arial Black", sans-serif; color: #9fb0a2; }
+/* הסר חבר — destructive, so it reads as danger and sits BELOW the stats, away from the close ✕. */
+.fp-remove { margin-top: 10px; width: 100%; padding: 9px 12px; cursor: pointer;
+  font: 900 12px "Arial Black", sans-serif; color: #ffd9d9; background: #4a1b1e;
+  border: 3px solid #7c2b30; box-shadow: 0 4px 0 #26090b; }
+.fp-remove:active { transform: translateY(2px); box-shadow: 0 2px 0 #26090b; }
+.fp-remove:disabled { opacity: .55; cursor: default; }
 
 /* ============================================================================
    XP REWARD REVEAL — post-match hub overlay: full-screen confetti + a big
@@ -2574,3 +2583,48 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .th-react.hidden { display: none; }
 .th-react-btn { background: none; border: 0; font-size: 21px; line-height: 1; padding: 3px 5px; cursor: pointer; }
 .th-react-btn:active { transform: scale(1.25); }
+
+/* ---- party chat: preset row + 40-char free text, and the bubbles on the roster --------------- */
+/* The bubble hangs above a member's hero. `position:relative` on the blocks is what anchors it, and
+   it is deliberately allowed to shrink-wrap short messages so "מוכן?" is not a full-width banner. */
+/* The bubble sits in the block's own flow, in a slot that is always reserved, so six of them at 3v3
+   cannot overlap and an arriving message does not jolt the roster. `min-height` is one line; a longer
+   message grows the slot and the roster's `align-items: flex-end` keeps every hero on one line. */
+.pr-say { min-height: 22px; display: flex; align-items: flex-end; justify-content: center;
+  /* BOUNDED, so a 40-character message wraps INSIDE the block instead of stretching it — an
+     unbounded bubble made one member's block twice the width of the others and wrapped the roster
+     onto a second row. */
+  max-width: 124px; }
+.pr-me .pr-say { max-width: 152px; }
+.pr-say.has > span {
+  display: inline-block; max-width: 100%; padding: 4px 8px; border-radius: 11px;
+  background: #fffdf3; color: #22303c; border: 2px solid #22303c;
+  font: 600 11px/1.3 inherit; text-align: center; overflow-wrap: anywhere;
+  box-shadow: 0 2px 0 rgba(34, 48, 60, .35);
+  animation: pr-bubble-in .16s ease-out;
+}
+@keyframes pr-bubble-in { from { opacity: 0; transform: translateY(4px) scale(.96); } }
+@media (prefers-reduced-motion: reduce) { .pr-say.has > span { animation: none; } }
+
+.party-chat { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.pchat-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.pchat-pre {
+  font: 600 12px/1 inherit; padding: 7px 10px; border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, .22); background: rgba(255, 255, 255, .10); color: #fff;
+  cursor: pointer;
+}
+.pchat-pre:active { transform: translateY(1px); }
+.pchat-row { display: flex; align-items: center; gap: 6px; }
+.pchat-row.hidden { display: none; }
+.pchat-input {
+  flex: 1 1 auto; min-width: 0; font: 600 13px/1 inherit; padding: 9px 11px; border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, .22); background: rgba(0, 0, 0, .28); color: #fff;
+}
+.pchat-input::placeholder { color: rgba(255, 255, 255, .45); }
+.pchat-left { font: 600 11px/1 ui-monospace, monospace; color: rgba(255, 255, 255, .55); min-width: 2ch; text-align: center; }
+.pchat-left.over { color: #ff8a7a; }
+.pchat-send {
+  font: 700 12px/1 inherit; padding: 9px 14px; border-radius: 10px; border: 2px solid #22303c;
+  background: #ffd06a; color: #22303c; cursor: pointer;
+}
+.pchat-send:active { transform: translateY(1px); }

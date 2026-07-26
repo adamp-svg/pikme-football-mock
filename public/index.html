@@ -198,10 +198,13 @@
         <button class="btool" data-tool="dry">🟫 חלש</button>
         <button class="btool" data-tool="bush">🌳 שיח</button>
         <button class="btool" data-tool="crate">📦 ארגז</button>
-        <!-- KICKOFF markers: where players start, and where the ball starts. Both travel inside the
-             saved field (shared/field-spawns.js) — a field with none keeps the built-in formation. -->
+        <!-- KICKOFF markers: where players start. They travel inside the saved field
+             (shared/field-spawns.js); a field with none is seeded with the built-in formation so the
+             pitch shows the same slots the match will actually use. -->
         <button class="btool" data-tool="spawn">🏁 פתיחה</button>
-        <button class="btool" data-tool="ball">⚽ כדור</button>
+        <!-- No ball tool: the ball ALWAYS starts at the centre spot, and after a goal it starts
+             with a player of the team that conceded (shared/sim.js attachBall). A per-field ball
+             spot would silently do nothing, so the tool is gone rather than lying. -->
         <button class="btool" data-tool="move">✋ הזז</button>
         <button class="btool" data-tool="eraser">🩹 מחק</button>
       </div>
@@ -501,6 +504,7 @@
       <div id="fp-div" class="fp-div"></div>
       <div id="fp-slots" class="fc-slots fp-slots"></div>
       <div id="fp-stats" class="fp-stats"></div>
+      <button id="fp-remove" class="fp-remove hidden">הסר חבר</button>
     </div>
   </div>
 
@@ -556,6 +560,18 @@
           <div class="party-games-h">בחרו משחק</div>
           <!-- Rendered from MODES (party surface — see renderModeList in client.js). -->
           <div class="mode-list" data-modes="party"></div>
+        </div>
+        <!-- CHAT: preset phrases + up to 40 characters of free text. Party rooms only (the server
+             refuses free text elsewhere — shared/quick-messages.js FREE_TEXT_ROOMS). The bubbles
+             themselves render on each member's block in the roster above. -->
+        <div id="party-chat" class="party-chat">
+          <div class="pchat-presets" id="pchat-presets"></div>
+          <form class="pchat-row" id="pchat-form" autocomplete="off">
+            <input id="pchat-text" class="pchat-input" type="text" inputmode="text"
+                   placeholder="כתבו הודעה…" maxlength="80" aria-label="הודעה לקבוצה">
+            <span id="pchat-left" class="pchat-left">40</span>
+            <button id="pchat-send" class="pchat-send" type="submit">שלח</button>
+          </form>
         </div>
         <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
       </div>

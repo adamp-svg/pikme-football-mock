@@ -22,6 +22,7 @@ import { ARENA } from './shared/arena.js';
 import { coalesceInput, consumeEdges } from './shared/input-merge.js';
 import { MAIN_FIELD } from './shared/main-field.js';
 import { FIELD_3V3 } from './shared/field-3v3.js';
+import { phraseById, sanitizeFreeText, FREE_TEXT_ROOMS } from './shared/quick-messages.js';
 import { sizeOfField, canHost, sizeOf } from './shared/field-sizes.js';
 import { normSpawns, normBall } from './shared/field-spawns.js';
 import { encodeKeyframe } from './shared/wire.js';
@@ -33,6 +34,7 @@ const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. S
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
 import { isChatId, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
+import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout } from './shared/saltiz-bots.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -130,6 +132,9 @@ const FORMATS = {
 // Players per side / total cap for a room. Private + training rooms keep the MAX_PLAYERS default.
 const roomTeamSize = (room) => Math.max(1, (room && room.teamSize) | 0 || MAX_PLAYERS / 2);
 const roomMax = (room) => roomTeamSize(room) * 2;
+// How long a chat bubble lives on the team page. Long enough to read a 40-char line, short enough
+// that the roster is not permanently covered in speech bubbles.
+const CHAT_BUBBLE_MS = 8000;
 // The arena a room plays on: its format's field, else the shared main one.
 const roomField = (room) => ((FORMATS[room && room.format] || {}).cleanField) || MAIN_FIELD_CLEAN;
 // MODES card id (client-side) -> FORMATS key (server-side). The picker's '2v2' card is the 'quick'
@@ -306,23 +311,34 @@ function fillBots(room, rosterOut) {
     // A bot gets the EXTREME fixed loadout + cheat buffs only when ITS side is at the top of the
     // ladder: the partner scalar if this team holds a human, else the enemy scalar.
     const teamHasHuman = Object.values(room.state.players).some((p) => !p.isBot && p.team === team);
-    const sideScalar = botSideScalar(levelAt(room.diffLevel), teamHasHuman);
+    // A NAMED bot friend plays at ITS OWN level, not the room's, and keeps the exact three cards its
+    // friend card advertised — including at the top of the ladder, where it takes the honest
+    // card-derived buffs rather than the EXTREME flat cheat set. Swapping in extremeBotLoadout() here
+    // would silently replace the cards the player was shown, and "display == gameplay" is the one
+    // promise this whole card system rests on.
+    const namedLevel = planned && Number.isFinite(planned.namedLevel) ? planned.namedLevel : null;
+    const botLvl = namedLevel != null ? namedLevel : clampLevel(room.diffLevel);
+    const sideScalar = botSideScalar(levelAt(botLvl), teamHasHuman);
     let loadout, buffs;
-    if (sideScalar >= EXTREME_SKILL) {
+    if (namedLevel == null && sideScalar >= EXTREME_SKILL) {
       loadout = extremeBotLoadout();
       buffs = EXTREME_BOT_BUFFS;
     } else {
       loadout = planned ? planned.loadout : botLoadoutForLevel(room.diffLevel);
       buffs = buffsFromLoadout(loadout);
     }
-    addPlayer(room.state, id, { name: 'Bot', char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic, buffs });
+    const botName = (planned && planned.name) || 'Bot';
+    addPlayer(room.state, id, { name: botName, char: DEFAULT_CHAR, team, slot, isBot: true, cosmetic, buffs });
     room.inputs.set(id, emptyInput());
     // `buffs` + `skill` + `botLevel` ride along so the settings panel shows what the sim ACTUALLY
     // applies. An EXTREME bot's buffs are the flat cheat set, not f(cards), so a client that
     // re-derived them from `loadout` would under-report it by a third.
     const entry = {
-      id, name: 'Bot', avatar: null, team, cards: loadoutToCards(loadout), cosmetic, loadout, isBot: true,
-      buffs, skill: sideScalar, botLevel: clampLevel(room.diffLevel), partnerSide: teamHasHuman,
+      id, name: botName, avatar: null, team, cards: loadoutToCards(loadout), cosmetic, loadout, isBot: true,
+      buffs, skill: sideScalar, botLevel: botLvl, partnerSide: teamHasHuman,
+      // Set only for an invited house bot. It is what pins this bot's skill (applyTeamSkill) and keeps
+      // relevelBots off it — its level is its identity, not the room's difficulty setting.
+      ...(namedLevel != null ? { namedLevel } : {}),
     };
     room.botRoster.push(entry);
     if (rosterOut) rosterOut.push(entry);
@@ -345,6 +361,9 @@ function relevelBots(room) {
   for (const b of room.botRoster) {
     const p = room.state.players[b.id];
     if (!p) continue;
+    // An invited house bot is exempt: its level came with its identity, so a host sliding the room
+    // difficulty must not re-roll שובל into a level-2 player mid-match.
+    if (Number.isFinite(b.namedLevel)) continue;
     const teamHasHuman = Object.values(room.state.players).some((q) => !q.isBot && q.team === p.team);
     const sideScalar = botSideScalar(levelAt(level), teamHasHuman);
     let loadout, buffs;
@@ -389,6 +408,21 @@ function applyTeamSkill(room) {
   const human = { A: false, B: false };
   for (const p of Object.values(room.state.players)) if (!p.isBot && (p.team === 'A' || p.team === 'B')) human[p.team] = true;
   room.botMem.teamSkill = { A: human.A ? lvl.partner : lvl.enemy, B: human.B ? lvl.partner : lvl.enemy };
+  // PER-BOT override for the invited house bots (mem.botSkill, honoured by memSkillVec in
+  // shared/bot-ai.js): the team scalar above is the room's difficulty, and the whole point of adding
+  // שובל (רמה 11) to a party is that HE is level 11 while an unnamed backfill bot stays at the room's
+  // level. Skill is picked from the bot's own side — partner scalar if its team holds a human, enemy
+  // scalar otherwise — recomputed live, so it follows a team change or a human leaving.
+  const named = (room.botRoster || []).filter((b) => Number.isFinite(b.namedLevel));
+  if (!named.length) { if (room.botMem.botSkill) room.botMem.botSkill = null; return; }
+  const out = {};
+  for (const b of named) {
+    const p = room.state.players[b.id];
+    if (!p) continue;
+    const teamHasHuman = p.team === 'A' ? human.A : human.B;
+    out[b.id] = botSideScalar(levelAt(b.namedLevel), teamHasHuman);
+  }
+  room.botMem.botSkill = out;
 }
 
 // Training ground: drive each role-based enemy from the shared, testable controllers.
@@ -510,7 +544,7 @@ function startTraining(member, diffLevel) {
 
   const matchId = nextMatchId(room);
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [] }];
-  attachBall(room.state, 'A');
+  attachBall(room.state);   // MATCH START: ball loose in the middle, both sides race for it
   room.endHoldT = 0; room.statsSent = false;
   room.phase = 'match';
   send(member.ws, { type: 'roomJoined', mode: 'training', code: null });
@@ -588,7 +622,7 @@ function startBuilderMatch(member, field, diffLevel) {
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [], cosmetic: member.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(member.loadout, member.cards), isBot: false }];
   room.phase = 'match';
   fillBots(room, roster); // backfill bots on both teams
-  attachBall(room.state, 'A');
+  attachBall(room.state);   // MATCH START: ball loose in the middle, both sides race for it
   room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'builder', code: null });
   send(member.ws, { type: 'matchStart', mode: 'builder', diffLevel: clampLevel(room.diffLevel), matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: clean });
@@ -619,7 +653,7 @@ function startBotGame(member, diffLevel) {
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [], cosmetic: member.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(member.loadout, member.cards), isBot: false }];
   room.phase = 'match';
   fillBots(room, roster); // fill the other 3 slots with bots
-  attachBall(room.state, 'A');
+  attachBall(room.state);   // MATCH START: ball loose in the middle, both sides race for it
   room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
   send(member.ws, { type: 'matchStart', mode: 'botgame', diffLevel: room.diffLevel, matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0 });
@@ -652,7 +686,7 @@ function startSpectate(member, diffLevel) {
   const roster = [];
   room.phase = 'match';
   fillBots(room, roster);                          // no humans in the sim -> every slot is a bot
-  attachBall(room.state, room.state.rng && room.state.rng() < 0.5 ? 'B' : 'A');
+  attachBall(room.state);   // MATCH START: ball loose in the middle, both sides race for it
   room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
   send(member.ws, { type: 'matchStart', mode: 'botgame', spectate: true, diffLevel: room.diffLevel, matchId,
@@ -749,6 +783,10 @@ function startMatch(room) {
   const humans = [...room.members].filter((m) => !m.inMatch).slice(0, roomMax(room));
   if (humans.length === 0) { endRoom(room); return; }
 
+  // Fold the invited bots into the plan BEFORE the reservation list is dropped — the plan is what
+  // carries their name / level / cards into fillBots. A private lobby normally has a fresh plan from
+  // the last broadcast; this makes the match path not depend on that having happened.
+  ensureBotPlan(room);
   room.lobbyBots = []; // reservation consumed — fillBots creates the real match bots
   room.state = createState();
   room.state.teamSize = roomTeamSize(room); // spawnPos reads this for the kickoff formation
@@ -797,7 +835,7 @@ function startMatch(room) {
     // player's identity — each client only gets an opaque hash describing who it just played.
     send(m.ws, { type: 'matchStart', diffLevel: room.diffLevel, matchId, playerId: m.id, team, field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, intro: introMs, arena: roomField(room), teamSize: roomTeamSize(room), goalsToWin: room.state.goalsToWin | 0, opponentKey: opponentKeyFor(assigned, m, team) });
   }
-  attachBall(room.state, Math.random() < 0.5 ? 'A' : 'B');
+  attachBall(room.state);   // MATCH START: ball loose in the middle, both sides race for it
   room.endHoldT = 0; room.statsSent = false;
   room.introT = INTRO_PROMO;   // hold the sim frozen while the client plays the promo (see tickRoom)
   room.phase = 'match';
@@ -963,9 +1001,17 @@ function lobbyPayload(room) {
   // #18 fix: send each human's EQUIPPED loadout (not just their album) so the VS/countdown shows the
   // cards they actually picked in their power slots — matching what the pre-kickoff reveal shows. Without
   // this the client falls back to album top-3 during the countdown, so humans and bots looked inconsistent.
-  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cosmetic: m.cosmetic || DEFAULT_COSMETIC, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards) }));
+  // `chat` is the member's LAST message and when it was sent; the client fades the bubble itself, so
+  // one field carries it and no extra packet type is needed. Expired bubbles are dropped here rather
+  // than kept forever, so a member who spoke once at the start of a long lobby is not still talking.
+  const chatOf = (m) => (m.chat && nowMs() - m.chat.at < CHAT_BUBBLE_MS ? { text: m.chat.text, at: m.chat.at } : null);
+  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cosmetic: m.cosmetic || DEFAULT_COSMETIC, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards), chat: chatOf(m) }));
   // Invited lobby bots render as members (isBot) so the party looks populated before kickoff.
-  for (const b of (room.lobbyBots || [])) list.push({ id: b.id, name: b.name, avatar: null, team: b.team, inMatch: false, isBot: true, cosmetic: b.cosmetic || DEFAULT_COSMETIC, cards: [], loadout: [null, null, null] });
+  // A NAMED bot (שובל/נווה/פז/אורי) carries its own cards + level, so the party lobby shows the same
+  // three power slots its friend card advertised. An unnamed one still shows empty slots.
+  for (const b of (room.lobbyBots || [])) list.push({ id: b.id, name: b.name, avatar: null, team: b.team, inMatch: false, isBot: true, cosmetic: b.cosmetic || DEFAULT_COSMETIC,
+    cards: b.cards || [], loadout: b.loadout || [null, null, null],
+    ...(Number.isFinite(b.namedLevel) ? { level: displayLevelForBot(b.namedLevel), xp: xpForBotLevel(b.namedLevel) } : {}) });
   // #18: on the quick-match VS, show the bots that WILL fill the empty slots (with their cards) while
   // you wait. Private rooms also backfill bots at kickoff, but their lobby is for real friends, so we
   // don't preview bots there — they still appear at the pre-kickoff reveal.
@@ -981,6 +1027,9 @@ function lobbyPayload(room) {
     // Which format this room is playing, so the VS/teams page can print the win rule and size its
     // columns. `mode` above stays private|quick for the older lobby/party readers — don't reuse it.
     format: room.format || (room.isPrivate ? 'private' : 'quick'),
+    game: room.game || null,           // the MODES card id the host picked, so every client agrees
+    maxPlayers: roomMax(room),         // teamSize x 2 — the team page prints "up to N"
+    freeText: room.isPrivate,          // may this room's members type? (party rooms only)
     rule: room.goalsToWin > 0 ? `ראשון ל-${room.goalsToWin} · עד 2 דק׳` : fmt.rule,
     teamSize: fmt.teamSize,
     goalsToWin: room.goalsToWin | 0,
@@ -1191,6 +1240,21 @@ function computeBotPlan(room) {
   const usedT = (t) => new Set([...assigned.filter((a) => a[1] === t).map((a) => a[2]), ...plan.filter((b) => b.team === t).map((b) => b.slot)]);
   const humanT = { A: assigned.some((a) => a[1] === 'A'), B: assigned.some((a) => a[1] === 'B') };
   const lvl = levelAt(room.diffLevel);
+  // INVITED bots claim their slots FIRST, keeping the name / level / cards they were invited with.
+  // They have to be in the plan (and not merely in room.lobbyBots) because startMatch consumes the
+  // reservation list before fillBots runs — the plan is the only thing that survives into the match.
+  for (const lb of (room.lobbyBots || [])) {
+    if (humans.length + plan.length >= roomMax(room)) break;
+    // Keep the side it was invited onto, unless that side is already full — firstFreeSlot() falls back
+    // to the LAST index when every slot is taken, and two bots on one slot spawn inside each other.
+    const want = lb.team === 'B' || lb.team === 'A' ? lb.team : (countT('A') <= countT('B') ? 'A' : 'B');
+    const team = countT(want) < roomTeamSize(room) ? want : (want === 'A' ? 'B' : 'A');
+    const slot = firstFreeSlot(usedT(team), roomTeamSize(room));
+    const named = Number.isFinite(lb.namedLevel);
+    const loadout = named ? lb.loadout : botLoadoutForLevel(room.diffLevel);
+    plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room),
+      name: lb.name, ...(named ? { namedLevel: lb.namedLevel } : {}) });
+  }
   while (humans.length + plan.length < roomMax(room)) {
     const team = countT('A') <= countT('B') ? 'A' : 'B';
     const slot = firstFreeSlot(usedT(team), roomTeamSize(room));
@@ -1205,7 +1269,10 @@ function computeBotPlan(room) {
 function humanSignature(room) {
   const hs = [...room.members].filter((m) => !m.inMatch)
     .map((m) => `${m.id}:${m.team || ''}:${equippedCount(sanitizeLoadout(m.loadout, m.cards))}`).sort();
-  return `${room.diffLevel}|${hs.join(',')}`;
+  // Invited bots belong in the signature too — otherwise inviting or kicking שובל leaves a stale plan
+  // (his reserved slot missing, or still held after he's gone).
+  const bs = (room.lobbyBots || []).map((b) => `${b.id}:${b.team || ''}:${b.namedLevel ?? ''}`);
+  return `${room.diffLevel}|${hs.join(',')}|${bs.join(',')}`;
 }
 function ensureBotPlan(room) {
   if (!room || room.mode === 'training' || room.phase === 'match') { room.botPlan = null; room.botPlanSig = null; return; }
@@ -1291,7 +1358,7 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'resetBall') { // training only: recenter the ball on demand
         const r = member.room;
-        if (r && r.mode === 'training' && r.phase === 'match') attachBall(r.state, member.team);
+        if (r && r.mode === 'training' && r.phase === 'match') attachBall(r.state);   // 'reset ball' = recentre it, per its own label
         return;
       }
       if (msg.type === 'createRoom') { createPrivateRoom(member); return; }
@@ -1398,13 +1465,27 @@ wss.on('connection', (ws, req) => {
       }
       // Add a BOT to the party (invited from the friends list). Host-only; shows in the lobby
       // and becomes a match bot at kickoff (fillBots). name is the friend-list bot's display name.
+      //
+      // `botId` names one of the four SALTIZ house bots (shared/saltiz-bots.js). When it resolves, the
+      // bot brings its OWN level and its own 3 cards into the match instead of inheriting the room's
+      // difficulty — שובל is genuinely hard, אורי genuinely easy. Level and cards are looked up from
+      // the shared roster, never taken from the message: a client that could state its opponent's
+      // difficulty could order itself a free win. An unknown/absent botId keeps the old behaviour
+      // (a generic bot at room difficulty), so older clients are unaffected.
       if (msg.type === 'addBot') {
         const r = member.room;
         if (!r || !r.isPrivate || r.hostId !== member.id) return;
         if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
         if (r.members.size + r.lobbyBots.length >= roomMax(r)) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
-        const name = (msg.name || 'בוט').toString().slice(0, 24);
-        r.lobbyBots.push({ id: `lbot-${r.id}-${++r.botCounter}`, name, team: balancedTeam(r) });
+        const named = SALTIZ_BOT_BY_ID.get((msg.botId || '').toString());
+        const name = named ? named.nickName : (msg.name || 'בוט').toString().slice(0, 24);
+        const entry = { id: `lbot-${r.id}-${++r.botCounter}`, name, team: balancedTeam(r) };
+        if (named) {
+          entry.namedLevel = botLevelOf(named);          // 0-based difficulty index (רמה − 1)
+          entry.loadout = saltizBotLoadout(named);       // same seeded roll the friend card drew
+          entry.cards = loadoutToCards(entry.loadout);
+        }
+        r.lobbyBots.push(entry);
         broadcastLobby(r);
         return;
       }
@@ -1419,6 +1500,55 @@ wss.on('connection', (ws, req) => {
         // Team picking only in a private room's lobby.
         if (!room || !room.isPrivate || member.inMatch || room.phase === 'match') return;
         if (msg.team === 'A' || msg.team === 'B') { member.team = msg.team; broadcastLobby(room); }
+        return;
+      }
+      // THE HOST'S GAME PICK, APPLIED TO THE ROOM (not just remembered by their client).
+      // `ready` already resolves the card to a format, but only at match start — and a room's
+      // CAPACITY is teamSize x 2, so until the format landed a party physically could not seat more
+      // than 4 people. Picking 3v3 and then inviting five friends failed on "החדר מלא" with no way to
+      // tell why. Now the pick lands here the moment it is made, so roomMax grows with it and every
+      // member's lobby shows the mode and the new capacity.
+      if (msg.type === 'partyGame') {
+        if (!room || !room.isPrivate) { send(ws, { type: 'partyError', msg: 'החדר לא נמצא' }); return; }
+        if (room.hostId && room.hostId !== member.id) { send(ws, { type: 'partyError', msg: 'רק המארח בוחר משחק' }); return; }
+        if (room.phase !== 'lobby') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
+        const mode = formatForCard(msg.game);
+        const fmt = FORMATS[mode] || FORMATS.quick;
+        // SHRINKING is the case that can strand people: 6 in the room and the host taps 2v2. Refuse
+        // rather than silently dropping whoever is last in the Set — the host can remove a member and
+        // pick again. GROWING is always safe.
+        const seated = room.members.size + (room.lobbyBots || []).length;
+        if (seated > fmt.teamSize * 2) {
+          send(ws, { type: 'partyError', msg: `יש ${seated} שחקנים — צריך לצמצם ל-${fmt.teamSize * 2}` });
+          return;
+        }
+        applyFormat(room, mode);
+        room.game = msg.game || null;      // the CARD id, so every client can show the same pick
+        broadcastLobby(room);
+        return;
+      }
+      // ---- PARTY CHAT: a preset phrase, or up to 40 characters of free text ----------------------
+      // Free text is allowed ONLY in a private party room (shared/quick-messages.js FREE_TEXT_ROOMS
+      // is where that policy lives). Presets are allowed in any room the member is in, since a preset
+      // cannot say anything the game did not ship.
+      if (msg.type === 'partyChat') {
+        if (!room) return;
+        const now = nowMs();
+        if (now - (member.lastChatAt || 0) < 1200) return;      // ~1 message every 1.2s per member
+        let text = '';
+        if (msg.presetId) {
+          const p = phraseById(String(msg.presetId));
+          if (!p) return;                                        // unknown id (newer client) — ignore
+          text = p.text;
+        } else {
+          const kind = room.isPrivate ? 'private' : 'public';
+          if (!FREE_TEXT_ROOMS.includes(kind)) { send(ws, { type: 'partyError', msg: 'אין צ׳אט חופשי במשחק ציבורי' }); return; }
+          text = sanitizeFreeText(msg.text);
+          if (!text) return;                                     // empty after sanitizing — drop it
+        }
+        member.lastChatAt = now;
+        member.chat = { text, at: now };
+        broadcastLobby(room);
         return;
       }
       if (msg.type === 'ready') { // "Play Now" in a private room

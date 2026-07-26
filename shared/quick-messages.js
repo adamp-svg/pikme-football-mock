@@ -70,3 +70,36 @@ export const REACTION_EMOJI = ['👍', '🔥', '😂', '⚽', '🏆'];
 export function isReactionEmoji(e) {
   return REACTION_EMOJI.indexOf(e) >= 0;
 }
+
+// ---- FREE TEXT — PARTY ROOMS ONLY -------------------------------------------------------------
+// The header of this file says free text was deliberately excluded so there would be nothing to
+// moderate. That still holds for PUBLIC matchmade rooms and for friend threads. A PRIVATE party room
+// is a different audience: everyone in it was invited by the host out of their own friends list, so
+// the only people who can read your message are people you chose. The product decision (2026-07-26)
+// is therefore "free text in party rooms, presets everywhere else", and `FREE_TEXT_ROOMS` is the one
+// place that policy is written down — the server refuses free text for any other room kind.
+//
+// ONE SHARED SANITIZER, so the composer's live counter and the server's validation can never
+// disagree about what "40 characters" means:
+//   * length is counted in CODE POINTS, not UTF-16 units, so an emoji is one character rather than
+//     two — a 40-char limit that allowed 20 emoji and then sliced one in half mid-surrogate would
+//     put a lone surrogate on the wire and render as a replacement box;
+//   * control characters, line breaks and the zero-width/bidi-override range are stripped: this is a
+//     one-line bubble, and U+202E in a nickname-adjacent string is a display attack, not a message;
+//   * runs of whitespace collapse, so a message cannot be padded out to shove the layout around.
+// Returns '' for anything not worth sending; callers treat '' as "drop it".
+export const FREE_TEXT_MAX = 40;
+export const FREE_TEXT_ROOMS = ['private'];
+
+const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u2028\u2029\ufeff]/g;
+
+export function sanitizeFreeText(raw) {
+  if (typeof raw !== 'string') return '';
+  const collapsed = raw.replace(UNSAFE_CHARS, ' ').replace(/\s+/g, ' ').trim();
+  const points = Array.from(collapsed);
+  return points.length > FREE_TEXT_MAX ? points.slice(0, FREE_TEXT_MAX).join('') : collapsed;
+}
+// Characters still available, counted the same way the sanitizer counts them.
+export function freeTextLeft(raw) {
+  return FREE_TEXT_MAX - Array.from(sanitizeFreeText(raw)).length;
+}

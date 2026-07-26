@@ -13,7 +13,7 @@ import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-ca
 import { MAIN_FIELD } from '/shared/main-field.js';
 import { FIELD_PRESETS } from '/shared/field-presets.js';
 import { FIELD_SIZES, SIZE_IDS, DEFAULT_SIZE, sizeOf, sizeOfField, canHost } from '/shared/field-sizes.js';
-import { MAX_SPAWNS_PER_TEAM, teamForX, spawnCounts, spawnCapacity } from '/shared/field-spawns.js';
+import { MAX_SPAWNS_PER_TEAM, teamForX, spawnCounts, spawnCapacity, defaultSpawns } from '/shared/field-spawns.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, botLevelFromXp } from '/shared/difficulty.js';
 import { decodeSnapshot } from '/shared/wire.js';
 import { onPong, onSnapshot, resetNetHud, renderNetHud, hideNetHud, NET_DEBUG } from '/net-hud.js';
@@ -22,7 +22,8 @@ import { setPixelText, mountPixelDigitCss } from '/pixel-digits.js';
 import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
-import { QUICK_GROUPS, phraseById, REACTION_EMOJI } from '/shared/quick-messages.js';
+import { SALTIZ_BOTS, SALTIZ_BOT_BY_ID, botLevelOf, xpForSaltizBot, saltizBotLoadout, searchSaltizBots } from '/shared/saltiz-bots.js';
+import { QUICK_GROUPS, phraseById, REACTION_EMOJI, QUICK_PHRASES, sanitizeFreeText, freeTextLeft, FREE_TEXT_MAX } from '/shared/quick-messages.js';
 import { CHAT_WORDS, CHAT_EMOTES, CHAT_SHEET, chatById, CHAT_BUBBLE_MS, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from '/shared/quick-chat.js';
 import { rosterCounts } from '/shared/roster.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
@@ -133,6 +134,7 @@ const PREF_KEYS = [
   'pikme-sound', 'pikme-music', 'pikme-musicvol', 'pikme-soundvol', 'pikme-diff-level', // audio + difficulty
   'fbControls', 'fbAimSens', 'fbBombMax', 'fbWallMax',                                   // touch layout + aim feel
   'pikme-joint-style', 'pikme-field-v1', 'pikme-fields', 'pikme-field-name',             // builder style + fields
+  'saltizBotFriends',                                                                    // which named bots you added as friends
 ];
 const PREF_MAX_BYTES = 200000; // don't ship an unbounded builder library to the backend
 function readExtraPrefs() {
@@ -2198,7 +2200,10 @@ const MODES = [
   {
     id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש שלושות · יותר טירוף',
     meta: ['ראשון ל-3', '6 שחקנים'], hue: ['#8fb6ef', '#4f7fd4'],
-    state: 'live', party: false, format: '3v3',
+    // party: a private room may play 3v3 too. The server applies the format the moment the host picks
+    // it (`partyGame`), which is what raises the room's capacity from 4 to 6 — without that the card
+    // was pickable but the 5th friend hit "החדר מלא".
+    state: 'live', party: true, format: '3v3',
     launch: () => sendMsg({ type: 'matchmade', format: '3v3', diffLevel: xpDiffLevel() }),
   },
   {
@@ -2267,6 +2272,10 @@ document.addEventListener('click', (e) => {
     // Which flow we're in is decided by the CONTAINER, not by gameSelectMode —
     // that flag is stale state from whichever flow opened the overlay last.
     selectedGame = m.id;
+    // The pick is a ROOM fact, not a client fact: capacity, arena and win rule all follow from it, and
+    // the other members' team page shows it. Sent whenever we are already in a private room; the
+    // setup flow (no room yet) still applies picks on roomJoined.
+    if (!pendingPartyApply) sendMsg({ type: 'partyGame', game: m.id });
     if (card.closest('#party')) { showScreen('lobby'); return; }   // host picked → group up
     closeGameSelect();
     if (gameSelectMode === 'setup') { pendingPartyApply = true; sendMsg({ type: 'createRoom' }); } // → roomJoined applies picks
@@ -2550,23 +2559,59 @@ async function apiPost(path, body) {
     return true;
   } catch { toast('החיבור נכשל, נסה שוב'); return false; }
 }
+async function apiDelete(path) {
+  try {
+    const r = await fetch(`${PIKME_API}${path}`, { method: 'DELETE', headers: apiHeaders() });
+    if (!r.ok) { toast('החיבור נכשל, נסה שוב'); return false; }
+    return true;
+  } catch { toast('החיבור נכשל, נסה שוב'); return false; }
+}
 
 // (fetchOwnRank lives up with PIKME_API — it must be initialized before startHomeDance() runs.)
 
-// 3 built-in BOT friends — always available (online), invitable into a party from the
-// invite panel (→ addBot). They fill out the friends list so solo players can "play with
-// friends" immediately. Not real users: they don't go through search/request/presence.
-const BOT_FRIENDS = [
-  { userId: 'bot-friend-1', nickName: 'שובל', isBot: true, color: '#e0556b', level: 12, xp: 5400, rank: 3,
-    cards: [{ r: 'legendary', n: 1 }, { r: 'epic', n: 7 }, { r: 'rare', n: 22 }] },
-  { userId: 'bot-friend-2', nickName: 'אורית', isBot: true, color: '#4ea0ff', level: 8, xp: 2600, rank: 11,
-    cards: [{ r: 'epic', n: 3 }, { r: 'rare', n: 15 }, { r: 'common', n: 8 }] },
-  { userId: 'bot-friend-3', nickName: 'נווה', isBot: true, color: '#b46bff', level: 15, xp: 7200, rank: 1,
-    cards: [{ r: 'legendary', n: 5 }, { r: 'legendary', n: 2 }, { r: 'epic', n: 9 }] },
-  { userId: 'bot-friend-4', nickName: 'פז', isBot: true, color: '#f0a934', level: 5, xp: 1200, rank: 24,
-    cards: [{ r: 'rare', n: 31 }, { r: 'common', n: 3 }, { r: 'common', n: 12 }] },
-];
-let FRIENDS = [...BOT_FRIENDS];   // [{userId, nickName, image, isBot?}] — bots always present
+// The named SALTIZ BOT friends — אורי / פז / נווה / שובל. Identity, level and the 3 power slots all
+// come from shared/saltiz-bots.js, which the SERVER reads too, so the cards on the friend card are
+// the cards the bot actually plays with (display == gameplay) without the client stating either.
+//
+// They are OPT-IN as of 2026-07-26: no longer pinned into everyone's list. You find one by typing its
+// name in the add-friend tab and tap הוסף, exactly like a real player — the difference being that
+// "friendship" with a bot is local (they have no account to write a friends map on), so it lives in
+// localStorage under a PREF_KEYS key and therefore follows the account across devices via the prefs
+// bag. Removing one is the same gesture as removing a real friend (openFriendProfile → הסר חבר).
+const BOT_FRIENDS = SALTIZ_BOTS.map((b) => {
+  const loadout = saltizBotLoadout(b);
+  const cards = loadout.filter(Boolean).map((s) => ({ r: s.r, n: s.n, c: 1, w: 0 }));
+  return {
+    userId: b.id, nickName: b.nickName, isBot: true, color: b.color,
+    level: b.level, botLevel: botLevelOf(b), xp: xpForSaltizBot(b),
+    cards, owned: cards.length, worth: 0,
+  };
+});
+const BOT_FRIENDS_KEY = 'saltizBotFriends';
+// ids of the bots this player added. Unknown ids are dropped on read, so retiring a bot from the
+// roster can never leave a ghost row in someone's list.
+function loadAddedBots() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOT_FRIENDS_KEY) || '[]');
+    return new Set((Array.isArray(raw) ? raw : []).filter((id) => SALTIZ_BOT_BY_ID.has(id)));
+  } catch { return new Set(); }
+}
+let ADDED_BOTS = loadAddedBots();
+function saveAddedBots() {
+  // Writing through localStorage.setItem is what schedules the cross-device prefs push (the hook
+  // installed at PREF_KEYS) — don't "optimise" this into an in-memory-only update.
+  try { localStorage.setItem(BOT_FRIENDS_KEY, JSON.stringify([...ADDED_BOTS])); } catch { /* private mode */ }
+}
+const addedBotFriends = () => BOT_FRIENDS.filter((b) => ADDED_BOTS.has(b.userId));
+function addBotFriend(id) {
+  if (!SALTIZ_BOT_BY_ID.has(id) || ADDED_BOTS.has(id)) return false;
+  ADDED_BOTS.add(id); saveAddedBots(); return true;
+}
+function removeBotFriend(id) {
+  if (!ADDED_BOTS.delete(id)) return false;
+  saveAddedBots(); return true;
+}
+let FRIENDS = addedBotFriends();   // [{userId, nickName, image, isBot?}] — real friends + added bots
 let ONLINE = new Set();    // userIds currently online (from friendsPresence)
 let friendsBusy = false;   // in-flight guard so the friends fetch isn't stacked
 let searchSeq = 0;         // drops out-of-order search responses
@@ -2584,19 +2629,18 @@ function listMsg(id, text, onClick) {
 }
 
 async function loadFriends() {
-  // No app identity (web/dev, or token not injected) -> say so instead of showing a blank,
-  // silently-broken panel.
-  // No app identity (web/dev): still show the built-in bot friends so the list isn't empty.
-  if (!FOOTBALL_TOKEN || !MY_USER_ID) { FRIENDS = [...BOT_FRIENDS]; renderFriends(); return; }
+  // No app identity (web/dev, or token not injected): the REST list is unreachable, but the bots the
+  // player added are local, so show those rather than a blank panel.
+  if (!FOOTBALL_TOKEN || !MY_USER_ID) { FRIENDS = addedBotFriends(); renderFriends(); return; }
   if (friendsBusy) return;
   friendsBusy = true;
   listMsg('friend-list', 'טוען חברים…');
   const res = await apiGet('/handle-friends');
   friendsBusy = false;
-  if (res === null) { FRIENDS = [...BOT_FRIENDS]; renderFriends(); return; } // load failed → at least the bots
+  if (res === null) { FRIENDS = addedBotFriends(); renderFriends(); return; } // load failed → at least the bots
   const real = Array.isArray(res) ? res : [];
   sendMsg({ type: 'setFriends', friends: real.map((f) => f.userId) }); // real ids only (presence)
-  FRIENDS = [...real, ...BOT_FRIENDS];
+  FRIENDS = [...real, ...addedBotFriends()];
   renderFriends();
   loadRequests();
 }
@@ -2610,16 +2654,33 @@ async function loadRequests() {
   const reqs = await apiGet('/handle-friends/requests');       // secondary list — stay silent on error
   renderRequests(Array.isArray(reqs) ? reqs : []);
 }
+// The named bots that match this query and aren't already in the list. Resolved LOCALLY: they have no
+// account for the server's nickName search to find, so they'd be unsearchable if we waited on the API.
+// That also means they still work with no identity and when the API is down — which is the point of
+// having house players at all.
+const botSearchHits = (q) => searchSaltizBots(q)
+  .filter((b) => !ADDED_BOTS.has(b.id))
+  .map((b) => BOT_FRIENDS.find((f) => f.userId === b.id))
+  .filter(Boolean);
+
 async function searchFriends(q) {
   if (!q || q.length < 2) { renderSearch([]); return; }
-  if (!MY_USER_ID) { listMsg('friend-search-results', 'התחברו דרך האפליקציה כדי לחפש'); return; }
+  const bots = botSearchHits(q);
+  // Bots first: they're the only results guaranteed to be addable right now, and they're what a
+  // player typing "פז" is looking for.
+  if (!MY_USER_ID) {
+    if (bots.length) { renderSearch(bots); return; }
+    listMsg('friend-search-results', 'התחברו דרך האפליקציה כדי לחפש');
+    return;
+  }
   const seq = ++searchSeq;
   listMsg('friend-search-results', 'מחפש…');
   const res = await apiGet(`/handle-friends/search?q=${encodeURIComponent(q)}`);
   if (seq !== searchSeq) return;                                // a newer query already fired
-  if (res === null) { listMsg('friend-search-results', 'החיפוש נכשל — נסו שוב'); return; }
-  if (!Array.isArray(res) || !res.length) { listMsg('friend-search-results', 'לא נמצאו תוצאות'); return; }
-  renderSearch(res);
+  if (res === null) { renderSearch(bots); if (!bots.length) listMsg('friend-search-results', 'החיפוש נכשל — נסו שוב'); return; }
+  const found = [...bots, ...(Array.isArray(res) ? res : [])];
+  if (!found.length) { listMsg('friend-search-results', 'לא נמצאו תוצאות'); return; }
+  renderSearch(found);
 }
 
 function friendRow(f, opts = {}) {
@@ -2632,15 +2693,22 @@ function friendRow(f, opts = {}) {
   if (/^https?:\/\//i.test(imgUrl)) pfp.src = imgUrl;
   const nm = document.createElement('span'); nm.className = 'friend-name'; nm.textContent = f.nickName || '';
   div.append(dot, pfp, nm);
-  // Bots in the friends list: no challenge/remove — just a tag. They're invitable in the party panel.
-  if (f.isBot && opts.kind !== 'search') {
-    const tag = document.createElement('span'); tag.className = 'friend-bot-tag'; tag.textContent = '🤖 בוט';
+  if (f.isBot) {
+    const tag = document.createElement('span'); tag.className = 'friend-bot-tag';
+    tag.textContent = opts.kind === 'search' ? `🤖 בוט · רמה ${f.level || 1}` : '🤖 בוט';
     div.appendChild(tag);
-    return div;
+    // In the LIST a bot has no challenge button (it's invited from the party panel, not challenged);
+    // in SEARCH it falls through to the add button below.
+    if (opts.kind !== 'search') return div;
   }
   const btn = document.createElement('button');
   btn.className = 'friend-act';
-  if (opts.kind === 'search') { btn.textContent = 'הוסף'; btn.onclick = async () => { if (await apiPost('/handle-friends/request', { toUserId: f.userId })) { btn.textContent = 'נשלח'; btn.disabled = true; } }; }
+  if (opts.kind === 'search') {
+    btn.textContent = 'הוסף';
+    // A bot friendship is local (no account to request), so adding is instant — no pending state.
+    if (f.isBot) btn.onclick = () => { if (addBotFriend(f.userId)) { btn.textContent = 'נוסף'; btn.disabled = true; toast(`${f.nickName} נוסף לחברים`); loadFriends(); } };
+    else btn.onclick = async () => { if (await apiPost('/handle-friends/request', { toUserId: f.userId })) { btn.textContent = 'נשלח'; btn.disabled = true; } };
+  }
   else if (opts.kind === 'request') {
     btn.textContent = 'אישור';
     btn.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'accept' })) { loadFriends(); } };
@@ -2744,7 +2812,33 @@ function openFriendProfile(f) {
   document.getElementById('fp-div').textContent = `${tier.ic} ${tier.label} ${sub}`;
   document.getElementById('fp-stats').textContent = ['XP ' + fmtCompact(f.xp || 0), 'שווי ' + fmtCompact(f.worth || 0), 'קלפים ' + (f.owned || 0)].join(' · ');
   fillFriendSlots(document.getElementById('fp-slots'), f); // reuses the shared cache from B4
+  // Remove lives HERE and nowhere else on purpose: the friend list's own gesture is tap-to-chat, and a
+  // × sitting next to it on a scrolling touch list deletes people by accident.
+  const rm = document.getElementById('fp-remove');
+  if (rm) {
+    rm.classList.remove('hidden');
+    rm.textContent = 'הסר חבר';
+    rm.disabled = false;
+    rm.onclick = () => removeFriend(f, rm);
+  }
   modal.classList.remove('hidden');
+}
+// Remove a friend — a bot is local state, a real friend is the server's `DELETE /handle-friends/:id`
+// (which unfriends BOTH sides). Confirmed first: it is not undoable for a real friend, who has to
+// re-accept a fresh request.
+async function removeFriend(f, btn) {
+  if (!f || !confirm(`להסיר את ${f.nickName || 'החבר'} מרשימת החברים?`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'מסיר…'; }
+  const ok = f.isBot ? removeBotFriend(f.userId) : await apiDelete(`/handle-friends/${f.userId}`);
+  if (!ok) { if (btn) { btn.disabled = false; btn.textContent = 'הסר חבר'; } return; }
+  // Drop it from the local view immediately, then reconcile with the server list.
+  FRIENDS = FRIENDS.filter((x) => x.userId !== f.userId);
+  partySel.delete(f.userId);            // an invite pick can't survive the friendship
+  friendCardsCache.delete(f.userId);
+  closeFriendProfile();
+  renderFriends();
+  toast(`${f.nickName || 'החבר'} הוסר`);
+  loadFriends();
 }
 function closeFriendProfile() { document.getElementById('friend-profile-modal')?.classList.add('hidden'); }
 document.getElementById('fp-close')?.addEventListener('click', closeFriendProfile);
@@ -3130,7 +3224,7 @@ function renderPartyInvite() {
     const btn = document.createElement('button'); btn.className = 'friend-act'; btn.textContent = 'הזמן';
     // Bots aren't WS peers — invite them via addBot; real friends go through inviteFriend.
     btn.onclick = () => {
-      if (f.isBot) sendMsg({ type: 'addBot', name: f.nickName });
+      if (f.isBot) sendMsg({ type: 'addBot', botId: f.userId, name: f.nickName });
       else { sendMsg({ type: 'inviteFriend', toUserId: f.userId }); btn.textContent = 'הוזמן'; btn.disabled = true; }
     };
     row.append(dot, nm, btn); el.appendChild(row);
@@ -3188,7 +3282,7 @@ function inviteRowEl(f) {
   const pending = invitedSet.has(f.userId) && !f.isBot;
   btn.textContent = pending ? 'ממתין…' : 'הזמן'; btn.disabled = pending;
   btn.onclick = () => {
-    if (f.isBot) sendMsg({ type: 'addBot', name: f.nickName });
+    if (f.isBot) sendMsg({ type: 'addBot', botId: f.userId, name: f.nickName });
     else { sendMsg({ type: 'inviteFriend', toUserId: f.userId }); invitedSet.add(f.userId); }
     renderInvite();
   };
@@ -3289,7 +3383,7 @@ function applyPartyPicks() {
   const byId = new Map(FRIENDS.map((f) => [f.userId, f]));
   for (const uid of partySel) {
     const f = byId.get(uid); if (!f) continue;
-    if (f.isBot) sendMsg({ type: 'addBot', name: f.nickName });
+    if (f.isBot) sendMsg({ type: 'addBot', botId: f.userId, name: f.nickName });
     else sendMsg({ type: 'inviteFriend', toUserId: uid });
   }
   const n = partySel.size;
@@ -3345,8 +3439,18 @@ function mateRankText(m) {
   if (f.level != null) bits.push('דרגה ' + f.level);
   return bits.join(' · ');
 }
-function partyBlock({ big, name, cosmetic, cards, rankText }) {
+function partyBlock({ big, name, cosmetic, cards, rankText, chat }) {
   const wrap = document.createElement('div'); wrap.className = big ? 'pr-me' : 'pr-mate';
+  // SPEECH BUBBLE — the member's last message, above their hero.
+  // IN FLOW, not absolutely positioned: at 3v3 there are six blocks on a phone, and absolute bubbles
+  // overlapped their neighbours and clipped each other (screenshotted, twice). A reserved slot costs a
+  // little height and can never collide. The slot is ALWAYS present so a message arriving does not
+  // shove the roster around, and `textContent` (never innerHTML) is what makes a player-authored
+  // string safe to render.
+  const say = document.createElement('div');
+  say.className = 'pr-say' + (chat && chat.text ? ' has' : '');
+  if (chat && chat.text) { const b = document.createElement('span'); b.textContent = chat.text; say.appendChild(b); }
+  wrap.appendChild(say);
   if (rankText) { const r = document.createElement('div'); r.className = 'pr-rank'; r.textContent = rankText; wrap.appendChild(r); }
   wrap.appendChild(partyHeroCanvas(cosmetic, big));
   const nm = document.createElement('div'); nm.className = 'pr-name'; nm.textContent = name; wrap.appendChild(nm);
@@ -3359,13 +3463,17 @@ function renderParty(msg) {
   const members = (msg || lastLobby || {}).members || [];
   // Each block renders a hero canvas + card art (expensive). Lobby broadcasts fire often, so
   // skip the full rebuild when the roster is unchanged (this was the friends→group lag).
-  const sig = members.map((m) => (m.id || '') + ':' + (m.name || '') + ':' + (m.isBot ? 1 : 0) + ':' + JSON.stringify(m.cosmetic || 0) + ':' + JSON.stringify(m.loadout || 0)).join('|')
-    + '#' + JSON.stringify(myCosmetic || 0) + '#' + JSON.stringify(effectiveLoadout()) + '#' + (isRoomHost ? 1 : 0) + '#' + MY_NAME;
+  // `m.chat.at` is in the signature on purpose: without it a new message would be skipped by the
+  // no-rebuild guard below and the bubble would never appear.
+  const sig = members.map((m) => (m.id || '') + ':' + (m.name || '') + ':' + (m.isBot ? 1 : 0) + ':' + JSON.stringify(m.cosmetic || 0) + ':' + JSON.stringify(m.loadout || 0) + ':' + ((m.chat && m.chat.at) || 0)).join('|')
+    + '#' + JSON.stringify(myCosmetic || 0) + '#' + JSON.stringify(effectiveLoadout()) + '#' + (isRoomHost ? 1 : 0) + '#' + MY_NAME
+    + '#' + ((msg || lastLobby || {}).game || '') + '#' + ((msg || lastLobby || {}).maxPlayers || 0);
   if (sig === partyRenderSig && partyRosterEl.childElementCount) return; // unchanged → no rebuild
   partyRenderSig = sig;
   const mates = members.filter((m) => m.id !== myMemberId);
-  const meBlock = partyBlock({ big: true, name: MY_NAME + ' (אני)', cosmetic: myCosmetic, cards: effectiveLoadout(), rankText: myRankXpText() });
-  const mateBlock = (m) => partyBlock({ big: false, name: (m.isBot ? '🤖 ' : '') + (m.name || ''), cosmetic: m.cosmetic, cards: m.loadout, rankText: mateRankText(m) });
+  const meMember = members.find((m) => m.id === myMemberId) || null;
+  const meBlock = partyBlock({ big: true, name: MY_NAME + ' (אני)', cosmetic: myCosmetic, cards: effectiveLoadout(), rankText: myRankXpText(), chat: meMember && meMember.chat });
+  const mateBlock = (m) => partyBlock({ big: false, name: (m.isBot ? '🤖 ' : '') + (m.name || ''), cosmetic: m.cosmetic, cards: m.loadout, rankText: mateRankText(m), chat: m.chat });
   // YOU sit in the MIDDLE with mates flanking you left + right (one row, wraps if needed).
   partyRosterEl.innerHTML = '';
   const half = Math.ceil(mates.length / 2);
@@ -3376,7 +3484,72 @@ function renderParty(msg) {
   // Every member can advance to the groups page to pick a team; only the host starts.
   const hint = document.getElementById('party-hint');
   if (hint) { hint.textContent = 'בחרו משחק ואז קבוצה — המארח מתחיל'; hint.classList.toggle('hidden', isRoomHost); }
+  // The picked mode and this room's capacity, so "3 נגד 3" is visible to everyone rather than being
+  // a fact only the host's client knows.
+  const lob = msg || lastLobby || {};
+  const gh = document.querySelector('.party-games-h');
+  if (gh) {
+    const picked = lob.game ? modeById(lob.game) : null;
+    const cap = lob.maxPlayers ? ` · עד ${lob.maxPlayers} שחקנים` : '';
+    gh.textContent = picked ? `${picked.name}${cap}` : 'בחרו משחק';
+  }
+  renderPartyChat(lob);
 }
+// ---- PARTY CHAT ----------------------------------------------------------------------------
+// Two ways to say something on the team page: tap a PRESET phrase (the same list the friend threads
+// use, so there is nothing new to moderate), or type up to 40 characters. The message comes back on
+// the next lobby broadcast as `member.chat` and renders as a bubble over that member's hero, so the
+// sender sees their own message arrive exactly as everyone else does — no optimistic local echo that
+// could disagree with what the room actually received.
+//
+// Free text is PARTY-ONLY and the server enforces it (shared/quick-messages.js FREE_TEXT_ROOMS);
+// this hides the input rather than relying on that refusal, so the affordance matches the rule.
+const PCHAT_PRESETS = ['play_ready', 'play_lets', 'greet_hi', 'praise_wd', 'react_ok', 'react_lol'];
+let pchatWired = false;
+function renderPartyChat(lob) {
+  const box = document.getElementById('party-chat'); if (!box) return;
+  const presets = document.getElementById('pchat-presets');
+  const form = document.getElementById('pchat-form');
+  const input = document.getElementById('pchat-text');
+  const left = document.getElementById('pchat-left');
+  // Presets are static, so build them once.
+  if (presets && !presets.childElementCount) {
+    for (const id of PCHAT_PRESETS) {
+      const ph = phraseById(id) || QUICK_PHRASES.find((q) => q.id === id);
+      if (!ph) continue;                                   // an id this build does not know — skip it
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'pchat-pre'; b.textContent = ph.text; b.dataset.preset = ph.id;
+      presets.appendChild(b);
+    }
+  }
+  // Free text only where the server would accept it.
+  const canType = lob && lob.freeText !== false;
+  if (form) form.classList.toggle('hidden', !canType);
+  if (!pchatWired) {
+    pchatWired = true;
+    presets?.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-preset]'); if (!b) return;
+      sendMsg({ type: 'partyChat', presetId: b.dataset.preset });
+    });
+    form?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = sanitizeFreeText(input ? input.value : '');
+      if (!text) return;
+      sendMsg({ type: 'partyChat', text });
+      if (input) input.value = '';
+      if (left) left.textContent = String(FREE_TEXT_MAX);
+    });
+    // The counter uses the SHARED sanitizer, so what it counts is what the server will keep — an
+    // emoji is one character in both places, and trailing spaces never count.
+    input?.addEventListener('input', () => {
+      if (!left) return;
+      const rem = freeTextLeft(input.value);
+      left.textContent = String(Math.max(0, rem));
+      left.classList.toggle('over', rem <= 0);
+    });
+  }
+}
+
 // Host taps a live game → groups (#lobby, existing team-pick + play-now). Tapping the
 // empty background LEAVES the party room (sub-page convention), sent via leaveToLobby().
 let partyDownBackdrop = false;
@@ -7049,7 +7222,7 @@ function fbHistInit() { fbHist = [fbSnapshot()]; fbHistIdx = 0; }
 function fbPush() { fbHist = fbHist.slice(0, fbHistIdx + 1); fbHist.push(fbSnapshot()); if (fbHist.length > 60) fbHist.shift(); fbHistIdx = fbHist.length - 1; fbSave(); fbUpdateHistBtns(); }
 // Undo/redo restores the SIZE too — a size change is an undoable edit like any other, so stepping
 // back past one has to put the canvas back as well, not just the elements on it.
-function fbRestore(json) { const j = JSON.parse(json); fbField = fbNorm(j); fbSel = null; fbApplySize(fbField.size, { keep: true }); fbSave(); fbRender(); fbUpdateHistBtns(); }
+function fbRestore(json) { const j = JSON.parse(json); fbField = fbNorm(j); fbSeedSpawns(); fbSel = null; fbApplySize(fbField.size, { keep: true }); fbSave(); fbRender(); fbUpdateHistBtns(); }
 function fbUndo() { if (fbHistIdx > 0) { fbHistIdx--; fbRestore(fbHist[fbHistIdx]); } }
 function fbRedo() { if (fbHistIdx < fbHist.length - 1) { fbHistIdx++; fbRestore(fbHist[fbHistIdx]); } }
 function fbUpdateHistBtns() { const u = document.getElementById('b-undo'), r = document.getElementById('b-redo'); if (u) u.disabled = fbHistIdx <= 0; if (r) r.disabled = fbHistIdx >= fbHist.length - 1; }
@@ -7152,7 +7325,7 @@ function fpNameDone(commit) {
 
 // Load a field into the builder: deep-copy (never mutate the preset/saved source), drop to SELECT
 // mode (fbSetTool null) so the first tap edits rather than draws, and it's undoable (fbPush).
-function fpLoadInto(field, name) { fbField = JSON.parse(JSON.stringify(fpNormField(field))); fbSel = null; fbSetTool(null); fbRender(); fbPush(); fbSetName(name || ''); fbFlash('נטען ✓'); closeFieldPicker(); }
+function fpLoadInto(field, name) { fbField = JSON.parse(JSON.stringify(fpNormField(field))); fbSeedSpawns(); fbSel = null; fbSetTool(null); fbRender(); fbPush(); fbSetName(name || ''); fbFlash('נטען ✓'); closeFieldPicker(); }
 function fpRow(name, sub, active, onLoad, onDel, onRename) {
   const row = document.createElement('div'); row.className = 'friend-row' + (active ? ' field-row-active' : '');
   const nm = document.createElement('span'); nm.className = 'field-row-name'; nm.textContent = name; row.appendChild(nm);
@@ -7336,6 +7509,20 @@ function wallJoints(walls) {
   if (cacheable) { _wjRef = walls; _wjOut = out; }
   return out;
 }
+// SEED THE DEFAULT FORMATION as real, draggable markers.
+//
+// A field with no authored slots used to render an EMPTY pitch while the match quietly used the
+// built-in formula, so an author could neither see nor adjust where players actually start (user,
+// 2026-07-26: "put the players position, like the one in the arena builder, in the correct place").
+// The markers come from shared/field-spawns.js — the SAME maths the sim uses — so seeding changes
+// nothing about where anyone spawns; it only makes the existing positions visible and editable.
+// Sized for the builder's own ▶ שחק match (FB_MATCH_TEAM per side) and clamped to the field size.
+function fbSeedSpawns() {
+  if (!fbField) return;
+  if (Array.isArray(fbField.spawns) && fbField.spawns.length) return;   // author's slots win
+  fbField.spawns = defaultSpawns(FB_MATCH_TEAM, fbField.size).map((s) => ({ x: Math.round(s.x), y: Math.round(s.y), team: s.team }));
+}
+
 function fbRender() {
   const pit = fbPit(); if (!pit) return;
   pit.querySelectorAll('.bel,.bhandle').forEach((e) => e.remove());
@@ -7375,7 +7562,9 @@ function fbRender() {
     const el = mk('spawn', i, s.x, s.y, null, null, null);
     el.classList.add(s.team === 'B' ? 'spawn-b' : 'spawn-a'); el.dataset.lbl = s.team;
   });
-  if (fbField.ball) mk('ball', 0, fbField.ball.x, fbField.ball.y, null, null, null);
+  // No ball marker: the kickoff spot is the centre for every match and every field (see attachBall).
+  // Fields saved before that rule may still carry a `ball` point; it round-trips untouched but is not
+  // drawn, because drawing it would advertise a position the match ignores.
   fbUpdateCap();
 }
 // "How many players does this map hold?" — min(A slots, B slots), because a 3-vs-1 layout can only
@@ -7389,7 +7578,7 @@ function fbUpdateCap() {
   const c = spawnCounts(fbField.spawns), cap = spawnCapacity(fbField.spawns);
   const ballTx = fbField.ball ? ' ⚽' : '';
   const rule = '\nיותר נקודות משחקנים = בכל משחק נבחרות נקודות אחרות (רנדומלי). פחות = השאר מתחילים במערך הקבוע.'
-    + (fbField.ball ? '\n⚽ הכדור מתחיל בנקודה שהצבת — חופשי, שתי הקבוצות מתחרות עליו.' : '');
+    + (fbField.ball ? '\n⚽ הכדור תמיד מתחיל במרכז המגרש. אחרי ספיגה — אצל שחקן של הקבוצה שספגה.' : '');
   if (!c.A && !c.B) {
     el.textContent = '👥 מערך ברירת מחדל' + ballTx;
     el.title = 'לא הוצבו נקודות פתיחה — השחקנים מסתדרים לפי המערך הקבוע של המשחק' + rule;
@@ -7490,7 +7679,7 @@ function fbSetZoom(z) {
 }
 let fbTwoFinger = false; // true while a 2-finger pinch/pan gesture is active (suppresses draw)
 function fbCancelDraw() { if (fbDraw) { const arr = fbList(fbDraw.type); if (fbDraw.i >= 0 && fbDraw.i < arr.length) arr.splice(fbDraw.i, 1); fbDraw = null; fbRender(); } fbDrag = null; }
-function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fbApplySize(fbField.size, { keep: true }); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); fbSetName(fbLoadName()); }
+function openBuilder() { fbField = fbLoad(); fbSeedSpawns(); fbSel = null; fbSetTool('hard'); fbApplySize(fbField.size, { keep: true }); fbHistInit(); fbUpdateHistBtns(); fbSetZoom(1); fbSetName(fbLoadName()); }
 (function fbWire() {
   const pit = document.getElementById('builder-pitch'); if (!pit) return;
   const bscr = document.getElementById('builder'); if (bscr) screens.builder = bscr;
@@ -7498,7 +7687,7 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
   document.querySelectorAll('#builder .btool').forEach((btn) => btn.addEventListener('click', () => fbSetTool(fbTool === btn.dataset.tool ? null : btn.dataset.tool)));
   document.getElementById('b-delete')?.addEventListener('click', () => { if (fbSel) { fbList(fbSel.type).splice(fbSel.i, 1); fbSel = null; fbRender(); fbPush(); } });
   // Clear-all empties the ELEMENTS, not the pitch: you keep authoring at the size you chose.
-  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = fbNorm(null, fbField.size); fbSel = null; fbRender(); fbPush(); fbSetName('טיוטה'); });
+  document.getElementById('b-clear')?.addEventListener('click', () => { fbField = fbNorm(null, fbField.size); fbSeedSpawns(); fbSel = null; fbRender(); fbPush(); fbSetName('טיוטה'); });
   document.getElementById('b-size')?.addEventListener('click', () => fbCycleSize());
   // 🤖 bot level for the playtest — cycles the SHARED level (setDifficulty persists it + pushes it
   // live), so what you pick here is what the settings panel shows once the match starts.
@@ -7599,13 +7788,6 @@ function openBuilder() { fbField = fbLoad(); fbSel = null; fbSetTool('hard'); fb
       if (spawnCounts(fbField.spawns)[team] >= MAX_SPAWNS_PER_TEAM) { fbFlash(`מקסימום ${MAX_SPAWNS_PER_TEAM} נקודות פתיחה לקבוצה ${team}`); return; }
       fbField.spawns.push({ x: sx, y: sy, team });
       fbSel = { type: 'spawn', i: fbField.spawns.length - 1 };
-      fbDrag = { id: e.pointerId, move: true, pre }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
-    }
-    // BALL — one per field: placing again MOVES it rather than adding a second ball.
-    if (fbTool === 'ball') {
-      const pre = fbSnapshot();
-      fbField.ball = { x: fbSnapCell(w.x), y: fbSnapCell(w.y) };
-      fbSel = { type: 'ball', i: 0 };
       fbDrag = { id: e.pointerId, move: true, pre }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbRender(); return;
     }
     // CRATE — PLACE a single grid cell in the cell under the cursor. No resize; optional drag to
