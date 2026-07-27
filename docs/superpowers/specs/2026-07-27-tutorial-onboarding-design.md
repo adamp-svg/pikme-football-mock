@@ -1,7 +1,11 @@
 # Tutorial onboarding — design
 
 **Date:** 2026-07-27
-**Status:** approved, building
+**Status:** levels 1-3 shipped. Hub tour designed, not built (see the open question at the end).
+
+> **Update log.** The original spec covered a single 4-step first match. It has since grown into
+> three levels plus a planned hub tour, and this document has been kept current rather than left
+> to rot. What follows describes what is actually in the repo.
 
 A scripted first-match tutorial for the football minigame. Audience is **kids**, so the bar is
 that a child who cannot read Hebrew fluently still finishes it.
@@ -43,9 +47,11 @@ Sources: [Epic onboarding docs](https://dev.epicgames.com/documentation/en-us/fo
 | Question | Decision |
 |---|---|
 | Shape | Scripted first match (Brawl Stars model) — playable, not a slideshow |
-| Curriculum | **4 steps: move → shoot → goal → super.** 💣 and 🧱 hidden throughout |
+| Curriculum | **Three levels.** L1 יסודות: move → shoot(tap) → charge(hold) → goal → super. L2 קרב: shoot-the-ball → bomb → wall → strip. L3 טריקים: hide → fly. 💣/🧱 hidden for the whole of L1 |
 | Coach voice | **Silent coach** — pointing hand + 1–2 Hebrew words. No character, no dialogue, no pause |
-| Trigger | Auto on first launch, **no skip**. Replayable forever from `אימון` |
+| Trigger | **Level 1 only** auto-launches on first run, no skip. Every level is replayable forever from `אימון → 🎓 איך משחקים?`; later levels are offered, never forced |
+| Levels | A level is **data** — a `steps` table plus a matching declarative `stages` table the server interprets. Adding a level is a data change, not a server change |
+| Unlocking | Level N unlocks when every level before it is done. The picker shows ⭐ done / ▶ open / 🔒 locked, and the finale offers «המשך ל…» |
 | Reward | **Celebration only.** No XP, no trophies, no cards — `c86fa82` "practice pays nothing" stands with zero exceptions |
 | Architecture | Thin server room + **pure step machine in `shared/tutorial.js`**, driven by the client |
 
@@ -66,30 +72,30 @@ already-111k `server.js`.
 
 ---
 
-## The four steps
+## The levels
 
 Each step enables exactly one new thing. No clock, no fail state, nothing can be lost.
 
 ```
-STEP 1  ⊙ move only            STEP 2  + ⊙ aim
-┌──────────────────────┐       ┌──────────────────────┐
-│      ◎ ← glowing     │       │   🧍 dummy           │
-│        spot          │       │    ▲                 │
-│   🧍                 │       │   🧍 ──▶             │
-│  ⊙👆   «זוז!»        │       │        ⊙👆 «ירה!»    │
-└──────────────────────┘       └──────────────────────┘
- done: stand in the ring        done: land 1 hit on the dummy
-
-STEP 3  + ⚽ ball, empty goal   STEP 4  + ⚡ super, keeper appears
-┌──────────────────────┐       ┌──────────────────────┐
-│                  ┃   │       │                 🧤┃  │
-│  🧍⚽ ──────────▶┃   │       │  🧍⚽ ─────────▶ ┃  │
-│      «גול!»          │       │  «בעיטת ענק!»        │
-└──────────────────────┘       └──────────────────────┘
- done: score                    done: score → 🎉 «אתה מוכן!»
+LEVEL 1 · יסודות                LEVEL 2 · קרב              LEVEL 3 · טריקים
+ 1 ⊙  «זוז!»          ring       1 ⚽ «שוט לכדור!»           1 🌿 «איפה הוא?»
+ 2 ⊙  «כוון והקש!»    tap        2 💣 «פצצה!»                2 💥 «תעוף!»
+ 3 ⊙  «כוון והחזק!»   hold       3 🧱 «בנה קיר!»
+ 4 ⚽ «החזק ושחרר!»   kick       4 🥅 «חטוף!»
+ 5 ⚡ «בעיטת ענק!»    super
 ```
 
-**Step 4 is the finale on purpose.** The goal now has a keeper in it, and the super kick
+**Level 3 step 1 teaches stealth from the far side of the bush** (reworked by `tu-coach-css`,
+`ed0f9cf`): the watcher is planted *inside* the bush and the kid is sent to find it. A child who
+has just failed to see somebody works out on their own that the same bush will hide *them*. Being
+told to go stand in the green teaches only that the coach knows a rule. There is deliberately no
+marker — a cue pointing at the bush would answer the question the step is asking.
+
+Each step turns on exactly one new control, and **a control once taught is never taken away** —
+an invariant pinned by a test, which caught level 2 silently confiscating 💣 the step after
+introducing it.
+
+**Level 1's last step is the finale on purpose.** The goal now has a keeper in it, and the super kick
 (×1.5, overcharge ×2.0 — `docs/MECHANICS.md` §4) is what blasts past them. The kid is not told what
 super is; they are shown *why they want it*.
 
@@ -187,3 +193,33 @@ validates `n` is the next stage in sequence and that the room is a tutorial room
   `pikme-football-verify-with-chrome` — layout claims get screenshotted, not asserted.
 - Manual: fresh `localStorage` auto-launches it; finishing returns to the hub; `אימון → 🎓 איך
   משחקים?` replays it with the flag already set.
+
+---
+
+## Open: the hub tour (designed, not built)
+
+The pitch levels teach the pitch. Everything a kid meets *around* it is still unexplained: quick
+play, picking a mode, friends, playing with friends, trophies and rank, the fact that beating a
+human is worth more than beating a bot, where their stats live (the profile), the card deck, the
+three power slots and what each gives, dragging a card into a slot, «הכי טוב», and changing a
+hero's suit from a card.
+
+That is a **guided tour of menus**, not a match — a different engine from levels 1–3. What carries
+over for free: the coach layer already positions its spotlight from any CSS selector
+(`tuSpotRect`), so it can point at `#quick-match-btn` or a power slot exactly as it points at a
+joystick; and the picker, unlocking, progress and finale hand-off all pick new levels up with no
+UI work. What is new is a level `kind: 'tour'` that runs with **no match room at all**, whose
+steps complete on DOM events instead of sim events.
+
+**Two decisions block it, both with the user:**
+
+1. **How to split ~12 topics.** Recommended: two levels — «לשחק» (quick play, pick a mode, friends,
+   playing together, trophies + rank, humans-beat-bots, profile stats) and «קלפים» (deck, the three
+   slots, what each gives, dragging a card in, «הכי טוב», hero suits). Twelve topics in one sitting
+   is 3–4 minutes of menus with no win in the middle, which is where onboarding loses kids.
+
+2. **Whether the kid presses the real buttons.** Recommended: **hybrid**. Real taps for anything
+   harmless and reversible (open בחר משחק, open friends, drag a card into a slot, tap «הכי טוב»,
+   change a suit); show-and-tell for the two with real side effects — **sending a friend request
+   messages an actual person**, and **משחק מהיר drops the kid into a live 2v2 mid-lesson**. A
+   tutorial must not do either.

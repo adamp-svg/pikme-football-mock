@@ -1,13 +1,39 @@
 # Hub tour — tutorial level 4 «מרכז»
 
 **Date:** 2026-07-27
-**Status:** approved, ready to plan
+**Status:** BUILT and verified. ⚠️ Amended after implementation — see «What changed during the build».
 **Agent:** `hub-tour`
 **Builds on:** [`2026-07-27-tutorial-onboarding-design.md`](2026-07-27-tutorial-onboarding-design.md) — read that first for the
 Brawl Stars / Epic research and the coach-layer rules this level inherits unchanged.
 
 A fourth tutorial level that teaches the **hub** — the six things a kid has to understand to run
 their own account: trophies, cards, powers, hero, friends, and the button that starts a game.
+
+> ## ⚠️ What changed during the build (read this before the rest)
+> The design below was written for a tour that ran on the **live hub** with a sandboxed **demo
+> album**. It was reversed during implementation, on evidence. Steps 1-5 now run on a **mock lobby
+> the tutorial draws itself** (`tuMockBuild` in `public/client.js`); only the finale touches the real
+> hub. Everything below about the demo album, `myCards()`/`unlockedHeroCount()` overrides and the
+> «דוגמה» mark is **historical** — none of it exists in the code.
+>
+> **Why it was reversed.** A real browser found four bugs in a row that all shared one root, that the
+> hub is a moving target: the wardrobe is an overlay rather than a screen swap, so "wait for the
+> return" never fired; the carousel **auto-rotates** and completed a step with no input at all;
+> `effectiveLoadout()` auto-fills the top three, so the drag step was already complete on arrival; and
+> `localhost` injects a sample album, which hid the empty-album path entirely. Three agents also
+> change this hub daily. The mock also deleted the riskiest part of the design: with no real
+> `setSlotCard` in the loop, no lesson card can reach a kid's real cross-device loadout.
+>
+> **What survived unchanged:** the level is data with `where: 'hub'`; no server room and
+> `server.js` untouched; the unlock exemption; the pointer-events gate (now only for the finale);
+> the write guards; and the finale pointing at the REAL ⚽ so the tour ends in an actual match.
+>
+> **Three bugs only a browser could find**, all now regression-checked in `_tu-hub-verify.mjs`:
+> the coach overlay lives **inside `#game`** (`display:none` on the hub), so hand, caption and pips
+> rendered into a hidden subtree while `textContent` assertions passed — a kid would have seen a
+> lobby with no instructions; the gate's `position: relative` overrode the **absolutely positioned**
+> baked lobby layout and threw the finale's ⚽ to x=1457 in an 844px viewport; and a touch pointer
+> keeps **implicit capture**, so a drag onto a slot was delivered to the card and the drop was lost.
 
 ---
 
