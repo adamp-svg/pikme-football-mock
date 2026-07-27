@@ -192,9 +192,14 @@ Sixteen tricks were measured in the real sim (`summery/bots logic handoff/SKILL_
 
 - **Kick reach is the fact that governs shooting:** a full-charge kick rolls **647px** on a 2000px
   pitch (`roll = 0.468 × (v₀ − 18)`, `v₀ = shotPower 1400 × chargeMul`). `FINISH_RANGE` is derived from
-  it. ⚠️ The release ladder still shoots at the mouth from `distGoal < 1150` (`bot-ai.js:2070`), so
-  **4.52 of every 6.29 shots at goal — 72% — are fired from beyond what a kick can travel** (measured
-  today, 7 arenas × 3 × 45 s, both sides 0.93). Biggest single leak in the file.
+  it. ⚠️ The release ladder still shoots from a hand-picked `distGoal < 1150`, so some releases cannot
+  arrive — but **the size of that defect was overstated for four handoffs and the fix was rejected on
+  measurement (2026-07-27)**. "72% of shots at goal" came from an AIM-ANGLE metric that also counts
+  `clearForward`, a goalward CLEARANCE fired from out of range on purpose. Counted exactly, with the
+  rung tagged `ladderShot`: **0.33 of 2.14 shots at goal per match (15%)**. Gating it on
+  `ballRollPx(state, 1)` took that to 0.00 and produced **no extra goals** (1.52 → 1.50, 42 matches per
+  arm) while breaking two shipped behaviours — the Fortress/Enforcer depth split and the body-screen
+  approach. Reverted; the numbers are at the rung in `bot-ai.js`.
 - **Bullets:** `FULL_CHARGE` 0.70 strips a carrier. From L5 the ceiling is **1.00** (343px of knockback
   instead of 250), rate-limited to ~1.4 new wind-ups/second. No range limit and no falloff — `ttl` and
   the point-blank constants are declared and never read.
@@ -271,9 +276,11 @@ metric depends on where the ball is · A/B HEAD against HEAD-minus-your-own-hunk
 
 ## 12. Known open defects, worst first
 
-1. **The release ladder ignores kick reach** (`bot-ai.js:2070`, `distGoal < 1150` vs 647px of roll) —
-   4.52 of 6.29 shots at goal per match cannot arrive (72%). Three lines to gate it on
-   `ballRollPx(state, 1)`.
+1. **The release ladder ignores kick reach** — and the obvious fix is REFUTED, so do not re-apply it
+   without reading the rung's comment. Real size: **0.33 of 2.14 shots at goal per match (15%)**, not
+   the 72% four documents claimed (that came from an aim-angle metric which counted goalward
+   CLEARANCES). Gating on reach removed them, gained **no goals**, and broke the Fortress/Enforcer depth
+   split and the body-screen approach. A version that does not perturb possession flow is still wanted.
 2. **`pointInBush()` reads the default arena on every layout** — fixed for the *ball*, still live for
    **enemy visibility** and for every bush-lurk spot. A fixture that puts an enemy in
    (850..1150, 430..670) sees no enemy at all, on any map.

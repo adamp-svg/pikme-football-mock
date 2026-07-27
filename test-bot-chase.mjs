@@ -3,7 +3,7 @@
 //
 // Every case is a hand-built fixture in the REAL sim on the REAL shipped arena, because the whole
 // point of the change is behaviour the bots get wrong on a layout they were not tuned against.
-import { createState, addPlayer, step, setField } from './shared/sim.js';
+import { createState, addPlayer, step, setField, attachBall } from './shared/sim.js';
 import { MAIN_FIELD } from './shared/main-field.js';
 import {
   computeBotInputs, createBotMemory, assignRoles, bmemForTest, interceptPoint,
@@ -186,6 +186,46 @@ const loose = (s, x, y, vx = 0, vy = 0) => { s.ball.owner = null; s.ball.x = x; 
   }
   ok(!jumpedIntoWall, 'a chase jump whose flight path crosses a wall is refused');
   ok(jumpedClear, 'the same chase jump on an open pitch is taken (the test can actually fire)');
+}
+
+// ---------------------------------------------------- 8. how many shots at goal cannot arrive
+{
+  // A full-charge kick rolls ballRollPx(state, 1) = 647px, and the release ladder takes its shot from
+  // anywhere inside a hand-picked 1150px — so some releases cannot arrive. This case MEASURES that
+  // rather than asserting zero, because the obvious fix was tried and rejected on 2026-07-27:
+  // gating the rung on reach removed 0.33 unreachable shots per match, produced NO extra goals
+  // (1.52 -> 1.50 over 42 matches per arm) and broke two shipped behaviours — the Fortress/Enforcer
+  // depth split and the body-screen approach (both pass without the gate and fail with it).
+  // The number to know: ~15% of shots at goal are unreachable (0.33 of 2.14 per match). The bound here
+  // is deliberately loose — it is a tripwire for a REGRESSION (the ladder reaching much further), not a
+  // restatement of the defect. See the comment at the rung in shared/bot-ai.js.
+  const shotTags = new Set(['ladderShot', 'drive', 'postFinish', 'cornerFinish', 'overFinish']);
+  let short = 0, total = 0;
+  for (const [seed, side] of [[7717, 'A'], [4242, 'B'], [991, 'A'], [20260727, 'B']]) {
+    const { s, mem } = fixture();
+    let r = seed >>> 0;
+    s.rng = () => ((r = (r * 1664525 + 1013904223) >>> 0) / 4294967296);
+    attachBall(s, side);
+    const reach = 0.468 * ((s.settings.shotPower || 1400) - 18);
+    for (let t = 0; t < 3600; t++) {
+      const inp = computeBotInputs(s, mem, DT);
+      if (s.resetTimer <= 0) {
+        for (const id of ['A0', 'A1', 'B0', 'B1']) {
+          if (!inp[id] || !inp[id].fire || s.ball.owner !== id) continue;
+          if (!shotTags.has(bmemForTest(mem, id).lastTrick)) continue;
+          const p = s.players[id];
+          const egX = p.team === 'A' ? FIELD.W : 0;
+          const d = hyp(egX - p.x, FIELD.H / 2 - p.y);
+          total++;
+          if (d > reach) short++;
+        }
+      }
+      step(s, inp, DT);
+    }
+  }
+  const pct = 100 * short / Math.max(1, total);
+  ok(total > 0, `bots shoot at goal in these matches (${total} shots at goal)`);
+  ok(pct <= 40, `unreachable shots at goal stay within the known band (${pct.toFixed(0)}% of ${total}; measured ~15%, the gate that removed them cost two behaviours)`);
 }
 
 console.log(`\n${fails === 0 ? '✅ ALL PASS' : '❌ ' + fails + ' FAILED'}`);

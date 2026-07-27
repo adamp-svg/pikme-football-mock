@@ -58,7 +58,17 @@ derived from `ballRollPx` (`:1297`), the screen-shaped `VIEW_BOX`, and the wall-
 
 ## 2. What the bots actually DO, measured — level 10, seven arenas
 
-### The single biggest live defect: shots that cannot arrive
+### The "shots that cannot arrive" defect — CORRECTED 2026-07-27, it is much smaller than this
+
+⚠️ **The numbers in this subsection are inflated and the fix measured a fraction of them.** The metric
+classifies a release as "a shot at goal" when its aim is within 25° of the goal direction, and that
+also catches `clearForward` — a goalward CLEARANCE which is *supposed* to be fired from out of range.
+With the release-ladder rung tagged (`ladderShot`) and counted exactly: **0.33 of 2.14 shots at goal
+per match were unreachable (15%)**, not 5.75 of 7.50 (77%). Gating the rung on
+`ballRollPx(state, 1) * 0.95` took it to **0.00** with goals/match unchanged (1.52 → 1.50 over 42
+matches per arm) — **but the gate was then REVERTED**: it produced no extra goals and broke two shipped
+behaviours (the Fortress/Enforcer depth split, the body-screen approach), both verified by stashing it.
+The defect is real; its size as written here was not, and the obvious fix is refuted. Original follows.
 Classified by the release's **own aim** (the `<1150` rung sets no `lastTrick`, so a tag histogram
 cannot see it): a release within 25° of the goal direction is a shot at goal.
 

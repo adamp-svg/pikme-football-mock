@@ -2067,10 +2067,31 @@ function decideBot(p, role, state, mem, sk, dt) {
     // wall, and held the ball for the rest of the match. That is the reported "stands with the
     // ball in front of the goal". The ladder below is ordered by value and always terminates.
     if (!shoot && !special && bm.carryT > CARRY_IDLE) {
+      // ---- THE RANGE GATE: TRIED, MEASURED, REJECTED (2026-07-27) -------------------------------
+      // `1150` predates the kick model, and a full-charge kick rolls `ballRollPx(state, 1)` = 647px, so
+      // a release between those numbers cannot arrive. Four handoffs called this "the biggest leak in
+      // the file" at "72-77% of shots at goal". THAT FIGURE WAS WRONG, and finding out why is the
+      // valuable part: it was measured by AIM ANGLE (a release within 25deg of the goal), which also
+      // counts `clearForward` — a goalward CLEARANCE that is fired from out of range ON PURPOSE.
+      // With this rung tagged `ladderShot` and counted exactly (7 arenas x 6 x 60s, both sides 0.93):
+      //     unreachable shots at goal      0.33 of 2.14 per match (15%)  ->  0.00 with the gate
+      //     goals per match                1.52                          ->  1.50  (no gain)
+      //     goalward clearances            8.07                          ->  9.07  (they became these)
+      // And the gate BROKE two shipped behaviours, verified by stashing it: the Fortress/Enforcer depth
+      // split (own-box 14.3% vs 15.0%, i.e. the identity collapses) and the body-screen approach
+      // (74px from the lane, needs <60). Both pass without it and fail with it, at either margin.
+      // So: 0.33 shots a match, no extra goals, two regressions. NOT WORTH IT — and the `1150` stays
+      // until someone has a version that does not perturb possession flow. The tag stays so the next
+      // attempt can be measured properly instead of by aim angle.
       if (goalAimY != null && distGoal < 1150) {
         // (a) some part of the mouth IS open — take it (keeper still wants the far corner)
         const ay = keeper ? (keeper.y > GY ? GOAL_TOP + postIn : GOAL_BOT - postIn) : goalAimY;
         aim = { x: egX - p.x, y: ay - p.y }; shoot = true; charge = goalCharge; bm.carryT = 0;
+        // TAGGED so the range gate above is measurable. It was the only rung in this ladder with no
+        // tag, which is why "72% of shots at goal cannot arrive" had to be measured by AIM ANGLE — and
+        // that metric silently counted `clearForward`, a goalward CLEARANCE that is supposed to be
+        // fired from out of range. A named play can be counted exactly.
+        if (!bm.lastTrick) bm.lastTrick = 'ladderShot';
         if (distGoal < 300) closeShot = true;
       } else if (blockIsSmashable && distGoal < 1150) {
         // (b) the blocker is a FRAGILE wall → smash straight through it with a full kick.

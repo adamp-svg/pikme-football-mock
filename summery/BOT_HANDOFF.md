@@ -190,8 +190,20 @@ is that the ends now rank when they previously did not.
   conceded a loose ball cannot cross 400px to an escort point before the carry ends. The escort
   occupancy metric measures who was nearest when the ball was collected. Recorded in the test.
 - Still unfired anywhere: `goalBank`, `watchdogRelease`. Still unbuilt: `clearMarker`'s angle term
-  (half its shots make the chaser arrive SOONER), the release ladder's range gate (`:1727`, 77% of
-  shots at goal cannot arrive), the `pointInBush` arena fix for ambush spots.
+  (half its shots make the chaser arrive SOONER), the `pointInBush` arena fix for ambush spots.
+- **The release ladder's range gate was TRIED AND REJECTED on 2026-07-27 — read this before redoing it.**
+  Two findings, and the second is the useful one:
+  1. **"77% of shots at goal cannot arrive" was wrong.** It was an AIM-ANGLE count (a release within
+     25° of the goal), which also catches `clearForward` — a goalward CLEARANCE that is fired from out
+     of range on purpose. With the rung tagged `ladderShot` and counted exactly: **0.33 of 2.14 shots
+     at goal per match, 15%.** A metric that infers intent from an angle cannot tell a shot from a
+     clearance. Tag the branch.
+  2. **The fix cost more than it bought.** Gating on `ballRollPx(state, 1)` took unreachable shots to
+     0.00 and produced NO extra goals (1.52 → 1.50, 42 matches per arm), while breaking two shipped
+     behaviours: the Fortress/Enforcer depth split (own-box 14.3% vs 15.0% — the identity collapses)
+     and the body-screen approach (74px from the lane, needs <60). Both pass without the gate and fail
+     with it, at either margin. Reverted. `test-bot-chase.mjs` case 8 now MEASURES the band instead of
+     asserting zero, so a real regression still trips it.
 
 ### Two traps that cost this round hours — both are §3 in a new costume
 

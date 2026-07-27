@@ -121,7 +121,7 @@ for (const [aname, field] of ARENAS) {
   const ev = {
     bulletBall: 0, snooker: 0, bombClear: 0, cannonPass: 0, cannonPassLost: 0, rocketJump: 0,
     fragileSnipe: 0, wallShotDown: 0, superEarn: 0, superSpend: 0,
-    goals: 0, releases: 0, goalShots: 0, goalShotsShort: 0, bullets: 0, bombs: 0, builds: 0,
+    goals: 0, releases: 0, goalwardKicks: 0, goalwardShort: 0, shotsAtGoal: 0, shotsAtGoalShort: 0, bullets: 0, bombs: 0, builds: 0,
     relChargeSum: 0, dribbleTouch: 0, weakKick: 0,
     ticks: 0, looseTicks: 0, blindTicks: 0, phantomTicks: 0, realBushLoose: 0, blindWorst: 0,
   };
@@ -174,9 +174,19 @@ for (const [aname, field] of ARENAS) {
           const dGoal = hyp(egX - p.x, GY - p.y);
           const ga = Math.atan2(GY - p.y, egX - p.x), aa = Math.atan2(i.aimY, i.aimX);
           const off = Math.abs(((aa - ga + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-          if (off < 0.44) {                         // within 25 deg of the goal = a shot at goal
-            ev.goalShots++;
-            if (dGoal > REACH) ev.goalShotsShort++; // cannot physically arrive
+          // AIM-ANGLE metric, kept for continuity — but it counts `clearForward` too, which is a
+          // goalward CLEARANCE fired from out of range ON PURPOSE. Treat it as "goalward kicks", not
+          // as "shots at goal".
+          if (off < 0.44) {
+            ev.goalwardKicks++;
+            if (dGoal > REACH) ev.goalwardShort++;
+          }
+          // THE SHARP ONE: the release ladder's shot-at-goal rung, which is now tagged. A single one of
+          // these beyond `ballRollPx(state, 1)` means the range gate leaked.
+          const tag = bmemForTest(mem, id).lastTrick;
+          if (tag === 'ladderShot' || tag === 'drive' || tag === 'postFinish' || tag === 'cornerFinish' || tag === 'overFinish') {
+            ev.shotsAtGoal++;
+            if (dGoal > REACH) ev.shotsAtGoalShort++;
           }
           // How hard was it actually kicked? Under QUICK_CHARGE the sim turns the release into a
           // 64px DRIBBLE TOUCH (sim.js:834), which is a different act from a kick and explains
@@ -267,7 +277,7 @@ console.log(`\nBOT SKILL CENSUS — level ${LEVEL} (${L.name}) skills A=${SKILLS
 console.log(`${MATCHES} matches x ${SECS}s per arena, ${ARENAS.length} arenas, seedbase ${SEEDBASE}\n`);
 
 console.log('--- MECHANICAL EVENTS, per match, by arena ---');
-const evKeys = ['goals', 'releases', 'dribbleTouch', 'weakKick', 'goalShots', 'goalShotsShort', 'bullets', 'bombs', 'builds', 'rocketJump',
+const evKeys = ['goals', 'releases', 'dribbleTouch', 'weakKick', 'shotsAtGoal', 'shotsAtGoalShort', 'goalwardKicks', 'goalwardShort', 'bullets', 'bombs', 'builds', 'rocketJump',
   'cannonPass', 'cannonPassLost', 'bulletBall', 'snooker', 'bombClear', 'fragileSnipe', 'wallShotDown',
   'superEarn', 'superSpend'];
 const w0 = 22;
