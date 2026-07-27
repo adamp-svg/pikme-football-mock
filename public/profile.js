@@ -30,7 +30,15 @@ const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' };
 export const PROFILE_SECTIONS = ['kpis', 'hero', 'album', 'record', 'career', 'bots', 'social'];
 
 const CSS = `
-.pf-wrap { position: absolute; inset: 0; display: flex; direction: rtl; gap: 10px; padding: 10px;
+/* SAFE AREAS. index.html sets viewport-fit=cover, so the page paints UNDER the notch / Dynamic Island
+   and the home indicator — a flat padding here puts the hero pane (which sits at the RTL start = the
+   right edge) straight under the notch when the phone is rotated with the notch on the left. In
+   landscape the non-zero insets are left/right (~44-59px on a notched iPhone) and bottom (~21px for the
+   home indicator); top is 0. Same max(fallback, env()) shape as .set-btn and #cards .subpage in
+   style.css, so a non-notched phone and a desktop browser keep the plain 10px. */
+.pf-wrap { position: absolute; inset: 0; display: flex; direction: rtl; gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+           max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   box-sizing: border-box; font-family: "Arial Black", sans-serif; }
 /* The FIXED pane. flex-basis in px (not %) so the hero never squeezes to nothing in landscape. */
 .pf-side { flex: 0 0 176px; display: flex; flex-direction: column; align-items: center; gap: 4px;
