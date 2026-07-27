@@ -508,6 +508,11 @@
     </div>
   </div>
 
+  <!-- Own profile / stats page. Intentionally EMPTY: public/profile.js builds and styles the whole
+       page (and injects its own CSS), the same self-contained pattern net-hud.js uses, so this file
+       and style.css stay almost untouched while other agents work in them. -->
+  <div id="profile" class="screen hidden"></div>
+
   <!-- Lobby / waiting room -->
   <div id="lobby" class="screen hidden">
     <div class="start-shade"></div>

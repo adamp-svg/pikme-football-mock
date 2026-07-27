@@ -110,13 +110,20 @@ export const PROFILE_CAREER_ROWS = [
 ];
 
 // The 6 tiles at the top of the scrolling body. Order is the reading order in RTL.
-function kpiTiles({ stats, rate, arenaCount }) {
+//
+// `hasRecord` false means the backend gave us nothing (undeployed route, no identity, offline) — the
+// five match-derived tiles then print an em dash. Printing 0 there would state as fact that the player
+// has never won a match, which is a different claim from "we could not read it". Arenas is local, so it
+// is always a real number.
+const UNKNOWN = '—';
+function kpiTiles({ stats, rate, arenaCount, hasRecord }) {
+  const stat = (v) => (hasRecord ? num(v) : UNKNOWN);
   return [
-    { id: 'matches', label: 'משחקים', value: num(stats.matchesPlayed), icon: 'play' },
-    { id: 'wins', label: 'ניצחונות', value: num(stats.wins), icon: 'champion-reaction' },
-    { id: 'rate', label: 'אחוז ניצחון', value: `${rate}%`, icon: 'rank' },
-    { id: 'goals', label: 'שערים', value: num(stats.goalsFor), icon: 'goal-net' },
-    { id: 'streak', label: 'רצף שיא', value: num(stats.bestStreak), icon: 'season-star' },
+    { id: 'matches', label: 'משחקים', value: stat(stats.matchesPlayed), icon: 'play' },
+    { id: 'wins', label: 'ניצחונות', value: stat(stats.wins), icon: 'champion-reaction' },
+    { id: 'rate', label: 'אחוז ניצחון', value: hasRecord ? `${rate}%` : UNKNOWN, icon: 'rank' },
+    { id: 'goals', label: 'שערים', value: stat(stats.goalsFor), icon: 'goal-net' },
+    { id: 'streak', label: 'רצף שיא', value: stat(stats.bestStreak), icon: 'season-star' },
     { id: 'arenas', label: 'מגרשים', value: num(arenaCount), icon: 'field-library' },
   ];
 }
@@ -162,7 +169,7 @@ export function buildProfileModel(input) {
       boardTotal: Number.isFinite(Number(rank.totalPlayers)) ? Number(rank.totalPlayers) : null,
       cosmetic: i.cosmetic || 'striker:base',
     },
-    kpis: kpiTiles({ stats, rate, arenaCount: i.arenaCount }),
+    kpis: kpiTiles({ stats, rate, arenaCount: i.arenaCount, hasRecord: matches > 0 }),
     hero: {
       key: hero ? hero.key : '',
       plays: hero ? hero.plays : 0,

@@ -52,6 +52,12 @@ ok(root.querySelectorAll('[data-section="album"] .pf-card img').length === 3, 't
 ok(root.querySelectorAll('[data-section="album"] .pf-card.eq').length === 1, 'the equipped card is marked');
 ok(root.querySelectorAll('[data-section="career"] .pf-row').length === PROFILE_CAREER_ROWS.length,
   'every career row is painted');
+// ...and with no readable stats the career section says so instead of printing ten zeros.
+renderProfile(root, buildProfileModel({ heroPlays: { alien: 2 } }), { name: 'אדם' });
+ok(root.querySelectorAll('[data-section="career"] .pf-row').length === 0,
+  'no readable stats -> career prints no zero rows');
+ok(root.querySelector('[data-section="career"] .pf-empty'), 'no readable stats -> career shows its empty state');
+renderProfile(root, model, { name: 'אדם' });   // restore the populated render for the checks below
 // The W/L/D bar must print its numbers, not rely on colour.
 const segs = [...root.querySelectorAll('[data-section="record"] .pf-bar span')];
 ok(segs.length === 3, 'the record bar has three segments');

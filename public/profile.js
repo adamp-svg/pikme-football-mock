@@ -36,7 +36,7 @@ const CSS = `
 .pf-side { flex: 0 0 176px; display: flex; flex-direction: column; align-items: center; gap: 4px;
   background: rgba(19,27,22,.94); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08;
   padding: 10px 8px; overflow: hidden; }
-.pf-hero-canvas { width: 104px; height: 108px; image-rendering: pixelated; }
+.pf-hero-canvas { width: 132px; height: 137px; image-rendering: pixelated; }
 .pf-name { font: 900 13px "Arial Black", sans-serif; color: #f2ead0; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-badge { display: flex; align-items: center; gap: 5px; font: 900 11px "Arial Black", sans-serif;
@@ -155,7 +155,7 @@ function sidePane(model, name, drawHero) {
   // depend on a canvas to show numbers.
   try {
     const g = cv.getContext && cv.getContext('2d');
-    if (g && drawHero) drawHero(g, cv.width / 2, cv.height - 16, 2.1, 0.4, 0, 0.6, false, model.head.cosmetic, PREVIEW_KIT, 0);
+    if (g && drawHero) drawHero(g, cv.width / 2, cv.height - 10, 3.3, 0.4, 0, 0.6, false, model.head.cosmetic, PREVIEW_KIT, 0);
   } catch { /* no 2d context — numbers still render */ }
 
   side.appendChild(el('div', 'pf-name', name || 'שחקן'));
@@ -270,11 +270,18 @@ export function renderProfile(root, model, opts = {}) {
 
   // ── career ───────────────────────────────────────────────────────────────────────────────────
   const car = section('career', 'הקריירה שלי', 'training');
-  const cg = el('div', 'pf-grid2');
-  for (const c of model.career) {
-    cg.appendChild(row(c.label, typeof c.value === 'number' ? `${compact(c.value)}${c.unit ? ' ' + c.unit : ''}` : c.value, c.icon));
+  // Gated on the SAME signal as the record section: with no readable stats these would all be 0, and
+  // "0 שערים" is a claim about the player, while the truth is only that we could not read it. Ten
+  // qualified zeros are worse than one honest sentence.
+  if (model.record.hasData) {
+    const cg = el('div', 'pf-grid2');
+    for (const c of model.career) {
+      cg.appendChild(row(c.label, typeof c.value === 'number' ? `${compact(c.value)}${c.unit ? ' ' + c.unit : ''}` : c.value, c.icon));
+    }
+    car.appendChild(cg);
+  } else {
+    car.appendChild(empty('אין נתונים עדיין — הקריירה תתמלא אחרי המשחק הראשון'));
   }
-  car.appendChild(cg);
   body.appendChild(car);
 
   // ── bots ─────────────────────────────────────────────────────────────────────────────────────
@@ -294,6 +301,8 @@ export function renderProfile(root, model, opts = {}) {
   const col = el('div', 'pf-col');
   col.style.cssText = 'flex:1; display:flex; flex-direction:column; min-width:0;';
   col.append(head, body);
-  wrap.append(col, sidePane(model, opts.name, opts.drawHero));
+  // side FIRST: the wrapper is dir=rtl, so the first child sits at the START edge (the right), which
+  // is where the approved mockup puts the hero. Appending it second mirrors the whole page.
+  wrap.append(sidePane(model, opts.name, opts.drawHero), col);
   root.appendChild(wrap);
 }

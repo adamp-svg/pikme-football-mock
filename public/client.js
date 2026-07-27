@@ -32,6 +32,8 @@ import {
   HERO_KEYS, HERO_NAMES, SIGNATURE_NAMES, SKIN_KEYS, SKIN_NAMES, SKIN_RARITY,
   DEFAULT_COSMETIC, normalizeCosmetic,
 } from '/shared/cosmetics.js';
+import { buildProfileModel, readHeroPlays, readBestBotLevel, bumpHeroPlays, bumpBestBotLevel, heroKeyOf } from '/shared/profile-stats.js';
+import { renderProfile } from '/profile.js';
 let slotIds = [], slotTeam = [], rosterVersion = -1; // binary-snapshot slot->id/team (from the 'roster' control msg)
 
 // TEMP diagnostic: a visible build tag so we can tell for certain whether the device is running
@@ -135,6 +137,7 @@ const PREF_KEYS = [
   'fbControls', 'fbAimSens', 'fbBombMax', 'fbWallMax',                                   // touch layout + aim feel
   'pikme-joint-style', 'pikme-field-v1', 'pikme-fields', 'pikme-field-name',             // builder style + fields
   'saltizBotFriends',                                                                    // which named bots you added as friends
+  'fbHeroPlays', 'fbBestBotLevel',                                                       // profile page: most-played hero + peak bot level
 ];
 const PREF_MAX_BYTES = 200000; // don't ship an unbounded builder library to the backend
 function readExtraPrefs() {
@@ -606,6 +609,16 @@ function postMatchResult(myT, opT, myScore, opScore) {
       opponentKey: matchOpponentKey, // server-computed opaque id of MY human opponents ('' vs bots)
       stats: myMatchStats || null,  // MY per-player tallies: { goals, strips, saves, shots, bombs, walls }
     };
+    // PROFILE COUNTERS. Local, but PREF_KEYS-mirrored, so they follow the account to a new device.
+    // Written HERE and not in the app because the app never learns which hero was worn, nor the bot
+    // level the room actually ran at. Wrapped: localStorage THROWS in private mode, and this sits on
+    // the match-end path — the profile page showing an empty state is fine, a thrown match end is not.
+    try {
+      const plays = bumpHeroPlays(readHeroPlays((k) => localStorage.getItem(k)), heroKeyOf(myCosmetic));
+      localStorage.setItem('fbHeroPlays', JSON.stringify(plays));
+      const peak = bumpBestBotLevel(readBestBotLevel((k) => localStorage.getItem(k)), matchDiffFloor);
+      if (peak != null) localStorage.setItem('fbBestBotLevel', String(peak));
+    } catch { /* private mode: the profile page just shows its empty state */ }
     window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
   } catch { /* not in app */ }
 }
@@ -740,7 +753,8 @@ const homeEl = document.getElementById('home');
 const friendsEl = document.getElementById('friends');
 const lobbyEl = document.getElementById('lobby');
 const gameEl = document.getElementById('game');
-const screens = { start: startEl, home: homeEl, friends: friendsEl, lobby: lobbyEl, game: gameEl };
+const screens = { start: startEl, home: homeEl, friends: friendsEl, lobby: lobbyEl, game: gameEl,
+  profile: document.getElementById('profile') };   // own-profile stats page (public/profile.js)
 let sticksReady = false; // set once the touch-stick system is initialised (below); gates refreshSticks() from showScreen
 function showScreen(name) {
   // Home loops the menu theme; the pitch + pre-match lobby keep their own music; anything
@@ -766,6 +780,53 @@ function showScreen(name) {
 // Home + friends refs.
 const homeOnlineEl = document.getElementById('home-online');
 const homeFaceEl = document.getElementById('home-face');
+// ---- Own profile page (public/profile.js) ---------------------------------
+// Tapping your own avatar opens it. #home-face had NO handler at all before this.
+// The page is shown IMMEDIATELY with the numbers the game already holds (cards, hero, arenas,
+// trophies), then re-rendered when the career block arrives — so it never shows a blank frame and
+// never depends on the API being reachable.
+function profileArenaCount() {
+  try { const a = JSON.parse(localStorage.getItem('pikme-fields') || '[]'); return Array.isArray(a) ? a.length : 0; }
+  catch { return 0; }
+}
+// The career block. This MUST follow the same routing rule as fetchOwnProgress(): on a dev/LAN host
+// pikme-server's CORS allowlist excludes us, so a direct call is discarded by the browser no matter
+// what the API answers — /dev/progress is the game server's own same-origin passthrough. In the app,
+// /handle-friends/rank is the only token-authed route that can resolve who we are.
+async function fetchOwnStats() {
+  const phone = (() => { try { return _params.get('phone'); } catch { return null; } })();
+  try {
+    if (DEV_HOST) return await apiGet(`/dev/progress${phone ? `?phone=${encodeURIComponent(phone)}` : ''}`, true);
+    if (FOOTBALL_TOKEN) return await apiGet('/handle-friends/rank');
+    return phone ? await apiGet(`/handle-user/football/stats?phone=${encodeURIComponent(phone)}`) : null;
+  } catch { return null; }
+}
+function profileInputs() {
+  const cards = myCards();
+  return {
+    xpState: currentXpState(), rank: window.SALTIZ_RANK || null,
+    cards, cosmetic: myCosmetic || DEFAULT_COSMETIC,
+    unlockedHeroes: unlockedHeroCount(), loadout: rankForLoadout(cards).slice(0, 3),
+    heroPlays: readHeroPlays((k) => localStorage.getItem(k)),
+    bestBotLevel: readBestBotLevel((k) => localStorage.getItem(k)),
+    arenaCount: profileArenaCount(), friendCount: FRIENDS.length,
+  };
+}
+async function openProfile() {
+  const root = document.getElementById('profile');
+  if (!root) return;
+  const opts = { name: MY_NAME, drawHero, onBack: () => showScreen('home') };
+  showScreen('profile');
+  renderProfile(root, buildProfileModel(profileInputs()), opts);
+  const stats = await fetchOwnStats();
+  // Only repaint if the player is still ON the page — a late response must not yank them back.
+  if (stats && !screens.profile.classList.contains('hidden')) {
+    renderProfile(root, buildProfileModel({ ...profileInputs(), stats }), opts);
+  }
+}
+homeFaceEl?.addEventListener('click', () => { unlockAudio(); openProfile(); });
+homeFaceEl?.setAttribute('role', 'button');
+homeFaceEl?.setAttribute('aria-label', 'הפרופיל שלי');
 const homeNameEl = document.getElementById('home-name');
 // Lobby refs.
 const lobbyOnlineEl = document.getElementById('lobby-online');
@@ -2335,7 +2396,7 @@ function isDismissBackdrop(t, screenEl) {
   // default is always keep-open — content or controls added by other agents never trigger it.
   return t.matches('.subpage, .subpage-body, .subpage-head, h2');
 }
-for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends']) {
+for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends', 'profile']) {
   const scr = screens[id];
   if (!scr) continue;
   let downOnBackdrop = false;

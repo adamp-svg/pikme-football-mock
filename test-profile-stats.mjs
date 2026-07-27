@@ -97,6 +97,10 @@ eq(empty.album.hasData, false, 'no cards -> album flags no data');
 eq(empty.social.arenas, 0, 'no arenas -> 0');
 eq(empty.career.length, PROFILE_CAREER_ROWS.length, 'career rows always render');
 ok(empty.kpis.every((t) => t.value !== undefined && t.label && t.icon), 'every KPI tile has label, value and icon');
+// An unreadable backend must not be reported as "0 matches, 0 wins" — that is a claim we cannot make.
+eq(empty.kpis.find((t) => t.id === 'matches').value, '—', 'unknown match count reads as a dash, not 0');
+eq(empty.kpis.find((t) => t.id === 'rate').value, '—', 'unknown win rate reads as a dash, not 0%');
+eq(empty.kpis.find((t) => t.id === 'arenas').value, 0, 'arenas is LOCAL, so a real 0 is a real 0');
 ok(empty.career.every((c) => c.value !== undefined), 'every career row has a value');
 ok(!JSON.stringify(empty).includes('NaN'), 'an empty model contains no NaN');
 ok(!JSON.stringify(empty).includes('undefined'), 'an empty model contains no undefined');
@@ -123,6 +127,8 @@ const full = buildProfileModel({
   unlockedHeroes: 5,
   loadout: [{ r: 'legendary', n: 5 }, null, { r: 'rare', n: 22 }],
 });
+eq(full.kpis.find((t) => t.id === 'matches').value, 42, 'a played player gets real KPI numbers');
+eq(full.kpis.find((t) => t.id === 'rate').value, '43%', 'the rate tile prints a percent');
 eq(full.record.rate, 43, 'model carries the win rate');
 eq(full.record.hasData, true, 'a played player has record data');
 eq(full.record.wins, 18, 'model carries wins');
