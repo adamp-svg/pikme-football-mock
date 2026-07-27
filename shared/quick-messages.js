@@ -1,5 +1,7 @@
-// Preset quick-messages for friend threads. There is deliberately NO free text in the game —
-// players pick from this list, so there is nothing to moderate.
+// Preset quick-messages for friend threads. Presets are the FAST path — a tap sends a phrase — and
+// they are also the only thing public matchmade rooms allow. Typed text exists in the two places where
+// the audience is people you chose: a friend thread and a private party room (see FREE_TEXT_MAX at the
+// bottom of this file, which both of those share).
 //
 // The backend stores ONLY the phrase `id` (an opaque string), never the Hebrew wording. That means
 // phrases can be added, reworded or reordered with a game deploy and no backend deploy — and an old
@@ -71,13 +73,17 @@ export function isReactionEmoji(e) {
   return REACTION_EMOJI.indexOf(e) >= 0;
 }
 
-// ---- FREE TEXT — PARTY ROOMS ONLY -------------------------------------------------------------
-// The header of this file says free text was deliberately excluded so there would be nothing to
-// moderate. That still holds for PUBLIC matchmade rooms and for friend threads. A PRIVATE party room
-// is a different audience: everyone in it was invited by the host out of their own friends list, so
-// the only people who can read your message are people you chose. The product decision (2026-07-26)
-// is therefore "free text in party rooms, presets everywhere else", and `FREE_TEXT_ROOMS` is the one
-// place that policy is written down — the server refuses free text for any other room kind.
+// ---- FREE TEXT — PRIVATE PARTY ROOMS AND FRIEND THREADS ----------------------------------------
+// Free text was originally excluded everywhere so there would be nothing to moderate. That still
+// holds for PUBLIC matchmade rooms, where your team is strangers. It does NOT hold where the audience
+// is people you chose: a PRIVATE party room (everyone in it was invited by the host out of their own
+// friends list) and, since 2026-07-27, a FRIEND THREAD (both people added each other). The product
+// decision is therefore "free text where you picked who reads it, presets in public rooms".
+//
+// `FREE_TEXT_ROOMS` is that policy for the GAME server, which owns rooms — it refuses free text in any
+// other room kind. Friend threads are not rooms; they go through pikme-server /handle-messages, which
+// carries its own copy of the sanitizer below and its own `kind: 'text'` branch. Two enforcement
+// points, one cap.
 //
 // ONE SHARED SANITIZER, so the composer's live counter and the server's validation can never
 // disagree about what "40 characters" means:

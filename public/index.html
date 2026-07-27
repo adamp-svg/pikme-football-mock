@@ -452,8 +452,8 @@
   </div>
 
   <!-- ================= FRIEND THREAD (messages + shared arenas) =================
-       Opened by tapping a friend card. There is no text input by design: players pick a
-       preset phrase or attach a built arena, so there is nothing to moderate. -->
+       Opened by tapping a friend card. Players pick a preset phrase, type a short line (capped at
+       FREE_TEXT_MAX and sanitized on both sides), or attach a built arena. -->
   <div id="thread" class="screen hidden">
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
@@ -468,8 +468,15 @@
       <div class="subpage-body th-body">
         <div id="th-msgs" class="th-msgs"></div>
         <div class="th-compose">
-          <button id="th-say" class="th-cbtn" type="button">💬 הודעה</button>
-          <button id="th-share" class="th-cbtn" type="button">🏟️ שתף מגרש</button>
+          <form id="th-form" class="th-write" autocomplete="off">
+            <input id="th-text" class="th-input" type="text" placeholder="כתבו הודעה…" aria-label="הודעה לחבר" />
+            <span id="th-left" class="th-left"></span>
+            <button id="th-send" class="th-cbtn send" type="submit">שלח</button>
+          </form>
+          <div class="th-cbtns">
+            <button id="th-say" class="th-cbtn" type="button">💬 הודעה</button>
+            <button id="th-share" class="th-cbtn" type="button">🏟️ שתף מגרש</button>
+          </div>
         </div>
       </div>
     </div>

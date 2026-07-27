@@ -2084,8 +2084,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub > #friends-btn                       { left: 795px; top: 110px; z-index: 6; }
 .hub > .hub-sat[data-open-screen="clubs"] { left: 795px; top: 175px; z-index: 6; }
 
-/* carousel box (dense stack, sized per the user; front card big) */
-.hub > .hub-cards { left: 185px; top: 75px; width: 265px; height: 276px; transform: none; overflow: visible; }
+/* carousel box (dense stack, sized per the user; front card big).
+   LEFT EDGE MEASURED, not eyeballed: the worth chip (#chip-worth, left 278 w 60) and the collector
+   badge below it (#hub-rank, left 283 w 50) both centre on canvas x=308, and the deck's FRONT CARD was
+   centring on 319 — 11px right of that column, which is what read as misaligned. 185 - 10 = 175 puts
+   the front card on 308, under the badge and the worth chip. Verified by measuring the rendered card,
+   not the box: the box is 265 wide and the cards do not fill it. */
+.hub > .hub-cards { left: 175px; top: 75px; width: 265px; height: 276px; transform: none; overflow: visible; }
 
 /* hero — scaled to the user's ~0.73; canvas width drives the box (250 -> ~262 tall) */
 .hub > .hub-hero { left: 490px; top: 75px; transform: none; }
@@ -2535,7 +2540,35 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .fc-unread { margin-inline-start: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: #e0556b; color: #fff; font: 900 11px "Arial Black", sans-serif;
   display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 0 #6d1f2c; }
-.fc-meta.fc-preview { color: #d8e6c8; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The last message in the thread, as a speech bubble TAILED AT THE BADGE and running left — it
+   replaced a flat one-line preview here. Same plate as the lobby/in-match bubble (.pr-say) on
+   purpose: one chat feature should look like one chat feature wherever it surfaces.
+   The card is dir=rtl, so the badge is on the right and flex-start puts the bubble against it; the
+   tail therefore points RIGHT, at the badge, and physical `right`/`border-left` are correct here
+   rather than logical properties (this card has no LTR rendering).
+   TWO triangles, not one: a single triangle on a 2px-bordered bubble draws an unoutlined tab, so the
+   outer one is the border colour and the inner one is the plate colour, inset 3px behind it.
+   No overflow:hidden and no line clamp anywhere on the bubble — either would cut the tail off, since
+   the tail lives outside the box. A long message wraps and the row grows, which in a scrolling list
+   is cheaper than a clipped bubble. */
+.fc-meta.fc-say { display: flex; justify-content: flex-start; min-width: 0; margin-top: 1px; }
+.fc-say > span { position: relative; display: inline-block; max-width: calc(100% - 8px);
+  padding: 5px 9px; border-radius: 12px; background: #101a12; color: #fdfbe9;
+  border: 2px solid #fdfbe9; font: 700 12px/1.3 system-ui, sans-serif; overflow-wrap: anywhere;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, .55); }
+.fc-say > span::before, .fc-say > span::after {
+  content: ''; position: absolute; top: 50%; width: 0; height: 0;
+  border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+.fc-say > span::before { right: -9px; margin-top: -6px; border-left: 9px solid #fdfbe9; }
+.fc-say > span::after { right: -5px; margin-top: -4px;
+  border-top-width: 4px; border-bottom-width: 4px; border-left: 6px solid #101a12; }
+/* MY last message: same plate, NO tail, and the thread's own "mine" colours (.th-row.mine .th-bub),
+   so the row still shows what was last said without a bubble sprouting from their badge to say it. */
+.fc-meta.fc-say.mine > span { background: rgba(28,46,32,.96); border-color: #7f9a72; color: #dcecd0; }
+.fc-meta.fc-say.mine > span::before, .fc-meta.fc-say.mine > span::after { display: none; }
+/* Invite screen mini cards: the plate scales with the card, or a bubble in a 130px column wraps to
+   four lines. */
+.fc-mini .fc-say > span { font-size: 10.5px; padding: 4px 7px; border-width: 1.5px; }
 .hub-sat-unread { position: absolute; top: 2px; left: 4px; min-width: 16px; height: 16px; padding: 0 4px;
   border-radius: 8px; background: #e0556b; color: #fff; font: 900 10px "Arial Black", sans-serif; font-style: normal;
   display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #0b120d; }
@@ -2579,11 +2612,26 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .th-arena-btn.ghost { background: #253026; border-color: #4a5a4c; color: #dff0d0; box-shadow: 0 3px 0 #0d140e; }
 .th-arena-btn:active { transform: translateY(2px); box-shadow: none; }
 
-/* Composer — two buttons, no text field (there is no free text by design). */
-.th-compose { display: flex; gap: 8px; flex: 0 0 auto; }
+/* Composer — a text field on its own line, then the phrase picker and the arena share.
+   The field goes ABOVE the buttons rather than beside them: at 390px, three controls in one row left
+   the input about 120px wide, which is narrower than the 20 characters it accepts.
+   Field styling matches the party composer (.pchat-input) — same control, same two-repo cap. */
+.th-compose { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+.th-write { display: flex; align-items: center; gap: 6px; }
+.th-input { flex: 1 1 auto; min-width: 0; font: 700 13px/1.2 system-ui, sans-serif; padding: 10px 11px;
+  border: 3px solid #46543f; background: rgba(10,16,12,.9); color: #eaf4e0; }
+.th-input::placeholder { color: #7d8f72; }
+.th-left { font: 600 11px/1 ui-monospace, monospace; color: #98ab8b; min-width: 2ch; text-align: center; }
+.th-left.over { color: #ff8a7a; }
+.th-cbtns { display: flex; gap: 8px; }
 .th-cbtn { flex: 1; padding: 11px 6px; border: 3px solid #46543f; background: rgba(28,40,30,.96);
   color: #fff4ca; font: 900 13px "Arial Black", sans-serif; box-shadow: 0 4px 0 #070b08; cursor: pointer; }
+.th-cbtn.send { flex: 0 0 auto; padding: 11px 16px; border-color: #2f6f3a; background: #47b357;
+  color: #06210c; box-shadow: 0 4px 0 #1d4a24; }
 .th-cbtn:active { transform: translateY(2px); box-shadow: none; }
+/* A typed line reads as words, not as a UI label — lighter weight than the preset bubbles, which are
+   fixed phrases. */
+.th-bub.typed { font-weight: 700; -webkit-user-select: text; user-select: text; }
 
 /* Bottom sheets: phrase picker + saved-arena picker. */
 .th-sheet { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.55);

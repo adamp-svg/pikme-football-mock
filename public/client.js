@@ -2843,9 +2843,25 @@ function friendCardEl(f) {
   main.appendChild(top);
   // Stats row — always shown, zeros when unknown. Replaced by the last message when there is one,
   // so the list reads like a conversation list once people start talking.
+  //
+  // That last message is a SPEECH BUBBLE tailed at the badge and running left, not the flat preview
+  // line it used to be: this is the same chat as the lobby's, so it gets the same plate (see .pr-say)
+  // and the tail says which of the two people in the row said it. It renders through the same span →
+  // .fc-say path whichever kind the message is, so a preset, a typed line and a shared arena can't
+  // end up looking like three different features.
   const meta = document.createElement('div'); meta.className = 'fc-meta';
-  const preview = msgPreview((THREADS.get(f.userId) || {}).last);
-  if (preview) { meta.classList.add('fc-preview'); meta.textContent = preview; }
+  const last = (THREADS.get(f.userId) || {}).last;
+  const preview = msgPreview(last);
+  if (preview) {
+    // The TAIL is what claims authorship, so it only points at the badge when THEY sent the message.
+    // My own last message gets the same plate with no tail and the thread's "mine" colours — a bubble
+    // growing out of their badge with my words in it says the wrong thing about who spoke.
+    meta.classList.add('fc-say');
+    if (last && last.fromUserId === MY_USER_ID) meta.classList.add('mine');
+    const say = document.createElement('span');
+    say.textContent = preview;                       // always textContent: a typed line is the sender's words
+    meta.appendChild(say);
+  }
   else meta.textContent = ['דרגה ' + (f.level || 0), 'XP ' + fmtCompact(f.xp || 0), 'שווי ' + fmtCompact(f.worth || 0), 'קלפים ' + (f.owned || 0)].join(' · ');
   main.appendChild(meta);
   // Power slots — always 3; filled with top cards (inline for bots, lazy-fetched for real friends).
@@ -2937,12 +2953,19 @@ function showChallengePrompt(challengeId, fromName) {
 }
 
 // --------------------------------------------------------------------------
-// Friend threads — preset messages + shared arenas (pikme-server /handle-messages).
+// Friend threads — preset phrases, short typed lines, and shared arenas (pikme-server
+// /handle-messages).
 //
-// There is NO free text anywhere: a message is either a preset phrase id or an attached
-// arena, so nothing here needs moderating. Phrase WORDING lives in shared/quick-messages.js
-// and never travels — the backend stores only the id, so phrases can change without a
-// backend deploy and an unknown id is simply skipped by an older client.
+// Phrase WORDING lives in shared/quick-messages.js and never travels — the backend stores only the
+// id, so phrases can change without a backend deploy and an unknown id is simply skipped by an older
+// client.
+//
+// A typed line (`kind: 'text'`) is the one message that carries the sender's own words. It is capped
+// at FREE_TEXT_MAX and run through the SHARED sanitizer, and pikme-server re-runs its own copy of
+// that same sanitizer, so the composer's counter and what actually gets stored cannot disagree. The
+// cap is the width of the bubble it renders in, which is also what stops this from turning into a
+// general messaging surface: a friend thread is people who added each other, same audience as a
+// private party room.
 //
 // Bot friends have no real userId, so they have no thread (their card opens the profile).
 // --------------------------------------------------------------------------
@@ -2972,6 +2995,7 @@ function totalUnread() { let n = 0; for (const t of THREADS.values()) n += t.unr
 function msgPreview(m) {
   if (!m) return '';
   if (m.kind === 'arena') return '🏟️ ' + ((m.arena && m.arena.name) || 'מגרש');
+  if (m.kind === 'text') return (m.text || '').trim();
   const p = phraseById(m.presetId);
   return p ? p.text : '';
 }
@@ -3059,8 +3083,11 @@ function msgEl(m) {
   const row = document.createElement('div');
   row.className = 'th-row' + (mine ? ' mine' : '');
   const bub = document.createElement('div');
-  bub.className = 'th-bub' + (m.kind === 'arena' ? ' arena' : '');
+  bub.className = 'th-bub' + (m.kind === 'arena' ? ' arena' : '') + (m.kind === 'text' ? ' typed' : '');
   if (m.kind === 'arena') bub.appendChild(arenaCardEl(m));
+  // Always textContent for a typed line: it is the only string here the sender chose, and the
+  // sanitizer strips control/bidi characters but makes no claim about markup.
+  else if (m.kind === 'text') bub.textContent = m.text || '';
   else bub.textContent = phraseById(m.presetId).text;
   if (m.reactions && m.reactions.length) {
     const r = document.createElement('div'); r.className = 'th-reacts';
@@ -3121,6 +3148,19 @@ async function sendPreset(presetId) {
   if (!threadWith) return;
   const m = await apiPostJson('/handle-messages/send', { toUserId: threadWith.userId, kind: 'preset', presetId });
   if (m) { threadMsgs.push(m); renderThread(); }
+}
+
+// A typed line. Sanitized HERE before it goes out so the message the sender sees appended is the
+// same object the server stored (apiPostJson returns the saved message, so no optimistic echo can
+// disagree with it). An empty result is dropped silently — there is nothing to tell the player that
+// they didn't already see in the counter.
+async function sendText(raw) {
+  if (!threadWith) return false;
+  const text = sanitizeFreeText(raw);
+  if (!text) return false;
+  const m = await apiPostJson('/handle-messages/send', { toUserId: threadWith.userId, kind: 'text', text });
+  if (m) { threadMsgs.push(m); renderThread(); }
+  return !!m;
 }
 
 async function sendArena(save) {
@@ -3233,6 +3273,35 @@ function openArenaSheet() {
 
 document.getElementById('th-back')?.addEventListener('click', () => { threadWith = null; showScreen('friends'); });
 document.getElementById('th-say')?.addEventListener('click', () => { unlockAudio(); openPhraseSheet(); });
+// Typed line. The counter reads the SHARED sanitizer, so what it counts is what the server keeps —
+// an emoji is one character in both places and trailing spaces never count. maxLength sits above the
+// cap on purpose so the counter can visibly reach 0 before the field stops accepting keys; the
+// sanitizer, not the field, is what actually enforces the limit.
+(() => {
+  const form = document.getElementById('th-form');
+  const input = document.getElementById('th-text');
+  const left = document.getElementById('th-left');
+  if (!form || !input) return;
+  input.maxLength = FREE_TEXT_MAX + 10;
+  const paint = () => {
+    if (!left) return;
+    const rem = freeTextLeft(input.value);
+    left.textContent = input.value ? String(Math.max(0, rem)) : '';
+    left.classList.toggle('over', rem <= 0);
+  };
+  paint();
+  input.addEventListener('input', paint);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const raw = input.value;
+    if (!sanitizeFreeText(raw)) return;
+    // Cleared BEFORE the round trip: the field is where the player types next, and leaving their sent
+    // words sitting in it while the request flies reads as "it didn't send". On failure the text goes
+    // back, so a dropped request never silently eats the message.
+    input.value = ''; paint();
+    if (!await sendText(raw)) { input.value = raw; paint(); }
+  });
+})();
 document.getElementById('th-share')?.addEventListener('click', () => { unlockAudio(); openArenaSheet(); });
 document.getElementById('th-sheet-close')?.addEventListener('click', () => document.getElementById('th-sheet')?.classList.add('hidden'));
 document.getElementById('th-arena-close')?.addEventListener('click', () => document.getElementById('th-arena-sheet')?.classList.add('hidden'));
