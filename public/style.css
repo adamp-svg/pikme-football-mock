@@ -1346,12 +1346,21 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    public-match team page) is untouched — none of this is scoped to it. */
 .party-chat-bubble {
   position: absolute; z-index: 6;
-  left: max(10px, env(safe-area-inset-left)); bottom: max(10px, env(safe-area-inset-bottom));
+  right: max(10px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom));
   width: 44px; height: 44px; border-radius: 50%; padding: 0;
   display: flex; align-items: center; justify-content: center;
   background: rgba(19,27,22,.92); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08;
   cursor: pointer; touch-action: manipulation;
+  transition: bottom .28s cubic-bezier(.22,.61,.36,1);
 }
+/* While the sheet is up, the icon RIDES ABOVE IT instead of floating over its composer. The sheet is
+   full-width and 50% tall, and the icon sits at z-index 6 (above the sheet's 5), so leaving it at the
+   bottom would park a 44px disc on top of the text input and the send button — the "interference" this
+   fixes. Moving it also keeps it usable as the close toggle, which hiding it would not.
+   `bottom` matches the sheet's own .28s ease so the two move as one gesture. The class is toggled in
+   client.js (openPartyChatSheet/closePartyChatSheet) rather than derived with a CSS sibling selector,
+   because the icon comes BEFORE the sheet in the DOM and `~` cannot look backwards. */
+.party-chat-bubble.sheet-open { bottom: calc(50% + max(10px, env(safe-area-inset-bottom))); }
 .party-chat-bubble:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
 .party-chat-bubble .saltiz-icon { --si-size: 22px; }
 /* Unread hint: reuses the SAME `member.chat`/`chat.at` state the roster bubbles already read (see
@@ -1366,7 +1375,15 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .party-chat-sheet {
   position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
   z-index: 5; display: flex; flex-direction: column;
-  background: rgba(9,14,10,.94); border-top: 3px solid #2c3830; border-radius: 16px 16px 0 0;
+  /* FULLY OPAQUE on purpose. This started at .94, and 6% of a bright stadium backdrop plus the hero
+     block behind it made the roster's cards and the player name legible INSIDE the chat panel — it read
+     as broken rather than layered. Verified it was never a stacking bug: nothing inside #party carries
+     z >= 5 except this sheet and the bubble, and elementFromPoint at nine points across the open sheet
+     returns the log every time. It was purely alpha, and even .985 left a readable ghost of white text
+     on the cards behind. The border-top, corner radius and drop shadow carry the "this is an overlay"
+     signal on their own, so there is nothing to buy by staying translucent. A backdrop blur would also
+     hide it, at the cost of a compositing pass every frame on a phone. */
+  background: #0a0f0b; border-top: 3px solid #2c3830; border-radius: 16px 16px 0 0;
   box-shadow: 0 -6px 22px rgba(0,0,0,.4);
   padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   transform: translateY(100%); transition: transform .28s cubic-bezier(.22,.61,.36,1);

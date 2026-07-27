@@ -3837,10 +3837,17 @@ function partyChatSheetIsOpen() { return !!(partyChatSheetEl && partyChatSheetEl
 function openPartyChatSheet() {
   if (!partyChatSheetEl) return;
   partyChatSheetEl.classList.add('open');
+  // The icon lives at the bottom RIGHT and sits above the sheet in z-order, so while the sheet is up
+  // it has to ride above the sheet's top edge — otherwise it parks on the composer's input/send.
+  // See `.party-chat-bubble.sheet-open` in style.css.
+  partyChatBubbleEl?.classList.add('sheet-open');
   partyChatSheetSeenAt = Date.now();
   refreshPartyChatBubbleHint();
 }
-function closePartyChatSheet() { partyChatSheetEl?.classList.remove('open'); }
+function closePartyChatSheet() {
+  partyChatSheetEl?.classList.remove('open');
+  partyChatBubbleEl?.classList.remove('sheet-open');
+}
 function togglePartyChatSheet() { if (partyChatSheetIsOpen()) closePartyChatSheet(); else openPartyChatSheet(); }
 // The icon's own tap toggles — stopPropagation keeps it from ALSO bubbling into partyEl's backdrop
 // listener below, mirroring partyAddTile's identical guard on the `+` tile.
