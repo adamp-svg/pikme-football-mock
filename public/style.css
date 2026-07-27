@@ -2820,6 +2820,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .ti-search-title { font-size: 13px; font-weight: 800; color: #ffe9a8; }
 .ti-search-sub { font-size: 11px; font-weight: 700; opacity: .75; }
 .ti-search-band { font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 8px; background: rgba(255, 255, 255, .12); }
+/* Small SECONDARY search-budget timer (⏱ N) — same scale as .ti-search-band on purpose, NOT the giant
+   #ti-count kickoff number (clamp(42px,14vh,128px) — see the note on that rule). #ti-count means
+   "kickoff is certain and imminent" everywhere else in this game; a search budget that can still
+   widen, grace-extend or end in bots is a different, more tentative thing and must look it. */
+.ti-search-timer { font-size: 11px; font-weight: 800; opacity: .85; white-space: nowrap; }
 .ti-search-pips { display: inline-flex; gap: 3px; }
 .ti-search-pips i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .22); }
 .ti-search-pips i.on { background: #7fd48f; }

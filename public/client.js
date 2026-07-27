@@ -4174,8 +4174,14 @@ function showSearching(msg) {
   const cols = teamIntroEl.querySelectorAll('.ti-col');
   fillIntroCol(cols[0], [mine], 'A', perTeam);
   fillIntroCol(cols[1], [], 'B', perTeam);
+  // The search's countdown lives in renderSearchChrome's small inline #ti-search-timer now, NOT
+  // setTiCount/#ti-count — that giant "5..4..3.." number means "kickoff is certain and imminent"
+  // everywhere else in this game (updateVsCountdown drives it for the real kickoff). Reusing it for a
+  // search BUDGET lied on the common path (the search can still widen, grace-extend, or end in bots),
+  // and a granted grace ticket reports a flat fresh remainingMs, so the giant number could round to 0,
+  // hide (setTiCount(null)), then reappear at 5 and count down again — reading exactly like the lag
+  // this redesign exists to stop looking like. setTiCount/#ti-count are otherwise untouched.
   renderSearchChrome(msg);
-  setTiCount(Math.max(0, Math.ceil((msg.remainingMs || 0) / 1000)) || null);
   teamIntroEl.classList.remove('hidden');
   requestAnimationFrame(() => teamIntroEl.classList.add('show'));
   startLobbyMusic();
@@ -4195,6 +4201,13 @@ function renderSearchChrome(msg) {
   const n = +msg.searchingCount || 0;
   document.getElementById('ti-search-sub').textContent = n > 1 ? `${n} שחקנים מחפשים כרגע` : '';
   document.getElementById('ti-search-title').textContent = 'מחפש יריבים...';
+  // Small SECONDARY inline timer (⏱ N) — see the note at showSearching's call site for why this is
+  // not the giant #ti-count. NEVER hidden/nulled while a search is live: a grace extension genuinely
+  // adds time (a fresh ticket's remainingMs really does jump back up), so the honest move is to let
+  // the number rise rather than hide it and pop back — the band chip above (רמה 5 -> רמה 4–6) is what
+  // explains WHY the wait continued, exactly as it already does for the pip row / searching count.
+  const timer = document.getElementById('ti-search-timer');
+  if (timer) timer.textContent = `⏱ ${Math.max(0, Math.ceil((msg.remainingMs || 0) / 1000))}`;
 }
 function hideSearching() {
   searchingLive = false;
@@ -4211,6 +4224,8 @@ function showResolution(foundHumans) {
   title.textContent = foundHumans ? 'נמצאו יריבים!' : 'אין שחקנים פנויים כרגע';
   sub.textContent = '';
   document.getElementById('ti-search-pips')?.querySelectorAll('i').forEach((d) => d.classList.add('on'));
+  const timer = document.getElementById('ti-search-timer'); // search is over — no more budget to show
+  if (timer) timer.textContent = '';
 }
 // Quick-match VS screen: HOME (my team) vs RIVALS from lobby members (bots fill empty
 // slots), with the big 5..0 countdown. Refreshed on every lobby payload.
