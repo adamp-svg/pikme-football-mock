@@ -3333,22 +3333,32 @@ function renderFriendSelect() {
 // Invite screen: three live sections — online (invitable) / pending (invited) / accepted.
 // The party room is created when this screen OPENS so invites + accepts are live here.
 function inviteRowEl(f) {
-  const online = f.isBot || ONLINE.has(f.userId);
-  const row = document.createElement('div'); row.className = 'friend-row' + (online ? ' online' : '') + (f.isBot ? ' is-bot' : '');
-  const dot = document.createElement('span'); dot.className = 'friend-dot';
-  const pfp = document.createElement('img'); pfp.className = 'friend-pfp';
-  if (/^https?:\/\//i.test((f.image || '').toString())) pfp.src = f.image;
-  const nm = document.createElement('span'); nm.className = 'friend-name'; nm.textContent = (f.isBot ? '🤖 ' : '') + (f.nickName || '');
-  const btn = document.createElement('button'); btn.className = 'friend-act';
+  // THE FRIENDS-PAGE CARD, one size down. It was a `.friend-row` — a dot, a photo, a name and a button
+  // — so the same person looked like two different things depending on which screen you were on. This
+  // reuses `friendCardEl`'s markup (avatar, name, stats/last-message, the three power slots) and only
+  // changes the ACTION: on the friends page a card opens a conversation; here it invites.
+  const card = friendCardEl(f);
+  card.classList.add('fc-mini');
+  // friendCardEl wires tap → thread and avatar → profile. Neither is what this screen is for, and a
+  // listener cannot be removed once added, so the card is CLONED (clones drop listeners) and the
+  // avatar's profile tap is re-attached deliberately.
+  const clean = card.cloneNode(true);
+  clean.querySelector('.fc-pfp')?.addEventListener('click', (e) => { e.stopPropagation(); openFriendProfile(f); });
   const pending = invitedSet.has(f.userId) && !f.isBot;
-  btn.textContent = pending ? 'ממתין…' : 'הזמן'; btn.disabled = pending;
-  btn.onclick = () => {
+  const act = document.createElement('button');
+  act.className = 'fc-invite' + (pending ? ' is-pending' : '');
+  act.textContent = pending ? 'ממתין…' : 'הזמן';
+  act.disabled = pending;
+  const invite = () => {
+    if (pending) return;
     if (f.isBot) sendMsg({ type: 'addBot', botId: f.userId, name: f.nickName });
     else { sendMsg({ type: 'inviteFriend', toUserId: f.userId }); invitedSet.add(f.userId); }
     renderInvite();
   };
-  row.append(dot, pfp, nm, btn);
-  return row;
+  act.addEventListener('click', (e) => { e.stopPropagation(); invite(); });
+  clean.addEventListener('click', invite);            // the whole card invites — a phone-sized target
+  clean.appendChild(act);
+  return clean;
 }
 function acceptedRowEl(m) {
   const row = document.createElement('div'); row.className = 'friend-row online' + (m.isBot ? ' is-bot' : '');
@@ -3359,6 +3369,7 @@ function acceptedRowEl(m) {
   return row;
 }
 function renderInvite() {
+  renderInviteActions();
   const onlineEl = document.getElementById('fs-online');
   const pendEl = document.getElementById('fs-pending');
   const accEl = document.getElementById('fs-accepted');
@@ -3382,13 +3393,23 @@ function renderInvite() {
   document.getElementById('fs-pending-wrap')?.classList.toggle('hidden', !nPend);
   document.getElementById('fs-accepted-wrap')?.classList.toggle('hidden', !accepted.length);
 }
+// The left column's live bits. `lastLobby.code` is the room the invite screen created up front, so the
+// code is real from the moment the screen opens — that is the whole point of showing it here: it is what
+// someone who is NOT your friend types in (friends a->b<-c: a and c can both reach b's room this way).
+function renderInviteActions() {
+  const code = (lastLobby || {}).code || null;
+  const el = document.getElementById('fs-code');
+  if (el) { el.textContent = code || '---'; el.disabled = !code; }
+  const go = document.getElementById('friend-select-go');
+  if (go) go.classList.toggle('is-waiting', !code);
+}
 function openFriendSelect() {
   // Create the party room up front so invites + accepts are LIVE on this screen (now a full sub-page).
   selectedGame = null; partyFlow = true; partyStage = 'invite'; invitedSet.clear();
   if (joinCodeEl) joinCodeEl.value = '';
   syncLoadout(); loadFriends();               // refresh presence so online friends show as candidates
   sendMsg({ type: 'createRoom' });            // roomJoined (invite stage) renders the sections
-  showScreen('friend-select'); renderInvite();
+  showScreen('friend-select'); renderInvite(); renderInviteActions();
 }
 function closeFriendSelect() { friendSelectEl?.classList.add('hidden'); }
 // Leaving the invite screen dissolves the just-created party room (no orphan) and returns to the hub.
@@ -3413,12 +3434,38 @@ document.getElementById('friend-select-go')?.addEventListener('click', () => {
   partyStage = 'roster';
   showScreen('party'); renderParty();
 });
-document.getElementById('join-room-btn')?.addEventListener('click', () => {
+// JOIN BY CODE. Now a <form>, so the phone keyboard's "go" key works as well as the button — and the
+// submit has to be intercepted or the page navigates and the socket dies.
+function joinByCode() {
   unlockAudio();
   const code = (joinCodeEl?.value || '').trim().toUpperCase();
   if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
   if (partyFlow && partyStage === 'invite') { sendMsg({ type: 'leaveRoom' }); partyFlow = false; } // drop the orphan party room
   sendMsg({ type: 'joinRoom', code });
+}
+document.getElementById('fs-join')?.addEventListener('submit', (e) => { e.preventDefault(); joinByCode(); });
+document.getElementById('join-room-btn')?.addEventListener('click', (e) => { e.preventDefault(); joinByCode(); });
+// TAP THE CODE TO COPY IT. `navigator.clipboard` is unavailable on a plain-http LAN origin (it needs a
+// secure context), which is exactly how this game is tested — so it falls back to selecting the text,
+// and either way the label confirms, because a copy button that looks like it did nothing is worse than
+// no button.
+document.getElementById('fs-code')?.addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const code = (btn.textContent || '').trim();
+  if (!code || code === '---') return;
+  let done = false;
+  try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(code); done = true; } } catch { /* insecure origin */ }
+  if (!done) { const r = document.createRange(); r.selectNodeContents(btn); getSelection()?.removeAllRanges(); getSelection()?.addRange(r); }
+  toast(done ? `הקוד ${code} הועתק` : `הקוד: ${code}`);
+});
+// A FRESH ROOM. Dissolves the room this screen opened with (no orphan) and opens another, so a host who
+// shared a stale code can rotate it. Invites already sent are dropped with the old room, hence the reset.
+document.getElementById('fs-new-room')?.addEventListener('click', () => {
+  sendMsg({ type: 'leaveRoom' });
+  invitedSet.clear(); lastLobby = null; partyStage = 'invite'; partyFlow = true;
+  sendMsg({ type: 'createRoom' });
+  renderInvite();
+  toast('חדר חדש נוצר');
 });
 
 // Game picker overlay. mode 'setup' = from the friend-select flow (create room + apply picks);

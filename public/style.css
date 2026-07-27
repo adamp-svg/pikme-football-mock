@@ -2655,3 +2655,66 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   background: #ffd06a; color: #22303c; cursor: pointer;
 }
 .pchat-send:active { transform: translateY(1px); }
+
+
+/* ---- PLAY WITH FRIENDS · invite screen: actions left (a quarter), people right ------------------
+   The screen used to be one column: sections of friends, then the CTA, then join-by-code at the very
+   bottom — so with a few friends online the primary action was pushed off a phone screen and the room
+   code (the only way a NON-friend can join) was below that. Now the actions are a fixed quarter that
+   cannot scroll away, and the people scroll beside them.
+   RTL note: `direction: rtl` on the subpage means the FIRST grid column renders on the RIGHT. The
+   actions are declared first in the markup and pinned to the LEFT with an explicit `order`, so the
+   layout reads the way it was asked for in both directions. */
+.fs-split {
+  display: grid;
+  /* a quarter, floored at 130px: 25% of a 390px phone is 98px, which cannot hold «שחק עכשיו» */
+  grid-template-columns: 1fr minmax(130px, 25%);
+  gap: 12px; align-items: start; min-height: 0;
+}
+.fs-actions { order: 2; display: flex; flex-direction: column; gap: 8px; position: sticky; top: 0; }
+.fs-people { order: 1; min-width: 0; min-height: 0; }
+/* The list is the only thing that scrolls. 62vh keeps the sticky column and the page head visible. */
+.fs-people .fs-sections { max-height: 62vh; overflow-y: auto; padding-inline-end: 4px; }
+.fs-play { width: 100%; margin: 0; padding: 12px 6px; display: flex; align-items: center; justify-content: center; }
+/* `.play` draws a chevron in a <b> sized for a full-width button; in a 130px column it landed ON TOP
+   of the label. The label is the affordance here, so the chevron goes. */
+.fs-play b { display: none; }
+.fs-play span { font-size: 13px; letter-spacing: 0; }
+.fs-play.is-waiting { opacity: .6; }
+.fs-code-box { background: rgba(12,18,13,.92); border: 3px solid #46543f; box-shadow: 0 3px 0 #070b08; padding: 8px; text-align: center; }
+.fs-code-h { font: 900 10px "Arial Black", sans-serif; color: #9fb08f; letter-spacing: .5px; }
+.fs-code {
+  display: block; width: 100%; margin: 4px 0 2px; padding: 6px 4px; cursor: pointer;
+  background: #101a12; border: 2px solid #ffce4a; color: #ffce4a;
+  font: 900 24px/1 ui-monospace, monospace; letter-spacing: 3px;
+}
+.fs-code:disabled { color: #6d7a68; border-color: #46543f; cursor: default; }
+.fs-code-hint { font: 600 9px/1.25 inherit; color: #8e9c84; }
+.fs-btn {
+  width: 100%; padding: 9px 6px; cursor: pointer; border: 2px solid #39463b; background: #141d15;
+  color: #c8d4bf; font: 900 11px "Arial Black", sans-serif; letter-spacing: .5px;
+}
+.fs-btn:active { transform: translateY(1px); }
+.fs-btn-go { background: #ffd06a; border-color: #22303c; color: #22303c; }
+.fs-join { display: flex; flex-direction: column; gap: 6px; background: rgba(12,18,13,.92);
+  border: 3px solid #46543f; box-shadow: 0 3px 0 #070b08; padding: 8px; }
+.fs-join-h { font: 900 10px "Arial Black", sans-serif; color: #9fb08f; letter-spacing: .5px; }
+.fs-join .code-input { width: 100%; text-align: center; }
+
+/* The friends-page card, one size down, plus its invite button. */
+.fc-mini { padding: 8px; gap: 8px; position: relative; cursor: pointer; }
+.fc-mini .fc-pfp { width: 34px; height: 34px; font-size: 12px; }
+.fc-mini .fc-name { font-size: 12px; }
+.fc-mini .fc-meta { font-size: 9.5px; }
+.fc-mini .fc-slots { transform: scale(.82); transform-origin: right center; }
+.fc-mini .fc-invite {
+  position: absolute; inset-inline-start: 8px; bottom: 8px; padding: 5px 10px; cursor: pointer;
+  border: 2px solid #22303c; background: #ffd06a; color: #22303c;
+  font: 900 10px "Arial Black", sans-serif;
+}
+.fc-mini .fc-invite.is-pending { background: #2b3a2c; border-color: #46543f; color: #9fb08f; }
+@media (max-width: 340px) {                 /* a very narrow phone: stack rather than squeeze */
+  .fs-split { grid-template-columns: 1fr; }
+  .fs-actions { position: static; order: 1; }
+  .fs-people { order: 2; }
+}

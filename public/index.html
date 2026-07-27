@@ -599,17 +599,31 @@
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
       <div class="subpage-head"><h2>הזמינו חברים</h2></div>
-      <div class="subpage-body">
-        <div class="fs-sections">
-          <div id="fs-online-wrap"><div class="fs-sec-h">מחוברים · הזמינו</div><div id="fs-online" class="friend-list"></div></div>
-          <div id="fs-pending-wrap" class="hidden"><div class="fs-sec-h">הוזמנו · ממתינים לאישור</div><div id="fs-pending" class="friend-list"></div></div>
-          <div id="fs-accepted-wrap" class="hidden"><div class="fs-sec-h">✓ הצטרפו לקבוצה</div><div id="fs-accepted" class="friend-list"></div></div>
-        </div>
-        <button id="friend-select-go" class="play"><span>המשך לקבוצה</span><b>›</b></button>
-        <div class="ps-or"><span>או הצטרף לחדר של חבר עם קוד</span></div>
-        <div class="join-row">
-          <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
-          <button id="join-room-btn" class="play join-btn">הצטרף</button>
+      <!-- TWO COLUMNS. Left (a quarter, floored at 130px): the actions, always visible — play now, this
+           room's code, a fresh room, and join-by-code so somebody who is NOT your friend can still play
+           (friends a->b<-c: a and c never added each other, but both can enter b's code).
+           Right: the friend cards, in the same look as the friends page, smaller and scrollable. -->
+      <div class="subpage-body fs-split">
+        <aside class="fs-actions">
+          <button id="friend-select-go" class="play fs-play"><span>שחק עכשיו</span><b>›</b></button>
+          <div class="fs-code-box">
+            <div class="fs-code-h">קוד החדר</div>
+            <button id="fs-code" class="fs-code" type="button" title="העתקת הקוד">---</button>
+            <div class="fs-code-hint">גם מי שאינו חבר יכול להצטרף בקוד</div>
+          </div>
+          <button id="fs-new-room" class="fs-btn" type="button">חדר חדש</button>
+          <form id="fs-join" class="fs-join">
+            <label class="fs-join-h" for="join-code">הצטרפות עם קוד</label>
+            <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
+            <button id="join-room-btn" class="fs-btn fs-btn-go" type="submit">הצטרף</button>
+          </form>
+        </aside>
+        <div class="fs-people">
+          <div class="fs-sections">
+            <div id="fs-online-wrap"><div class="fs-sec-h">מחוברים · הזמינו</div><div id="fs-online" class="friend-list fs-list"></div></div>
+            <div id="fs-pending-wrap" class="hidden"><div class="fs-sec-h">הוזמנו · ממתינים לאישור</div><div id="fs-pending" class="friend-list fs-list"></div></div>
+            <div id="fs-accepted-wrap" class="hidden"><div class="fs-sec-h">✓ הצטרפו לקבוצה</div><div id="fs-accepted" class="friend-list fs-list"></div></div>
+          </div>
         </div>
       </div>
     </div>
