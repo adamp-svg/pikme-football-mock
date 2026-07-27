@@ -38,7 +38,7 @@ import { planMatches, bandOf } from './shared/matchmaker.js';
 import { isChatId, chatById, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
 import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout, pickBotIdentities } from './shared/saltiz-bots.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
-import { TU_FIELD, TU_BALL_PARK, TU_LEVEL_COUNT, foeKeys, stageAt, stepsIn } from './shared/tutorial.js';
+import { TU_BALL_PARK, TU_LEVEL_COUNT, foeKeys, stageAt, stepsIn, fieldFor } from './shared/tutorial.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3010;
@@ -696,7 +696,8 @@ function startTutorial(member, level) {
   room.tuStage = 0;                 // 0..stepsIn(l)-1, then stepsIn(l) = finished
   room.tuBallDead = 0;              // seconds the ball has been loose+idle (goal steps respawn it)
   room.tuPlayerId = member.id;      // the one human; the super grant and the ball both target them
-  setField(room.state, sanitizeField(TU_FIELD)); // deliberately empty — no bushes, no steel walls
+  // Empty for every level but the tricks one, which needs exactly one bush to teach hiding.
+  setField(room.state, sanitizeField(fieldFor(l)));
 
   addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC });
   room.inputs.set(member.id, emptyInput());
@@ -722,7 +723,7 @@ function startTutorial(member, level) {
   room.endHoldT = 0; room.statsSent = true; // statsSent pre-armed: a tutorial reports no match stats
   room.phase = 'match';
   send(member.ws, { type: 'roomJoined', mode: 'tutorial', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'tutorial', tuLevel: l, matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: sanitizeField(TU_FIELD), goalsToWin: 0 });
+  send(member.ws, { type: 'matchStart', mode: 'tutorial', tuLevel: l, matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: sanitizeField(fieldFor(l)), goalsToWin: 0 });
   room.rosterVersion++; broadcastRoster(room);
 }
 

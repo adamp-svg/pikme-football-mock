@@ -10,7 +10,7 @@ import {
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import {
-  TU_LEVELS, TU_RING, TU_GOAL, tuLevel, stepsIn, stepAt, doneStage,
+  TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, tuLevel, stepsIn, stepAt, doneStage,
   advance, isStepDone, showNudge, captionFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel,
 } from '/shared/tutorial.js';
@@ -669,6 +669,12 @@ function processSnapshotSounds(snap) {
       const st = stepAt(tuLvl, tuStage);
       const foe = st && st.done === 'bombHitFoe' ? tuFoePos(st.markerKey) : null;
       if (foe && newBlasts.some((b) => bombHit(b.x, b.y, foe.x, foe.y))) tuEv.bombHitFoe = true;
+      // ...and a blast that goes off under MY OWN feet arms the fly step: if real distance follows
+      // within the next moment or so, that was a rocket jump (see tuTick).
+      if (rendered && newBlasts.some((b) => Math.hypot(b.x - rendered.x, b.y - rendered.y) < BOMB.radius)) {
+        tuSelfBlastAt = performance.now();
+        tuSelfBlastPos = { x: rendered.x, y: rendered.y };
+      }
     }
     for (const blast of newBlasts) {
       playSound('explosion', 0.85 * proximity(blast.x, blast.y), 0.92 + Math.random() * 0.12);
@@ -7827,10 +7833,15 @@ let tuStage = 0;         // 0..stepsIn(tuLvl)-1, then doneStage()
 let tuStepT = 0;         // seconds inside the current step (drives the stuck-nudge)
 let tuFinishAt = 0;      // performance.now() at which the finale card shows (0 = not pending)
 let tuPrevT = 0;         // previous frame stamp, for the step machine's dt
+let tuDoneAt = 0;        // when the current step first completed (0 = not yet) — drives minDwell
+// A blast that went off on top of ME, and where I was standing at the time. The fly step watches
+// the pair: a blast under your feet followed by real distance covered IS a rocket jump, and it
+// needs no new wire field to detect.
+let tuSelfBlastAt = 0, tuSelfBlastPos = null;
 let tuReplay = false;    // replay from אימון => a way out exists. A first run has none.
 // One-way latches for events seen in the snapshot stream. Latched rather than sampled so a
 // dropped frame cannot lose the goal (or the strip, or the blast) that completes a step.
-const tuBlankEv = () => ({ hitEnemy: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false });
+const tuBlankEv = () => ({ hitEnemy: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false, hidden: false, flew: false });
 let tuEv = tuBlankEv();
 
 const tuEl = document.getElementById('tutorial');
@@ -7866,7 +7877,8 @@ function startTutorial(level, replay) {
 // Called from enterMatch when the room is a tutorial room.
 function tuEnter(level) {
   tuLvl = Number.isInteger(level) && tuLevel(level) ? level : 0;
-  tuStage = 0; tuStepT = 0; tuFinishAt = 0;
+  tuStage = 0; tuStepT = 0; tuFinishAt = 0; tuDoneAt = 0;
+  tuSelfBlastAt = 0; tuSelfBlastPos = null;
   tuEv = tuBlankEv();
   tuDoneEl?.classList.add('hidden');
   tuEl?.classList.remove('hidden');
@@ -7922,6 +7934,7 @@ const tuCtx = () => ({
   py: rendered ? rendered.y : (predicted ? predicted.y : 0),
   ...tuEv,
   stepElapsed: tuStepT,
+  sinceDone: tuDoneAt ? (performance.now() - tuDoneAt) / 1000 : 0,
 });
 
 // One step of the machine, per rendered frame.
@@ -7942,9 +7955,21 @@ function tuTick(dt) {
   if (latest && latest.resetTimer > 0) return;
 
   tuStepT += dt;
+  // Two flags are sampled here rather than latched off a snapshot event, because they are about a
+  // STATE and a MOVEMENT, not a moment: standing in a bush, and having been thrown by your own
+  // blast. Once true they stay true for the step, like every other flag.
+  if (rendered && !tuEv.hidden && inBushAt(rendered.x, rendered.y)) tuEv.hidden = true;
+  if (rendered && tuSelfBlastAt && !tuEv.flew) {
+    const age = performance.now() - tuSelfBlastAt;
+    if (age > 1600) { tuSelfBlastAt = 0; tuSelfBlastPos = null; }
+    else if (tuSelfBlastPos && Math.hypot(rendered.x - tuSelfBlastPos.x, rendered.y - tuSelfBlastPos.y) > 260) tuEv.flew = true;
+  }
+  // minDwell: remember WHEN the step completed, so advance() can hold it open afterwards.
+  if (!tuDoneAt && isStepDone(tuLvl, tuStage, tuCtx())) tuDoneAt = performance.now();
   const next = advance(tuLvl, tuStage, tuCtx());
   if (next !== tuStage) {
-    tuStage = next; tuStepT = 0;
+    tuStage = next; tuStepT = 0; tuDoneAt = 0;
+    tuSelfBlastAt = 0; tuSelfBlastPos = null;
     tuEv = tuBlankEv();
     sendMsg({ type: 'tuStage', n: tuStage });   // server sets the pitch up for the new step
     tuSyncControls();
@@ -7973,10 +7998,14 @@ function tuRenderOverlay() {
   tuHandEl.style.display = a ? '' : 'none';
   const cap = captionFor(tuLvl, tuStage, tuCtx());
   if (tuCapEl.textContent !== cap) tuCapEl.textContent = cap;   // reassigning restarts the pop
+  // Two different second lines. `sub` is a STANDING one-liner the step always shows (how the
+  // control works — tap vs drag); `nudge` replaces it only once they are stuck. A kid who is
+  // doing fine still gets told what the button does; a kid who isn't gets told what to fix.
   const nudging = showNudge(tuLvl, tuStage, tuCtx());
   tuEl.classList.toggle('nudging', nudging);
-  if (nudging && tuNudgeEl.textContent !== s.nudge) tuNudgeEl.textContent = s.nudge;
-  tuNudgeEl.classList.toggle('hidden', !nudging);
+  const second = nudging ? s.nudge : (s.sub || '');
+  if (tuNudgeEl.textContent !== second) tuNudgeEl.textContent = second;
+  tuNudgeEl.classList.toggle('hidden', !second);
   const pips = tuPipsEl ? tuPipsEl.children : [];
   for (let i = 0; i < pips.length; i++) {
     pips[i].className = i < tuStage ? 'done' : i === tuStage ? 'on' : '';
@@ -8006,6 +8035,16 @@ function tuDrawWorld() {
       ? (latest ? { x: latest.ball.x, y: latest.ball.y } : null)
       : tuFoePos(s.markerKey);
     if (at) tuChevron(at.x, at.y, pulse);
+  } else if (s.marker === 'bush') {
+    // Outline the bush and drop a chevron on it. The bush already renders as scenery; this says
+    // "that one, go in it".
+    const b = TU3_BUSH;
+    ctx.save();
+    ctx.lineWidth = Math.max(2, ws_(9));
+    ctx.strokeStyle = `rgba(255,208,106,${0.5 + 0.35 * pulse})`;
+    ctx.strokeRect(wx(b.x), wy(b.y), ws_(b.w), ws_(b.h));
+    ctx.restore();
+    tuChevron(b.x + b.w / 2, b.y + b.h / 2, pulse);
   } else if (s.marker === 'goal') {
     // Kick it there. A fat arrow along the shot lane into the mouth of the goal.
     const y = wy(TU_GOAL.y), x0 = wx(TU_GOAL.x - 620), x1 = wx(TU_GOAL.x - 90);

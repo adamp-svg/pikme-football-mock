@@ -17,25 +17,27 @@ import {
   TU2_SHOOT, TU2_BOMB, TU2_WALL, TU2_STRIP,
   tuLevel, stepsIn, stepAt, stageAt, doneStage, foeKeys,
   advance, isStepDone, showNudge, captionFor, tuHasControl, isTutorialOver,
-  bombHit, tuUnlocked, nextLevel,
+  bombHit, tuUnlocked, nextLevel, fieldFor, TU3_HIDE, TU3_BUSH,
 } from './shared/tutorial.js';
 import { bootServer } from './boot-test-server.mjs';
 
 let failures = 0;
 const check = (cond, msg) => { console.log((cond ? '  ✅ ' : '  ❌ ') + msg); if (!cond) failures++; };
-const L1 = 0, L2 = 1;
+const L1 = 0, L2 = 1, L3 = 2;
 
 // ===========================================================================
 // A) The rules
 // ===========================================================================
-console.log('A1) two levels, in the taught order');
+console.log('A1) three levels, in the taught order');
 {
-  check(TU_LEVEL_COUNT === 2, `two levels (${TU_LEVEL_COUNT})`);
-  check(TU_LEVELS.map((L) => L.id).join(',') === 'basics,combat', `ids: ${TU_LEVELS.map((L) => L.id).join(', ')}`);
+  check(TU_LEVEL_COUNT === 3, `three levels (${TU_LEVEL_COUNT})`);
+  check(TU_LEVELS.map((L) => L.id).join(',') === 'basics,combat,tricks', `ids: ${TU_LEVELS.map((L) => L.id).join(', ')}`);
   check(TU_LEVELS[L1].steps.map((s) => s.id).join(',') === 'move,shoot,charge,goal,super',
     `level 1: ${TU_LEVELS[L1].steps.map((s) => s.id).join(' -> ')}`);
   check(TU_LEVELS[L2].steps.map((s) => s.id).join(',') === 'ballshot,bomb,wall,strip',
     `level 2: ${TU_LEVELS[L2].steps.map((s) => s.id).join(' -> ')}`);
+  check(TU_LEVELS[L3].steps.map((s) => s.id).join(',') === 'hide,fly',
+    `level 3: ${TU_LEVELS[L3].steps.map((s) => s.id).join(' -> ')}`);
   for (const L of TU_LEVELS) {
     check(L.steps.length === L.stages.length, `${L.id}: one pitch stage per step (${L.steps.length}/${L.stages.length})`);
   }
@@ -77,11 +79,14 @@ console.log('A4) level 1 step 1 completes by standing in the ring, and only ther
 
 console.log('A5) every other step completes on its OWN event and nothing else');
 {
-  const flags = ['hitEnemy', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped'];
+  const flags = ['hitEnemy', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'hidden', 'flew'];
   const cases = [
     [L1, 1, 'hitEnemy'], [L1, 2, 'chargedShot'], [L1, 3, 'scored'], [L1, 4, 'scored'],
     [L2, 0, 'scored'], [L2, 1, 'bombHitFoe'], [L2, 2, 'wallBuilt'], [L2, 3, 'scored'],
+    [L3, 0, 'hidden'], [L3, 1, 'flew'],
   ];
+  // ...but a minDwell step will not ADVANCE on its flag alone, so give the predicate check the
+  // dwell it needs (isStepDone is the flag; advance() is the flag plus the dwell — see A12).
   for (const [l, n, flag] of cases) {
     const only = flags.every((f) => isStepDone(l, n, { [f]: true }) === (f === flag));
     check(only, `${TU_LEVELS[l].id}/${stepAt(l, n).id} completes on ${flag} alone`);
@@ -93,12 +98,12 @@ console.log('A6) advance() walks each level to its end and then stops');
 {
   for (const [l, L] of TU_LEVELS.entries()) {
     let n = 0;
-    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true };
+    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, hidden: true, flew: true, sinceDone: 99 };
     for (let i = 0; i < L.steps.length; i++) n = advance(l, n, ctx);
     check(n === doneStage(l) && isTutorialOver(l, n), `${L.id}: 0 -> DONE (${n} of ${L.steps.length})`);
     check(advance(l, n, ctx) === doneStage(l), `${L.id}: DONE is terminal`);
     // A step must not advance on nothing — the whole no-fail-state guarantee.
-    check(advance(l, 0, { px: 0, py: 0, stepElapsed: 600 }) === 0, `${L.id}: ten idle minutes does not skip a step`);
+    check(advance(l, 0, { px: 0, py: 0, stepElapsed: 600, sinceDone: 99 }) === 0, `${L.id}: ten idle minutes does not skip a step`);
   }
 }
 
@@ -129,13 +134,16 @@ console.log('A9) the bomb step is generous about where the blast lands');
 console.log('A10) unlocking: level 1 is always open, level 2 waits for it');
 {
   const none = new Set(), one = new Set(['basics']), both = new Set(['basics', 'combat']);
+  const all = new Set(['basics', 'combat', 'tricks']);
   check(tuUnlocked(0, none) && tuUnlocked(0, both), 'level 1 always unlocked');
   check(!tuUnlocked(1, none), 'level 2 locked until level 1 is finished');
   check(tuUnlocked(1, one), 'level 2 unlocks when level 1 is done');
-  check(!tuUnlocked(TU_LEVEL_COUNT, both), 'a level past the end is never unlocked');
+  check(!tuUnlocked(TU_LEVEL_COUNT, all), 'a level past the end is never unlocked');
+  check(!tuUnlocked(2, one) && tuUnlocked(2, both), 'level 3 waits for level 2');
   check(nextLevel(none) === 0, 'nothing done -> offer level 1');
   check(nextLevel(one) === 1, 'level 1 done -> offer level 2');
-  check(nextLevel(both) === null, 'all done -> nothing left to offer');
+  check(nextLevel(both) === 2, 'levels 1-2 done -> offer level 3');
+  check(nextLevel(all) === null, 'all done -> nothing left to offer');
 }
 
 console.log('A11) every level-2 distance sits inside a MEASURED range');
@@ -157,6 +165,42 @@ console.log('A11) every level-2 distance sits inside a MEASURED range');
     const missing = L.stages.flatMap((st) => (st.foes || []).map((f) => f.key)).filter((k) => !keys.includes(k));
     check(missing.length === 0, `${L.id}: every staged foe is spawned (${keys.join(', ')})`);
   }
+}
+
+console.log('A12) minDwell holds a finished step open so the lesson lands');
+{
+  // The wall step is DONE the instant the wall pops up — but advancing then would skip the part
+  // that teaches: the wall standing there taking the sentry's fire. Same for the bush and the
+  // launch. isStepDone says "achieved"; advance() says "achieved AND seen".
+  const w = stepAt(L2, 2);
+  check(w.minDwell >= 2, `the wall step dwells ${w.minDwell}s after the build`);
+  check(isStepDone(L2, 2, { wallBuilt: true }), 'the wall step counts as done the moment it is built');
+  check(advance(L2, 2, { wallBuilt: true, sinceDone: 0 }) === 2, '...but does NOT advance straight away');
+  check(advance(L2, 2, { wallBuilt: true, sinceDone: 1 }) === 2, '...still holding a second later');
+  check(advance(L2, 2, { wallBuilt: true, sinceDone: 3 }) === 3, '...and moves on once the kid has watched it');
+  check(captionFor(L2, 2, { wallBuilt: true }) === 'הקיר עוצר יריות!', 'and it says what the wall is DOING during the dwell');
+  for (const [l, n] of [[L3, 0], [L3, 1]]) {
+    const st = stepAt(l, n);
+    check(st.minDwell > 0, `${TU_LEVELS[l].id}/${st.id} dwells too (${st.minDwell}s)`);
+  }
+}
+
+console.log('A13) level 3 is the only level with scenery, and it is one bush');
+{
+  check(fieldFor(L1).bushes.length === 0 && fieldFor(L2).bushes.length === 0, 'levels 1-2 play on a bare pitch');
+  check(fieldFor(L3).bushes.length === 1, 'level 3 has exactly one bush — you cannot teach hiding without it');
+  const b = fieldFor(L3).bushes[0];
+  const d = Math.hypot((b.x + b.w / 2) - TU3_HIDE.me.x, (b.y + b.h / 2) - TU3_HIDE.me.y);
+  check(d < 420, `and it sits ${Math.round(d)}px from the start — a short walk, not a hunt`);
+  check(Math.hypot(TU3_HIDE.foe.x - TU3_HIDE.me.x, TU3_HIDE.foe.y - TU3_HIDE.me.y) < VISION_RANGE,
+    'the watcher genuinely has eyes on the kid before they duck in');
+}
+
+console.log('A14) both bomb inputs are explained, not just the one the step needs');
+{
+  const bomb = stepAt(L2, 1), wall = stepAt(L2, 2);
+  check(/הקשה/.test(bomb.sub) && /גרירה/.test(bomb.sub), `the bomb step spells out tap vs drag: «${bomb.sub}»`);
+  check(/הקשה/.test(wall.sub) && /גרירה/.test(wall.sub), `so does the wall step: «${wall.sub}»`);
 }
 
 // ===========================================================================

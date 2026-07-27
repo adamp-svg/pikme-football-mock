@@ -3058,6 +3058,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .tu-hand.gest-circle { animation: tu-circle 2s linear infinite; }
 .tu-hand.gest-pull { animation: tu-pull 2.2s ease-in-out infinite; }
+/* `tap` is the third gesture, and the ONLY one where the lesson is what you DON'T do: level 3's
+   fly step needs the bomb dropped at your own feet, which is a plain press with no drag. Without
+   its own keyframes the hand parked over 💣 and sat there motionless — a still hand on a screen
+   where every other step's hand moves reads as "nothing here", exactly backwards. Two quick
+   presses then a beat, so it's unmistakably a tap and unmistakably not the `pull` above. */
+.tu-hand.gest-tap { animation: tu-tap 1.8s ease-in-out infinite; }
 /* Stuck for a while: the same gesture, bigger and faster. An escalation the kid who is already
    doing fine never sees. */
 .tutorial.nudging .tu-hand { scale: 1.28; animation-duration: 1.2s; }
@@ -3076,6 +3082,16 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   60%       { translate: -46px 0; scale: .84; } /* drag out to aim */
   75%       { translate: -46px 0; scale: 1.06; } /* release = shoot */
   90%, 100% { translate: 0 0; scale: 1; }
+}
+/* Straight down and back up, twice, then a rest. It never translates sideways — that is the whole
+   point of the gesture: this button is pressed where it is, not dragged somewhere. */
+@keyframes tu-tap {
+  0%,  8%   { translate: 0 0; scale: 1; }
+  16%       { translate: 0 7px; scale: .82; }  /* press */
+  26%       { translate: 0 0; scale: 1.04; }   /* release */
+  36%       { translate: 0 7px; scale: .82; }  /* and again, so it reads as a TAP, not a hold */
+  46%       { translate: 0 0; scale: 1.04; }
+  60%, 100% { translate: 0 0; scale: 1; }      /* beat, so the two presses stay countable */
 }
 
 /* 1-2 Hebrew words, in the pitch's comic voice. Sits high-centre: clear of both thumbs in
