@@ -1087,7 +1087,15 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-xp-bar b { display: block; height: 100%; background: linear-gradient(90deg, #4ea0ff, #7b3ad0); box-shadow: 0 0 8px rgba(78,160,255,.7); }
 /* album chips + collector badge — a row below the profile pic */
 .hub-albumbar { display: flex; direction: rtl; align-items: center; gap: 5px; }
-.hub-chip { background: rgba(11,16,12,.8); border: 2px solid #34413a; padding: 2px 7px; text-align: center; }
+/* NO BORDER (user, 2026-07-27: "in the main lobby badges there are thin lines... remove it").
+   It was `border: 2px solid #34413a`, and against the bright stadium sky that read as a stray pale
+   outline rather than the edge of a badge: the fill is only 80% opaque so the chip's interior sits
+   dark, while #34413a is fully opaque and LIGHTER than that interior — a thin light rectangle tracing
+   each chip. #hub-rank and #hub-tier next to them carry no border, which is why only these three
+   looked wrong. Safe to drop with no reflow: box-sizing is border-box globally and each chip has an
+   explicit width in the baked layout (.hub > #chip-*), so the outer box stays 60px and only the inner
+   content area gains the 4px. */
+.hub-chip { background: rgba(11,16,12,.8); padding: 2px 7px; text-align: center; }
 .hub-chip b { display: block; color: #fff4ca; font: 900 11px "Arial Black", sans-serif; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .hub-chip.gold b { color: var(--gold); }
 .hub-chip small { display: block; color: #8aa08c; font-size: 7px; font-weight: 900; letter-spacing: .4px; }
