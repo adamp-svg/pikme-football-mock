@@ -43,6 +43,13 @@
 
 ## 2026-07-27
 
+- **Tutorial onboarding — scripted first match for kids (agent `tutorial-coach`). IN PROGRESS.** User: "ok now i want to do a tutorial onboarding for the football game. use you brainstorming skill and lets think of the best why to do it. read the full explanation on game mechanics and stuff. this is aim for kids so the toturial should be very intiutive and simple. also see what brawlstars and fortnight are doing" → then "do the simplest way and such that can alwys replay the toturial" → then "yes lets build, do this in local host first".
+  - **Design approved and written up: [`docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md`](docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md).** Read that first — it carries the Brawl Stars / Epic research, the four-step table and the rejected alternatives.
+  - **Shape:** Brawl Stars model — a mandatory *playable* first match, not a slideshow. 4 steps, **move → shoot → goal → super**, 💣/🧱 hidden throughout. Silent coach (pointing hand + 1–2 Hebrew words, never pauses), no fail state, celebration-only reward (`c86fa82` "practice pays nothing" stands — no XP, no trophies, no cards).
+  - **Entry:** auto on first launch when `localStorage['fbTutorialDone']` is absent, no skip. **Replay is unconditional and forever** — `אימון → 🎓 איך משחקים?` ignores the flag.
+  - **Files being taken:** new `shared/tutorial.js` + `test-tutorial.mjs`, plus `server.js` (`startTutorial` + `applyTuStage` + the `tutorial`/`tuStage` messages), `public/client.js`, `public/index.html`, `public/style.css`. Orchestration locks held per file.
+  - **Status: building on localhost (`PORT=3012`). Not pushed.**
+
 - **New players start at 50% volume for both music and SFX (agent `corner-style`).** User: "i want the voulme at the start of the game for new player when they start to be at 50% for both songs and sounds."
   - **File taken:** `public/client.js` only (2 literals + comment, orchestration lock held/released). No markup change — the sliders in `index.html` carry no `value` attribute, they take their position from these variables.
   - `soundVol` 0.72 → **0.5**, `musicUserVol` 0.6 → **0.5** (`public/client.js` ~line 283/285). These are STARTING values only: the `pikme-soundvol` / `pikme-musicvol` reads a few lines below still win, so no existing player's own setting is rewritten.
