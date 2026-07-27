@@ -1083,7 +1083,12 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-xp-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; font: 900 9px "Arial Black", sans-serif; color: #c8d4bf; }
 .hub-xp-lvl b { color: var(--gold); font-size: 11px; }
 .hub-xp-amt { color: #8aa08c; font-variant-numeric: tabular-nums; letter-spacing: .2px; direction: ltr; unicode-bidi: isolate; }
-.hub-xp-bar { height: 8px; margin-top: 3px; background: rgba(0,0,0,.5); border: 2px solid #34413a; overflow: hidden; }
+/* No border — same #34413a line removed from .hub-chip. This is the INNER progress track, so the pale
+   outline showed up as a second thin line nested inside the trophies panel's own. The track still
+   reads without it: its rgba(0,0,0,.5) groove is darker than the panel it sits in, and the gold fill
+   supplies the contrast. box-sizing is border-box, so the track stays 8px tall and the fill simply
+   occupies all 8 instead of 4 — slightly chunkier, which suits the pixel styling. */
+.hub-xp-bar { height: 8px; margin-top: 3px; background: rgba(0,0,0,.5); overflow: hidden; }
 .hub-xp-bar b { display: block; height: 100%; background: linear-gradient(90deg, #4ea0ff, #7b3ad0); box-shadow: 0 0 8px rgba(78,160,255,.7); }
 /* album chips + collector badge — a row below the profile pic */
 .hub-albumbar { display: flex; direction: rtl; align-items: center; gap: 5px; }
@@ -2242,7 +2247,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* XP: clean horizontal top bar */
 .hub > .hub-xpbar {
   left: 410px; top: 10px; width: 325px; z-index: 5;
-  background: rgba(11,16,12,.72); border: 2px solid #34413a; border-radius: 8px;
+  /* Border dropped with the rest of the #34413a outlines. The `box-shadow: 0 3px 0` already gives this
+     panel a solid bottom edge, so it still reads as raised without a pale line tracing all four sides.
+     border-box + explicit width keeps it 325px. */
+  background: rgba(11,16,12,.72); border-radius: 8px;
   padding: 4px 10px; box-shadow: 0 3px 0 #070b08;
 }
 .hub-xpbar #hub-xp { width: 100%; }
