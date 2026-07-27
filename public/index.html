@@ -588,11 +588,20 @@
         <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
       </div>
     </div>
-    <!-- CHAT RAIL: vertical column pinned to the physical right edge (own safe-area inset — see
-         style.css, `.party-chat-rail`), independent of the roster/games column to its left. History
+    <!-- CHAT BUBBLE (revision of the old always-on right rail): a small round pixel icon, bottom-left,
+         own safe-area inset (see style.css `.party-chat-bubble`). Tap toggles the sheet below open/
+         closed — client.js's click handler on it stops propagation, so it never ALSO reads as a
+         backdrop tap (see partyEl's listener). Icon is the shared pack's `si-chat` glyph — the SAME
+         one #chat-btn uses for in-match quick chat — never a text glyph. -->
+    <button id="party-chat-bubble" type="button" class="party-chat-bubble" aria-label="צ'אט קבוצה">
+      <span class="build-icon"><span class="saltiz-icon si-chat" aria-hidden="true"></span></span>
+      <span class="pchat-bubble-dot"></span>
+    </button>
+    <!-- CHAT SHEET: hovers over the team page at ~half the viewport height, sliding up from the
+         bottom edge on open / down on close (style.css `.party-chat-sheet` / `.open`). History
          scrolls above a composer pinned at the base. Per-member bubbles still render on each roster
-         block as before (partyBlock/.pr-say) — this rail is the scrolling LOG, not a replacement. -->
-    <aside id="party-chat-rail" class="party-chat-rail" dir="rtl">
+         block as before (partyBlock/.pr-say) — this sheet is the scrolling LOG, not a replacement. -->
+    <aside id="party-chat-sheet" class="party-chat-sheet" dir="rtl">
       <!-- Built by renderPartyChatLog() in client.js from the same `member.chat` the bubbles use. -->
       <div id="party-chat-log" class="party-chat-log"></div>
       <!-- Composer: preset phrases + up to 40 characters of free text. Party rooms only (the server

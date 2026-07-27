@@ -1326,47 +1326,78 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 #party-solo-hint { margin-top: 0; }
 #party .party-games { margin-top: 0; }
 
-/* ---- Team-page CHAT RAIL (item 2) ------------------------------------------------------------
-   A vertical column pinned to the PHYSICAL right edge, roughly a quarter of the width, independent
-   of the roster/games flow to its left — #party's .subpage reserves that width below so the roster
-   never sits underneath it. Column layout: the LOG scrolls, the composer (#party-chat, existing
-   markup, untouched) is pinned at the base. Per-member bubbles keep rendering on each roster block
-   as before (partyBlock/.pr-say) — this rail is the scrolling history, not a replacement for them.
-   SAFE AREA: the game runs LANDSCAPE, so env(safe-area-inset-right) is the inset that is actually
-   non-zero on a notched phone (see the note above .ti-search) — a flat `right: 0` would sit the rail
-   under the notch, so both the rail and the space #party reserves for it use the same convention
-   53e594c standardised: max(<fallback>, env(safe-area-inset-<side>)). #lobby-chat (a DIFFERENT id,
-   reused for the public-match team page) is untouched — none of this is scoped to it. */
-#party { --party-rail-w: clamp(150px, 25vw, 224px); }
-#party .subpage { padding-right: calc(max(18px, env(safe-area-inset-right)) + var(--party-rail-w) + 10px); }
-.party-chat-rail {
-  position: absolute; top: 0; bottom: 0;
-  right: max(0px, env(safe-area-inset-right));
-  width: var(--party-rail-w);
-  z-index: 2; display: flex; flex-direction: column;
-  background: rgba(9,14,10,.90); border-left: 3px solid #2c3830;
-  box-shadow: -6px 0 22px rgba(0,0,0,.35);
-  padding: max(10px, calc(env(safe-area-inset-top) + 4px)) max(10px, env(safe-area-inset-right))
-           max(8px, calc(env(safe-area-inset-bottom) + 4px)) 10px;
+/* ---- Team-page CHAT SHEET (revision of the original always-on right-hand rail: the user asked for
+   a hovering half-screen sheet opened from a small bubble icon instead of a permanent column) ------
+   A round pixel chat-bubble ICON (`.saltiz-icon.si-chat` — the SAME glyph #chat-btn already uses for
+   in-match quick chat, see icon-system.css) sits bottom-left of the team page. Tapping it SLIDES this
+   sheet up from the bottom edge to hover over the still-visible team page at ~half the viewport
+   HEIGHT (the game is landscape @ 844x390, so height — not width — is what "half screen" means here,
+   and it is also the axis the open/close motion runs on); tapping the icon again, or tapping the team
+   page outside the sheet (via the existing isDismissBackdrop idiom — see partyEl's click handler in
+   client.js), slides it back down. #party no longer reserves any width for a permanent column, so
+   the roster/games list get the full width back.
+   Composer (#party-chat, existing markup, untouched) is pinned at the sheet's base; the LOG
+   (#party-chat-log, untouched) scrolls above it. Per-member bubbles keep rendering on each roster
+   block as before (partyBlock/.pr-say) — the sheet is the scrolling history, not a replacement.
+   SAFE AREA: still landscape, so env(safe-area-inset-left)/-right are the insets actually non-zero on
+   a notched phone (see the note above .ti-search) and env(safe-area-inset-bottom) now matters too —
+   the sheet's resting edge and the icon both sit above the home indicator. Same 53e594c convention:
+   max(<fallback>, env(safe-area-inset-<side>)). #lobby-chat (a DIFFERENT id, reused for the
+   public-match team page) is untouched — none of this is scoped to it. */
+.party-chat-bubble {
+  position: absolute; z-index: 6;
+  left: max(10px, env(safe-area-inset-left)); bottom: max(10px, env(safe-area-inset-bottom));
+  width: 44px; height: 44px; border-radius: 50%; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(19,27,22,.92); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08;
+  cursor: pointer; touch-action: manipulation;
 }
+.party-chat-bubble:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
+.party-chat-bubble .saltiz-icon { --si-size: 22px; }
+/* Unread hint: reuses the SAME `member.chat`/`chat.at` state the roster bubbles already read (see
+   notePartyChatHistory in client.js) — a timestamp of when the sheet was last opened is the only new
+   state. Pulses with the existing fmtPulse keyframe rather than a bespoke animation. */
+.pchat-bubble-dot {
+  position: absolute; top: -3px; right: -3px; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--gold); border: 2px solid #0b120d; box-shadow: 0 0 5px rgba(255,203,67,.75);
+  display: none;
+}
+.party-chat-bubble.has-unread .pchat-bubble-dot { display: block; animation: fmtPulse 1.1s infinite; }
+.party-chat-sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
+  z-index: 5; display: flex; flex-direction: column;
+  background: rgba(9,14,10,.94); border-top: 3px solid #2c3830; border-radius: 16px 16px 0 0;
+  box-shadow: 0 -6px 22px rgba(0,0,0,.4);
+  padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  transform: translateY(100%); transition: transform .28s cubic-bezier(.22,.61,.36,1);
+  pointer-events: none;
+}
+.party-chat-sheet.open { transform: translateY(0); pointer-events: auto; }
 .party-chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
 .pchat-log-empty { color: #8ea08a; font: 700 11px sans-serif; text-align: center; padding: 10px 4px; }
 .pchat-log-row { display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,.06); border-radius: 8px; padding: 5px 8px; }
+/* The sheet's own budget is ~195px (half of 390px landscape), and shrinks further under a real
+   safe-area-inset-bottom — measured over CDP with a 44px override: the log fell to ~58px, enough for
+   one full row plus a sliver of the next. Trimmed a few px of pure whitespace (never font-size) to
+   claw some of that back: the composer separator and the gap/padding around each log row. */
+.party-chat-sheet .party-chat-log { gap: 4px; }
+.party-chat-sheet .pchat-log-row { padding: 4px 8px; }
 .pchat-log-row.me { background: rgba(255,208,106,.16); }
 .pchat-log-name { font: 800 10px "Arial Black", sans-serif; color: #9fe0a6; }
 .pchat-log-msg { font: 600 12px/1.3 inherit; color: #fff; word-break: break-word; }
 .pchat-log-msg .bub-emote { display: inline-block; width: 22px; height: 22px; background-repeat: no-repeat; image-rendering: pixelated; vertical-align: middle; }
-/* The composer stays a fixed-size block pinned at the rail's base — the log above is the only
-   scroller. Scoped to the rail specifically so #lobby-chat's own layout is untouched. */
-.party-chat-rail .party-chat { flex: none; margin-top: 8px; padding-top: 8px; border-top: 2px solid rgba(255,255,255,.14); gap: 6px; }
-.party-chat-rail .pchat-presets { gap: 4px; }
-.party-chat-rail .pchat-pre { padding: 5px 7px; font-size: 10.5px; }
-.party-chat-rail .pchat-pre.is-emote { width: 26px; height: 26px; }
-.party-chat-rail .pchat-input { font-size: 12px; padding: 7px 8px; }
-.party-chat-rail .pchat-send { padding: 7px 10px; font-size: 11px; }
-@media (max-width: 700px) {
-  #party { --party-rail-w: clamp(128px, 24vw, 190px); }
-}
+/* The composer stays a fixed-size block pinned at the sheet's base — the log above is the only
+   scroller. Scoped to the sheet specifically so #lobby-chat's own layout is untouched. Trimmed from
+   the default (#lobby-chat's) sizing, but less aggressively than the old narrow rail: the sheet is
+   full-width now, so the 16 presets wrap onto fewer lines and can afford to stay bigger while still
+   leaving the log more than one line of room in the ~195px (half of 390px landscape) sheet — measured
+   over CDP, see the report. */
+.party-chat-sheet .party-chat { flex: none; margin-top: 4px; padding-top: 4px; border-top: 2px solid rgba(255,255,255,.14); gap: 5px; }
+.party-chat-sheet .pchat-presets { gap: 4px; }
+.party-chat-sheet .pchat-pre { padding: 5px 9px; font-size: 11.5px; }
+.party-chat-sheet .pchat-pre.is-emote { width: 30px; height: 30px; }
+.party-chat-sheet .pchat-input { font-size: 12.5px; padding: 6px 9px; }
+.party-chat-sheet .pchat-send { padding: 6px 12px; font-size: 11.5px; }
 /* Invite screen sections (online / pending / accepted) */
 .fs-sections { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
 .fs-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin-bottom: 6px; letter-spacing: .3px; }

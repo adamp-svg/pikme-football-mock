@@ -2345,6 +2345,7 @@ document.addEventListener('click', (e) => {
       if (isRoomHost) {
         selectedGame = m.id;
         sendMsg({ type: 'partyGame', game: m.id });
+        closePartyChatSheet();
         showScreen('lobby');
       } else {
         sendMsg({ type: 'partyVote', game: m.id });
@@ -3755,14 +3756,14 @@ function renderParty(msg) {
     gh.textContent = picked ? `${picked.name}${cap}` : 'בחרו משחק';
   }
   renderPartyChat(lob);
-  notePartyChatHistory(members); renderPartyChatLog();
+  notePartyChatHistory(members); renderPartyChatLog(); refreshPartyChatBubbleHint();
   renderPartyVotes(lob);
   // Once the HOST decides (item 3), everyone still on the team page follows to team-select — the
   // host's own tap already did this locally the instant they tapped; this is what gets everyone
   // ELSE there too, since a non-host's tap no longer navigates (it only votes). Guarded by
   // `!isRoomHost` so the host's own (already-navigated) client doesn't re-enter; harmless either way
   // since #party is hidden for them by the time this broadcast lands.
-  if (lob.game && !isRoomHost) { closeInviteSheet(); showScreen('lobby'); }
+  if (lob.game && !isRoomHost) { closeInviteSheet(); closePartyChatSheet(); showScreen('lobby'); }
 }
 // PER-MODE VOTE GLOW (item 3) — cheap enough to run on every lobby broadcast even when the roster
 // rebuild above was skipped: a small coloured dot per voter on the card they picked, and the ONE
@@ -3793,9 +3794,9 @@ function renderPartyVotes(lob) {
     });
   });
 }
-// ---- PARTY CHAT RAIL: scrolling history (item 2) -------------------------------------------
+// ---- PARTY CHAT SHEET: scrolling history (item 2) -------------------------------------------
 // A rolling client-side log — the wire only ever carries each member's LATEST message
-// (lobbyPayload's `member.chat`), so the rail's history is assembled here from the broadcasts as
+// (lobbyPayload's `member.chat`), so the sheet's history is assembled here from the broadcasts as
 // they arrive, keyed per member by `chat.at` so the same message is never appended twice.
 let partyChatLog = [];                // [{id,name,isBot,chat}], oldest first, capped
 const partyChatSeenAt = new Map();    // memberId -> last chat.at already logged
@@ -3823,6 +3824,33 @@ function renderPartyChatLog() {
     }
   }
   el.scrollTop = el.scrollHeight;   // newest message always visible at the bottom
+}
+// ---- PARTY CHAT SHEET: open/close (revision of the old always-on rail) --------------------------
+// #party-chat-log / #party-chat (rendered above/below) moved INTO this sheet unchanged — only the
+// container hosting them changed. The slide itself is a CSS transform transition on `.open` (see
+// .party-chat-sheet in style.css); there is nothing to animate from here.
+const partyChatSheetEl = document.getElementById('party-chat-sheet');
+const partyChatBubbleEl = document.getElementById('party-chat-bubble');
+let partyChatSheetSeenAt = 0; // Date.now() as of the last open — drives the unread hint below
+function partyChatSheetIsOpen() { return !!(partyChatSheetEl && partyChatSheetEl.classList.contains('open')); }
+function openPartyChatSheet() {
+  if (!partyChatSheetEl) return;
+  partyChatSheetEl.classList.add('open');
+  partyChatSheetSeenAt = Date.now();
+  refreshPartyChatBubbleHint();
+}
+function closePartyChatSheet() { partyChatSheetEl?.classList.remove('open'); }
+function togglePartyChatSheet() { if (partyChatSheetIsOpen()) closePartyChatSheet(); else openPartyChatSheet(); }
+// The icon's own tap toggles — stopPropagation keeps it from ALSO bubbling into partyEl's backdrop
+// listener below, mirroring partyAddTile's identical guard on the `+` tile.
+partyChatBubbleEl?.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio(); togglePartyChatSheet(); });
+// Unread hint: cheap re-use of the SAME `member.chat`/`chat.at` state the roster bubbles already
+// render from (notePartyChatHistory above) — "is there a logged message from someone else newer than
+// the last time I opened the sheet". Never lit while the sheet is already open.
+function refreshPartyChatBubbleHint() {
+  if (!partyChatBubbleEl) return;
+  const unread = !partyChatSheetIsOpen() && partyChatLog.some((e) => e.id !== myMemberId && e.chat && e.chat.at > partyChatSheetSeenAt);
+  partyChatBubbleEl.classList.toggle('has-unread', unread);
 }
 // ---- PARTY CHAT ----------------------------------------------------------------------------
 // Two ways to say something on the team page: tap a PRESET phrase (the same list the friend threads
@@ -3940,7 +3968,15 @@ partyEl?.addEventListener('click', (e) => {
   // Matched on [data-mode-id], not on a class name — the party surface renders `.pcard` now, and
   // this guard silently stopped covering it when it was still spelled `.modecard`.
   if (e.target.closest('[data-mode-id]')) return;
-  if (partyDownBackdrop && isDismissBackdrop(e.target, partyEl)) { partyDownBackdrop = false; leaveToLobby(); }
+  if (partyDownBackdrop && isDismissBackdrop(e.target, partyEl)) {
+    partyDownBackdrop = false;
+    // The chat sheet is a hovering overlay, not a navigation. While it's open, "tap the room" (the
+    // same backdrop this listener already treats as a dismiss target) means CLOSE THE SHEET, per
+    // the user's ask ("click the room it goes back down") — never also leave the party. Only once
+    // the sheet is already closed does a backdrop tap fall through to its original meaning.
+    if (partyChatSheetIsOpen()) { closePartyChatSheet(); return; }
+    leaveToLobby();
+  }
 });
 
 document.getElementById('friend-search')?.addEventListener('input', (e) => searchFriends(e.target.value.trim()));
@@ -4256,7 +4292,7 @@ function exitToLobby() {
 // the exit feels instant even before that reply lands.
 function leaveToLobby() {
   sendMsg({ type: 'leaveRoom' });
-  partyFlow = false; lastLobby = null; invitedSet.clear(); closeInviteSheet();
+  partyFlow = false; lastLobby = null; invitedSet.clear(); closeInviteSheet(); closePartyChatSheet();
   quickVs = false; hideVs(); hideTeamIntro(); hideRoomWait(); clearRoomRequests();
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
