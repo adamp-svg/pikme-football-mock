@@ -2357,7 +2357,10 @@ document.addEventListener('click', (e) => {
 // Register the new .screen divs so the existing showScreen() drives open/close.
 // 'thread' is registered here but deliberately NOT in the tap-outside-to-dismiss list below —
 // a conversation shouldn't close on a stray tap next to a bubble.
-for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party', 'friend-select', 'thread']) {
+// 'friend-select' is deliberately NOT registered here: it is a MODAL over #party now (opened/closed
+// directly via openInviteSheet/closeInviteSheet, same pattern as #game-select), not a page
+// showScreen() should ever hide #party for or vice-versa.
+for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party', 'thread']) {
   const el = document.getElementById(id);
   if (el) screens[id] = el;
 }
@@ -2474,12 +2477,20 @@ document.getElementById('select-best-btn')?.addEventListener('click', () => {
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
   toast('צוידו הקלפים הטובים ביותר');
 });
-// Play with friends: STEP 1 — pick friends (multi-select), STEP 2 — pick the minigame,
-// then a room is created and the picks are applied. Join-by-code lives in step 1.
+// Play with friends: team-first. «שחק עם חברים» creates the party room and lands straight on the
+// team page (#party) — there is no separate invite-first step. Inviting happens FROM the team page,
+// via the `+` tile next to the hero (opens #friend-select as a modal — see openInviteSheet below).
 document.getElementById('play-friends-btn')?.addEventListener('click', () => {
   unlockAudio();
-  openFriendSelect();               // step 1: choose friends (or join by code)
+  openPartyDirect();
 });
+function openPartyDirect() {
+  selectedGame = null; partyFlow = true; invitedSet.clear(); lastLobby = null;
+  syncLoadout(); loadFriends();      // refresh presence so the roster's `+` sheet has fresh candidates
+  partyRenderSig = '';               // force a real rebuild even if a previous party left the same sig
+  showScreen('party'); renderParty(); // show the team page IMMEDIATELY (solo empty state) — don't wait on the round-trip
+  sendMsg({ type: 'createRoom' });    // roomJoined lands the real room a beat later and re-renders
+}
 // Friends screen is friends-only (look / add / remove). Room create/join moved to the
 // «שחק עם חברים» party flow. The screen matches the clubs sub-page layout and has NO back
 // button — you leave by tapping the empty background (see isDismissBackdrop wiring above).
@@ -3380,10 +3391,10 @@ function showPartyInvite(code, fromName) {
   partyFlow = true;   // invited member also lands on the #party roster
   sendMsg({ type: 'partyRespond', code, accept: true });
 }
-// Party flow: STEP 1 — pick which friends to play with (multi-select). STEP 2 — pick the
-// minigame. Then a room is created, the picks are applied (bots → addBot, real friends →
-// inviteFriend), and the lobby opens. Join-by-code lives at the bottom of step 1 so a player
-// who'd rather join a friend's room can still enter their shared code.
+// Party flow: team-first (see openPartyDirect above). The room already exists by the time anyone
+// sees a friend list — #friend-select is a SHEET opened from the `+` tile on the team page, not a
+// step of its own, so there is one flow: host or invited member, always #party. Join-by-code lives
+// in the same sheet so a player who'd rather join a friend's room can still enter their shared code.
 const friendSelectEl = document.getElementById('friend-select');
 const joinCodeEl = document.getElementById('join-code');
 const partySel = new Set();          // userIds selected for the party
@@ -3391,7 +3402,6 @@ let selectedGame = null;             // chosen minigame (set in step 2, drives t
 let pendingPartyApply = false;       // apply the picks once the fresh room's roomJoined arrives
 let partyFlow = false;               // true while in the play-with-friends flow (host OR invited member) → land on the #party roster
 let lastLobby = null;                // last lobby payload, so the party roster can re-render as members accept
-let partyStage = 'invite';           // 'invite' → #friend-select sections (room open, inviting); 'roster' → #party
 const invitedSet = new Set();        // userIds invited this session (shown as "pending" until they join)
 function partyCandidates() { return FRIENDS.filter((f) => f.isBot || ONLINE.has(f.userId)); } // available to invite
 function renderFriendSelect() {
@@ -3476,55 +3486,48 @@ function renderInvite() {
   document.getElementById('fs-pending-wrap')?.classList.toggle('hidden', !nPend);
   document.getElementById('fs-accepted-wrap')?.classList.toggle('hidden', !accepted.length);
 }
-// The left column's live bits. `lastLobby.code` is the room the invite screen created up front, so the
-// code is real from the moment the screen opens — that is the whole point of showing it here: it is what
-// someone who is NOT your friend types in (friends a->b<-c: a and c can both reach b's room this way).
+// The left column's live bits. `lastLobby.code` is the CURRENT party room's code — always real by
+// the time this sheet can open, since the party room now exists for the whole party's lifetime.
 function renderInviteActions() {
   const code = (lastLobby || {}).code || null;
   const el = document.getElementById('fs-code');
   if (el) { el.textContent = code || '---'; el.disabled = !code; }
-  const go = document.getElementById('friend-select-go');
-  if (go) go.classList.toggle('is-waiting', !code);
 }
-function openFriendSelect() {
-  // Create the party room up front so invites + accepts are LIVE on this screen (now a full sub-page).
-  selectedGame = null; partyFlow = true; partyStage = 'invite'; invitedSet.clear();
+// Opens the invite SHEET over the team page — never creates or leaves a room itself (the party room
+// already exists; ANY member, host or not, can open this — item 4). Stays open after an invite so
+// several friends can be invited in one visit; closing it (× or backdrop tap) just hides it, landing
+// back on #party underneath, which was never touched.
+function openInviteSheet() {
+  invitedSet.clear();
   if (joinCodeEl) joinCodeEl.value = '';
-  syncLoadout(); loadFriends();               // refresh presence so online friends show as candidates
-  sendMsg({ type: 'createRoom' });            // roomJoined (invite stage) renders the sections
-  showScreen('friend-select'); renderInvite(); renderInviteActions();
+  loadFriends();                              // refresh presence so online friends show as candidates
+  renderInvite(); renderInviteActions();
+  friendSelectEl?.classList.remove('hidden');
 }
-function closeFriendSelect() { friendSelectEl?.classList.add('hidden'); }
-// Leaving the invite screen dissolves the just-created party room (no orphan) and returns to the hub.
-function cancelInvite() {
-  if (partyFlow && partyStage === 'invite') { sendMsg({ type: 'leaveRoom' }); partyFlow = false; lastLobby = null; }
-  partyStage = 'invite';
-  showScreen('home');
-}
-document.getElementById('friend-select-close')?.addEventListener('click', cancelInvite);
-// Tap the empty background to leave (sub-page convention), drag-safe via isDismissBackdrop.
+function closeInviteSheet() { friendSelectEl?.classList.add('hidden'); }
+function closeFriendSelect() { closeInviteSheet(); }
+document.getElementById('friend-select-close')?.addEventListener('click', closeInviteSheet);
+// Tap the dim backdrop to close (modal convention), drag-safe via isDismissBackdrop.
 let fsDownBackdrop = false;
 friendSelectEl?.addEventListener('pointerdown', (e) => { fsDownBackdrop = isDismissBackdrop(e.target, friendSelectEl); });
-friendSelectEl?.addEventListener('click', (e) => { if (fsDownBackdrop && isDismissBackdrop(e.target, friendSelectEl)) { fsDownBackdrop = false; cancelInvite(); } });
+friendSelectEl?.addEventListener('click', (e) => { if (fsDownBackdrop && isDismissBackdrop(e.target, friendSelectEl)) { fsDownBackdrop = false; closeInviteSheet(); } });
 // Power-slots page: tap the empty background (outside the panel) to go back to the hub.
 const cardsScreenEl = document.getElementById('cards');
 let cardsDownBackdrop = false;
 cardsScreenEl?.addEventListener('pointerdown', (e) => { cardsDownBackdrop = isDismissBackdrop(e.target, cardsScreenEl); });
 cardsScreenEl?.addEventListener('click', (e) => { if (cardsDownBackdrop && isDismissBackdrop(e.target, cardsScreenEl)) { cardsDownBackdrop = false; showScreen('home'); } });
-document.getElementById('friend-select-go')?.addEventListener('click', () => {
-  // Room already exists (created on open) → advance to the party ROSTER.
-  unlockAudio();
-  partyStage = 'roster';
-  showScreen('party'); renderParty();
-});
 // JOIN BY CODE. Now a <form>, so the phone keyboard's "go" key works as well as the button — and the
-// submit has to be intercepted or the page navigates and the socket dies.
+// submit has to be intercepted or the page navigates and the socket dies. Always leaves whatever
+// room we're currently in first — the sheet only opens from inside a real party now, so "join by
+// code" here means "abandon this party and join a different one", never "discard a throwaway room".
 function joinByCode() {
   unlockAudio();
   const code = (joinCodeEl?.value || '').trim().toUpperCase();
   if (code.length < 3) { showRoomError('הכניסו קוד חדר'); return; }
-  if (partyFlow && partyStage === 'invite') { sendMsg({ type: 'leaveRoom' }); partyFlow = false; } // drop the orphan party room
+  sendMsg({ type: 'leaveRoom' });
+  lastLobby = null;
   sendMsg({ type: 'joinRoom', code });
+  closeInviteSheet();
 }
 document.getElementById('fs-join')?.addEventListener('submit', (e) => { e.preventDefault(); joinByCode(); });
 document.getElementById('join-room-btn')?.addEventListener('click', (e) => { e.preventDefault(); joinByCode(); });
@@ -3545,7 +3548,7 @@ document.getElementById('fs-code')?.addEventListener('click', async (e) => {
 // shared a stale code can rotate it. Invites already sent are dropped with the old room, hence the reset.
 document.getElementById('fs-new-room')?.addEventListener('click', () => {
   sendMsg({ type: 'leaveRoom' });
-  invitedSet.clear(); lastLobby = null; partyStage = 'invite'; partyFlow = true;
+  invitedSet.clear(); lastLobby = null; partyFlow = true;
   sendMsg({ type: 'createRoom' });
   renderInvite();
   toast('חדר חדש נוצר');
@@ -3915,13 +3918,13 @@ function connect(name, avatar) {
       // `mode === 'quick'`, so the two live modes looked like different games. `|| mode === 'quick'`
       // keeps a pre-flag server working during a rolling deploy.
       if (msg.matchmade || msg.mode === 'quick') { quickVs = true; showScreen('home'); startLobbyMusic(); } // VS + countdown overlay drives the wait
-      else if (partyFlow) { quickVs = false; hideVs(); startLobbyMusic(); if (partyStage === 'roster') { showScreen('party'); renderParty(); } else { renderInvite(); } } // invite stage keeps the overlay; roster shows the party
+      else if (partyFlow) { quickVs = false; hideVs(); startLobbyMusic(); showScreen('party'); renderParty(); } // team-first: always the roster, host or invited member alike
       else { quickVs = false; hideVs(); showScreen('lobby'); startLobbyMusic(); }           // #12: lobby theme instantly
       if (pendingPartyApply && isRoomHost) { pendingPartyApply = false; applyPartyPicks(); } // add picked bots + invite friends
     } else if (msg.type === 'toHome') {
       if (msg.online != null) homeOnlineEl.textContent = msg.online;
       me = { playerId: null, team: null, char: chosenChar };
-      partyFlow = false; lastLobby = null; partyStage = 'invite'; invitedSet.clear();
+      partyFlow = false; lastLobby = null; invitedSet.clear(); closeInviteSheet();
       clearRoomRequests(); hideRoomWait();   // #14: no stale host/joiner room UI back home
       quickVs = false; hideVs(); hideSearching(); showScreen('home');
       if (matchResultSent) {                 // a real match just finished -> celebrate the XP the app injects on return
@@ -3942,7 +3945,7 @@ function connect(name, avatar) {
     } else if (msg.type === 'chat') {
       onChatMessage(msg.pid, msg.id);   // someone spoke -> bubble over THEIR hero, for everyone
     } else if (msg.type === 'roomError') {
-      quickVs = false; hideVs(); hideSearching(); hideRoomWait(); partyFlow = false;
+      quickVs = false; hideVs(); hideSearching(); hideRoomWait(); partyFlow = false; closeInviteSheet();
       showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
       showScreen('home'); // create/join failed → land on the hub (room controls left the friends screen)
     } else if (msg.type === ROOM_MSG.PENDING) {          // #14 joiner: waiting for host approval
@@ -3957,6 +3960,7 @@ function connect(name, avatar) {
       me = { playerId: null, team: null, char: chosenChar };
       latest = null; snaps = []; predicted = null; rendered = null;
       quickVs = false; hideVs(); hideTeamIntro(); resetPlayNow(); stopMusic();
+      partyFlow = false; lastLobby = null; closeInviteSheet();
       toast('הוסרת מהחדר על ידי המארח');
       showScreen('home');
     } else if (msg.type === ROOM_MSG.JOIN_REQUEST) {     // #14 host: someone wants to join
@@ -4124,7 +4128,7 @@ function exitToLobby() {
 // the exit feels instant even before that reply lands.
 function leaveToLobby() {
   sendMsg({ type: 'leaveRoom' });
-  partyFlow = false; lastLobby = null; partyStage = 'invite'; invitedSet.clear();
+  partyFlow = false; lastLobby = null; invitedSet.clear(); closeInviteSheet();
   quickVs = false; hideVs(); hideTeamIntro(); hideRoomWait(); clearRoomRequests();
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
