@@ -88,7 +88,14 @@ export function isReactionEmoji(e) {
 //     one-line bubble, and U+202E in a nickname-adjacent string is a display attack, not a message;
 //   * runs of whitespace collapse, so a message cannot be padded out to shove the layout around.
 // Returns '' for anything not worth sending; callers treat '' as "drop it".
-export const FREE_TEXT_MAX = 40;
+// MEASURED AGAINST THE BUBBLE IT HAS TO FIT IN, not picked. The team-page bubble is 124px wide for a
+// team-mate (152px for you) at 700 13px/1.25, and Hebrew in it fits 11 characters on two lines and 21
+// on three (measured in the real page, not estimated). 40 wrapped to about five lines and turned a
+// roster block into a wall of text. 20 fits the NARROWEST bubble in three lines with a character to
+// spare, and it is enough for what people actually type here — "יאללה נשחק עכשיו" is 16.
+// If the bubble is ever widened, re-measure and raise this; the composer's counter and the server's
+// validation both read it, so one number moves both.
+export const FREE_TEXT_MAX = 20;
 export const FREE_TEXT_ROOMS = ['private'];
 
 const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\u2028\u2029\ufeff]/g;

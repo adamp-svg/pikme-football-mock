@@ -3658,7 +3658,8 @@ function pchatMarkup(box) {
   const form = document.createElement('form'); form.className = 'pchat-row'; form.autocomplete = 'off';
   const input = document.createElement('input');
   input.type = 'text'; input.className = 'pchat-input'; input.placeholder = 'כתבו הודעה…';
-  input.maxLength = 80; input.setAttribute('aria-label', 'הודעה לקבוצה');
+  input.maxLength = FREE_TEXT_MAX + 10;   // slack, so the counter can visibly reach 0 before the field stops
+  input.setAttribute('aria-label', 'הודעה לקבוצה');
   const left = document.createElement('span'); left.className = 'pchat-left'; left.textContent = String(FREE_TEXT_MAX);
   const send = document.createElement('button'); send.type = 'submit'; send.className = 'pchat-send'; send.textContent = 'שלח';
   form.append(input, left, send);

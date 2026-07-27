@@ -509,7 +509,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .lobby-wrap {
   position: relative; z-index: 1;
   display: flex; gap: 18px; align-items: stretch;
-  width: 100%; max-width: 900px; padding: 20px; max-height: 100%; overflow-y: auto;
+  width: 100%; max-width: 900px; max-height: 100%; overflow-y: auto;
+  /* SAFE AREA: this page is NOT a .subpage, so it does not inherit that rule — and it is the page with
+     «שחק עכשיו» and the chat composer at the bottom, which is exactly where the home indicator sits. */
+  padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+           max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
 }
 .lobby-main {
   flex: 1; text-align: center;
@@ -1230,7 +1234,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Invite screen sections (online / pending / accepted) */
 .fs-sections { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
 .fs-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin-bottom: 6px; letter-spacing: .3px; }
-.subpage { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column; padding: 14px 18px 20px; }
+/* SAFE AREA. `viewport-fit=cover` paints under the notch, the dynamic island and the home indicator,
+   and this runs in a WebView inside the app — so every sub-page needs the insets, not just #cards and
+   the builder (which were the only two that had them). max() keeps the old padding on a flat viewport
+   and grows it only where the phone actually reserves space; physical left/right because env() insets
+   are physical and the pages are RTL. */
+.subpage { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; flex-direction: column;
+  padding: max(14px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
+           max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
 .subpage-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .subpage-back {
   appearance: none; width: 44px; height: 44px; flex: none; display: grid; place-items: center; cursor: pointer;
@@ -2669,12 +2680,20 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   display: grid;
   /* a quarter, floored at 130px: 25% of a 390px phone is 98px, which cannot hold «שחק עכשיו» */
   grid-template-columns: 1fr minmax(130px, 25%);
-  gap: 12px; align-items: start; min-height: 0;
+  gap: 12px; align-items: stretch; min-height: 0;
+  /* FILL the body and let the LIST scroll, rather than sizing the list with a vh number: `62vh` counts
+     the notch and home-indicator strips as usable space, so on a notched phone the last card sat under
+     the indicator. The body is already a flex column, so flex:1 + min-height:0 is the safe-area-correct
+     way to say "whatever is left". */
+  flex: 1; width: 100%; align-self: stretch;
 }
 .fs-actions { order: 2; display: flex; flex-direction: column; gap: 8px; position: sticky; top: 0; }
 .fs-people { order: 1; min-width: 0; min-height: 0; }
 /* The list is the only thing that scrolls. 62vh keeps the sticky column and the page head visible. */
-.fs-people .fs-sections { max-height: 62vh; overflow-y: auto; padding-inline-end: 4px; }
+.fs-people { display: flex; flex-direction: column; }
+.fs-people .fs-sections { flex: 1; min-height: 0; overflow-y: auto; padding-inline-end: 4px;
+  /* one last guard for the indicator on a phone that reports no inset (Android WebViews sometimes do) */
+  padding-bottom: max(4px, env(safe-area-inset-bottom)); }
 .fs-play { width: 100%; margin: 0; padding: 12px 6px; display: flex; align-items: center; justify-content: center; }
 /* `.play` draws a chevron in a <b> sized for a full-width button; in a 130px column it landed ON TOP
    of the label. The label is the affordance here, so the chevron goes. */
