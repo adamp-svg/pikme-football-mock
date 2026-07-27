@@ -155,6 +155,20 @@ ok(full.career.some((c) => c.id === 'careerGoals' && c.value === 31), 'career go
 eq(full.social.friends, 6, 'model carries the friend count');
 eq(full.social.arenas, 4, 'model carries the arena count');
 eq(full.head.xp, 3970, 'the fixed pane gets trophies');
+// The fetched row must WIN over the injected/dev globals, or the header and the body show two
+// different truths (measured in the browser: header רמה 5 · 1.2K beside a body of 42 matches).
+const bothSources = buildProfileModel({
+  stats: { matchesPlayed: 9, xp: 3970, level: 9, rankPoints: 454, rankTier: 'silver' },
+  xpState: { xp: 1240, level: 5 }, rank: { rankPoints: 620, rankTier: 'gold' },
+});
+eq(bothSources.head.xp, 3970, 'server xp beats the injected xp');
+eq(bothSources.head.level, 9, 'server level beats the injected level');
+eq(bothSources.head.rankPoints, 454, 'server rankPoints beats the injected rankPoints');
+eq(bothSources.head.rankTier, 'silver', 'server rankTier beats the injected rankTier');
+// ...but with no server row the injected globals are still used (that is the app's fast path).
+const injectedOnly = buildProfileModel({ xpState: { xp: 1240, level: 5 }, rank: { rankPoints: 620, rankTier: 'gold' } });
+eq(injectedOnly.head.xp, 1240, 'no server row -> the injected xp is used');
+eq(injectedOnly.head.rankPoints, 620, 'no server row -> the injected rankPoints is used');
 eq(full.head.level, 9, 'the fixed pane gets the level');
 eq(full.head.rankTier, 'silver', 'the fixed pane gets the rank tier for its badge art');
 eq(full.head.boardRank, 3, 'the fixed pane gets the leaderboard position');

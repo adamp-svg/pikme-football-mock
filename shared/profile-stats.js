@@ -156,15 +156,20 @@ export function buildProfileModel(input) {
   // The bot ladder is 0-based internally and 1-based on screen (displayLevelForBot), the same
   // convention the countdown badge and the Saltiz bot friends use. Mixing them is how שובל ends up
   // advertised a rung below what he plays at.
-  const xp = num(xpState.xp !== undefined ? xpState.xp : stats.xp);
+  // PRECEDENCE: the fetched server row wins over the injected/dev globals. The whole page must
+  // describe ONE snapshot — mixing a stale window.SALTIZ_XP into the header while the body shows a
+  // freshly fetched career block puts two different truths on screen, which reads as a bug. It showed
+  // up immediately in the browser: the header said רמה 5 · 1.2K (the dev default) next to a body
+  // reporting 42 matches. In the app both sources are the same Mongo row, so they agree anyway.
+  const xp = num(stats.xp !== undefined ? stats.xp : xpState.xp);
   const currentBot = clampLevel(levelFromTrophies(xp) - 1);
 
   return {
     head: {
       xp,
-      level: num(xpState.level !== undefined ? xpState.level : stats.level) || levelFromTrophies(xp),
-      rankPoints: num(rank.rankPoints !== undefined ? rank.rankPoints : stats.rankPoints),
-      rankTier: (rank.rankTier || stats.rankTier || 'bronze'),
+      level: num(stats.level !== undefined ? stats.level : xpState.level) || levelFromTrophies(xp),
+      rankPoints: num(stats.rankPoints !== undefined ? stats.rankPoints : rank.rankPoints),
+      rankTier: (stats.rankTier || rank.rankTier || 'bronze'),
       boardRank: Number.isFinite(Number(rank.rank)) ? Number(rank.rank) : null,
       boardTotal: Number.isFinite(Number(rank.totalPlayers)) ? Number(rank.totalPlayers) : null,
       cosmetic: i.cosmetic || 'striker:base',
