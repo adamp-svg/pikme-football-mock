@@ -43,6 +43,16 @@
 
 ## 2026-07-27
 
+- **HUB TOUR — tutorial level 4 «מרכז» (agent `hub-tour`). DESIGN APPROVED, not yet built.** User: "you collaborate with the other agent to build the tutorial. see what he is working on, report back" → then "ok you work on this / ask how to chunk the HUB tour (quick play/friends/trophies/deck/slots/heroes)".
+  - **Design: [`docs/superpowers/specs/2026-07-27-hub-tour-level4-design.md`](docs/superpowers/specs/2026-07-27-hub-tour-level4-design.md).** Read it before touching this.
+  - **It is level 4, not 3** — `tutorial-coach` shipped level 3 `tricks` (`686a72f`) while this was being designed. Level 4 = `TU_LEVELS` index 3, id `mercaz`.
+  - **Owner's two calls:** (1) it is a LEVEL in the existing 🎓 picker, not a separate tour system; (2) with an empty album it shows **demo cards** for the duration of the lesson (rejected: locking the level behind card ownership, skipping the empty steps).
+  - **Runs in the hub with NO server room** (`where: 'hub'` on the level → `startTutorial` skips the socket). **`server.js` is not touched at all.**
+  - Six steps, collect-then-play: 🏆 גביעים (dwell) · 🃏 קלפים (swipe) · ⚡ 3 כוחות (drag a card in) · 🦸 גיבור (tap) · 👥 חברים (tap) · ⚽ משחק מהיר (the tap really starts a match). Auto-launches on the first hub visit, skippable, replayable forever from 🎓.
+  - **The risk is the demo album leaking, and it is not local:** `setSlotCard`→`saveLoadout`→`postPrefs` posts to `ReactNativeWebView`, so the app persists the loadout **under the player's phone**. Unsandboxed, a demo card would reach their real cross-device loadout. Three guard points (`setSlotCard`, `swapSlots`, `saveCosmetic`), snapshot+restore, and teardown BEFORE step 6 starts matchmaking (the join sends `cards: myCards()`).
+  - **Files I will take:** `shared/tutorial.js`, `public/client.js`, `public/style.css`, `test-tutorial.mjs`, `_tu-verify.mjs`. NOT `server.js`, NOT `public/index.html`. ⚠️ `tutorial-coach` is committing into three of those every ~20min and is NOT using the lock registry — file discipline per CLAUDE.md (status/diff before every commit, own hunks only).
+  - **Status: spec committed, implementation not started. Nothing pushed.**
+
 - **Tutorial onboarding — scripted first match for kids (agent `tutorial-coach`). IN PROGRESS.** User: "ok now i want to do a tutorial onboarding for the football game. use you brainstorming skill and lets think of the best why to do it. read the full explanation on game mechanics and stuff. this is aim for kids so the toturial should be very intiutive and simple. also see what brawlstars and fortnight are doing" → then "do the simplest way and such that can alwys replay the toturial" → then "yes lets build, do this in local host first".
   - **Design approved and written up: [`docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md`](docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md).** Read that first — it carries the Brawl Stars / Epic research, the four-step table and the rejected alternatives.
   - **Shape:** Brawl Stars model — a mandatory *playable* first match, not a slideshow. 4 steps, **move → shoot → goal → super**, 💣/🧱 hidden throughout. Silent coach (pointing hand + 1–2 Hebrew words, never pauses), no fail state, celebration-only reward (`c86fa82` "practice pays nothing" stands — no XP, no trophies, no cards).
