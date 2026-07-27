@@ -839,6 +839,10 @@ const joinBtn = { A: document.getElementById('join-a'), B: document.getElementBy
 const countdownEl = document.getElementById('lobby-countdown');
 const playNowBtn = document.getElementById('play-now');
 let myMemberId = null;        // this client's lobby member id (from welcome)
+// My display identity, captured at connect. `connect(name, avatar)` takes these as parameters, and
+// during a SEARCH there is no lobby payload echoing my member back, so the search screen has no other
+// source for my own row.
+let myDisplayName = 'שחקן', myAvatarUrl = null;
 let myLobbyTeam = 'A';        // my chosen lobby team (mirrors server)
 let roomMode = 'quick';       // 'quick' | 'private'
 let roomCode = null;
@@ -2250,13 +2254,16 @@ const MODES = [
     // `format` ties this row to the server's FORMATS key, so the VS/teams page can name the mode
     // you're waiting in. Every matchmade row needs one.
     state: 'live', party: true, format: 'quick',
-    launch: () => sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }),
+    // A deliberate mode pick (this card) carries the 10s matchmaking budget, unlike the yellow
+    // quick-match button (5s) — both resolve to the same server format, so only the message they
+    // send can tell the two entry points apart. `matchmade` is that split; `quickMatch` keeps its own.
+    launch: () => sendMsg({ type: 'matchmade', format: 'quick', diffLevel: xpDiffLevel(), trophies: myTrophies() }),
   },
   {
     id: 'brawl', ic: '🥅', name: 'קרב על השער', sub: 'אצטדיון הבלוקים',
     meta: ['הכי הרבה גולים', '2 דקות'], hue: ['#ffd06a', '#e8a02f'],
     state: 'live', party: true, format: 'brawl',
-    launch: () => sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel() }),
+    launch: () => sendMsg({ type: 'goalBrawl', diffLevel: xpDiffLevel(), trophies: myTrophies() }),
   },
   {
     id: '3v3', ic: '⚽', name: 'כדורגל · 3 נגד 3', sub: 'מגרש שלושות · יותר טירוף',
@@ -2265,7 +2272,7 @@ const MODES = [
     // it (`partyGame`), which is what raises the room's capacity from 4 to 6 — without that the card
     // was pickable but the 5th friend hit "החדר מלא".
     state: 'live', party: true, format: '3v3',
-    launch: () => sendMsg({ type: 'matchmade', format: '3v3', diffLevel: xpDiffLevel() }),
+    launch: () => sendMsg({ type: 'matchmade', format: '3v3', diffLevel: xpDiffLevel(), trophies: myTrophies() }),
   },
   {
     id: 'cup', ic: '🏆', name: 'טורניר', sub: 'עונתי · סוללת משחקים',
@@ -2433,7 +2440,7 @@ document.addEventListener('click', (e) => {
 }, true);
 
 // Home actions.
-document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel() }); });
+document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel(), trophies: myTrophies() }); });
 document.getElementById('friends-btn').addEventListener('click', () => {
   unlockAudio(); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';
@@ -3806,6 +3813,8 @@ document.getElementById('friend-search')?.addEventListener('input', (e) => searc
 let pingIv = null;        // ping interval for the current socket (cleared on close)
 let reconnectT = null;    // pending auto-reconnect timer
 function connect(name, avatar) {
+  myDisplayName = name || 'שחקן';
+  myAvatarUrl = avatar || null;
   // wss when the page is served over https (Render), ws for local dev.
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   ws = new WebSocket(`${proto}//${location.host}`);
@@ -3884,6 +3893,7 @@ function connect(name, avatar) {
     } else if (msg.type === 'home') {
       homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
     } else if (msg.type === 'roomJoined') {
+      hideSearching();
       roomMode = msg.mode; roomCode = msg.code || null;
       isRoomHost = !!msg.host;                 // #14: host gets approval + kick controls
       clearRoomRequests(); hideRoomWait();     // fresh room: no stale pending UI / waiting overlay
@@ -3902,7 +3912,7 @@ function connect(name, avatar) {
       me = { playerId: null, team: null, char: chosenChar };
       partyFlow = false; lastLobby = null; partyStage = 'invite'; invitedSet.clear();
       clearRoomRequests(); hideRoomWait();   // #14: no stale host/joiner room UI back home
-      quickVs = false; hideVs(); showScreen('home');
+      quickVs = false; hideVs(); hideSearching(); showScreen('home');
       if (matchResultSent) {                 // a real match just finished -> celebrate the XP the app injects on return
         _awaitXpReveal = true;
         armRankReveal();                     // ...and reveal the RANK change, which may be a DROP
@@ -3921,7 +3931,7 @@ function connect(name, avatar) {
     } else if (msg.type === 'chat') {
       onChatMessage(msg.pid, msg.id);   // someone spoke -> bubble over THEIR hero, for everyone
     } else if (msg.type === 'roomError') {
-      quickVs = false; hideVs(); hideRoomWait(); partyFlow = false;
+      quickVs = false; hideVs(); hideSearching(); hideRoomWait(); partyFlow = false;
       showRoomError(msg.msg || 'לא ניתן להצטרף לחדר');
       showScreen('home'); // create/join failed → land on the hub (room controls left the friends screen)
     } else if (msg.type === ROOM_MSG.PENDING) {          // #14 joiner: waiting for host approval
@@ -3945,6 +3955,8 @@ function connect(name, avatar) {
     } else if (msg.type === ROOM_MSG.JOIN_CANCELLED) {   // #14 host: that pending joiner left
       pendingReqs.delete(msg.joinerId);
       renderRoomRequests();
+    } else if (msg.type === 'searching') {
+      showSearching(msg);
     } else if (msg.type === 'lobby') {
       if (quickVs) { updateVsCountdown(msg); }
       else { lastLobby = msg; updateLobbyUI(msg);
@@ -4134,6 +4146,47 @@ function showVsMode(msg) {
   tiModeEl.querySelector('.ti-mode-rule').textContent = rule;
   tiModeEl.classList.remove('hidden');
 }
+// SEARCHING — a ticket is live and no room exists yet, so there is no `lobby` payload to ride on.
+// My own row is rendered from local state; opponent rows are deliberately EMPTY. Preview bots used to
+// fill them from the first tick, which made the wait look like a decided lineup.
+let searchingLive = false;
+function showSearching(msg) {
+  if (!teamIntroEl) return;
+  searchingLive = true;
+  quickVs = true;
+  const perTeam = Math.max(1, ((msg.slots && msg.slots.total) || 4) / 2);
+  // No `loadout` needed: introCardsFor() already special-cases p.id === myMemberId and reads
+  // effectiveLoadout() directly, so my row shows my LIVE slots rather than a snapshot.
+  const mine = { id: myMemberId, name: myDisplayName, team: 'A', avatar: myAvatarUrl, cards: myCards() };
+  const cols = teamIntroEl.querySelectorAll('.ti-col');
+  fillIntroCol(cols[0], [mine], 'A', perTeam);
+  fillIntroCol(cols[1], [], 'B', perTeam);
+  renderSearchChrome(msg);
+  setTiCount(Math.max(0, Math.ceil((msg.remainingMs || 0) / 1000)) || null);
+  teamIntroEl.classList.remove('hidden');
+  requestAnimationFrame(() => teamIntroEl.classList.add('show'));
+  startLobbyMusic();
+}
+function renderSearchChrome(msg) {
+  const box = document.getElementById('ti-search');
+  if (!box) return;
+  box.classList.remove('hidden');
+  const total = (msg.slots && msg.slots.total) || 4;
+  const filled = (msg.slots && msg.slots.filled) || 1;
+  const pips = document.getElementById('ti-search-pips');
+  pips.innerHTML = '';
+  for (let i = 0; i < total; i++) { const d = document.createElement('i'); if (i < filled) d.className = 'on'; pips.appendChild(d); }
+  const band = document.getElementById('ti-search-band');
+  band.textContent = msg.bandLo && msg.bandHi
+    ? (msg.bandLo === msg.bandHi ? `רמה ${msg.bandLo}` : `רמה ${msg.bandLo}–${msg.bandHi}`) : '';
+  const n = +msg.searchingCount || 0;
+  document.getElementById('ti-search-sub').textContent = n > 1 ? `${n} שחקנים מחפשים כרגע` : '';
+  document.getElementById('ti-search-title').textContent = 'מחפש יריבים...';
+}
+function hideSearching() {
+  searchingLive = false;
+  document.getElementById('ti-search')?.classList.add('hidden');
+}
 // Quick-match VS screen: HOME (my team) vs RIVALS from lobby members (bots fill empty
 // slots), with the big 5..0 countdown. Refreshed on every lobby payload.
 function updateVsCountdown(msg) {
@@ -4211,7 +4264,7 @@ function fillIntroCol(colEl, players, team, perTeam = 2) {
         nm.appendChild(lv);
       }
       introCardsFor(p).forEach((c) => cw.appendChild(introCardEl(c))); // bots included (#18)
-    } else { av.textContent = '🤖'; nm.textContent = 'בוט'; }
+    } else { row.classList.add('ti-empty'); av.textContent = '⌛'; nm.textContent = 'מחפש...'; }
     row.append(av, nm, cw);
     rows.appendChild(row);
   }
@@ -4917,6 +4970,12 @@ function xpDiffLevel() {
   const xp = src && Number.isFinite(+src.xp) ? +src.xp : (DEV_LOCAL ? 1240 : 0);
   return botLevelFromXp(xp);
 }
+// The number the hub bar prints as גביעים IS the XP number, so matchmaking needs no new metric.
+// Sent with every queue request; the server bands on it.
+// NOTE: window.SALTIZ_XP is an OBJECT ({xp, level?}) — same shape xpDiffLevel() reads above via
+// `src.xp` — not a bare number. `+(window.SALTIZ_XP || 0)` would coerce that object to NaN and this
+// would always send 0, silently pinning every player to the bottom band, so this unwraps `.xp`.
+const myTrophies = () => { const x = window.SALTIZ_XP; return Math.max(0, (x && Number.isFinite(+x.xp)) ? +x.xp : 0); };
 // Difficulty LADDER selector — a level index (enemy + partner skill live in shared/difficulty.js).
 // Manual slider now only drives training / private / builder; persists locally, pushed live.
 let diffLevel = (() => { try { return clampLevel(parseInt(localStorage.getItem('pikme-diff-level'), 10)); } catch { return DEFAULT_LEVEL; } })();

@@ -808,7 +808,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* align-SELF stretch (the grid sets align-items:center for the mode/hint rows): without it this row
    sizes to CONTENT, the columns collapse to ~34px and every card inside them disappears. The whole
    flex chain below needs a definite height to resolve `height:100%` against. */
-.ti-inner { align-self: stretch; display: flex; align-items: stretch; justify-content: center; gap: clamp(6px, 1.4vw, 14px); width: min(94vw, 720px); max-height: 100%; min-height: 0; }
+/* grid-row PINNED (see the matching notes on .ti-mode / .ti-tap below): without it, auto-placement
+   assigns rows by counting IN-FLOW siblings, and a hidden #ti-mode (display:none, so it contributes
+   no box at all) leaves only 2 in-flow children for 3 row tracks — .ti-inner then lands in row 1
+   (sized `auto`, i.e. to its own content) instead of row 2's `1fr`, collapsing the whole columns
+   area to ~33px. Latent since #team-intro was built; only exposed once showSearching() (Task 5)
+   became the first caller to show this overlay before #ti-mode has any content. Found via a real
+   CDP screenshot, not assumed. */
+.ti-inner { grid-row: 2; align-self: stretch; display: flex; align-items: stretch; justify-content: center; gap: clamp(6px, 1.4vw, 14px); width: min(94vw, 720px); max-height: 100%; min-height: 0; }
 .ti-col {
   flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
   background: rgba(255,255,255,.04); border: 2px solid #26324c; border-radius: 12px;
@@ -856,7 +863,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .ti-card.cf-noart.rarity-epic { background: linear-gradient(160deg, #d0a3ff, #b46bff); }
 .ti-card.cf-noart.rarity-rare { background: linear-gradient(160deg, #7fbcff, #4ea0ff); }
 .ti-card.cf-noart.rarity-common { background: linear-gradient(160deg, #c4d3e0, #9ab0c5); }
-.ti-tap { color: #9fb0d0; font: 700 clamp(9px, 1.7vh, 11px) sans-serif; letter-spacing: 1px; }
+/* grid-row: 3 PINNED — see the note on .ti-inner: auto-placement is not safe here once a sibling
+   (#ti-mode) can be display:none. */
+.ti-tap { grid-row: 3; color: #9fb0d0; font: 700 clamp(9px, 1.7vh, 11px) sans-serif; letter-spacing: 1px; }
 /* Big 5..0 countdown — ABSOLUTE over the centre gutter (it replaces «נגד» while counting) instead of
    a row in the stack. In flow it cost up to 128px of height, which is exactly what pushed 3v3 off a
    short landscape screen. Sized in vh so a short phone gets a smaller number, never a taller page. */
@@ -869,7 +878,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .ti-count.hidden { display: none; }
 /* Mode label above the countdown: WHICH mode + the rule that decides the win. Both live modes
    share this screen, so this line is the only thing distinguishing ראשון ל-3 from קרב על השער. */
-.ti-mode { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+/* grid-row: 1 PINNED — when this is display:none (e.g. during a matchmaking SEARCH, before there is a
+   format/rule to show), it generates no box, so auto-placement would otherwise hand row 1 to whatever
+   in-flow child comes next (.ti-inner) instead of leaving it empty. See the note on .ti-inner. */
+.ti-mode { grid-row: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
 .ti-mode.hidden { display: none; }
 .ti-mode-name { font: 900 clamp(11px, 2.2vh, 15px) "Arial Black", sans-serif; color: #ffe49a; text-shadow: 0 2px #0b0f0b; letter-spacing: .5px; }
 .ti-mode-rule {
@@ -2796,3 +2808,22 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   .fs-actions { position: static; order: 1; }
   .fs-people { order: 2; }
 }
+
+/* MATCHMAKING SEARCH chrome (see docs/superpowers/specs/2026-07-27-matchmaking-countdown-design.md) */
+/* SAFE ZONES: the game is LANDSCAPE, so safe-area-inset-left/right are the non-zero ones on a
+   notched phone (see the note above .subpage-back). A flat `left: 0; right: 0` would run the band
+   chip and the cancel button under the notch, which is what 53e594c fixed everywhere else. */
+.ti-search { position: absolute; top: max(6px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right));
+  display: grid; gap: 2px; justify-items: center; pointer-events: none; z-index: 4; }
+.ti-search-head { display: flex; align-items: center; gap: 8px; }
+.ti-search-title { font-size: 13px; font-weight: 800; color: #ffe9a8; }
+.ti-search-sub { font-size: 11px; font-weight: 700; opacity: .75; }
+.ti-search-band { font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 8px; background: rgba(255, 255, 255, .12); }
+.ti-search-pips { display: inline-flex; gap: 3px; }
+.ti-search-pips i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .22); }
+.ti-search-pips i.on { background: #7fd48f; }
+/* An opponent slot with nobody in it yet: dashed, so an empty slot reads as "still looking" rather
+   than as a broken row. Preview bots used to occupy these from the first tick. */
+.ti-row.ti-empty .ti-av { border: 1px dashed rgba(255, 255, 255, .3); background: transparent; }
+.ti-row.ti-empty .ti-name { opacity: .5; }
