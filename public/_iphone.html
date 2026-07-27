@@ -119,6 +119,27 @@ function insetsFor(d, landscape) {
 }
 
 const $ = (id) => document.getElementById(id);
+
+/* Push this device's safe-area insets INTO the game.
+   An iframe never receives real env(safe-area-inset-*) values — whatever chassis we draw around it, the
+   page inside is laid out as if the phone were flat, so the red guide bands used to sit on top of a
+   layout that had ignored them. That made a genuine safe-area bug (content under the notch) invisible on
+   the one surface built to catch it. The iframe is same-origin, so we can set CSS variables on its root
+   instead; game CSS written as max(fallback, var(--sa-x, env(safe-area-inset-x))) then lays out exactly
+   as it would on the device, while a real phone (where nothing sets the vars) still uses env().
+   Screens still written with a bare env() will NOT respond here — that is a property of the screen, not
+   of this harness. Currently opted in: public/profile.js. */
+function pushInsets(ins) {
+  try {
+    const doc = $('game').contentDocument;
+    if (!doc || !doc.documentElement) return;          // not loaded yet — the load handler retries
+    const st = doc.documentElement.style;
+    st.setProperty('--sa-top', ins.t + 'px');
+    st.setProperty('--sa-right', ins.r + 'px');
+    st.setProperty('--sa-bottom', ins.b + 'px');
+    st.setProperty('--sa-left', ins.l + 'px');
+  } catch { /* cross-origin (never, on localhost) — guides only */ }
+}
 const S = {                                  // persisted harness prefs
   dev:  localStorage.getItem('ph.dev')  || '17pro',
   land: localStorage.getItem('ph.land') !== '0',
@@ -202,6 +223,7 @@ function render() {
   if (ins.t) band({ left:0, right:0, top:0, height: ins.t + 'px' });
   if (ins.b) band({ left:0, right:0, bottom:0, height: ins.b + 'px' });
   $('safeLbl').textContent = `safe-area  T${ins.t} R${ins.r} B${ins.b} L${ins.l}`;
+  pushInsets(ins);
 
   // --- physical buttons on the rails (cosmetic) ---
   dev.querySelectorAll('.btn').forEach((n) => n.remove());
@@ -243,6 +265,9 @@ function fit() {
 function loadGame() {
   // forward ?edit=1 (layout editor) + a name into the game, like the old harness did
   const edit = /[?&]edit=1/.test(location.search);
+  // Same lookup apply() uses (DEVICES is an array keyed by `id`, not a map).
+  const dNow = DEVICES.find((x) => x.id === S.dev) || DEVICES[0];
+  $('game').addEventListener('load', () => pushInsets(insetsFor(dNow, S.land)), { once: true });
   $('game').src = '/?name=Player' + (edit ? '&edit=1' : '') + '&t=' + Date.now();
 }
 

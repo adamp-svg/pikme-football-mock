@@ -35,10 +35,17 @@ const CSS = `
    right edge) straight under the notch when the phone is rotated with the notch on the left. In
    landscape the non-zero insets are left/right (~44-59px on a notched iPhone) and bottom (~21px for the
    home indicator); top is 0. Same max(fallback, env()) shape as .set-btn and #cards .subpage in
-   style.css, so a non-notched phone and a desktop browser keep the plain 10px. */
+   style.css, so a non-notched phone and a desktop browser keep the plain 10px.
+
+   The --sa-* variables exist so the DEV HARNESS can simulate a notch: _iphone.html runs the game in an
+   iframe, and an iframe never receives real env() insets — the harness could only draw guide lines over
+   a page that was actually laid out as if the phone were flat. It now pushes the device's insets in as
+   these variables (same-origin, so it can reach into the iframe). On a real phone nothing sets them and
+   the env() fallback is used, so this costs the device nothing. Any other screen that wants to be
+   checkable in the harness needs the same var(--sa-x, env(safe-area-inset-x)) shape. */
 .pf-wrap { position: absolute; inset: 0; display: flex; direction: rtl; gap: 10px;
-  padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
-           max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  padding: max(10px, var(--sa-top, env(safe-area-inset-top))) max(10px, var(--sa-right, env(safe-area-inset-right)))
+           max(10px, var(--sa-bottom, env(safe-area-inset-bottom))) max(10px, var(--sa-left, env(safe-area-inset-left)));
   box-sizing: border-box; font-family: "Arial Black", sans-serif; }
 /* The FIXED pane. flex-basis in px (not %) so the hero never squeezes to nothing in landscape. */
 .pf-side { flex: 0 0 176px; display: flex; flex-direction: column; align-items: center; gap: 4px;
