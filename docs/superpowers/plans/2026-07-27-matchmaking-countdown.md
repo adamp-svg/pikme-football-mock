@@ -23,6 +23,11 @@
 - **Reveal hold:** 1500 ms after a group resolves, on every path.
 - **Widening:** `0–40%` of budget → exact level; `40–100%` → ±1; grace → ±2. L12+ is one band. An L1 ticket accepts L1–L2 only and is never pulled up to L3.
 - **Screen state is chosen by human count** (`memberIds.length >= 2` → FOUND, else NO PLAYERS), never by `reason`.
+- **SAFE ZONES (user, mid-run).** Every new UI surface respects the phone safe areas, using the
+  convention `53e594c` standardised: `max(<fallback>, env(safe-area-inset-<side>))`. The game runs
+  **landscape** (844×390), so `safe-area-inset-left` / `-right` are the insets that are actually
+  non-zero on a notched phone — see the note at `public/style.css:391`. A fixed `left: 0` or
+  `right: 0` puts content under the notch. Binds Tasks 5, 6 and 7.
 - **Do not touch `showVsMode`.** The run-together mode label is an artefact of reading a parent's `textContent` across two block spans; it renders correctly.
 - **Hebrew copy, exact strings:**
   - `מחפש יריבים...`
@@ -965,7 +970,12 @@ Append to `public/style.css`:
 
 ```css
 /* MATCHMAKING SEARCH chrome (see docs/superpowers/specs/2026-07-27-matchmaking-countdown-design.md) */
-.ti-search { position: absolute; top: 6px; left: 0; right: 0; display: grid; gap: 2px; justify-items: center; pointer-events: none; z-index: 4; }
+/* SAFE ZONES: the game is LANDSCAPE, so safe-area-inset-left/right are the non-zero ones on a
+   notched phone (see the note above .subpage-back). A flat `left: 0; right: 0` would run the band
+   chip and the cancel button under the notch, which is what 53e594c fixed everywhere else. */
+.ti-search { position: absolute; top: max(6px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right));
+  display: grid; gap: 2px; justify-items: center; pointer-events: none; z-index: 4; }
 .ti-search-head { display: flex; align-items: center; gap: 8px; }
 .ti-search-title { font-size: 13px; font-weight: 800; color: #ffe9a8; }
 .ti-search-sub { font-size: 11px; font-weight: 700; opacity: .75; }
