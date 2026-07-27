@@ -713,7 +713,14 @@ function startTutorial(member, level) {
   room.trainEnemies = [];
   foeKeys(l).forEach((key, i) => {
     const id = `${key}-${room.id}`;
-    addPlayer(room.state, id, { name: key, char: DEFAULT_CHAR, team: 'B', slot: i, isBot: true, cosmetic: randomBotCosmetic() });
+    // EVERY tutorial foe wears the PLAINEST hero there is — striker:base, the common skin of the
+    // first hero — and never `randomBotCosmetic()`, which draws uniformly from all 36 hero×skin
+    // combos and was handing a first-time seven-year-old a Holo Alien or a Signature Wizard to
+    // learn against. A tutorial foe is a TARGET: the kid has to read it as "the other guy" at a
+    // glance, and every gold shimmer and hero silhouette is a thing they might reasonably think
+    // the lesson is about. Same reason the pitch is empty and the kid gets no card buffs.
+    // Cosmetics never touch physics (shared/cosmetics.js), so this changes nothing but the look.
+    addPlayer(room.state, id, { name: key, char: DEFAULT_CHAR, team: 'B', slot: i, isBot: true, cosmetic: DEFAULT_COSMETIC });
     room.inputs.set(id, emptyInput());
     room.trainEnemies.push({ id, key, role: 'still', home: { x: TU_BALL_PARK.x, y: TU_BALL_PARK.y }, mem: createSentryMem() });
   });
