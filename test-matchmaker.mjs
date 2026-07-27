@@ -137,8 +137,14 @@ const T = (memberId, level, queuedAt, budgetMs = MM_BUDGET_QUICK_MS, mode = 'qui
   ok('...with reason "grace"', r.groups[0]?.reason === 'grace', r.groups[0]?.reason);
 }
 { // A ticket inside its grace reports phase 'grace' and a +/-2 band.
-  const inGrace = [{ memberId: 'a', mode: 'quick', level: 5, trophies: 0, queuedAt: 0, budgetMs: MM_BUDGET_QUICK_MS, graceUntil: 9000 }];
-  const w = planMatches(inGrace, 6000, OPTS).waiting[0];
+  // Grace is only ever GRANTED when nearby already clears roomMax (see the revocable-grace test
+  // below), so a ticket cannot legitimately be inGrace with zero company in the pool — that state
+  // is unreachable and would (correctly) revoke on the spot. Give it the same kind of company the
+  // grant tests use: L7s that are theoretically nearby at widen 2 but not YET actually compatible
+  // (long budgetMs so they just sit there rather than resolving/interfering themselves).
+  const farCompany = ['p', 'q', 'r'].map((id) => T(id, 7, 0, 999999));
+  const inGrace = [{ memberId: 'a', mode: 'quick', level: 5, trophies: 0, queuedAt: 0, budgetMs: MM_BUDGET_QUICK_MS, graceUntil: 9000 }, ...farCompany];
+  const w = planMatches(inGrace, 6000, OPTS).waiting.find((x) => x.memberId === 'a');
   ok('phase is "grace" inside the grace window', w?.phase === 'grace', w?.phase);
   ok('...and the band is +/-2', w?.bandLo === 3 && w?.bandHi === 7, `${w?.bandLo}-${w?.bandHi}`);
 }
@@ -169,6 +175,71 @@ const T = (memberId, level, queuedAt, budgetMs = MM_BUDGET_QUICK_MS, mode = 'qui
   const before = JSON.stringify(t);
   planMatches([t], MM_ALONE_MS, OPTS);
   ok('input tickets are not mutated', JSON.stringify(t) === before);
+}
+
+{ // FIX (review finding 1): `nearby` must respect the asymmetric floor too, not just
+  // acceptedBand/mutuallyCompatible directly — an L1 can NEVER become mutually compatible with an
+  // L3 (L1 caps at L2 even fully widened), so it must not count as "nearby" for one, and must not
+  // be handed a futile grace window of its own either.
+  const r = planMatches([T('lo', 1, 0), T('x', 3, 0), T('y', 3, 0), T('z', 3, 0)], MM_BUDGET_QUICK_MS, OPTS);
+  ok('an L1 padding a nearby-but-impossible cluster is not granted a futile grace window', (r.grants || []).length === 0, JSON.stringify(r.grants));
+  ok('...it resolves immediately instead, alone, and not mislabeled "grace"',
+    r.groups.some((g) => g.memberIds.length === 1 && g.memberIds[0] === 'lo' && g.reason !== 'grace'),
+    JSON.stringify(r.groups));
+}
+{ // FIX (review findings 2 & 3): grace is REVOCABLE — a futile wait ends the moment it becomes
+  // futile, the same "never latched" philosophy as the alone short-circuit — and a granted-this-
+  // tick ticket still shows up in `waiting` (correct phase/band/remainingMs) and still counts in
+  // everyone else's searchingCount, instead of vanishing like a truly-seated ticket.
+  //
+  // Tick 1: a(L5) is incompatible with p,q,r(L7) but they all look nearby-completable, so a grants
+  // itself grace. In the SAME tick, q and r group with EACH OTHER on their own real deadline —
+  // spending the exact reinforcements a's grant was counting on. (p also grants itself here, off
+  // its own recomputed nearby that excludes a — accepted per the brief: one pass can still justify
+  // more than one grant off a cluster; that is not what this fix targets.)
+  const tick1 = planMatches([T('a', 5, 0), T('p', 7, 0), T('q', 7, 0), T('r', 7, 0), T('far', 6, 4900)], MM_BUDGET_QUICK_MS, OPTS);
+  const aGrant = (tick1.grants || []).find((g) => g.memberId === 'a');
+  ok('tick 1: a grants itself grace off a room that (this tick) still looks completable', !!aGrant, JSON.stringify(tick1.grants));
+  ok('...q and r group with each other in the SAME tick, spending the reinforcements a relied on',
+    tick1.groups.some((g) => g.memberIds.includes('q') && g.memberIds.includes('r')), JSON.stringify(tick1.groups));
+  const aWaiting1 = tick1.waiting.find((w) => w.memberId === 'a');
+  ok('a granted-this-tick ticket still appears in `waiting`, not dropped like a seated one', !!aWaiting1, JSON.stringify(tick1.waiting));
+  ok('...reporting phase "grace" and the +/-2 band it was just granted',
+    aWaiting1?.phase === 'grace' && aWaiting1.bandLo === 3 && aWaiting1.bandHi === 7, JSON.stringify(aWaiting1));
+  ok('...and the FULL fresh grace duration as remainingMs', aWaiting1?.remainingMs === MM_GRACE_MS, String(aWaiting1?.remainingMs));
+  ok('bystanders see the TRUE still-searching count (a, p in grace + far genuinely searching = 3), not undercounted',
+    tick1.waiting.every((w) => w.searchingCount === 3), JSON.stringify(tick1.waiting.map((w) => [w.memberId, w.searchingCount])));
+
+  // Tick 2: the caller has stamped a's and p's graceUntil from tick 1's grants; q and r are gone —
+  // they are in a match now, so they are simply absent from the tickets this call is given. Well
+  // before either window would naturally expire (both graceUntil=10000), the room they were
+  // extended for no longer exists.
+  const tick2 = planMatches([
+    { memberId: 'a', mode: 'quick', level: 5, trophies: 0, queuedAt: 0, budgetMs: MM_BUDGET_QUICK_MS, graceUntil: aGrant.graceUntil },
+    { memberId: 'p', mode: 'quick', level: 7, trophies: 0, queuedAt: 0, budgetMs: MM_BUDGET_QUICK_MS, graceUntil: aGrant.graceUntil },
+    T('far', 6, 4900),
+  ], 6000, OPTS);
+  ok('resolved WELL before its 10000ms grace window would have expired (revoked at t=6000)', 6000 < aGrant.graceUntil, String(aGrant.graceUntil));
+  ok('a and p resolve together the moment their room stops being completable, reason "grace"',
+    tick2.groups.some((g) => g.memberIds.includes('a') && g.memberIds.includes('p') && g.reason === 'grace'),
+    JSON.stringify(tick2.groups));
+  ok('...and "far" (not part of the collapsed justification) is left genuinely searching',
+    tick2.waiting.length === 1 && tick2.waiting[0].memberId === 'far', JSON.stringify(tick2.waiting));
+}
+{ // The at-most-once gate must actually be EXERCISED: an expired grace meets a FRESH nearby
+  // cluster at the exact expiry instant, so completability is true — yet it must still not
+  // re-grant. (The pre-existing "expired grace" test above uses a lone ticket where nearby=0
+  // regardless of the gate, so it never caught a reviewer mutation of `!graceSpent` to `!inGrace`.)
+  const gate = planMatches([
+    { memberId: 'a', mode: 'quick', level: 5, trophies: 0, queuedAt: 0, budgetMs: MM_BUDGET_QUICK_MS, graceUntil: MM_BUDGET_QUICK_MS + MM_GRACE_MS },
+    T('p', 7, 0), T('q', 7, 0), T('r', 7, 0),
+  ], MM_BUDGET_QUICK_MS + MM_GRACE_MS, OPTS);
+  ok('a completable nearby cluster at the expiry instant still does not re-grant',
+    (gate.grants || []).length === 0, JSON.stringify(gate.grants));
+  ok('...it resolves via its expired grace instead', gate.groups.some((g) => g.memberIds.includes('a') && g.reason === 'grace'), JSON.stringify(gate.groups));
+  ok('...while the nearby cluster groups on its own, unaffected',
+    gate.groups.some((g) => g.memberIds.includes('p') && g.memberIds.includes('q') && g.memberIds.includes('r') && g.reason === 'deadline'),
+    JSON.stringify(gate.groups));
 }
 
 console.log(failed ? `\n❌ ${failed} failed` : '\n✅ all passed');

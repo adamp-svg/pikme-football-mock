@@ -77,6 +77,11 @@ export function planMatches(tickets, now, opts) {
   const roomMaxFor = opts.roomMaxFor;
   const groups = [], waiting = [], grants = [];
   const taken = new Set();
+  // Tracks a FRESH grant issued this same tick — distinct from `taken` (seated in a group): a
+  // just-granted ticket must not be double-counted as a `mates`/`nearby` body for anyone else
+  // processed later in this pass, but unlike a seated ticket it still belongs in `waiting` (with a
+  // synthetic grace view) and still counts toward everyone else's searchingCount.
+  const granted = new Set();
 
   // Per mode: formats never mix. A first-to-3 player and a timed player are not playing the same
   // game, so pooling them would produce a match one of them did not choose.
@@ -106,7 +111,7 @@ export function planMatches(tickets, now, opts) {
       const elapsed = now - seed.queuedAt;
 
       // Everyone still free who accepts the seed AND is accepted by it.
-      const mates = order.filter((t) => t.memberId !== seed.memberId && !taken.has(t.memberId)
+      const mates = order.filter((t) => t.memberId !== seed.memberId && !taken.has(t.memberId) && !granted.has(t.memberId)
         && mutuallyCompatible(sv, view.get(t.memberId)));
 
       const emit = (members, reason) => {
@@ -131,34 +136,65 @@ export function planMatches(tickets, now, opts) {
         emit([seed], 'alone'); continue;
       }
 
-      if (inGrace) { /* still extended — fall through to waiting */ }
-      else if (elapsed >= seed.budgetMs) {
-        // 3. GRACE — the pool is theoretically completable, so one extra window is worth it.
-        //    Counted from same-mode tickets within +/-2 levels, NOT from onlineCount(): somebody
-        //    idling in the shop must not cost a searching player five seconds.
-        const nearby = pool.filter((t) => t.memberId !== seed.memberId && !taken.has(t.memberId)
-          && Math.abs(t.level - seed.level) <= 2).length;
-        if (!graceSpent && 1 + nearby >= roomMax) {
-          grants.push({ memberId: seed.memberId, graceUntil: now + MM_GRACE_MS });
-          // Resolved for THIS tick. Without this, every other ticket in the same nearby-but-
-          // incompatible cluster (e.g. three mutually-compatible L7s next to a lone L5) would
-          // independently re-derive the same "1 + nearby >= roomMax" completability off of a body
-          // that is no longer free, and each would grant itself its own grace instead of the L7s
-          // grouping with each other below via 'deadline'. It drops out of `waiting` for this one
-          // tick too (it reappears with phase 'grace' next tick, once the caller has stamped it).
-          taken.add(seed.memberId);
-          continue;
+      if (inGrace || elapsed >= seed.budgetMs) {
+        // Completability: is the room theoretically reachable from tickets that aren't yet
+        // mutually compatible with the seed, but could become so at the max widen (2)? This is
+        // what decides whether to GRANT grace, keep an existing grant alive, or REVOKE it early.
+        // Reusing mutuallyCompatible (both sides forced to widen 2) rather than raw level distance
+        // is load-bearing: acceptedBand's asymmetric floor means an L1 can NEVER become compatible
+        // with an L3 even fully widened, so raw "|Δlevel| <= 2" would count an L1 as "nearby" for
+        // an L3 (and vice versa) when the room can mathematically never seat both.
+        const nearby = pool.filter((t) => t.memberId !== seed.memberId && !taken.has(t.memberId) && !granted.has(t.memberId)
+          && mutuallyCompatible({ level: seed.level, widen: 2 }, { level: t.level, widen: 2 })).length;
+        const completable = 1 + nearby >= roomMax;
+
+        if (!graceSpent && !inGrace) {
+          // 3. GRACE — first time past budget. Grant once if the room is theoretically completable.
+          //    A single pass can still justify more than one grant off the same cluster (e.g. two
+          //    mutually-incompatible seeds each see enough real headroom once each other's claims
+          //    are excluded) — accepted, not a bug, because grace is REVOCABLE below. What must not
+          //    happen is one seed's justification silently outliving the bodies it counted on.
+          if (completable) {
+            grants.push({ memberId: seed.memberId, graceUntil: now + MM_GRACE_MS });
+            // Resolved for THIS tick, but NOT "taken": a granted ticket must not be double-counted
+            // as a `mates`/`nearby` body by anyone processed later in this pass, but (unlike a
+            // seated ticket) it still owes a `waiting` entry and still counts in everyone else's
+            // searchingCount — see the granted-ticket branch below.
+            granted.add(seed.memberId);
+            continue;
+          }
+          // Not completable — fall straight through to deadline below.
+        } else if (inGrace && completable) {
+          continue; // still plausible — keep waiting out the window (reported in `waiting` below)
         }
-        // 4. DEADLINE — out of time. Take whoever is compatible; bots fill the rest.
+        // 4. DEADLINE / REVOKED / EXPIRED — out of runway one way or another: never granted and not
+        //    completable ('deadline'); REVOKED mid-window because the room it was extended for no
+        //    longer exists ('grace' — NOT LATCHED, exactly like the alone short-circuit: a futile
+        //    wait ends the moment it becomes futile, not just when its window expires); or an
+        //    already-EXPIRED grace ('grace', at most once — does not re-grant even if the pool now
+        //    looks completable again). Take whoever is compatible; bots fill the rest.
         emit([seed, ...mates.slice(0, roomMax - 1)], graceSpent ? 'grace' : 'deadline');
         continue;
       }
     }
 
-    // Anyone not grouped this tick is still searching. searchingCount is what the screen shows, and
-    // it counts SEARCHERS in this mode — not onlineCount(), which includes people browsing the shop.
+    // Anyone not SEATED this tick is still searching (a fresh grant included — see below).
+    // searchingCount is what the screen shows, and it counts SEARCHERS in this mode — not
+    // onlineCount(), which includes people browsing the shop.
     const stillWaiting = pool.filter((t) => !taken.has(t.memberId));
     for (const t of stillWaiting) {
+      if (granted.has(t.memberId)) {
+        // Just granted THIS call: the real ticket's `graceUntil` is still unset (the caller stamps
+        // it from `grants` after this returns), so `view` above still reflects its pre-grant state.
+        // Report the grant's own terms instead — the +/-2 band it was just handed and the FULL
+        // fresh window — not the stale widen-1 band / already-elapsed remainingMs from before it.
+        const band = acceptedBand(t.level, 2);
+        waiting.push({
+          memberId: t.memberId, phase: 'grace', bandLo: band.lo, bandHi: band.hi,
+          searchingCount: stillWaiting.length, remainingMs: MM_GRACE_MS,
+        });
+        continue;
+      }
       const v = view.get(t.memberId);
       const band = acceptedBand(t.level, v.widen);
       const phase = v.graceActive ? 'grace' : v.widen > 0 ? 'widened' : 'searching';
