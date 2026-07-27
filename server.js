@@ -36,7 +36,7 @@ import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot, botLevelFromXp } from './shared/difficulty.js';
 import { planMatches, bandOf } from './shared/matchmaker.js';
 import { isChatId, chatById, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
-import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout } from './shared/saltiz-bots.js';
+import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout, pickBotIdentities } from './shared/saltiz-bots.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1104,8 +1104,14 @@ function lobbyPayload(room) {
   // don't preview bots there — they still appear at the pre-kickoff reveal.
   const showBots = !room.isPrivate && room.phase !== 'match';
   const bots = (showBots && Array.isArray(room.botPlan))
-    ? room.botPlan.map((b, i) => ({ id: `botprev-${room.id}-${i}`, name: 'Bot', avatar: null, team: b.team, isBot: true, cards: b.cards, loadout: b.loadout,
-        level: displayLevelForBot(room.diffLevel), xp: xpForBotLevel(room.diffLevel) })) // bot level+XP for the countdown badge
+    ? (() => {
+        const ids = pickBotIdentities(room.botPlan.length, room.diffLevel, room.id);
+        return room.botPlan.map((b, i) => ({
+          id: `botprev-${room.id}-${i}`, name: ids[i].name, avatar: null, team: b.team, isBot: true,
+          cards: b.cards, loadout: b.loadout,
+          level: displayLevelForBot(room.diffLevel), xp: xpForBotLevel(room.diffLevel),
+        }));
+      })()
     : [];
   const fmt = FORMATS[room.format] || FORMATS.quick;
   return {

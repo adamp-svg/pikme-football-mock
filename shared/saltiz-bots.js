@@ -73,3 +73,46 @@ export function searchSaltizBots(q) {
   if (s.length < 1) return [];
   return SALTIZ_BOTS.filter((b) => b.nickName.toLowerCase().includes(s) || b.id.includes(s));
 }
+
+// Generated names for the slots the four named bots cannot cover. A 3v3 can need five bots at an
+// arbitrary level, and reusing a named bot at the wrong level would contradict the friend card the
+// player was shown.
+const BOT_NAME_POOL = ['יואב', 'מאיה', 'איתי', 'רוני', 'גיא', 'תמר', 'עומר', 'ליאור', 'נועם', 'שירה', 'אלון', 'דנה'];
+
+// Tiny string hash -> a stable per-room sequence. Seeded from the room id so the VS screen's preview
+// and the bots that actually spawn are the same identities (the preview==match rule the countdown
+// already relies on for cards).
+function hash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < String(str).length; i++) { h ^= String(str).charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+/**
+ * `count` bot identities for a room at difficulty `botLevel` (0..11), stable for `seed`.
+ * A named saltiz bot is used when its own level is within 1 of the room's; otherwise a generated
+ * name, so a level-0 room never fields שובל.
+ */
+export function pickBotIdentities(count, botLevel, seed) {
+  const n = Math.max(0, count | 0);
+  const out = [];
+  const used = new Set();
+  const fits = SALTIZ_BOTS
+    .filter((b) => Math.abs(botLevelOf(b) - botLevel) <= 1)
+    .sort((a, b) => Math.abs(botLevelOf(a) - botLevel) - Math.abs(botLevelOf(b) - botLevel));
+  let h = hash(seed);
+  const next = () => { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; return h; };
+  for (let i = 0; i < n; i++) {
+    const named = fits.find((b) => !used.has(b.nickName));
+    if (named) { used.add(named.nickName); out.push({ name: named.nickName, isSaltiz: true, level: botLevel, botId: named.id }); continue; }
+    let name = null;
+    for (let tries = 0; tries < BOT_NAME_POOL.length && !name; tries++) {
+      const cand = BOT_NAME_POOL[next() % BOT_NAME_POOL.length];
+      if (!used.has(cand)) name = cand;
+    }
+    if (!name) name = `${BOT_NAME_POOL[0]} ${i + 1}`; // pool exhausted (needs >12 bots) — still unique
+    used.add(name);
+    out.push({ name, isSaltiz: false, level: botLevel, botId: null });
+  }
+  return out;
+}
