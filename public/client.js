@@ -10,7 +10,7 @@ import {
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import {
-  TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, tuLevel, stepsIn, stepAt, doneStage,
+  TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, TU2_WALL, tuLevel, stepsIn, stepAt, doneStage,
   advance, isStepDone, showNudge, captionFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel,
 } from '/shared/tutorial.js';
@@ -4335,7 +4335,10 @@ function enterMatch(msg) {
   // still renders MATCH_DURATION ticking down. A first-timer being taught to walk should not be
   // watching a countdown — a clock that means nothing still reads as time pressure. It takes the
   // 0-0 score and the card rails with it. All of it returns the moment the tutorial ends.
-  const tuChrome = ['edit-controls-btn', 'chat-btn', 'pause-btn', 'hud'];
+  // #banner goes with the rest: after the kid scores on a goal step the sim runs its normal
+  // kickoff reset, and .banner.count draws a 200px countdown number over the next lesson. In a
+  // tutorial that is a countdown to nothing — the coach owns the messaging here.
+  const tuChrome = ['edit-controls-btn', 'chat-btn', 'pause-btn', 'hud', 'banner'];
   if (tutorial) {
     for (const id of tuChrome) document.getElementById(id)?.classList.add('tu-off');
     tuEnter(msg.tuLevel | 0);
@@ -7896,7 +7899,7 @@ function tuEnter(level) {
 function tuExit() {
   tuEl?.classList.add('hidden');
   tuDoneEl?.classList.add('hidden');
-  for (const id of ['special', 'build', 'stickR', 'leave-lobby-btn', 'hud', 'edit-controls-btn', 'chat-btn', 'pause-btn']) {
+  for (const id of ['special', 'build', 'stickR', 'leave-lobby-btn', 'hud', 'edit-controls-btn', 'chat-btn', 'pause-btn', 'banner']) {
     document.getElementById(id)?.classList.remove('tu-off');
   }
 }
@@ -8035,6 +8038,20 @@ function tuDrawWorld() {
       ? (latest ? { x: latest.ball.x, y: latest.ball.y } : null)
       : tuFoePos(s.markerKey);
     if (at) tuChevron(at.x, at.y, pulse);
+  } else if (s.marker === 'wallspot') {
+    // A dashed outline the exact size of a built wall, standing where it should go. Showing the
+    // placement beats describing it, and it gives the kid something to aim the drag at.
+    const spot = TU2_WALL.spot;
+    ctx.save();
+    ctx.setLineDash([Math.max(3, ws_(14)), Math.max(3, ws_(10))]);
+    ctx.lineWidth = Math.max(2, ws_(7));
+    ctx.strokeStyle = `rgba(255,208,106,${0.55 + 0.35 * pulse})`;
+    ctx.strokeRect(wx(spot.x) - ws_(BUILT_WALL.thick) / 2, wy(spot.y) - ws_(BUILT_WALL.len) / 2,
+                   ws_(BUILT_WALL.thick), ws_(BUILT_WALL.len));
+    ctx.restore();
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.restore();
   } else if (s.marker === 'bush') {
     // Outline the bush and drop a chevron on it. The bush already renders as scenery; this says
     // "that one, go in it".

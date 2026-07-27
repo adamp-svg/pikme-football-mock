@@ -157,7 +157,7 @@ console.log('4) walking into the ring finishes step 1 and unlocks the aim stick'
   await stickDrag('#stickL', 60, 0, 6000);   // push right, toward the ring
   await sleep(600);
   const cap = (await text('#tu-cap')).trim();
-  check(cap === 'ירה!', `advanced to step 2, caption «ירה!» (got «${cap}»)`);
+  check(cap === 'כוון והקש!', `advanced to step 2, caption «כוון והקש!» (got «${cap}»)`);
   check(await vis('#stickR') === 'shown', 'aim stick appeared');
   check(await vis('#special') === 'hidden', '💣 still hidden');
   check(await vis('#build') === 'hidden', '🧱 still hidden');
@@ -178,7 +178,7 @@ console.log('5) the spotlight moves to the aim stick for the shooting step');
   })()`);
   check(d < 6, `spotlight moved to the aim stick (${Math.round(d)}px off centre)`);
   const g = await evalJs('document.getElementById("tu-hand").className');
-  check(/gest-pull/.test(g), `hand switched to the hold-drag-release gesture (${g})`);
+  check(/gest-tap/.test(g), `hand mimes a TAP, matching «כוון והקש!» (${g})`);
   const off = await handOnTarget('#stickR', 70);
   check(off != null && off <= 70, `and the HAND stays on it through the drag mime (worst ${off}px)`);
 }
@@ -194,11 +194,12 @@ console.log('6) nothing overflows the phone viewport');
 console.log('7) shooting the dummy finishes the shoot step');
 {
   // A QUICK release auto-aims at the nearest enemy (MECHANICS §3), so a short tap is enough here.
-  for (let i = 0; i < 14 && (await text('#tu-cap')).trim() === 'ירה!'; i++) {
+  for (let i = 0; i < 14 && (await text('#tu-cap')).trim() === 'כוון והקש!'; i++) {
     await stickDrag('#stickR', -20, -46, 260);
     await sleep(420);
   }
-  check((await text('#tu-cap')).trim() === 'החזק חזק!', `-> the CHARGE step «החזק חזק!» (got «${(await text('#tu-cap')).trim()}»)`);
+  await sleep(1600);   // the step now holds a beat on «פגעת!» before advancing
+  check((await text('#tu-cap')).trim() === 'כוון והחזק!', `-> the CHARGE step «כוון והחזק!» (got «${(await text('#tu-cap')).trim()}»)`);
   await shot('03-step3-charge');
 }
 
@@ -207,13 +208,14 @@ console.log('8) the charge step needs a FULL hold — a tap will not do');
   // Tap repeatedly: the step must NOT pass on quick shots, or "hold longer = stronger" is not
   // being taught at all, which was the whole reason this step exists.
   for (let i = 0; i < 4; i++) { await stickDrag('#stickR', -30, -30, 120); await sleep(260); }
-  check((await text('#tu-cap')).trim() === 'החזק חזק!', 'four quick taps did NOT complete it');
+  check((await text('#tu-cap')).trim() === 'כוון והחזק!', 'four quick taps did NOT complete it');
   // Now hold past SHOOT_CHARGE_TIME (2.0s) and release.
-  for (let i = 0; i < 6 && (await text('#tu-cap')).trim() === 'החזק חזק!'; i++) {
+  for (let i = 0; i < 6 && (await text('#tu-cap')).trim() === 'כוון והחזק!'; i++) {
     await stickDrag('#stickR', -30, -30, 2400);
     await sleep(500);
   }
-  check((await text('#tu-cap')).trim() === 'גול!', `a full-power release advanced it -> «גול!» (got «${(await text('#tu-cap')).trim()}»)`);
+  await sleep(1600);   // dwell on «זו ירייה חזקה!»
+  check((await text('#tu-cap')).trim() === 'החזק ושחרר!', `a full-power release advanced it -> «החזק ושחרר!» (got «${(await text('#tu-cap')).trim()}»)`);
   await shot('04-step4-goal');
 }
 
@@ -240,7 +242,7 @@ console.log('9) REPLAY is reachable and unconditional');
   // Read innerHTML, not textContent: icon-system.js swaps ⭐/▶/⚽ for pixel sprites, so the
   // badge is gone from textContent while being perfectly visible on screen (see the screenshot).
   const rows = await evalJs('[...document.querySelectorAll("#tu-levels .tu-lv")].map(e=>({html:e.querySelector("b").innerHTML, locked:e.className.includes("locked"), name:e.querySelector("b").textContent.trim()}))');
-  check(Array.isArray(rows) && rows.length === 2, `two levels listed (${rows && rows.length})`);
+  check(Array.isArray(rows) && rows.length === 3, `three levels listed (${rows && rows.length})`);
   check(rows && /⭐|si-star|star/.test(rows[0].html) && !rows[0].locked, `level 1 shows finished + unlocked (${rows && rows[0].name})`);
   check(rows && !rows[1].locked && /קרב/.test(rows[1].name), `level 2 is unlocked and playable (${rows && rows[1].name})`);
   await shot('06-level-picker');
@@ -343,7 +345,8 @@ console.log('13) 🧱 appears for the wall step — and 💣 is NOT taken back')
     await stickDrag('#build', 30, 0, 950);     // build RIGHT, between me and the sentry
     await sleep(700);
   }
-  check((await text('#tu-cap')).trim() === 'חטוף!', `built it -> step 4 «חטוף!» (got «${(await text('#tu-cap')).trim()}»)`);
+  await sleep(3400);   // the wall step now HOLDS 3s so the kid watches it take fire
+  check((await text('#tu-cap')).trim() === 'חטוף!', `built it, watched it hold -> step 4 «חטוף!» (got «${(await text('#tu-cap')).trim()}»)`);
   await shot('12-l2-step4-strip');
 }
 

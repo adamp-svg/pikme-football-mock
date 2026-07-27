@@ -3058,6 +3058,16 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .tu-hand.gest-circle { animation: tu-circle 2s linear infinite; }
 .tu-hand.gest-pull { animation: tu-pull 2.2s ease-in-out infinite; }
+/* TAP — press and let go, no travel. The mime for "aim and tap": a short jab, twice, then a
+   pause long enough that it reads as a separate action rather than a twitch. */
+.tu-hand.gest-tap { animation: tu-tap 1.8s ease-in-out infinite; }
+/* HOLD — press and STAY pressed, squeezing a little harder as it goes, which is the whole point:
+   the longer you keep it down the more you get. Ends with the release that fires the shot. */
+.tu-hand.gest-hold { animation: tu-hold 2.6s ease-in-out infinite; }
+/* LOB — press the button, then carry it OUTWARD, slowly. Used by 💣 and 🧱, whose drag chooses
+   where the thing lands. Deliberately slower than `pull` and travelling the opposite way: a kid
+   copying this mime is doing the actual gesture, so it has to point where the throw goes. */
+.tu-hand.gest-lob { animation: tu-lob 3.2s ease-in-out infinite; }
 /* `tap` is the third gesture, and the ONLY one where the lesson is what you DON'T do: level 3's
    fly step needs the bomb dropped at your own feet, which is a plain press with no drag. Without
    its own keyframes the hand parked over 💣 and sat there motionless — a still hand on a screen
@@ -3075,6 +3085,27 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   50%  { translate: 0 26px; }
   75%  { translate: -34px -12px; }
   100% { translate: 0 0; }
+}
+@keyframes tu-tap {
+  0%,  55%, 100% { translate: 0 0; scale: 1; }
+  8%,  20%       { scale: .78; }          /* jab */
+  14%            { scale: .78; }
+  30%, 42%       { scale: .78; }          /* ...and again, so it reads as "tap", not "press" */
+  36%            { scale: .78; }
+}
+@keyframes tu-hold {
+  0%,  8%   { translate: 0 0; scale: 1; }
+  18%       { scale: .82; }                /* down */
+  70%       { scale: .72; }                /* ...and STAYS down, squeezing harder */
+  78%       { scale: 1.1; }                /* release = the shot */
+  92%, 100% { scale: 1; }
+}
+@keyframes tu-lob {
+  0%,  8%   { translate: 0 0; scale: 1; }
+  18%       { translate: 0 0; scale: .8; }      /* press the button */
+  62%       { translate: 62px 0; scale: .8; }   /* carry it out, slowly, the way the throw goes */
+  74%       { translate: 62px 0; scale: 1.08; } /* let go — that is where it lands */
+  90%, 100% { translate: 0 0; scale: 1; }
 }
 @keyframes tu-pull {
   0%,  10%  { translate: 0 0; scale: 1; }

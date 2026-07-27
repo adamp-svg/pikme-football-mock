@@ -55,9 +55,16 @@ export const TU_SHOT_SPOT = { x: 1420, y: MID };
 //     tap and ~936px fully charged. Anything further away simply cannot be hit, and a kid would
 //     stand there firing into empty grass.
 //   * a lobbed bomb lands at most BOMB_LOB_RANGE (250px) from the planter.
-export const TU2_SHOOT = { me: { x: 1400, y: MID }, ball: { x: 1760, y: MID } }; // 360px: quick-tap range
+export const TU2_SHOOT = { me: { x: 1400, y: MID }, ball: { x: 1792, y: MID } }; // 392px: quick-tap range,
+                                                                                 // ball nudged one full
+                                                                                 // sprite (32px) nearer
+                                                                                 // the line so one shove
+                                                                                 // is enough
 export const TU2_BOMB = { me: { x: 900, y: MID }, foe: { x: 1080, y: MID } };    // 180px: inside lob range
-export const TU2_WALL = { me: { x: 700, y: MID }, foe: { x: 1150, y: MID } };    // 450px: inside the
+// `spot` is where the dashed ghost is drawn — square between the kid and the sentry, so "build it
+// THERE" is shown rather than described. BUILT_WALL.offset (60) is how far in front of you a wall
+// lands, so standing put and building forward puts it right on the mark.
+export const TU2_WALL = { me: { x: 700, y: MID }, foe: { x: 1150, y: MID }, spot: { x: 760, y: MID } }; // 450px: inside the
                                                                                  // sentry's VISION_RANGE
                                                                                  // (620), so it really
                                                                                  // does shoot at you
@@ -101,17 +108,25 @@ export const TU_LEVELS = [
     steps: [
       { id: 'move', controls: ['move'], spotlight: 'move', gesture: 'circle',
         marker: 'ring', cap: 'זוז!', nudge: 'הזז את העיגול', nudgeAfter: 8, done: 'inRing' },
-      { id: 'shoot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'pull',
-        marker: 'foe', markerKey: 'dummy', cap: 'ירה!', nudge: 'משוך וזרוק', nudgeAfter: 8, done: 'hitEnemy' },
+      // TAP first, HOLD second — two separate steps for two separate gestures, each with its own
+      // hand mime, and each holding a beat after it lands so the kid connects what they did to
+      // what happened.
+      { id: 'shoot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'tap',
+        marker: 'foe', markerKey: 'dummy', cap: 'כוון והקש!', sub: 'הקשה קצרה = ירייה מהירה',
+        cap2: 'פגעת!', when: 'hitEnemy', minDwell: 1,
+        nudge: 'משוך לכיוון שלו ותשחרר', nudgeAfter: 8, done: 'hitEnemy' },
       // CHARGE gets a step of its own. It used to be a footnote — the shoot step completed on any
       // hit, so a kid could finish the whole tutorial having only ever tapped, and the one line
       // that mentioned holding only appeared if they got stuck. Hold-to-power is the single most
       // important thing in this game's combat (MECHANICS §1: 2s to full, and it scales the ball
       // kick, the bullet, the knockback and the strip), so it is taught deliberately, not hinted.
-      { id: 'charge', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'pull',
-        marker: 'foe', markerKey: 'dummy', cap: 'החזק חזק!', nudge: 'אל תשחרר — עד שהטבעת מלאה', nudgeAfter: 8, done: 'chargedShot' },
-      { id: 'goal', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'pull',
-        marker: 'goal', cap: 'גול!', nudge: 'החזק כדי לבעוט רחוק', nudgeAfter: 10, done: 'scored' },
+      { id: 'charge', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
+        marker: 'foe', markerKey: 'dummy', cap: 'כוון והחזק!', sub: 'כמה שיותר זמן — יותר חזק',
+        cap2: 'זו ירייה חזקה!', when: 'chargedShot', minDwell: 1,
+        nudge: 'אל תשחרר — עד שהטבעת מלאה', nudgeAfter: 8, done: 'chargedShot' },
+      { id: 'goal', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
+        marker: 'goal', cap: 'החזק ושחרר!', sub: 'ככה בועטים רחוק — לשער',
+        nudge: 'כוון לשער והחזק', nudgeAfter: 10, done: 'scored' },
       { id: 'super', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'pull',
         marker: 'goal', cap: 'בעיטת ענק!', nudge: 'הכדור חזק פי שניים', nudgeAfter: 12, done: 'scored' },
     ],
@@ -132,11 +147,12 @@ export const TU_LEVELS = [
       // Opens with the thing closest to what level 1 already taught — you know how to shoot; now
       // learn that bullets move the BALL. The ball is pickup-locked this stage, so "just walk over
       // and carry it in" is not available and the lesson cannot be sidestepped.
-      { id: 'ballshot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'pull',
-        marker: 'ball', cap: 'שוט לכדור!', nudge: 'ירי דוחף את הכדור', nudgeAfter: 10, done: 'scored' },
+      { id: 'ballshot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
+        marker: 'ball', cap: 'שוט לכדור!', sub: 'החזק ושחרר — ירי דוחף את הכדור',
+        nudge: 'כוון לכדור, החזק, שחרר', nudgeAfter: 10, done: 'scored' },
       // Both bomb inputs, in the two lines a kid will actually read: TAP drops it at your feet,
       // DRAG throws it where you point. The nudge is the one they need if the lob isn't landing.
-      { id: 'bomb', controls: ['move', 'aim', 'bomb'], spotlight: 'bomb', gesture: 'pull',
+      { id: 'bomb', controls: ['move', 'aim', 'bomb'], spotlight: 'bomb', gesture: 'lob',
         marker: 'foe', markerKey: 'foe', cap: 'פצצה!', sub: 'הקשה = מתחתיך · גרירה = לאן שתכוון',
         nudge: 'גרור את הפצצה אליו', nudgeAfter: 10, done: 'bombHitFoe' },
       // 💣 STAYS on this step. It was dropped here at first, and the "nothing taught is ever
@@ -146,15 +162,18 @@ export const TU_LEVELS = [
       // minDwell: the step does NOT end the instant the wall pops up. It holds for 2.2s so the kid
       // actually WATCHES it stand there and take the sentry's fire — the wall doing its job is the
       // lesson, and advancing on the build itself skips straight past it.
-      { id: 'wall', controls: ['move', 'aim', 'bomb', 'wall'], spotlight: 'wall', gesture: 'pull',
-        marker: 'foe', markerKey: 'foe', cap: 'בנה קיר!', sub: 'הקשה = לפניך · גרירה = לאן שתכוון',
-        cap2: 'הקיר עוצר יריות!', when: 'wallBuilt', minDwell: 2.2,
+      { id: 'wall', controls: ['move', 'aim', 'bomb', 'wall'], spotlight: 'wall', gesture: 'lob',
+        marker: 'wallspot', cap: 'בנה קיר!', sub: 'הקשה = לפניך · גרירה = לאן שתכוון',
+        cap2: 'הקיר עוצר יריות!', when: 'wallBuilt', minDwell: 3,
         nudge: 'החזק את 🧱 ואז שחרר', nudgeAfter: 10, done: 'wallBuilt' },
       // One continuous action with two halves, so it gets two captions rather than two steps:
       // knock the ball off them, then put it away.
-      { id: 'strip', controls: ['move', 'aim', 'bomb', 'wall'], spotlight: 'aim', gesture: 'pull',
-        marker: 'foe', markerKey: 'foe', cap: 'חטוף!', cap2: 'גול!', when: 'stripped',
-        nudge: 'החזק ירי מלא', nudgeAfter: 12, done: 'scored' },
+      // Knocking it loose IS the lesson. Making them score afterwards tacked a second objective
+      // onto a step that had already taught its thing.
+      { id: 'strip', controls: ['move', 'aim', 'bomb', 'wall'], spotlight: 'aim', gesture: 'hold',
+        marker: 'foe', markerKey: 'foe', cap: 'חטוף!', sub: 'ירייה מלאה מפילה לו את הכדור',
+        cap2: 'הכדור שוחרר!', when: 'stripped', minDwell: 2,
+        nudge: 'החזק ירי מלא', nudgeAfter: 12, done: 'stripped' },
     ],
     stages: [
       { me: TU2_SHOOT.me, ball: TU2_SHOOT.ball, ballLocked: true, foes: [{ key: 'foe', role: 'still', ...TU2_PARK }] },

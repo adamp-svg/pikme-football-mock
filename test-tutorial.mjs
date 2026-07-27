@@ -82,7 +82,7 @@ console.log('A5) every other step completes on its OWN event and nothing else');
   const flags = ['hitEnemy', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'hidden', 'flew'];
   const cases = [
     [L1, 1, 'hitEnemy'], [L1, 2, 'chargedShot'], [L1, 3, 'scored'], [L1, 4, 'scored'],
-    [L2, 0, 'scored'], [L2, 1, 'bombHitFoe'], [L2, 2, 'wallBuilt'], [L2, 3, 'scored'],
+    [L2, 0, 'scored'], [L2, 1, 'bombHitFoe'], [L2, 2, 'wallBuilt'], [L2, 3, 'stripped'],
     [L3, 0, 'hidden'], [L3, 1, 'flew'],
   ];
   // ...but a minDwell step will not ADVANCE on its flag alone, so give the predicate check the
@@ -115,12 +115,27 @@ console.log('A7) the stuck-nudge fires only when stuck');
   check(!showNudge(L1, 0, { px: TU_RING.x, py: TU_RING.y, stepElapsed: at + 99 }), 'never nudges someone who already finished');
 }
 
-console.log('A8) the strip step is one lesson with two captions');
+console.log('A8) knocking the ball loose IS the strip lesson — no goal tacked on');
 {
   check(captionFor(L2, 3, {}) === 'חטוף!', 'says «חטוף!» while they still have it');
-  check(captionFor(L2, 3, { stripped: true }) === 'גול!', 'flips to «גול!» the moment it comes loose');
+  check(captionFor(L2, 3, { stripped: true }) === 'הכדור שוחרר!', 'and says so out loud the moment it comes loose');
   check(captionFor(L2, 1, { stripped: true }) === 'פצצה!', 'the flag does not leak into other steps');
-  check(!isStepDone(L2, 3, { stripped: true }), 'stripping alone does NOT finish it — you still have to score');
+  check(isStepDone(L2, 3, { stripped: true }), 'the strip alone completes it');
+  check(!isStepDone(L2, 3, { scored: true }), 'and scoring without stripping does not');
+  check(stepAt(L2, 3).minDwell === 2, 'it then holds 2s so the kid sees what they did');
+  check(advance(L2, 3, { stripped: true, sinceDone: 0 }) === 3, '...not advancing instantly');
+  check(advance(L2, 3, { stripped: true, sinceDone: 2.5 }) === 4, '...and moving on after the beat');
+}
+
+console.log('A8b) the gesture mimes match the gestures being taught');
+{
+  const g = (l, n) => stepAt(l, n).gesture;
+  check(g(L1, 1) === 'tap', 'the aim-and-TAP step mimes a tap');
+  check(g(L1, 2) === 'hold', 'the aim-and-HOLD step mimes a hold');
+  check(g(L1, 3) === 'hold', 'the hold-and-release kick mimes a hold');
+  check(g(L2, 0) === 'hold', 'so does shooting the ball');
+  check(g(L2, 1) === 'lob' && g(L2, 2) === 'lob', '💣 and 🧱 mime the slow carry-it-outward lob');
+  check(stepAt(L1, 1).minDwell === 1 && stepAt(L1, 2).minDwell === 1, 'both new L1 steps hold a beat before moving on');
 }
 
 console.log('A9) the bomb step is generous about where the blast lands');
