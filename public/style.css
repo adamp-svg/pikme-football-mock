@@ -1268,9 +1268,85 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .pr-card.rarity-legendary { border-color: #ffb800; } .pr-card.rarity-epic { border-color: #b46bff; }
 .pr-card.rarity-rare { border-color: #4ea0ff; } .pr-card.rarity-common { border-color: #9ab0c5; }
 .pr-empty { align-self: center; color: #8ea08a; font: 800 12px "Arial Black", sans-serif; padding: 0 6px; }
+/* + TILE (item 2): pixel-art `+` beside the hero, always present regardless of party size — tapping
+   it opens the invite sheet (#friend-select) as a modal over this page. Uses the SHARED icon pack's
+   `add` glyph (.build-icon > .saltiz-icon.si-add — see public/assets/pixel-icon-system-01), not new
+   art, so it never falls back to a plain text glyph. */
+.pr-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 92px; padding: 10px 14px; cursor: pointer;
+  background: rgba(19,27,22,.55); border: 2px dashed #5a6b53; color: #c8d4bf;
+}
+.pr-add:active { transform: translateY(2px); }
+.pr-add-ic { background: rgba(255,255,255,.08); border-radius: 10px; }
+.pr-add-label { font: 900 10px "Arial Black", sans-serif; color: #cfe0c4; white-space: nowrap; }
+
+/* HOST-ONLY KICK (item 5) on each MATE block — never on .pr-me, you can't kick yourself. Confirm
+   dialog matches removeFriend()'s pattern; the server enforces host-only regardless (kick is refused
+   for a non-host there), so this is UI-only defense in depth, not the real guard. */
+.pr-mate { position: relative; }
+.pr-kick {
+  position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; z-index: 2;
+  background: #d43c3c; color: #fff4ca; border: 2px solid #2a0b0b;
+  font: 900 11px/1 "Arial Black", sans-serif; cursor: pointer; box-shadow: 0 2px 0 #070b08;
+}
+.pr-kick:active { transform: scale(.9); }
+
+/* PER-MODE VOTE GLOW (item 3): a member's tap is a preference — a small coloured dot per voter,
+   never a decision. Only the HOST's tap becomes `.mode-picked` (solid gold), which is what actually
+   starts the match. Several voters on one card show several dots, not one colour overwriting
+   another. Dot colour comes from shared/saltiz-bots.js `colorForMemberId`. */
+.pcard.mode-picked { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(255,203,67,.55), 0 5px 0 #070b08; }
+.pcard.pc-mini.mode-picked { box-shadow: 0 0 0 3px rgba(255,203,67,.55), 0 4px 0 #070b08; }
+.pc-votes { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; z-index: 2; }
+.pc-vote-dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(0,0,0,.55); box-shadow: 0 0 3px rgba(0,0,0,.6); }
+
 /* Widened from 460 so four MINI picker cards sit in ONE row (4x104 + 3x8 gaps) instead of wrapping. */
 .party-games { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .party-games-h { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; text-align: right; }
+
+/* ---- Team-page CHAT RAIL (item 2) ------------------------------------------------------------
+   A vertical column pinned to the PHYSICAL right edge, roughly a quarter of the width, independent
+   of the roster/games flow to its left — #party's .subpage reserves that width below so the roster
+   never sits underneath it. Column layout: the LOG scrolls, the composer (#party-chat, existing
+   markup, untouched) is pinned at the base. Per-member bubbles keep rendering on each roster block
+   as before (partyBlock/.pr-say) — this rail is the scrolling history, not a replacement for them.
+   SAFE AREA: the game runs LANDSCAPE, so env(safe-area-inset-right) is the inset that is actually
+   non-zero on a notched phone (see the note above .ti-search) — a flat `right: 0` would sit the rail
+   under the notch, so both the rail and the space #party reserves for it use the same convention
+   53e594c standardised: max(<fallback>, env(safe-area-inset-<side>)). #lobby-chat (a DIFFERENT id,
+   reused for the public-match team page) is untouched — none of this is scoped to it. */
+#party { --party-rail-w: clamp(150px, 25vw, 224px); }
+#party .subpage { padding-right: calc(max(18px, env(safe-area-inset-right)) + var(--party-rail-w) + 10px); }
+.party-chat-rail {
+  position: absolute; top: 0; bottom: 0;
+  right: max(0px, env(safe-area-inset-right));
+  width: var(--party-rail-w);
+  z-index: 2; display: flex; flex-direction: column;
+  background: rgba(9,14,10,.90); border-left: 3px solid #2c3830;
+  box-shadow: -6px 0 22px rgba(0,0,0,.35);
+  padding: max(10px, calc(env(safe-area-inset-top) + 4px)) max(10px, env(safe-area-inset-right))
+           max(8px, calc(env(safe-area-inset-bottom) + 4px)) 10px;
+}
+.party-chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px; }
+.pchat-log-empty { color: #8ea08a; font: 700 11px sans-serif; text-align: center; padding: 10px 4px; }
+.pchat-log-row { display: flex; flex-direction: column; gap: 2px; background: rgba(255,255,255,.06); border-radius: 8px; padding: 5px 8px; }
+.pchat-log-row.me { background: rgba(255,208,106,.16); }
+.pchat-log-name { font: 800 10px "Arial Black", sans-serif; color: #9fe0a6; }
+.pchat-log-msg { font: 600 12px/1.3 inherit; color: #fff; word-break: break-word; }
+.pchat-log-msg .bub-emote { display: inline-block; width: 22px; height: 22px; background-repeat: no-repeat; image-rendering: pixelated; vertical-align: middle; }
+/* The composer stays a fixed-size block pinned at the rail's base — the log above is the only
+   scroller. Scoped to the rail specifically so #lobby-chat's own layout is untouched. */
+.party-chat-rail .party-chat { flex: none; margin-top: 8px; padding-top: 8px; border-top: 2px solid rgba(255,255,255,.14); gap: 6px; }
+.party-chat-rail .pchat-presets { gap: 4px; }
+.party-chat-rail .pchat-pre { padding: 5px 7px; font-size: 10.5px; }
+.party-chat-rail .pchat-pre.is-emote { width: 26px; height: 26px; }
+.party-chat-rail .pchat-input { font-size: 12px; padding: 7px 8px; }
+.party-chat-rail .pchat-send { padding: 7px 10px; font-size: 11px; }
+@media (max-width: 700px) {
+  #party { --party-rail-w: clamp(128px, 24vw, 190px); }
+}
 /* Invite screen sections (online / pending / accepted) */
 .fs-sections { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
 .fs-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin-bottom: 6px; letter-spacing: .3px; }

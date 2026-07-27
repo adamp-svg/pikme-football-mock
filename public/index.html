@@ -561,10 +561,13 @@
     <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
   </div>
 
-  <!-- Play With Friends · STEP 2: party roster (YOU centered big; party members smaller)
-       + game list. Opened after the party room is created; leave by tapping the empty
-       background (no back button, per the sub-page convention). renderParty() fills
-       #party-roster from the room's lobby members. Host picks a game → groups (#lobby). -->
+  <!-- Play With Friends · TEAM PAGE (roster + game list; own colour picked → groups #lobby).
+       This is now the FIRST screen «שחק עם חברים» lands on — the party room is created and this
+       shows immediately, no separate invite-first step. Leave by tapping the empty background (no
+       back button, per the sub-page convention). renderParty() fills #party-roster from the room's
+       lobby members. The `+` tile next to the hero (rendered by renderParty, see partyAddTile in
+       client.js) opens #friend-select as a MODAL on top of this page — it never navigates away, so
+       closing that sheet always lands back here with nothing lost. -->
   <div id="party" class="screen hidden">
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
@@ -573,18 +576,25 @@
         <div id="party-roster" class="party-roster"></div>
         <div class="party-games">
           <div class="party-games-h">בחרו משחק</div>
-          <!-- Rendered from MODES (party surface — see renderModeList in client.js). -->
+          <!-- Rendered from MODES (party surface — see renderModeList in client.js). Non-host taps
+               glow a vote (renderPartyVotes); only the HOST's tap decides (partyGame). -->
           <div class="mode-list" data-modes="party"></div>
         </div>
-        <!-- CHAT: preset phrases + up to 40 characters of free text. Party rooms only (the server
-             refuses free text elsewhere — shared/quick-messages.js FREE_TEXT_ROOMS). The bubbles
-             themselves render on each member's block in the roster above. -->
-        <!-- TEAM-PAGE CHAT — built by renderPartyChat() from shared/quick-chat.js so the lobby and
-             the roster cannot drift apart. -->
-        <div id="party-chat" class="party-chat"></div>
         <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
       </div>
     </div>
+    <!-- CHAT RAIL: vertical column pinned to the physical right edge (own safe-area inset — see
+         style.css, `.party-chat-rail`), independent of the roster/games column to its left. History
+         scrolls above a composer pinned at the base. Per-member bubbles still render on each roster
+         block as before (partyBlock/.pr-say) — this rail is the scrolling LOG, not a replacement. -->
+    <aside id="party-chat-rail" class="party-chat-rail" dir="rtl">
+      <!-- Built by renderPartyChatLog() in client.js from the same `member.chat` the bubbles use. -->
+      <div id="party-chat-log" class="party-chat-log"></div>
+      <!-- Composer: preset phrases + up to 40 characters of free text. Party rooms only (the server
+           refuses free text elsewhere — shared/quick-messages.js FREE_TEXT_ROOMS). Built by
+           renderPartyChat() from shared/quick-chat.js so the lobby and the roster cannot drift apart. -->
+      <div id="party-chat" class="party-chat"></div>
+    </aside>
   </div>
 
   <!-- #14: joiner "waiting for host approval" overlay (top-level). Closes on cancel or a

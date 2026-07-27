@@ -22,7 +22,7 @@ import { setPixelText, mountPixelDigitCss } from '/pixel-digits.js';
 import { renderHubRank, pollRank, armRankReveal } from '/hub-rank.js';
 import { TROPHIES_HE } from '/shared/rank.js';
 import { rankTopCards as rankFriendTop } from '/shared/friend-cards.js';
-import { SALTIZ_BOTS, SALTIZ_BOT_BY_ID, botLevelOf, xpForSaltizBot, saltizBotLoadout, searchSaltizBots } from '/shared/saltiz-bots.js';
+import { SALTIZ_BOTS, SALTIZ_BOT_BY_ID, botLevelOf, xpForSaltizBot, saltizBotLoadout, searchSaltizBots, colorForMemberId } from '/shared/saltiz-bots.js';
 import { QUICK_GROUPS, phraseById, REACTION_EMOJI, sanitizeFreeText, freeTextLeft, FREE_TEXT_MAX } from '/shared/quick-messages.js';
 import { CHAT_WORDS, CHAT_EMOTES, CHAT_SHEET, chatById, CHAT_BUBBLE_MS, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from '/shared/quick-chat.js';
 import { rosterCounts } from '/shared/roster.js';
@@ -2336,15 +2336,27 @@ document.addEventListener('click', (e) => {
   if (m.state !== 'live') { toast('בקרוב — עוד לא מוכן'); return; } // tappable, not dead
   if (card.dataset.modeKind === 'party') {
     unlockAudio(); syncLoadout();
-    // Private/party room: remember the pick; the room start sends it as `game`.
-    // Which flow we're in is decided by the CONTAINER, not by gameSelectMode —
-    // that flag is stale state from whichever flow opened the overlay last.
+    // TEAM PAGE (#party): only the HOST's tap is a decision — it is a ROOM fact (capacity, arena and
+    // win rule all follow from it, and every member's team page shows it), so it lands immediately
+    // via `partyGame` and groups everyone up. Anyone ELSE's tap is a VOTE — visible to the whole
+    // room as a glow (renderPartyVotes), but it changes nothing about the room and does not
+    // navigate anywhere; `partyGame` is the only message that can start the match (item 3).
+    if (card.closest('#party')) {
+      if (isRoomHost) {
+        selectedGame = m.id;
+        sendMsg({ type: 'partyGame', game: m.id });
+        showScreen('lobby');
+      } else {
+        sendMsg({ type: 'partyVote', game: m.id });
+      }
+      return;
+    }
+    // Private/party room, OUTSIDE #party (the game-select picker overlay — see openGameSelect):
+    // remember the pick; the room start sends it as `game`. Which flow we're in is decided by the
+    // CONTAINER, not by gameSelectMode — that flag is stale state from whichever flow opened the
+    // overlay last.
     selectedGame = m.id;
-    // The pick is a ROOM fact, not a client fact: capacity, arena and win rule all follow from it, and
-    // the other members' team page shows it. Sent whenever we are already in a private room; the
-    // setup flow (no room yet) still applies picks on roomJoined.
     if (!pendingPartyApply) sendMsg({ type: 'partyGame', game: m.id });
-    if (card.closest('#party')) { showScreen('lobby'); return; }   // host picked → group up
     closeGameSelect();
     if (gameSelectMode === 'setup') { pendingPartyApply = true; sendMsg({ type: 'createRoom' }); } // → roomJoined applies picks
     else { sendMsg({ type: 'ready', game: selectedGame }); toast('מתחילים…'); }
@@ -2612,6 +2624,15 @@ function decideRequest(joinerId, accept) {
   renderRoomRequests();
 }
 function kickMember(memberId) { sendMsg({ type: ROOM_MSG.KICK, memberId }); }
+// Party-roster kick (item 5): same confirm PATTERN as removeFriend() — a destructive action on
+// another person asks first. The #lobby team-row kick above stays as it was (no confirm); this is
+// a NEW affordance on the #party roster blocks, so it gets the confirm the task asked for without
+// changing the existing control's behaviour. The server enforces host-only regardless (kick is
+// refused for a non-host in server.js), so this confirm is UX, not the real guard.
+function confirmKickMember(memberId, name) {
+  if (!confirm(`להסיר את ${name || 'השחקן'} מהקבוצה?`)) return;
+  kickMember(memberId);
+}
 
 function showRoomWait(code) {
   if (!roomWaitEl) return;
@@ -3640,7 +3661,7 @@ function mateRankText(m) {
   if (f.level != null) bits.push('דרגה ' + f.level);
   return bits.join(' · ');
 }
-function partyBlock({ big, name, cosmetic, cards, rankText, chat }) {
+function partyBlock({ big, name, cosmetic, cards, rankText, chat, memberId, canKick }) {
   const wrap = document.createElement('div'); wrap.className = big ? 'pr-me' : 'pr-mate';
   // SPEECH BUBBLE — the member's last message, above their hero.
   // IN FLOW, not absolutely positioned: at 3v3 there are six blocks on a phone, and absolute bubbles
@@ -3656,7 +3677,33 @@ function partyBlock({ big, name, cosmetic, cards, rankText, chat }) {
   wrap.appendChild(partyHeroCanvas(cosmetic, big));
   const nm = document.createElement('div'); nm.className = 'pr-name'; nm.textContent = name; wrap.appendChild(nm);
   wrap.appendChild(partyCardsRow(cards));
+  // HOST-ONLY KICK (item 5) — never on yourself (`big` blocks, i.e. .pr-me, never get one). A real
+  // <button> so isDismissBackdrop's generic control whitelist keeps a tap on it from also reading as
+  // a tap on the party's empty background (which would leave the room — see partyEl's click guard).
+  if (!big && canKick && memberId) {
+    const kick = document.createElement('button');
+    kick.type = 'button'; kick.className = 'pr-kick'; kick.textContent = '✕';
+    kick.setAttribute('aria-label', 'הסרה מהקבוצה');
+    kick.addEventListener('click', (e) => { e.stopPropagation(); confirmKickMember(memberId, name); });
+    wrap.appendChild(kick);
+  }
   return wrap;
+}
+// + TILE (item 2): pixel-art `+` beside the hero, ALWAYS present (any party size, not just solo) —
+// opens the invite sheet as a modal over this page. Built from the shared icon pack directly
+// (.build-icon > .saltiz-icon.si-add), not a text glyph, so it never depends on the page-wide
+// emoji→icon compatibility layer having already run.
+function partyAddTile() {
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.id = 'party-invite-tile'; btn.className = 'pr-add';
+  btn.setAttribute('aria-label', 'הזמן חבר');
+  const ic = document.createElement('span'); ic.className = 'pr-add-ic build-icon';
+  const sp = document.createElement('span'); sp.className = 'saltiz-icon si-add'; sp.setAttribute('aria-hidden', 'true');
+  ic.appendChild(sp);
+  const lb = document.createElement('span'); lb.className = 'pr-add-label'; lb.textContent = 'הזמן חבר';
+  btn.append(ic, lb);
+  btn.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio(); openInviteSheet(); });
+  return btn;
 }
 let partyRenderSig = '';
 function renderParty(msg) {
@@ -3664,30 +3711,40 @@ function renderParty(msg) {
   const members = (msg || lastLobby || {}).members || [];
   // Each block renders a hero canvas + card art (expensive). Lobby broadcasts fire often, so
   // skip the full rebuild when the roster is unchanged (this was the friends→group lag).
-  // `m.chat.at` is in the signature on purpose: without it a new message would be skipped by the
-  // no-rebuild guard below and the bubble would never appear.
-  const sig = members.map((m) => (m.id || '') + ':' + (m.name || '') + ':' + (m.isBot ? 1 : 0) + ':' + JSON.stringify(m.cosmetic || 0) + ':' + JSON.stringify(m.loadout || 0) + ':' + ((m.chat && m.chat.at) || 0)).join('|')
+  // `m.chat.at` and `m.vote` are in the signature on purpose: without them a new message or a fresh
+  // vote would be skipped by the no-rebuild guard below and never appear.
+  const sig = members.map((m) => (m.id || '') + ':' + (m.name || '') + ':' + (m.isBot ? 1 : 0) + ':' + JSON.stringify(m.cosmetic || 0) + ':' + JSON.stringify(m.loadout || 0) + ':' + ((m.chat && m.chat.at) || 0) + ':' + (m.vote || '')).join('|')
     + '#' + JSON.stringify(myCosmetic || 0) + '#' + JSON.stringify(effectiveLoadout()) + '#' + (isRoomHost ? 1 : 0) + '#' + MY_NAME
     + '#' + ((msg || lastLobby || {}).game || '') + '#' + ((msg || lastLobby || {}).maxPlayers || 0);
-  if (sig === partyRenderSig && partyRosterEl.childElementCount) return; // unchanged → no rebuild
+  const lob = msg || lastLobby || {};
+  if (sig === partyRenderSig && partyRosterEl.childElementCount) { renderPartyVotes(lob); return; } // unchanged roster → still refresh votes (cheap, no canvas rebuild)
   partyRenderSig = sig;
   const mates = members.filter((m) => m.id !== myMemberId);
   const meMember = members.find((m) => m.id === myMemberId) || null;
   const meBlock = partyBlock({ big: true, name: MY_NAME + ' (אני)', cosmetic: myCosmetic, cards: effectiveLoadout(), rankText: myRankXpText(), chat: meMember && meMember.chat });
-  const mateBlock = (m) => partyBlock({ big: false, name: (m.isBot ? '🤖 ' : '') + (m.name || ''), cosmetic: m.cosmetic, cards: m.loadout, rankText: mateRankText(m), chat: m.chat });
-  // YOU sit in the MIDDLE with mates flanking you left + right (one row, wraps if needed).
+  // canKick: host-only (item 5) — the server enforces this too; see confirmKickMember/kickMember.
+  const mateBlock = (m) => partyBlock({ big: false, name: (m.isBot ? '🤖 ' : '') + (m.name || ''), cosmetic: m.cosmetic, cards: m.loadout, rankText: mateRankText(m), chat: m.chat, memberId: m.id, canKick: isRoomHost });
+  // YOU sit in the MIDDLE with mates flanking you left + right (one row, wraps if needed); the `+`
+  // TILE (item 2) always sits right next to your own hero, whatever the party's size.
   partyRosterEl.innerHTML = '';
   const half = Math.ceil(mates.length / 2);
   mates.slice(0, half).forEach((m) => partyRosterEl.appendChild(mateBlock(m)));
   partyRosterEl.appendChild(meBlock);
+  partyRosterEl.appendChild(partyAddTile());
   mates.slice(half).forEach((m) => partyRosterEl.appendChild(mateBlock(m)));
-  if (!mates.length) { const e = document.createElement('div'); e.className = 'pr-empty'; e.textContent = 'הזמינו חברים…'; partyRosterEl.appendChild(e); }
+  // SOLO EMPTY STATE: the team page is the FIRST thing seen now, so a party of one must not look
+  // broken — spell out that starting alone (with bots filling the rest) is a real option, not a
+  // stuck state waiting for a friend.
+  if (!mates.length) {
+    const e = document.createElement('div'); e.className = 'pr-empty';
+    e.textContent = 'אתם לבד כרגע — הזמינו חבר עם ה־+, או התחילו לבד ומקומות פנויים יתמלאו בבוטים';
+    partyRosterEl.appendChild(e);
+  }
   // Every member can advance to the groups page to pick a team; only the host starts.
   const hint = document.getElementById('party-hint');
   if (hint) { hint.textContent = 'בחרו משחק ואז קבוצה — המארח מתחיל'; hint.classList.toggle('hidden', isRoomHost); }
   // The picked mode and this room's capacity, so "3 נגד 3" is visible to everyone rather than being
   // a fact only the host's client knows.
-  const lob = msg || lastLobby || {};
   const gh = document.querySelector('.party-games-h');
   if (gh) {
     const picked = lob.game ? modeById(lob.game) : null;
@@ -3695,6 +3752,74 @@ function renderParty(msg) {
     gh.textContent = picked ? `${picked.name}${cap}` : 'בחרו משחק';
   }
   renderPartyChat(lob);
+  notePartyChatHistory(members); renderPartyChatLog();
+  renderPartyVotes(lob);
+  // Once the HOST decides (item 3), everyone still on the team page follows to team-select — the
+  // host's own tap already did this locally the instant they tapped; this is what gets everyone
+  // ELSE there too, since a non-host's tap no longer navigates (it only votes). Guarded by
+  // `!isRoomHost` so the host's own (already-navigated) client doesn't re-enter; harmless either way
+  // since #party is hidden for them by the time this broadcast lands.
+  if (lob.game && !isRoomHost) { closeInviteSheet(); showScreen('lobby'); }
+}
+// PER-MODE VOTE GLOW (item 3) — cheap enough to run on every lobby broadcast even when the roster
+// rebuild above was skipped: a small coloured dot per voter on the card they picked, and the ONE
+// card matching `lob.game` (the host's decision) marked `.mode-picked`. Scoped to #party's own
+// mode-list only — #game-select's legacy picker is untouched.
+function renderPartyVotes(lob) {
+  const list = document.querySelector('#party .mode-list[data-modes="party"]');
+  if (!list) return;
+  const members = (lob && lob.members) || [];
+  const votesByGame = new Map();
+  for (const m of members) {
+    if (!m.vote) continue;
+    const arr = votesByGame.get(m.vote) || []; arr.push(m); votesByGame.set(m.vote, arr);
+  }
+  list.querySelectorAll('.pcard[data-mode-id]').forEach((card) => {
+    const id = card.dataset.modeId;
+    card.classList.toggle('mode-picked', !!(lob && lob.game === id));
+    const voters = votesByGame.get(id) || [];
+    let dots = card.querySelector('.pc-votes');
+    if (!voters.length) { dots?.remove(); return; }
+    if (!dots) { dots = document.createElement('span'); dots.className = 'pc-votes'; card.appendChild(dots); }
+    dots.innerHTML = '';
+    voters.slice(0, 6).forEach((m) => {
+      const d = document.createElement('span'); d.className = 'pc-vote-dot';
+      d.style.background = colorForMemberId(m.id);
+      d.title = m.name || '';
+      dots.appendChild(d);
+    });
+  });
+}
+// ---- PARTY CHAT RAIL: scrolling history (item 2) -------------------------------------------
+// A rolling client-side log — the wire only ever carries each member's LATEST message
+// (lobbyPayload's `member.chat`), so the rail's history is assembled here from the broadcasts as
+// they arrive, keyed per member by `chat.at` so the same message is never appended twice.
+let partyChatLog = [];                // [{id,name,isBot,chat}], oldest first, capped
+const partyChatSeenAt = new Map();    // memberId -> last chat.at already logged
+function notePartyChatHistory(members) {
+  for (const m of members) {
+    const at = m.chat && m.chat.at; if (!at) continue;
+    if (partyChatSeenAt.get(m.id) === at) continue;
+    partyChatSeenAt.set(m.id, at);
+    partyChatLog.push({ id: m.id, name: m.name, isBot: !!m.isBot, chat: m.chat });
+  }
+  if (partyChatLog.length > 40) partyChatLog = partyChatLog.slice(-40);
+}
+function renderPartyChatLog() {
+  const el = document.getElementById('party-chat-log'); if (!el) return;
+  el.innerHTML = '';
+  if (!partyChatLog.length) {
+    const d = document.createElement('div'); d.className = 'pchat-log-empty'; d.textContent = 'אין הודעות עדיין';
+    el.appendChild(d);
+  } else {
+    for (const e of partyChatLog) {
+      const row = document.createElement('div'); row.className = 'pchat-log-row' + (e.id === myMemberId ? ' me' : '');
+      const nm = document.createElement('span'); nm.className = 'pchat-log-name'; nm.textContent = (e.isBot ? '🤖 ' : '') + (e.name || '');
+      const bd = document.createElement('span'); bd.className = 'pchat-log-msg'; bd.appendChild(chatBubbleNode(e.chat));
+      row.append(nm, bd); el.appendChild(row);
+    }
+  }
+  el.scrollTop = el.scrollHeight;   // newest message always visible at the bottom
 }
 // ---- PARTY CHAT ----------------------------------------------------------------------------
 // Two ways to say something on the team page: tap a PRESET phrase (the same list the friend threads
