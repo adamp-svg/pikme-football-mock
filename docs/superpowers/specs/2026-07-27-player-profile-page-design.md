@@ -25,9 +25,23 @@ rate, which nothing records.
 
 Nothing on this page is invented. Three sources:
 
-### 2.1 Server, already built
+### 2.1 Server
 `GET /handle-user/football/stats?phone=…` → `footballPublicStats()` in `pikme-server/routes-pikme/user.js`,
 and `GET /handle-friends/rank` for the live leaderboard position.
+
+⚠️ **CORRECTION to the approved design (found while planning).** That stats route resolves identity from
+`?phone=` or `?token=` **only — it does not read the football-auth JWT.** Consequences:
+
+- **Dev / LAN browser** (`?phone=` in the URL): works today through the game server's own
+  `/dev/progress` passthrough, which exists because pikme-server's CORS allowlist excludes localhost and
+  LAN IPs. The full page is verifiable at `:3012` with no backend change.
+- **In the app**: the game holds a football token and deliberately never holds the phone (the game is
+  PII-free by design), so it cannot call that route. `/handle-friends/rank` IS token-authed and already
+  resolves `UserInfo.findById(req.userId).select('phone')` server-side — so the fix is to have that route
+  return the career/W-L block it already has the phone to fetch. Additive, no new endpoint, no PII to the
+  client. That is Task 5 of the plan.
+- Until pikme-server is deployed, the in-app page shows trophies/level/rank plus every client-side
+  section, and the career section shows its empty state. The dev surface is unaffected.
 
 | Shown | Field |
 |---|---|
