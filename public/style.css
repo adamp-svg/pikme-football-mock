@@ -1048,7 +1048,13 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   position: relative; white-space: nowrap; box-sizing: border-box;
   color: #241a05; padding: 3px;
   background: linear-gradient(180deg, var(--c1) 0 50%, var(--c2) 50% 100%);
-  box-shadow: inset 2px 2px 0 rgba(255,255,255,.5), inset -2px -2px 0 rgba(0,0,0,.42);
+  /* Bevel removed (user, 2026-07-27 — the אדיר / 620 badges were the "thin lines" still visible after
+     the .hub-chip and .hub-xpbar borders went). It was
+       inset 2px 2px 0 rgba(255,255,255,.5), inset -2px -2px 0 rgba(0,0,0,.42)
+     i.e. a white 2px line down the top-left and a black one down the bottom-right. On a small gold
+     emblem those read as two stray hairlines rather than as depth. Nothing else depended on it: the
+     180deg gradient (light top half, dark bottom half) still gives the badge its dimension, the
+     clip-path keeps the chamfered pixel silhouette, and the drop-shadow keeps it lifted off the art. */
   filter: drop-shadow(0 3px 0 #070b08);
   image-rendering: pixelated;
   clip-path: polygon(

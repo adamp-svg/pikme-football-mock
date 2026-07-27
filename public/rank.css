@@ -46,10 +46,10 @@
 .hub-tier.hub-tier-unranked {
   /* The badge's clip-path (style.css) would eat a border, so the dashed frame is an inset ring drawn
      with box-shadow inside the notched silhouette. */
-  box-shadow:
-    inset 0 0 0 2px rgba(88, 98, 110, .55),
-    inset 2px 2px 0 rgba(255, 255, 255, .35),
-    inset -2px -2px 0 rgba(0, 0, 0, .22);
+  /* The dashed ring STAYS — it is what says "no rank yet" and is the whole point of this variant. Only
+     the light/dark bevel pair is dropped, matching the base .hub-rank/.hub-tier rule in style.css: the
+     user asked for those hairlines gone, and an unranked badge should not reintroduce them. */
+  box-shadow: inset 0 0 0 2px rgba(88, 98, 110, .55);
   /* filter is inherited from the base .hub-tier rule on purpose — same chunky pixel drop shadow, so the
      silhouette is identical to a ranked badge and only the CONTENT reads as absent. */
 }
