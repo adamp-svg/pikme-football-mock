@@ -2441,6 +2441,13 @@ document.addEventListener('click', (e) => {
 
 // Home actions.
 document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel(), trophies: myTrophies() }); });
+// Cancel a live search. Hidden once a group resolves — at that point a room exists and the match is
+// about to start, so "cancel" would mean leaving a match, not a queue.
+document.getElementById('ti-search-cancel')?.addEventListener('click', () => {
+  if (!searchingLive) return;
+  sendMsg({ type: 'cancelSearch' });
+  hideSearching(); quickVs = false; hideVs(); showScreen('home');
+});
 document.getElementById('friends-btn').addEventListener('click', () => {
   unlockAudio(); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';

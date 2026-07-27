@@ -2835,3 +2835,5 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    screenshot: "אין שחקנים פנויים כרגע" over "⚽ כדורגל · 2 נגד 2", both illegible. #ti-mode measures
    34px tall at this viewport; 44px clears it with a few px to spare. */
 #ti-mode:not(.hidden) ~ .ti-search { top: max(44px, calc(env(safe-area-inset-top) + 40px)); }
+.ti-search-cancel { pointer-events: auto; margin-top: 2px; font-size: 11px; padding: 2px 8px; }
+.ti-search.found .ti-search-cancel, .ti-search.alone .ti-search-cancel { display: none; }
