@@ -75,21 +75,12 @@ export const TU2_STRIP = { me: { x: 1400, y: MID }, foe: { x: 1800, y: MID } }; 
 export const TU2_PARK = { x: 120, y: 1000 };  // where level 2's foe waits out the steps it isn't in
 
 // --- LEVEL 3 geometry ------------------------------------------------------------------
-// FIND: the lesson is taught from the OTHER SIDE of the bush. The watcher is planted INSIDE it, so
-// it is genuinely invisible (BUSH_REVEAL_DIST = 110 — a bushed enemy renders at alpha 0 until you
-// are almost on top of it), and the kid is sent to look for it. Discovering that a bush ate a whole
-// player is what teaches that a bush will do the same for them; being told to stand in a bush
-// teaches only that the coach said so. The walk is ~610px, one screen, so the bush is on frame one.
-export const TU3_FIND = { me: { x: 600, y: MID }, foe: { x: 1210, y: MID } }; // foe = the bush's centre
-// FLY: the steel wall is BEHIND the kid and the whole pitch is in front. 84px of clearance is
-// deliberate — BOMB_WALL_DIST is 150, so the wall is inside the cannon's reach (×1.24 here) but not
-// close enough to stand in. applyTuStage points every stage's aim at +x, so a kid who taps 💣
-// without touching the aim stick flies RIGHT, into the open, first try.
-export const TU3_FLY = { me: { x: 640, y: MID }, foe: { x: 1900, y: 1020 } };
-
-// Level 3's scenery, and the only scenery in the tutorial. Declared HERE, below MID, and not up
-// with TU_FIELD: a module-level const that reads another one from inside an object initializer is a
-// TDZ crash waiting for the next reorder, and this repo has already lost a whole client.js to that.
+// The SCENERY comes first here, and the spawn spots are derived FROM it below. Both lessons are
+// about a specific object — hide inside THAT bush, cannon off THAT wall — so a spawn spot written as
+// its own literal is a second copy of the same fact, and the two drift the first time either moves.
+// (Declared below MID, never above it: a module-level const that reads another one from inside an
+// object initializer is a TDZ crash waiting for the next reorder, and this repo has already lost a
+// whole client.js to exactly that.)
 //   * the BUSH the watcher hides in;
 //   * one STEEL WALL for the rocket-jump to cannon off (MECHANICS §6: a static wall behind the
 //     launch peaks at BOMB_WALL_CANNON_STATIC = 1.55, ramped by proximity). The kid does NOT build
@@ -98,6 +89,22 @@ export const TU3_FLY = { me: { x: 640, y: MID }, foe: { x: 1900, y: 1020 } };
 export const TU3_BUSH = { x: 1040, y: 400, w: 340, h: 300 };
 export const TU3_WALL = { cx: 540, cy: MID, angle: Math.PI / 2, hl: 200, ht: 16 };
 export const TU3_FIELD = { version: 1, bushes: [TU3_BUSH], hardWalls: [TU3_WALL], dryWalls: [], crates: [] };
+// Dead centre of the bush, computed, not typed. The watcher standing anywhere near an EDGE is the
+// one way this step fails outright: the fade-in starts at BUSH_REVEAL_DIST (110) from the sprite, so
+// a foe near the rim is already half-visible from outside the leaves and there is nothing to find.
+export const TU3_BUSH_MID = { x: TU3_BUSH.x + TU3_BUSH.w / 2, y: TU3_BUSH.y + TU3_BUSH.h / 2 };
+// How far in front of the steel the kid stands for the launch. BOMB_WALL_DIST is 150, so this is
+// inside the cannon's reach (×1.24 here) and still clear of the stone.
+export const TU3_FLY_GAP = 84;
+// FIND: the lesson is taught from the OTHER SIDE of the bush. The watcher is planted INSIDE it, so
+// it is genuinely invisible, and the kid is sent to look for it. Discovering that a bush ate a whole
+// player is what teaches that a bush will do the same for them; being told to stand in a bush
+// teaches only that the coach said so. The walk is ~610px, one screen, so the bush is on frame one.
+export const TU3_FIND = { me: { x: 600, y: MID }, foe: TU3_BUSH_MID };
+// FLY: the steel wall is BEHIND the kid and the whole pitch is in front. applyTuStage points every
+// stage's aim at +x, so a kid who taps 💣 without touching the aim stick flies RIGHT, into the open,
+// first try. The foe sits in the far corner — this step is the kid and their own bomb, nobody else.
+export const TU3_FLY = { me: { x: TU3_WALL.cx + TU3_WALL.ht + TU3_FLY_GAP, y: MID }, foe: { x: 1900, y: 1020 } };
 
 // ---------------------------------------------------------------------------
 // The levels
