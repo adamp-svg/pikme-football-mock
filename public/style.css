@@ -3254,19 +3254,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-tu-gate .hub > * { pointer-events: none; filter: grayscale(.7) brightness(.55); transition: filter .18s ease; }
 .hub-tu-gate .hub .tu-live,
 .hub-tu-gate .hub .tu-live * { pointer-events: auto; filter: none; }
-.hub-tu-gate .hub .tu-live { position: relative; z-index: 3; }
+/* z-index ONLY. An earlier version also set `position: relative` here, which quietly destroyed the
+   layout: the BAKED LOBBY LAYOUT positions every hub box ABSOLUTELY, so overriding position sent
+   the lit element back to its static flow position — the finale's ⚽ ended up at x=1457 in an
+   844px viewport, off-screen, and the hand pointed faithfully at a button no kid could reach.
+   The boxes are already positioned, so z-index alone does what this rule needs. */
+.hub-tu-gate .hub .tu-live { z-index: 3; }
 /* The coach's own overlay must stay above the lit target. */
 .hub-tu-gate #tutorial { z-index: 40; }
-
-/* LEVEL 4's demo cards are a LESSON, not a collection. Say so ON the card: a kid should never be
-   shown three cards they don't own and left to work out later that they were props. */
-.cf-card.cf-demo::after {
-  content: 'דוגמה';
-  position: absolute; inset-inline-start: 4px; top: 4px; z-index: 2;
-  font: 700 9px/1 system-ui, sans-serif; letter-spacing: .5px;
-  color: #1b1b1b; background: #ffd06a; padding: 2px 4px; border-radius: 3px;
-  pointer-events: none;
-}
 
 /* The hub tour's own way out. The pitch levels dismiss with #leave-lobby-btn, which is a match
    control and is not on this screen; the gate makes everything else inert, so without this a kid
@@ -3280,3 +3275,78 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 #tu-hub-skip:active { transform: scale(.96); }
 #tu-hub-skip.hidden { display: none; }
+
+/* ===== LEVEL 4's MOCK LOBBY ========================================================
+   A lobby the tutorial draws itself. It exists because the REAL hub proved to be a moving
+   target: the wardrobe is an overlay not a screen, the carousel auto-rotates (and completed a
+   step by itself), effectiveLoadout() pre-filled the slots, and three agents change this hub
+   daily. A mock cannot drift out from under the lesson — and with no real setSlotCard in the
+   loop, a lesson card can never reach a kid's actual cross-device loadout.
+   Deliberately reads as a SIMPLIFIED hub, not a pixel copy: fewer things on screen is the whole
+   point of a first lesson, and a near-copy that is subtly wrong is worse than an honest sketch. */
+#tu-mock {
+  position: fixed; inset: 0; z-index: 38;
+  /* Content sits BELOW the caption band, not centred behind it. The coach's caption is anchored to
+     the top (right for a pitch, where the action is underneath) and at full size it landed square
+     on the trophy bar this very step is pointing at — the word covering the thing it names. */
+  display: grid; align-items: start; justify-items: center;
+  background: radial-gradient(120% 90% at 50% 0%, #1d2b3a 0%, #0e141c 70%);
+  padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+}
+#tu-mock.hidden { display: none; }
+.tum-stage {
+  width: min(100%, 720px); display: flex; flex-direction: column; gap: 8px;
+  padding-top: clamp(132px, 38vh, 156px);   /* clear of the caption band AND its step pips */
+}
+.tum-top { display: flex; align-items: center; gap: 10px; }
+
+.tum-trophies {
+  flex: 1; display: flex; align-items: center; gap: 6px;
+  background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 208, 106, .35);
+  border-radius: 10px; padding: 7px 10px; color: #ffd06a;
+  font: 700 13px/1 system-ui, sans-serif;
+}
+.tum-tro-n { font-size: 15px; }
+.tum-tro-l { color: #cfd8e3; font-weight: 600; font-size: 11px; }
+.tum-tro-bar { flex: 1; height: 6px; background: rgba(255, 255, 255, .12); border-radius: 99px; overflow: hidden; }
+.tum-tro-bar b { display: block; width: 62%; height: 100%; background: #ffd06a; }
+
+.tum-side, .tum-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 12px; padding: 8px 12px; color: #eaf0f7; cursor: pointer;
+  font: 700 10px/1 system-ui, sans-serif;
+}
+.tum-side span, .tum-hero-ic { font-size: 20px; }
+.tum-hero { padding: 10px 16px; }
+.tum-hero-ic { font-size: 32px; }
+
+.tum-mid { display: flex; align-items: center; gap: 12px; }
+.tum-deck { flex: 1; display: flex; gap: 8px; justify-content: center; }
+.tum-card {
+  width: 48px; height: 64px; border-radius: 8px; cursor: pointer;
+  display: grid; place-items: center; font-size: 24px;
+  background: rgba(255, 255, 255, .08); border: 2px solid rgba(255, 255, 255, .2);
+}
+.tum-card.r-rare { border-color: #57b6ff; }
+.tum-card.r-epic { border-color: #c07bff; }
+.tum-card.r-common { border-color: #9fb0c2; }
+.tum-card.tum-picked { transform: translateY(-6px) scale(1.06); box-shadow: 0 0 0 3px #ffd06a; }
+.tum-card.tum-used { opacity: .28; pointer-events: none; }
+
+.tum-slots { display: flex; gap: 10px; justify-content: center; }
+.tum-slot {
+  width: 46px; height: 58px; border-radius: 8px;
+  display: grid; place-items: center; font-size: 22px; color: #7d8b9c;
+  background: rgba(255, 255, 255, .04); border: 2px dashed rgba(255, 255, 255, .26);
+}
+.tum-slot.tum-full { border-style: solid; border-color: #ffd06a; color: #fff; background: rgba(255, 208, 106, .12); }
+
+.tum-friendrow { display: flex; gap: 10px; justify-content: center; color: #cfd8e3; font: 600 11px/1 system-ui, sans-serif; }
+.tum-friendrow.hidden { display: none; }
+
+/* The coach and its skip button ride ABOVE the mock. */
+#tutorial { z-index: 40; }
+/* A pitch caption is shouted across a stadium; a lobby caption sits on top of the furniture it is
+   naming, so it is sized down for the hub tour rather than left at pitch scale. */
+.hub-tu-gate .tu-caption b { font-size: clamp(20px, 4.4vw, 32px); text-shadow: 0 3px 0 #a56a16, 0 6px 0 #252a21, 0 8px 18px rgba(0,0,0,.55); }

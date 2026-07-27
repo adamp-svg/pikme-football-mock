@@ -18,7 +18,7 @@ import {
   tuLevel, stepsIn, stepAt, stageAt, doneStage, foeKeys,
   advance, isStepDone, showNudge, nudgeFor, captionFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel, fieldFor, subFor, markersFor, TU3_FIND, TU3_FLY, TU3_BUSH,
-  TU_HUB_LEVEL, tuIsHub,
+  TU_HUB_LEVEL, tuIsHub, tuIsMockStep,
 } from './shared/tutorial.js';
 import { bootServer } from './boot-test-server.mjs';
 // Every match control a step could claim — a HUB step must claim none of them.
@@ -108,7 +108,7 @@ console.log('A6) advance() walks each level to its end and then stops');
     // Every completion flag in the game, true at once — the walker asserts a level CAN be finished,
     // not how. The second line is level 4's, latched on the tutorial's own mock lobby.
     const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, quickHit: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99,
-      sawTrophies: true, deckMoved: true, slotFilled: true, heroDone: true, friendsDone: true, played: true };
+      sawTrophies: true, deckMoved: true, slotFilled: true, heroTapped: true, friendsTapped: true, played: true };
     for (let i = 0; i < L.steps.length; i++) n = advance(l, n, ctx);
     check(n === doneStage(l) && isTutorialOver(l, n), `${L.id}: 0 -> DONE (${n} of ${L.steps.length})`);
     check(advance(l, n, ctx) === doneStage(l), `${L.id}: DONE is terminal`);
@@ -268,7 +268,9 @@ console.log('A12) minDwell holds a finished step open so the lesson lands');
   const wallFoe = (stageAt(L2, 2).foes || [])[0];
   check(wallFoe.role === 'sentry' && wallFoe.armOn === 'wallBuilt',
     `the wall stage's sentry is armed by the build itself (armOn: '${wallFoe.armOn}')`);
-  check(!TU_LEVELS.flatMap((L) => L.stages).some((st) => (st.foes || []).some((f) => f.armOn && f.role !== 'sentry')),
+  // `.filter(L => L.stages)`: a HUB level has no pitch to stage, so flatMapping every level's
+  // stages walks off the end of the list.
+  check(!TU_LEVELS.filter((L) => L.stages).flatMap((L) => L.stages).some((st) => (st.foes || []).some((f) => f.armOn && f.role !== 'sentry')),
     'and armOn is only ever put on a foe that has a gun to hold');
   for (const [l, n] of [[L3, 0], [L3, 1]]) {
     const st = stepAt(l, n);
@@ -352,17 +354,23 @@ console.log('A16) level 4 completes on TAPS, and isStepDone needs no special-cas
   check(isStepDone(H, 1, { deckMoved: true }) === true, 'deck step completes when the carousel moves');
   check(isStepDone(H, 2, { slotFilled: true }) === true, 'slots step completes when a slot fills');
   check(isStepDone(H, 5, { played: true }) === true, 'play step completes on the tap');
-  // hero/friends open their own screen: opening is half the step, coming back is the other half.
-  check(isStepDone(H, 3, { heroOpened: true }) === false, 'hero step waits for the return');
-  check(isStepDone(H, 3, { heroDone: true }) === true, 'hero step completes back on the hub');
-  check(isStepDone(H, 4, { friendsOpened: true }) === false, 'friends step waits for the return');
-  check(isStepDone(H, 4, { friendsDone: true }) === true, 'friends step completes back on the hub');
+  check(isStepDone(H, 3, {}) === false, 'hero step incomplete until tapped');
+  check(isStepDone(H, 3, { heroTapped: true }) === true, 'hero step completes on the tap');
+  check(isStepDone(H, 4, {}) === false, 'friends step incomplete until tapped');
+  check(isStepDone(H, 4, { friendsTapped: true }) === true, 'friends step completes on the tap');
   // Unfailable, like every other level: the nudge escalates and that is all it does.
   check(showNudge(H, 1, { stepElapsed: 999 }) === true, 'a stuck kid gets the nudge');
   check(showNudge(H, 1, { stepElapsed: 999, deckMoved: true }) === false, 'no nudge once done');
   check(advance(H, 5, { played: true }) === doneStage(H), 'the last step ends the level');
   // No control is ever claimed by a hub step — the sticks and buttons are not on this screen.
   check(L4_CTLS.every((c) => !tuHasControl(H, 0, c)), 'a hub step claims no match controls');
+  // The MOCK/REAL split: the lesson happens on a lobby the tutorial draws, and only the finale
+  // touches the live hub. If a teaching step ever loses its `mock` flag it starts driving the real
+  // hub again, which is the whole class of bug the mock was adopted to remove.
+  check([0, 1, 2, 3, 4].every((n) => tuIsMockStep(H, n)), 'the five teaching steps run on the mock');
+  check(tuIsMockStep(H, 5) === false, 'the finale runs on the REAL hub — the tour ends in a real match');
+  check(stepAt(H, 5).spotlight === 'hubPlay', 'and it points at the real quick-match button');
+  check([0, 1, 2, 3, 4].every((n) => /^mock/.test(stepAt(H, n).spotlight)), 'every teaching step points at a mock target');
 }
 
 console.log('A17) the hub tour is EXEMPT from the sequential chain (it auto-launches after level 1)');

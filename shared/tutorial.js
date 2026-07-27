@@ -327,28 +327,42 @@ export const TU_LEVELS = [
     where: 'hub',
     // No `stages` and no `field`: there is no pitch to set up. stageAt/foeKeys/fieldFor all tolerate
     // a stageless level rather than each caller having to remember to check.
+    //
+    // Steps 1-5 run on a MOCK lobby the tutorial draws itself; only the last one touches the real
+    // hub. That split was not the first design — the tour originally ran on the live hub, and a
+    // browser found four bugs in a row that all came from the same root: the real hub is a moving
+    // target. The wardrobe is an overlay rather than a screen swap, the carousel auto-rotates and
+    // completed a step with no input, effectiveLoadout() pre-filled the slots so the drag step was
+    // already done on arrival, and localhost quietly injects a sample album that hid the
+    // empty-album path completely. On top of that, three agents change this hub daily.
+    //
+    // A mock cannot drift out from under the lesson, and it removes the risk that mattered: with
+    // no real setSlotCard in the loop, a demo card can never reach a kid's actual cross-device
+    // loadout. The last step still points at the REAL ⚽, so the tour keeps its payoff — it ends
+    // by putting the kid in an actual match, not on a picture of one.
     steps: [
       // The trophy bar cannot be tapped, so there is no gesture to teach — the lesson is "this
       // number is yours and it goes up when you win". minDwell holds it open long enough to read;
       // 686a72f added minDwell for exactly this class of lesson, one that is watched, not done.
-      { id: 'trophies', controls: [], spotlight: 'hubTrophies', gesture: 'none',
+      // `mock: true` = this step runs on the tutorial's own lobby. The one step without it is the
+      // finale, which points at the real thing.
+      { id: 'trophies', mock: true, controls: [], spotlight: 'mockTrophies', gesture: 'none',
         cap: 'גביעים', sub: 'נצחון = עוד גביעים', minDwell: 2.5,
         nudge: 'זה שלך — הוא עולה כשמנצחים', nudgeAfter: 6, done: 'sawTrophies' },
-      { id: 'deck', controls: [], spotlight: 'hubDeck', gesture: 'pull',
-        cap: 'הקלפים שלך', sub: 'החלק לראות עוד',
-        nudge: 'החלק את הקלפים', nudgeAfter: 8, done: 'deckMoved' },
-      { id: 'slots', controls: [], spotlight: 'hubSlots', gesture: 'pull',
+      { id: 'deck', mock: true, controls: [], spotlight: 'mockDeck', gesture: 'tap',
+        cap: 'הקלפים שלך', sub: 'הקש קלף לבחירה',
+        nudge: 'הקש על אחד הקלפים', nudgeAfter: 8, done: 'deckMoved' },
+      { id: 'slots', mock: true, controls: [], spotlight: 'mockSlots', gesture: 'pull',
         cap: 'גרור לכאן', sub: 'שלושה כוחות למשחק',
         nudge: 'גרור קלף לתוך משבצת', nudgeAfter: 10, done: 'slotFilled' },
-      // hero/friends open a screen of their OWN, so each completes on a composite flag the client
-      // derives (opened AND back on the hub). Completing on the tap alone would point the next
-      // step's hand at a hub button currently hidden behind the wardrobe.
-      { id: 'hero', controls: [], spotlight: 'hubHero', gesture: 'tap',
+      { id: 'hero', mock: true, controls: [], spotlight: 'mockHero', gesture: 'tap',
         cap: 'החלף מראה', sub: 'בחר איך תיראה',
-        nudge: 'הקש על הדמות', nudgeAfter: 10, done: 'heroDone' },
-      { id: 'friends', controls: [], spotlight: 'hubFriends', gesture: 'tap',
+        nudge: 'הקש על הדמות', nudgeAfter: 10, done: 'heroTapped' },
+      { id: 'friends', mock: true, controls: [], spotlight: 'mockFriends', gesture: 'tap',
         cap: 'שחק עם חבר', sub: 'הזמן חברים למשחק',
-        nudge: 'הקש על חברים', nudgeAfter: 10, done: 'friendsDone' },
+        nudge: 'הקש על חברים', nudgeAfter: 10, done: 'friendsTapped' },
+      // THE REAL BUTTON. The mock is dismissed first, so the last thing the lesson teaches is the
+      // actual control, and the tap that ends the tutorial is the one that starts a real match.
       { id: 'play', controls: [], spotlight: 'hubPlay', gesture: 'tap',
         cap: 'קדימה!', sub: 'הכי מהר להתחיל לשחק',
         nudge: 'הקש כדי לשחק', nudgeAfter: 10, done: 'played' },
@@ -369,6 +383,8 @@ export const stageAt = (l, n) => { const L = tuLevel(l); return (L && L.stages) 
 // Declared HERE, above tuUnlocked, because tuUnlocked calls it and a `const` arrow below it would
 // hit a temporal-dead-zone at module evaluation.
 export const tuIsHub = (l) => { const L = tuLevel(l); return !!L && L.where === 'hub'; };
+// Does this step run on the tutorial's own mock lobby, or on the real hub?
+export const tuIsMockStep = (l, n) => { const s = stepAt(l, n); return !!s && !!s.mock; };
 export const TU_HUB_LEVEL = TU_LEVELS.findIndex((L) => L.where === 'hub');
 // Stage index that means "finished": one past the last step. The client shows the celebration and
 // records the level as done on seeing it.
