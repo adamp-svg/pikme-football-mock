@@ -17,6 +17,7 @@ import {
 import {
   TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, GOAL, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD, INTRO_PROMO,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD, GOALS_TO_WIN,
+  MM_BUDGET_QUICK_MS, MM_BUDGET_MODE_MS, MM_REVEAL_MS,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
 import { coalesceInput, consumeEdges } from './shared/input-merge.js';
@@ -32,7 +33,8 @@ import { opponentKeyFor } from './shared/opponent-key.js';
 import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, botSideScalar, botLoadoutForLevel } from './shared/bot-buffs.js';
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
-import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot } from './shared/difficulty.js';
+import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot, botLevelFromXp } from './shared/difficulty.js';
+import { planMatches, bandOf } from './shared/matchmaker.js';
 import { isChatId, chatById, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
 import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout } from './shared/saltiz-bots.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
@@ -155,6 +157,46 @@ const publicRooms = new Map();
 const formingRoom = (mode) => publicRooms.get(mode) || null;
 // Drop a room from its matchmaking pool (it started, or it died) so the next joiner forms a fresh one.
 function clearForming(room) { for (const [mode, r] of publicRooms) if (r === room) publicRooms.delete(mode); }
+
+// --- MATCHMAKING QUEUE -----------------------------------------------------------------------
+// Waiting players hold a TICKET, not a room. The old model kept one forming room per mode and put
+// whoever arrived into it, which is why trophies were never consulted: there was nowhere to consult
+// them. It also made widening impossible — widening under that model means MERGING two half-full
+// rooms that each hold members, a countdown and a botPlan, mid-tick.
+//
+// A ticket is the ONLY state a searching player has, so cancelling is a single delete.
+const tickets = new Map(); // memberId -> { memberId, mode, level, trophies, queuedAt, budgetMs, graceUntil, member }
+
+function enqueue(member, mode, budgetMs, trophies) {
+  dequeue(member.id);                     // a member never holds two tickets
+  leaveCurrentRoom(member);
+  const t = Number.isFinite(+trophies) ? Math.max(0, +trophies) : null;
+  member.trophies = t;
+  tickets.set(member.id, {
+    memberId: member.id, mode, budgetMs,
+    trophies: t == null ? 0 : t,
+    level: bandOf(t == null ? xpFallbackTrophies(member) : t),
+    queuedAt: nowMs(), graceUntil: null, member,
+  });
+  send(member.ws, { type: 'searching', mode, phase: 'searching', bandLo: 0, bandHi: 0,
+    searchingCount: 0, remainingMs: budgetMs, slots: { filled: 1, total: roomMaxForMode(mode) } });
+}
+function dequeue(memberId) { tickets.delete(memberId); }
+
+// An OLDER CLIENT sends no trophies. Defaulting those to 0 would put a veteran on a stale build into
+// L1 and feed them to beginners, so fall back to the diffLevel they already send (client-derived from
+// the same XP), then to DEFAULT_LEVEL. Such a ticket is also never granted the grace extension.
+function xpFallbackTrophies(member) {
+  const lv = Number.isFinite(+member.diffLevel) ? clampLevel(+member.diffLevel) : DEFAULT_LEVEL;
+  return xpForBotLevel(lv);
+}
+// Player level -> a representative trophy total for that level, matching the hub XP-bar curve
+// (base = 50*p*(p-1), the same formula xpForBotLevel uses). Needed because a group carries a player
+// LEVEL (1..12+) while botLevelFromXp wants trophies. The two ladders are off by one and clamp
+// differently, so never assign across them without going through here.
+const xpForPlayerLevel = (level) => 50 * Math.max(1, level | 0) * (Math.max(1, level | 0) - 1);
+const roomMaxForMode = (mode) => ((FORMATS[mode] || FORMATS.quick).teamSize) * 2;
+
 let memberCounter = 0, roomCounter = 0;
 // Monotonic match counter. It is only monotonic WITHIN ONE PROCESS — the "never resets" in the old
 // comment here was wrong, and it cost real matches.
@@ -480,30 +522,64 @@ function transferHost(room) {
   }
 }
 
-// THE entry point for every public matchmade mode — quick match (ראשון ל-3) and goal-brawl
-// (קרב על השער, timed most-goals) both land here, and 3v3/5v5 will too. Identical flow for all
-// of them; the FORMATS row supplies the win rule. `matchmade: true` on roomJoined is what tells
-// the client to show the VS/teams page with the power cards — so a new format cannot be born
-// with a different pre-match screen the way goal-brawl was.
-function joinMatchmade(member, mode, diffLevel) {
-  const fmt = FORMATS[mode] || FORMATS.quick;
-  leaveCurrentRoom(member);
-  // Join the forming room for THIS format if there's space & it hasn't started; else open one.
-  let room = formingRoom(mode);
-  if (!room || room.phase === 'match' || room.members.size >= roomMax(room)) {
-    room = makeRoom(`${fmt.prefix}-${++roomCounter}`, false);
-    applyFormat(room, mode); // format + teamSize (→ slots, bot fill, kickoff formation) + win rule
-    rooms.set(room.id, room);
-    publicRooms.set(mode, room);
+// Enter the matchmaking QUEUE. No room exists yet — planMatches decides when one should.
+// `budgetMs` comes from the ENTRY POINT, not the format: the yellow משחק מהיר button and the 2v2
+// picker card both resolve to format 'quick', so 5s-vs-10s can only be expressed per ticket.
+function joinMatchmade(member, mode, diffLevel, trophies, budgetMs) {
+  if (typeof diffLevel === 'number') member.diffLevel = clampLevel(diffLevel);
+  enqueue(member, FORMATS[mode] ? mode : 'quick', budgetMs || MM_BUDGET_MODE_MS, trophies);
+}
+
+// One matcher pass. Called from tickAll, so it runs at TICK_RATE with the rest of the sim.
+function runMatchmaker() {
+  if (!tickets.size) return;
+  const { groups, waiting, grants } = planMatches(tickets.values(), nowMs(), { roomMaxFor: roomMaxForMode });
+  // Stamp the grants the pure function asked for. It never mutates its input, so this is the one
+  // place graceUntil is written — which is also what makes "granted at most once" enforceable.
+  for (const g of grants) {
+    const t = tickets.get(g.memberId);
+    // A ticket with unknown trophies never gets extended: we do not know its band well enough to
+    // justify making it wait longer.
+    if (t && t.member.trophies != null) t.graceUntil = g.graceUntil;
+    else if (t) t.graceUntil = nowMs(); // mark spent so it resolves next tick instead of looping
   }
-  // Bots reflect the joining player's XP-driven level. Applied before the countdown/preview so the
-  // VS badge + previewed bot cards match from the first tick. Shared public room => last-writer-wins.
-  if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
-  addToRoom(member, room);
-  send(member.ws, { type: 'roomJoined', mode, matchmade: true, code: null });
-  // Room is full (all human slots taken) -> start now; no point waiting out the countdown.
-  if (room.members.size >= roomMax(room)) { startMatch(room); return; }
-  if (room.phase === 'lobby') startCountdown(room); // first in: open the 5s matchmaking window
+  for (const w of waiting) {
+    const t = tickets.get(w.memberId);
+    if (!t) continue;
+    send(t.member.ws, { type: 'searching', mode: t.mode, phase: w.phase,
+      bandLo: w.bandLo, bandHi: w.bandHi, searchingCount: w.searchingCount,
+      remainingMs: Math.round(w.remainingMs), slots: { filled: 1, total: roomMaxForMode(t.mode) } });
+  }
+  for (const g of groups) formGroup(g);
+}
+
+// Turn a decided group into a real room. Every side effect lives here; planMatches has none.
+function formGroup(group) {
+  const fmt = FORMATS[group.mode] || FORMATS.quick;
+  const room = makeRoom(`${fmt.prefix}-${++roomCounter}`, false);
+  applyFormat(room, group.mode);
+  rooms.set(room.id, room);
+  // Bot difficulty from the group's MEDIAN human, computed ONCE. The old code set room.diffLevel from
+  // whoever joined most recently, so in a shared public room the newest arrival picked the difficulty
+  // for everyone already waiting.
+  room.diffLevel = botLevelFromXp(xpForPlayerLevel(group.level));
+  room.mmReason = group.reason;         // diagnostics + the client's screen hint
+  room.mmBandLo = group.bandLo; room.mmBandHi = group.bandHi;
+  // HUMANS ON OPPOSITE TEAMS: sorted by trophies and alternated, so the two closest-matched players
+  // are the ones opposed and the human contest decides the match.
+  const members = group.memberIds.map((id) => tickets.get(id)).filter(Boolean)
+    .sort((a, b) => b.trophies - a.trophies).map((t) => t.member);
+  members.forEach((m, i) => { m.team = i % 2 === 0 ? 'A' : 'B'; });
+  for (const m of members) {
+    dequeue(m.id);
+    addToRoom(m, room);
+    send(m.ws, { type: 'roomJoined', mode: group.mode, matchmade: true, code: null,
+      mmReason: group.reason, humans: members.length });
+  }
+  // Fixed reveal on EVERY path, however the group formed. A full room used to call startMatch
+  // directly — fast, but with no VS beat at all.
+  room.phase = 'countdown';
+  room.countdownT = MM_REVEAL_MS / 1000;
   broadcastLobby(room);
 }
 
@@ -744,6 +820,7 @@ function joinPrivateRoom(member, code) {
 
 // Remove a member from their room; clean up / keep the match alive as needed.
 function leaveCurrentRoom(member) {
+  dequeue(member.id); // a member leaving/disconnecting while merely QUEUED (no room yet) must still drop its ticket
   clearPending(member); // if this member had an outstanding join request, drop it + tell that host
   const room = member.room;
   if (!room) return;
@@ -931,6 +1008,7 @@ function tickRoom(room) {
 
 function tickAll() {
   try {
+    runMatchmaker();
     for (const room of [...rooms.values()]) tickRoom(room);
   } catch (e) { if (tickErrCount++ < 5) console.error('TICK ERROR:', (e && e.stack) || e); }
 }
@@ -1324,9 +1402,10 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'setCards') { member.cards = sanitizeCards(msg.cards); member.loadout = sanitizeLoadout(member.loadout, member.cards); return; }
       // Both public modes go through the ONE matchmade path (see joinMatchmade). Keep the two
       // legacy msg types — old clients/builds still send them — and route by format.
-      if (msg.type === 'quickMatch') { joinMatchmade(member, 'quick', msg.diffLevel); return; }
-      if (msg.type === 'goalBrawl') { joinMatchmade(member, 'brawl', msg.diffLevel); return; }
-      if (msg.type === 'matchmade') { joinMatchmade(member, FORMATS[msg.format] ? msg.format : 'quick', msg.diffLevel); return; }
+      if (msg.type === 'quickMatch') { joinMatchmade(member, 'quick', msg.diffLevel, msg.trophies, MM_BUDGET_QUICK_MS); return; }
+      if (msg.type === 'goalBrawl') { joinMatchmade(member, 'brawl', msg.diffLevel, msg.trophies, MM_BUDGET_MODE_MS); return; }
+      if (msg.type === 'matchmade') { joinMatchmade(member, FORMATS[msg.format] ? msg.format : 'quick', msg.diffLevel, msg.trophies, MM_BUDGET_MODE_MS); return; }
+      if (msg.type === 'cancelSearch') { dequeue(member.id); send(member.ws, { type: 'toHome', online: onlineCount() }); return; }
       if (msg.type === 'training') { startTraining(member, msg.diffLevel); return; }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field, msg.diffLevel); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
@@ -1490,6 +1569,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.type === 'leaveRoom') {
+        dequeue(member.id);
         leaveCurrentRoom(member);
         send(ws, { type: 'toHome', online: onlineCount() });
         return;
@@ -1628,6 +1708,7 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     if (!member) return;
     members.delete(ws);
+    dequeue(member.id);
     if (member.userId && onlineByUser.get(member.userId) === member) {
       onlineByUser.delete(member.userId);
       notifyFriendsOfPresence(member.userId);
