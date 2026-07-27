@@ -43,6 +43,12 @@
 
 ## 2026-07-27
 
+- **New players start at 50% volume for both music and SFX (agent `corner-style`).** User: "i want the voulme at the start of the game for new player when they start to be at 50% for both songs and sounds."
+  - **File taken:** `public/client.js` only (2 literals + comment, orchestration lock held/released). No markup change — the sliders in `index.html` carry no `value` attribute, they take their position from these variables.
+  - `soundVol` 0.72 → **0.5**, `musicUserVol` 0.6 → **0.5** (`public/client.js` ~line 283/285). These are STARTING values only: the `pikme-soundvol` / `pikme-musicvol` reads a few lines below still win, so no existing player's own setting is rewritten.
+  - **Verified in real Chrome (CDP, :3063/:9363, clear of other agents' ports), 6/6:** a fresh browser profile (genuinely empty localStorage — nothing stored) opens BOTH sliders at 0.5; a player with stored 0.15 SFX / 0.9 music reloads and keeps exactly those, not 50%; moving a slider still persists (0.35 written through). `node --check` clean; no test pins the old defaults.
+  - **Status: done, committed locally, NOT pushed** (no push was asked for — it ships with the repo's next push).
+
 - **Arena builder corners: auto-built + styled per corner, not per session (agent `corner-style`).** User: "in the arena builder there is a bug with the corner build. 1. the corners should be built automatically not from user 2. the corner choice could be done from user while selecting the corner."
   - **What was wrong:** corner GEOMETRY was already automatic (`wallJoints`/`jointPolygon` derive a hull where walls meet), but the LOOK was one global flag — `#b-joint` flipped `fbJointStyle` in `localStorage['pikme-joint-style']` for every corner of every field, and the author had to choose it up front, before drawing the walls it applied to.
   - **Files taken:** `public/client.js` (13 hunks, orchestration lock held), `shared/arena.js` (1 line), new `shared/joint-style.js` + `test-joint-style.mjs`. Left `public/index.html` / `public/style.css` alone — the `⬛ פינה` button was reused, no markup change.

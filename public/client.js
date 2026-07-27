@@ -274,9 +274,15 @@ const SOUND_FILES = {
 let audioCtx = null;
 let masterGain = null;
 let soundEnabled = true;   // SFX master on/off (kept true; volume drives loudness)
-let soundVol = 0.72;       // SFX volume 0..1 (settings slider)
+// NEW-PLAYER DEFAULTS: both sit at 50% (user, 2026-07-27 — a first game used to open at 72% SFX /
+// 60% music, loud enough that the first thing some players did was reach for the sliders). These are
+// only the starting values: the reads a few lines below let ANY stored 'pikme-soundvol' /
+// 'pikme-musicvol' win, so an existing player's own setting is never rewritten to 50%.
+// Both sliders take their position from these variables, so the numbers here are what the settings
+// screen shows on a first run — index.html deliberately carries no `value` attribute.
+let soundVol = 0.5;        // SFX volume 0..1 (settings slider)
 let musicEnabled = true;   // background music on/off — the 🎵 button
-let musicUserVol = 0.6;    // user music volume 0..1 (multiplies each track's own base level)
+let musicUserVol = 0.5;    // user music volume 0..1 (multiplies each track's own base level)
 const soundBuffers = new Map();
 let soundLoading = null;
 let soundEventsReady = false;
