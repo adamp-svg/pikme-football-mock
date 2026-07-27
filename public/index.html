@@ -777,6 +777,39 @@
 
     <div id="banner" class="banner hidden"></div>
 
+    <!-- TUTORIAL coach layer (the scripted first match — see
+         docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md). A SILENT coach: no
+         character, no dialogue, and it never pauses the game. Per step it dims everything except
+         the one live control, animates a hand doing the actual gesture over it, and prints 1-2
+         Hebrew words. Kids are the audience, so the bar is that a child who cannot read Hebrew
+         still finishes — the hand carries the lesson, the words only confirm it.
+         The world-space markers (ring / dummy ping / goal arrow) are drawn on #canvas with the
+         rest of the pitch, not here; only screen-space furniture lives in the DOM. -->
+    <div id="tutorial" class="tutorial hidden" dir="rtl" aria-live="polite">
+      <!-- Spotlight: a dimming veil with a hole punched over the live control (positioned by JS
+           from the control's real anchor, so it tracks a moved/resized stick). -->
+      <div id="tu-veil" class="tu-veil"></div>
+      <div id="tu-hand" class="tu-hand" aria-hidden="true"></div>
+      <div class="tu-caption">
+        <b id="tu-cap"></b>
+        <small id="tu-nudge" class="hidden"></small>
+        <!-- Step pips: how far through the four steps we are. No numbers — dots read at a glance
+             and need no reading age. Stacked with the caption so the coach's furniture is one
+             object; along the bottom edge they sat on the build tag and between both thumbs. -->
+        <div id="tu-pips" class="tu-pips" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <!-- Tutorial finale: the one full-screen beat in the whole flow, and only after the winning
+         goal. Celebration ONLY — no XP, no trophies, no cards (c86fa82: practice pays nothing). -->
+    <div id="tu-done" class="tu-done hidden" dir="rtl">
+      <div class="tu-done-card">
+        <div class="tu-done-ic">🎉</div>
+        <b>אתה מוכן!</b>
+        <button id="tu-done-btn" class="tu-done-btn">למשחק הראשון שלי ›</button>
+      </div>
+    </div>
+
     <!-- On-screen joysticks (touch). Hidden until first touch. -->
     <div id="stickL" class="stick hidden"><div class="knob"></div></div>
     <div id="stickR" class="stick hidden"><div class="knob"></div></div>
@@ -870,6 +903,11 @@
     <div class="settings-card" dir="rtl">
       <h2>אימון</h2>
       <div class="train-choose-opts">
+        <!-- REPLAY of the scripted first match. Unconditional on purpose: localStorage's
+             fbTutorialDone gates only the AUTO-launch, never access, so this works whether the
+             flag is set, missing or corrupt. First entry in the list — it is the one a lost
+             player wants. -->
+        <button id="tc-howto" class="tc-opt tc-howto"><b>🎓 איך משחקים?</b><small>הסבר קצר · שחקו תוך כדי</small></button>
         <button id="tc-ground" class="tc-opt"><b>🎯 מגרש אימון</b><small>תרגול מול דמה וצלף</small></button>
         <button id="tc-bots" class="tc-opt"><b>🤖 משחק מול בוטים</b><small>משחק 2 נגד 2 מלא</small></button>
       </div>

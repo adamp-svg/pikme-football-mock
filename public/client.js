@@ -9,6 +9,10 @@ import {
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
+import {
+  TU_COUNT, TU_DONE, TU_RING, TU_DUMMY, TU_GOAL,
+  stepAt, advance, isStepDone, showNudge, tuHasControl, isTutorialOver,
+} from '/shared/tutorial.js';
 import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
 import { MAIN_FIELD } from '/shared/main-field.js';
@@ -75,6 +79,8 @@ let matchDiffLevel = null;     // authoritative bot difficulty (0..11) — match
 let matchDiffFloor = null;
 let matchOpponentKey = '';     // server-computed opaque id of MY human opponents (win-trading cap); '' vs bots
 let training = false;          // true in the training ground (no clock, penned dummy, reset-ball)
+let tutorial = false;          // true in the scripted first match (the kids' onboarding — see the
+                               // TUTORIAL section near the bottom of this file)
 let matchResultSent = false;   // one-shot guard: matchResult is posted to the app exactly once per match
 let myMatchStats = null;       // per-player tallies for THIS match (goals/strips/saves/…), sent by the server at match end
 let _pendingPost = null;       // deferred postMatchResult fn — fires once matchStats arrives (or a fallback timer)
@@ -636,6 +642,7 @@ function processSnapshotSounds(snap) {
   if (soundEventsReady) {
     if (previousResetTimer <= 0 && snap.resetTimer > 0 && snap.lastGoal) {
       const ourGoal = snap.lastGoal === me.team;
+      if (tutorial && ourGoal) tuEv.scored = true;   // latch: completes the goal + super steps
       playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
       haptic(ourGoal ? 'goal' : 'concede'); // melodic buzz when we score
       confettiBurst(ourGoal ? 90 : 45);      // the stands erupt on a goal
@@ -702,6 +709,10 @@ function processSnapshotSounds(snap) {
     for (const im of snap.impacts || []) if (im.type === 'player' && !knownImpacts.has(im.id)) { // took a hit
       const pl = nearestPlayer(players, im.x, im.y, 42);
       if (pl) triggerAnim(pl.id, 'hit', { force: Math.hypot(pl.vx || 0, pl.vy || 0) > 300 ? 1 : 0, dir: [im.dx || -1, im.dy || 0] });
+      // TUTORIAL: landing a shot on ANY enemy completes the shoot step. Nothing shoots back in
+      // there, so a player-impact IS the kid hitting something. Latched, not sampled: a dropped
+      // frame must not lose the hit that finishes the lesson.
+      if (tutorial && pl && pl.team !== me.team) tuEv.hitEnemy = true;
     }
     for (const b of snap.bombs || []) if (!knownBombs.has(b.id)) {            // planted a bomb
       // A LOB lands up to BOMB_LOB_RANGE (250) from the planter, so a proximity search near the
@@ -4066,6 +4077,9 @@ function connect(name, avatar) {
       myMemberId = msg.id; // our lobby identity; playerId + team arrive with matchStart
       MY_USER_ID = msg.userId || null;
       if (MY_USER_ID) { loadFriends(); loadThreads(); }   // unread badge without opening the screen
+      // FIRST RUN: a brand-new player is taken straight into the tutorial. Fired here, on the
+      // server's own hello, so the room request cannot race the socket coming up.
+      tuMaybeAutoStart();
     } else if (msg.type === 'roster') {
       rosterVersion = msg.v; // slot->id/team map for the binary snapshots that follow
       slotIds = msg.slots.map((s) => s.id);
@@ -4268,6 +4282,7 @@ function enterMatch(msg) {
   celeb = null;                  // clear any lingering goal/win/lose celebration overlay
   audienceReady = false; // rebuild seat assignment for this match's roster
   training = msg.mode === 'training';
+  tutorial = msg.mode === 'tutorial';
   if (msg.mode) roomMode = msg.mode; // keep the room tier (training/botgame/builder/private/quick) for settings gating
   // Field-builder match: server sends a custom arena layout — build the render/collision arena
   // from it (hard walls + bushes). Dry walls ride the snapshot as built walls. null otherwise.
@@ -4288,16 +4303,31 @@ function enterMatch(msg) {
   document.getElementById('chat-btn')?.classList.remove('hidden');
   document.getElementById('chat-sheet')?.classList.add('hidden');
   document.getElementById('reset-ball-btn').classList.toggle('hidden', !training);
+  // TUTORIAL: strip the pitch of everything the lesson hasn't reached. The top-bar cluster
+  // (controls editor, quick chat) and the settings gear are three more unexplained buttons in the
+  // corner of a screen a seven-year-old is meeting for the first time.
+  // #hud goes too, and that one is not just tidiness: the tutorial room is noClock, but the HUD
+  // still renders MATCH_DURATION ticking down. A first-timer being taught to walk should not be
+  // watching a countdown — a clock that means nothing still reads as time pressure. It takes the
+  // 0-0 score and the card rails with it. All of it returns the moment the tutorial ends.
+  const tuChrome = ['edit-controls-btn', 'chat-btn', 'pause-btn', 'hud'];
+  if (tutorial) {
+    for (const id of tuChrome) document.getElementById(id)?.classList.add('tu-off');
+    tuEnter();
+  } else {
+    for (const id of tuChrome) document.getElementById(id)?.classList.remove('tu-off');
+    tuExit();
+  }
   renderMatchPowers(); // equipped-cards HUD next to the timer (read-only)
   showScreen('game');
   resize();
   renderBackground(); // re-cache the field/stands in our team colours
-  if (training) hideTeamIntro();                      // training: straight onto the pitch, no intro
+  if (training || tutorial) hideTeamIntro();          // training/tutorial: straight onto the pitch, no intro
   else if (msg.intro > 0) { quickVs = false; hideTeamIntro(); playPromo(msg.intro); } // team reveal + card-meteor promo
   else if (quickVs) { quickVs = false; hideTeamIntro(); } // the VS countdown already served as the intro
   else showTeamIntro(msg.players);                    // fallback: brief VS intro overlay
   resetPlayNow();
-  if (training) startTrainingMusic();                  // training ground gets its own theme
+  if (training || tutorial) startTrainingMusic();      // training ground + tutorial get the calm theme
   else startMatchMusic();                              // real match: random background song
 }
 
@@ -4305,6 +4335,7 @@ function enterMatch(msg) {
 function exitToLobby() {
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
+  tutorial = false; tuExit();   // leaving the pitch always takes the coach with it
   clearRoomRequests();
   startLobbyMusic(); // #12: rematch lobby gets the waiting theme right away (was silent)
   showScreen('lobby');
@@ -4321,6 +4352,7 @@ function leaveToLobby() {
   quickVs = false; hideVs(); hideTeamIntro(); hideRoomWait(); clearRoomRequests();
   me = { playerId: null, team: null, char: chosenChar };
   latest = null; snaps = []; predicted = null; rendered = null;
+  tutorial = false; tuExit();   // leaving the pitch always takes the coach with it
   resetPlayNow();
   stopMusic();
   showScreen('home'); // startHomeMusic() fires here (quickVs is false)
@@ -5892,7 +5924,10 @@ function sampleInput() {
   const sax = special ? specialAim.x : 0, say = special ? specialAim.y : 0;
   if (specialQueued || special) specialAim = { x: 0, y: 0 };
   const build = buildQueued && !holdingBall; buildQueued = false;
-  return { moveX, moveY, aimX, aimY, hold: holding, fire, aimed, special, build, buildHold: buildHolding && !holdingBall, buildDist, sax, say };
+  const inp = { moveX, moveY, aimX, aimY, hold: holding, fire, aimed, special, build, buildHold: buildHolding && !holdingBall, buildDist, sax, say };
+  // TUTORIAL: a control the current step has not taught does not exist — hidden on screen AND
+  // dropped here, so a stray tap on a button nobody explained cannot do anything surprising.
+  return tutorial ? tuGate(inp) : inp;
 }
 
 // Send inputs + advance prediction at a fixed rate.
@@ -7566,6 +7601,14 @@ function drawObstacles() {
 
 function renderFrame() {
   if (gameEl.classList.contains('hidden')) return; // in the lobby — nothing to draw
+  // Tutorial step machine. Runs off the render clock (not a timer) so the coach and the pitch it
+  // is pointing at can never disagree about which frame they are on.
+  if (tutorial) {
+    const tn = performance.now();
+    const tdt = tuPrevT ? Math.min(0.05, (tn - tuPrevT) / 1000) : 0.016;
+    tuPrevT = tn;
+    tuTick(tdt);
+  } else { tuPrevT = 0; }
   // Super-latch (visual): once I start charging while in super, keep the red aim + ring until I
   // release (fire) — even if super expires mid-charge, matching the sim's persisted super shot.
   if (holding) { if (mySuper) mySuperLatched = true; } else { mySuperLatched = false; }
@@ -7609,6 +7652,7 @@ function renderFrame() {
   drawStadiumProps(); // perimeter ad boards + team benches (in front of the crowd, off-pitch)
   { const cn = performance.now(); const cdt = confPrevT ? Math.min(0.05, (cn - confPrevT) / 1000) : 0.016; confPrevT = cn; updateConfetti(cdt); drawConfetti(); }
   drawObstacles(); // walls / bushes / trampolines (static layout + built walls)
+  tuDrawWorld();   // tutorial: this step's one pitch cue (ring / target chevron / goal arrow), under the players
   { const fn = performance.now(); const fdt = fxPrevT ? Math.min(0.05, (fn - fxPrevT) / 1000) : 0.016; fxPrevT = fn; updateFx(fdt); drawFx(); } // dust + wood-shard particles
 
   const view = interpolated();
@@ -7714,6 +7758,219 @@ function renderFrame() {
   }
 }
 requestAnimationFrame(frame);
+
+// ===================== TUTORIAL — the scripted first match =====================
+// docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md
+//
+// A SILENT coach for a kids' audience: no character, no dialogue, and the game never pauses.
+// Per step it dims everything but the one live control, animates a hand doing the actual
+// gesture, and prints 1-2 Hebrew words. The bar is that a child who cannot read Hebrew still
+// finishes — the hand carries the lesson, the words only confirm it (Epic: "don't expect them
+// to take the time to read").
+//
+// The STEP MACHINE is here, in the client, not on the server: a server-side one puts an RTT in
+// front of every hint, so on a bad connection the hand points AFTER the kid already did the
+// thing. The server owns only what the sim alone can do (ball, keeper, super) and is told which
+// stage to set up. The rules themselves live in shared/tutorial.js so they unit-test.
+const TU_FLAG = 'fbTutorialDone';
+const tutorialSeen = () => { try { return localStorage.getItem(TU_FLAG) === '1'; } catch { return false; } };
+const markTutorialSeen = () => { try { localStorage.setItem(TU_FLAG, '1'); } catch { /* private mode */ } };
+
+let tuStage = 0;         // 0..TU_COUNT-1, then TU_DONE
+let tuStepT = 0;         // seconds inside the current step (drives the stuck-nudge)
+let tuFinishAt = 0;      // performance.now() at which the finale card shows (0 = not pending)
+let tuPrevT = 0;         // previous frame stamp, for the step machine's dt
+let tuReplay = false;    // replay from אימון => a way out exists. First run has none.
+// One-way latches for events seen in the snapshot stream. Latched rather than sampled so a
+// dropped frame cannot lose the goal that completes a step.
+let tuEv = { hitEnemy: false, scored: false };
+
+const tuEl = document.getElementById('tutorial');
+const tuVeil = document.getElementById('tu-veil');
+const tuHandEl = document.getElementById('tu-hand');
+const tuCapEl = document.getElementById('tu-cap');
+const tuNudgeEl = document.getElementById('tu-nudge');
+const tuPipsEl = document.getElementById('tu-pips');
+const tuDoneEl = document.getElementById('tu-done');
+
+// Launch it. `replay` is the אימון entry: it leaves the exit button in place.
+function startTutorial(replay) {
+  tuReplay = !!replay;
+  unlockAudio();
+  sendMsg({ type: 'tutorial' });
+}
+
+// Called from enterMatch when the room is a tutorial room.
+function tuEnter() {
+  tuStage = 0; tuStepT = 0; tuFinishAt = 0;
+  tuEv = { hitEnemy: false, scored: false };
+  tuDoneEl?.classList.add('hidden');
+  tuEl?.classList.remove('hidden');
+  if (tuPipsEl && tuPipsEl.childElementCount !== TU_COUNT) {
+    tuPipsEl.innerHTML = Array.from({ length: TU_COUNT }, () => '<i></i>').join('');
+  }
+  // First run has NO way out — the whole point of an unskippable tutorial. A replay keeps its
+  // exit, because a player who chose to revisit it has already proved they don't need trapping.
+  document.getElementById('leave-lobby-btn')?.classList.toggle('tu-off', !tuReplay);
+  tuSyncControls();
+}
+
+function tuExit() {
+  tuEl?.classList.add('hidden');
+  tuDoneEl?.classList.add('hidden');
+  for (const id of ['special', 'build', 'stickR', 'leave-lobby-btn', 'hud', 'edit-controls-btn', 'chat-btn', 'pause-btn']) {
+    document.getElementById(id)?.classList.remove('tu-off');
+  }
+}
+
+// Which controls physically exist right now. A button a step has not taught is hidden AND its
+// input dropped (tuGate), so a kid cannot press something nobody explained. 💣 and 🧱 are gone
+// for the whole tutorial.
+function tuSyncControls() {
+  const aimLive = tuHasControl(tuStage, 'aim');
+  document.getElementById('stickR')?.classList.toggle('tu-off', !aimLive);
+  document.getElementById('special')?.classList.add('tu-off');
+  document.getElementById('build')?.classList.add('tu-off');
+}
+
+// Zero every input a step has not unlocked. The server does not police this — it does not need
+// to; a solo, endless, reward-free room has nothing worth cheating for.
+function tuGate(inp) {
+  if (!tuHasControl(tuStage, 'move')) { inp.moveX = 0; inp.moveY = 0; }
+  if (!tuHasControl(tuStage, 'aim')) { inp.hold = false; inp.fire = false; inp.aimed = false; }
+  inp.special = false; inp.build = false; inp.buildHold = false; inp.buildDist = 0;
+  return inp;
+}
+
+const tuCtx = () => ({
+  px: rendered ? rendered.x : (predicted ? predicted.x : 0),
+  py: rendered ? rendered.y : (predicted ? predicted.y : 0),
+  hitDummy: tuEv.hitEnemy,
+  scored: tuEv.scored,
+  stepElapsed: tuStepT,
+});
+
+// One step of the machine, per rendered frame.
+function tuTick(dt) {
+  if (!tutorial) return;
+  if (tuFinishAt) { if (performance.now() >= tuFinishAt) { tuFinishAt = 0; tuFinish(); } return; }
+  if (isTutorialOver(tuStage)) return;
+
+  // The FINAL step ends on the winning goal. Don't sit out the full 5s kickoff reset first —
+  // let the goal celebration play for a beat, then the finale card.
+  if (tuStage === TU_COUNT - 1 && isStepDone(tuStage, tuCtx())) {
+    tuStage = TU_DONE; tuFinishAt = performance.now() + 1600;
+    tuRenderOverlay();
+    return;
+  }
+  // Mid-tutorial goal reset: freeze the coach so the celebration has the screen to itself, and
+  // so the step timer doesn't bank 5 idle seconds and fire a stuck-nudge the moment play resumes.
+  if (latest && latest.resetTimer > 0) return;
+
+  tuStepT += dt;
+  const next = advance(tuStage, tuCtx());
+  if (next !== tuStage) {
+    tuStage = next; tuStepT = 0;
+    tuEv = { hitEnemy: false, scored: false };
+    sendMsg({ type: 'tuStage', n: tuStage });   // server sets the pitch up for the new step
+    tuSyncControls();
+    playSound('pickup', 0.5, 1.25);             // a small "yes, that" chime between steps
+    haptic('goal');
+  }
+  tuRenderOverlay();
+}
+
+// Position the spotlight + hand over the live control and print this step's words.
+function tuRenderOverlay() {
+  if (!tuEl || isTutorialOver(tuStage)) { if (tuEl && isTutorialOver(tuStage)) tuEl.classList.add('hidden'); return; }
+  const s = stepAt(tuStage);
+  if (!s) return;
+  // The spotlight tracks the control's REAL anchor, so a stick the player moved or resized in
+  // the controls editor keeps its hand pointing at the right place.
+  const a = s.spotlight ? stickAnchor(s.spotlight) : null;
+  tuEl.classList.toggle('no-spot', !a);
+  if (a) {
+    tuEl.style.setProperty('--tu-x', `${Math.round(a.x)}px`);
+    tuEl.style.setProperty('--tu-y', `${Math.round(a.y)}px`);
+    tuEl.style.setProperty('--tu-r', `${Math.round(a.size * 0.95)}px`);
+  }
+  tuHandEl.className = `tu-hand gest-${s.gesture}`;
+  tuHandEl.style.display = a ? '' : 'none';
+  if (tuCapEl.textContent !== s.cap) tuCapEl.textContent = s.cap;   // reassigning restarts the pop
+  const nudging = showNudge(tuStage, tuCtx());
+  tuEl.classList.toggle('nudging', nudging);
+  if (nudging && tuNudgeEl.textContent !== s.nudge) tuNudgeEl.textContent = s.nudge;
+  tuNudgeEl.classList.toggle('hidden', !nudging);
+  const pips = tuPipsEl ? tuPipsEl.children : [];
+  for (let i = 0; i < pips.length; i++) {
+    pips[i].className = i < tuStage ? 'done' : i === tuStage ? 'on' : '';
+  }
+}
+
+// The one world-space cue for this step, drawn on the pitch under the players. Called from
+// renderFrame INSIDE the mirrored world transform, so wx/wy/ws_ apply as they do everywhere else.
+function tuDrawWorld() {
+  if (!tutorial || isTutorialOver(tuStage)) return;
+  const s = stepAt(tuStage);
+  if (!s) return;
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+  if (s.marker === 'ring') {
+    // Walk here. A ring on the grass reads as a destination in every game a kid has played.
+    const r = ws_(TU_RING.r) * (0.92 + 0.08 * pulse);
+    ctx.save();
+    ctx.lineWidth = Math.max(2, ws_(9));
+    ctx.strokeStyle = `rgba(255,208,106,${0.55 + 0.35 * pulse})`;
+    ctx.beginPath(); ctx.arc(wx(TU_RING.x), wy(TU_RING.y), r, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(255,208,106,${0.10 + 0.08 * pulse})`; ctx.fill();
+    ctx.restore();
+  } else if (s.marker === 'dummy') {
+    // Shoot this. A bobbing chevron over the target, not a ring — a ring on a body would read
+    // as "stand here", which is the previous step's instruction.
+    const bob = ws_(10) * pulse;
+    const x = wx(TU_DUMMY.x), y = wy(TU_DUMMY.y) - ws_(120) - bob, w = ws_(30);
+    ctx.save();
+    ctx.fillStyle = `rgba(255,208,106,${0.7 + 0.3 * pulse})`;
+    ctx.beginPath(); ctx.moveTo(x - w, y); ctx.lineTo(x + w, y); ctx.lineTo(x, y + w * 1.2); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  } else if (s.marker === 'goal') {
+    // Kick it there. A fat arrow along the shot lane into the mouth of the goal.
+    const y = wy(TU_GOAL.y), x0 = wx(TU_GOAL.x - 620), x1 = wx(TU_GOAL.x - 90);
+    ctx.save();
+    ctx.globalAlpha = 0.42 + 0.28 * pulse;
+    ctx.strokeStyle = '#ffd06a'; ctx.lineWidth = Math.max(3, ws_(22)); ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1 - ws_(60), y); ctx.stroke();
+    ctx.fillStyle = '#ffd06a';
+    ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x1 - ws_(70), y - ws_(46)); ctx.lineTo(x1 - ws_(70), y + ws_(46)); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+
+// Finished. Celebration only — no XP, no trophies, no cards (c86fa82: practice pays nothing).
+function tuFinish() {
+  markTutorialSeen();
+  tuEl?.classList.add('hidden');
+  tuDoneEl?.classList.remove('hidden');
+  confettiBurst(120);
+}
+
+document.getElementById('tu-done-btn')?.addEventListener('click', () => {
+  tuDoneEl?.classList.add('hidden');
+  leaveToLobby();
+});
+
+// אימון → 🎓 איך משחקים? — the replay. Unconditional: the done-flag gates the auto-launch only.
+document.getElementById('tc-howto')?.addEventListener('click', () => {
+  document.getElementById('train-choose')?.classList.add('hidden');
+  startTutorial(true);
+});
+
+// FIRST RUN: no flag => the tutorial is what the app opens into, and there is no skip. Fired once
+// the socket has answered `welcome`, so the room request cannot race the connection.
+function tuMaybeAutoStart() {
+  if (tutorialSeen() || tutorial) return;
+  if (!homeEl || homeEl.classList.contains('hidden')) return; // only from a cold start on the hub
+  startTutorial(false);
+}
 
 // ===================== FIELD BUILDER (self-contained DOM editor) =====================
 // Place bushes / rotatable hard walls / dry walls on a scaled pitch, save to localStorage,

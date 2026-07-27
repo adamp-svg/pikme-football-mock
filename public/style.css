@@ -3003,3 +3003,131 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 #ti-mode:not(.hidden) ~ .ti-search { top: max(44px, calc(env(safe-area-inset-top) + 40px)); }
 .ti-search-cancel { pointer-events: auto; margin-top: 2px; font-size: 11px; padding: 2px 8px; }
 .ti-search.found .ti-search-cancel, .ti-search.alone .ti-search-cancel { display: none; }
+
+/* =========================================================================
+   TUTORIAL — the scripted first match (kids' onboarding)
+   docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md
+
+   A SILENT coach: no character, no dialogue, and it never pauses the game. Per step it dims
+   everything except the one live control, animates a hand doing the actual gesture over it, and
+   prints 1-2 Hebrew words. The audience is children, so the bar is that a kid who cannot read
+   Hebrew still finishes: the HAND carries the lesson and the words only confirm it. That is
+   Epic's "don't expect them to read" rule taken literally.
+
+   z-index budget in #game: sticks 4, cues 5-6, top-bar buttons 7-8. The coach sits at 9 (above
+   the pitch and the controls it points at, below nothing) and the finale at 30 (a real overlay).
+   ========================================================================= */
+.tutorial { position: fixed; inset: 0; z-index: 9; pointer-events: none; }
+.tutorial.hidden { display: none; }
+
+/* The veil dims the whole screen EXCEPT a soft hole over the live control. One radial gradient
+   rather than four clipped panels: the hole can then be moved/resized every frame from the
+   control's real anchor (a moved or resized stick keeps its spotlight) with no reflow. */
+.tu-veil {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle var(--tu-r, 120px) at var(--tu-x, 50%) var(--tu-y, 50%),
+              rgba(0,0,0,0) 0%, rgba(0,0,0,0) 62%, rgba(0,0,0,.52) 100%);
+  transition: background .25s ease;
+}
+/* No live control this step (the goal steps point at the pitch, not at a button): dim evenly and
+   softly, so nothing reads as "press here". */
+.tutorial.no-spot .tu-veil { background: rgba(0,0,0,.28); }
+
+/* The pointing hand. Parked over the live control by JS (--tu-x/--tu-y) and animated per gesture:
+   `circle` walks it around the stick (move), `pull` shows hold -> drag -> release (aim/shoot). */
+.tu-hand {
+  position: absolute; left: 0; top: 0; width: 54px; height: 54px; margin: -27px;
+  transform: translate(var(--tu-x, 50%), var(--tu-y, 50%));
+  background: no-repeat center/contain;
+  /* Drawn inline rather than loaded: the coach must never wait on a request, and the icon pack
+     has no pointing hand (ASSET_HANDOFF: don't invent semantic ids for one-off UI). */
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'>\
+<path d='M20 6c0-2 1.6-3.4 3.5-3.4S27 4 27 6v14h1.5V9.5c0-2 1.6-3.4 3.5-3.4s3.5 1.4 3.5 3.4V26h1.5v-6.5c0-2 1.6-3.4 3.5-3.4S44 17.5 44 19.5V33c0 7.7-5.6 13-13.5 13h-4C19 46 14 41.5 11.5 35L6 22.5c-.8-1.9 0-3.9 1.9-4.7 1.9-.8 4 .1 4.8 2L16 27h1.5V6z' fill='%23fff4ca' stroke='%23241f14' stroke-width='2.4' stroke-linejoin='round'/></svg>");
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.65));
+}
+.tu-hand.gest-circle { animation: tu-circle 2s linear infinite; }
+.tu-hand.gest-pull { animation: tu-pull 2.2s ease-in-out infinite; }
+/* Stuck for a while: the same gesture, bigger and faster. An escalation the kid who is already
+   doing fine never sees. */
+.tutorial.nudging .tu-hand { scale: 1.28; animation-duration: 1.2s; }
+
+/* RTL-safe: both keyframes move the hand in a shape, not toward a text direction. */
+@keyframes tu-circle {
+  0%   { translate: 0 0; }
+  25%  { translate: 34px -12px; }
+  50%  { translate: 0 26px; }
+  75%  { translate: -34px -12px; }
+  100% { translate: 0 0; }
+}
+@keyframes tu-pull {
+  0%,  10%  { translate: 0 0; scale: 1; }
+  30%       { translate: 0 0; scale: .84; }   /* press */
+  60%       { translate: -46px 0; scale: .84; } /* drag out to aim */
+  75%       { translate: -46px 0; scale: 1.06; } /* release = shoot */
+  90%, 100% { translate: 0 0; scale: 1; }
+}
+
+/* 1-2 Hebrew words, in the pitch's comic voice. Sits high-centre: clear of both thumbs in
+   landscape, and clear of the score/clock cluster above it. */
+.tu-caption {
+  position: absolute; left: 0; right: 0; top: max(64px, calc(env(safe-area-inset-top) + 58px));
+  display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center;
+}
+.tu-caption b {
+  font: 900 clamp(30px, 7.5vw, 58px)/1 "Arial Black", Impact, sans-serif; color: #fff4ca;
+  text-shadow: 0 5px 0 #a56a16, 0 9px 0 #252a21, 0 12px 26px rgba(0,0,0,.55);
+  animation: tu-pop .32s cubic-bezier(.2,1.5,.4,1);
+}
+.tu-caption small {
+  font: 700 clamp(13px, 3.2vw, 19px)/1.2 system-ui, sans-serif; color: #fff;
+  background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 999px;
+  animation: tu-pop .3s cubic-bezier(.2,1.5,.4,1);
+}
+.tu-caption small.hidden { display: none; }
+@keyframes tu-pop { from { scale: .6; opacity: 0; } to { scale: 1; opacity: 1; } }
+
+/* Progress pips — four dots, no numbers. Reads at a glance and needs no reading age.
+   Grouped UNDER THE CAPTION rather than along the bottom edge: down there they landed on the
+   build tag and between both thumbs (caught in a screenshot). Up here all the coach's furniture
+   is one thing in one place. */
+.tu-pips { display: flex; justify-content: center; gap: 7px; margin-top: 2px; }
+.tu-pips i {
+  width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.28);
+  box-shadow: 0 1px 3px rgba(0,0,0,.5); transition: background .2s ease, scale .2s ease;
+}
+.tu-pips i.on { background: #ffd06a; scale: 1.25; }
+.tu-pips i.done { background: #7fd48f; }
+
+/* ---- Finale. The only full-screen beat in the flow, and only after the winning goal. ---- */
+.tu-done {
+  position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+  background: rgba(6,10,7,.72); backdrop-filter: blur(3px);
+}
+.tu-done.hidden { display: none; }
+.tu-done-card {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 22px 34px; border-radius: 18px;
+  background: linear-gradient(180deg, #2b3a2c, #1a241b); border: 3px solid rgba(240,228,185,.45);
+  box-shadow: 0 18px 50px rgba(0,0,0,.6);
+  animation: tu-pop .38s cubic-bezier(.2,1.5,.4,1);
+}
+.tu-done-ic { font-size: clamp(38px, 10vw, 64px); line-height: 1; }
+.tu-done-card b {
+  font: 900 clamp(24px, 6vw, 40px)/1 "Arial Black", Impact, sans-serif; color: #fff4ca;
+  text-shadow: 0 4px 0 #a56a16, 0 7px 0 #252a21;
+}
+.tu-done-btn {
+  margin-top: 4px; padding: 11px 22px; border: 0; border-radius: 12px; cursor: pointer;
+  font: 800 clamp(14px, 3.6vw, 18px)/1 system-ui, sans-serif; color: #241f14;
+  background: linear-gradient(180deg, #ffd77a, #e8a02f); box-shadow: 0 4px 0 #a56a16;
+}
+.tu-done-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #a56a16; }
+
+/* Controls a step has not taught yet simply do not exist — hidden AND their input dropped
+   (see tuGate in client.js). The bomb and fence buttons stay hidden for the whole tutorial. */
+.tu-off { display: none !important; }
+
+/* Replay entry in the אימון sheet. Tinted so it reads as the odd one out — it is the only
+   option there that teaches rather than practises. */
+.tc-howto { background: linear-gradient(180deg, rgba(255,215,122,.18), rgba(232,160,47,.12)); }

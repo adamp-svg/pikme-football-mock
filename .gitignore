@@ -7,3 +7,6 @@ fields/
 
 # Agent worktrees + local agent config (never commit: .claude/worktrees holds full repo checkouts)
 .claude/
+
+# Tutorial verification screenshots (_tu-verify.mjs output) — regenerated on demand
+_tu-shots/

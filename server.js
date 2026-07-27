@@ -38,6 +38,7 @@ import { planMatches, bandOf } from './shared/matchmaker.js';
 import { isChatId, chatById, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
 import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout, pickBotIdentities } from './shared/saltiz-bots.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
+import { TU_FIELD, TU_ENEMIES, TU_SPAWN, TU_SHOT_SPOT, TU_BALL_PARK, TU_COUNT } from './shared/tutorial.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3010;
@@ -335,7 +336,7 @@ function botCosmeticForRoom(room, rand = Math.random) {
 }
 
 function fillBots(room, rosterOut) {
-  if (room.mode === 'training') return; // training has its own fixed dummy + sentry — no backfill
+  if (room.mode === 'training' || room.mode === 'tutorial') return; // both have a fixed, hand-placed cast — no backfill
   const teamCount = (t) => Object.values(room.state.players).filter((p) => p.team === t).length;
   const usedSlots = (t) => new Set(Object.values(room.state.players).filter((p) => p.team === t).map((p) => p.slot));
   // #18 — consume the countdown PREVIEW plan (room.botPlan) so the bots that actually spawn keep the
@@ -660,6 +661,138 @@ function startTraining(member, diffLevel) {
   // actually running (matchDiffLevel was null here, which read as "unknown difficulty").
   send(member.ws, { type: 'matchStart', mode: 'training', diffLevel: clampLevel(room.diffLevel), matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster });
   room.rosterVersion++; broadcastRoster(room);
+}
+
+// ---------------------------------------------------------------------------
+// Tutorial — the scripted first match (docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md)
+// ---------------------------------------------------------------------------
+// A stripped training ground: an EMPTY pitch, two harmless enemies, no clock, no way to lose.
+// The step machine itself lives in the CLIENT (it owns the coach overlay and already has the
+// snapshot); the server owns only the three things the sim alone can do — where the ball is,
+// what the keeper is doing, and whether super is granted. The client names the stage it has
+// reached (`tuStage`); the server validates and sets the pitch up for it.
+//
+// Why the client drives it: a server-side step machine puts one RTT in front of every hint, so
+// on a bad connection the pointing hand appears AFTER the kid already did the thing — the one
+// moment in this whole feature where latency is unacceptable. Spoofing a stage is possible and
+// costs nothing: it is solo, endless, and pays no XP/trophies/cards.
+function startTutorial(member) {
+  leaveCurrentRoom(member);
+  const room = makeRoom(`tut-${++roomCounter}`, false, 'tutorial');
+  rooms.set(room.id, room);
+  addToRoom(member, room);
+
+  room.state = createState();
+  room.state.noClock = true;        // endless: never 'ended', and goalsToWin can't end it either
+  room.state.goalsToWin = 0;
+  room.inputs.clear();
+  room.botCounter = 0;
+  room.tuStage = 0;                 // 0..TU_COUNT-1, then TU_COUNT = finished
+  room.tuBallDead = 0;              // seconds the ball has been loose+idle (steps 3-4 respawn it)
+  room.tuPlayerId = member.id;      // the one human; the super grant and the ball both target them
+  setField(room.state, sanitizeField(TU_FIELD)); // deliberately empty — no bushes, no steel walls
+
+  addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC });
+  room.inputs.set(member.id, emptyInput());
+  // PIN the start spot rather than taking the formation slot, so every step's geometry holds:
+  // the ring is a straight walk right, the goal is a straight shot right.
+  const mine = room.state.players[member.id];
+  mine.x = TU_SPAWN.x; mine.y = TU_SPAWN.y;
+  member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
+  // No card buffs in the tutorial: every kid gets the same pitch, and a legendary loadout
+  // changing the charge rate mid-lesson is one more thing that would need explaining.
+
+  // BOTH enemies spawn once, here, and are never added or removed again — no roster churn
+  // mid-tutorial. The keeper only changes ROLE at step 4 and jogs into the goal, which doubles
+  // as the "now it gets harder" beat.
+  room.trainEnemies = [];
+  TU_ENEMIES.forEach((e, i) => {
+    const id = `${e.key}-${room.id}`;
+    addPlayer(room.state, id, { name: e.role, char: DEFAULT_CHAR, team: 'B', slot: i, isBot: true, cosmetic: randomBotCosmetic() });
+    room.inputs.set(id, emptyInput());
+    const p = room.state.players[id]; p.x = e.x; p.y = e.y;
+    room.trainEnemies.push({ id, key: e.key, role: e.role, home: { x: e.x, y: e.y } });
+  });
+
+  const matchId = nextMatchId(room);
+  const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: [] }];
+  applyTuStage(room, 0);
+  room.endHoldT = 0; room.statsSent = true; // statsSent pre-armed: a tutorial reports no match stats
+  room.phase = 'match';
+  send(member.ws, { type: 'roomJoined', mode: 'tutorial', code: null });
+  send(member.ws, { type: 'matchStart', mode: 'tutorial', matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: sanitizeField(TU_FIELD), goalsToWin: 0 });
+  room.rosterVersion++; broadcastRoster(room);
+}
+
+// Set the pitch up for stage `n`. Idempotent — re-applying a stage is a no-op beyond replacing
+// the ball, so a duplicated client message cannot corrupt anything.
+function applyTuStage(room, n) {
+  room.tuStage = n;
+  const keeper = (room.trainEnemies || []).find((e) => e.key === 'keeper');
+  // Step 4 calls the keeper off the touchline and into the goal. Before that it loiters.
+  if (keeper) keeper.role = n >= 3 ? 'keeper' : 'still';
+  // Steps 3-4 put the kid on the shooting spot with the ball at their feet. Moving them is the
+  // point: a full kick carries ~700px, so from the step-1 spawn the goal is out of range and the
+  // lesson turns into a long dribble. (Re-applied at step 4 too, because the kickoff after the
+  // step-3 goal sends everyone back to their formation spawn.)
+  if (n === 2 || n === 3) {
+    const me = room.state.players[room.tuPlayerId];
+    if (me) {
+      me.x = TU_SHOT_SPOT.x; me.y = TU_SHOT_SPOT.y;
+      me.vx = 0; me.vy = 0; me.kvx = 0; me.kvy = 0;
+      me.aimX = 1; me.aimY = 0;                 // facing the goal, so the ball sits between them and it
+    }
+    attachBall(room.state, 'A');
+  }
+  room.tuBallDead = 0;
+}
+
+// Per-tick tutorial upkeep, run BEFORE step() (enemy inputs) — see tickRoom.
+function updateTutorial(room) {
+  const st = room.state;
+  for (const e of room.trainEnemies || []) {
+    const inp = e.role === 'keeper' ? trainingKeeperInput(st, e.id) : trainingStillInput(st, e.id, e.home);
+    if (inp) room.inputs.set(e.id, inp);
+  }
+  // Steps 1-2: the ball is inert scenery in the far corner. Re-parked every tick rather than
+  // moved once, so a kid who wanders over and picks it up cannot end up shooting the BALL
+  // during the step that teaches shooting BULLETS.
+  if (room.tuStage < 2) {
+    st.ball.owner = null; st.ball.lastTouch = null;
+    st.ball.x = TU_BALL_PARK.x; st.ball.y = TU_BALL_PARK.y;
+    st.ball.vx = 0; st.ball.vy = 0;
+  }
+  // Step 4: super is GRANTED, not earned — earning it needs a full charged hit or three quick
+  // ones (MECHANICS §4), a whole extra lesson. Re-granted every tick so OVERCHARGE_TTL (4s)
+  // cannot expire it while a kid is still working out which stick to pull.
+  if (room.tuStage === 3) {
+    const p = st.players[room.tuPlayerId];
+    if (p) { p.power = true; p.powerT = 5; }
+  }
+}
+
+// Post-step() tutorial upkeep: keep the enemies where they belong, and put the ball back if it
+// dies somewhere unreachable. Called from tickRoom AFTER step().
+function tutorialPost(room) {
+  const st = room.state;
+  for (const e of room.trainEnemies || []) {
+    if (e.role === 'keeper') keeperClamp(st, e.id);
+    else leashSentry(st, e.id, e.home, TRAIN_HOME_LEASH);
+  }
+  // Steps 3-4 need a ball at the kid's feet.
+  if (room.tuStage === 2 || room.tuStage === 3) {
+    // The ball must never end up on team B. It is not the enemies picking it up — they are
+    // `still`/`keeper` and never chase — it is the SIM's own kickoff: scoring makes B the
+    // conceding side, and attachBall hands the restart to whoever conceded. Left alone, the
+    // reward for the step-3 goal is the dummy walking off with the ball.
+    const owner = st.ball.owner && st.players[st.ball.owner];
+    if (owner && owner.team === 'B') { attachBall(st, 'A'); room.tuBallDead = 0; }
+    // And if it goes loose and idle for 4s (shot wide, stuck in a corner), hand it back — a kid
+    // must never be stranded with nothing to do and no way to lose.
+    const idle = st.ball.owner == null && Math.hypot(st.ball.vx, st.ball.vy) < 30;
+    room.tuBallDead = idle ? room.tuBallDead + DT : 0;
+    if (room.tuBallDead >= 4) { attachBall(st, 'A'); room.tuBallDead = 0; }
+  }
 }
 
 // Validate + clamp a client-supplied field layout (never trust the wire). Caps counts
@@ -999,7 +1132,9 @@ function tickRoom(room) {
     for (const inp of room.inputs.values()) consumeEdges(inp);
     return;                                 // snapshots keep broadcasting the frozen kickoff state
   }
-  if (room.mode === 'training') {
+  if (room.mode === 'tutorial') {
+    updateTutorial(room);
+  } else if (room.mode === 'training') {
     updateTrainingDummy(room);
   } else {
     checkAfk(room);
@@ -1008,6 +1143,7 @@ function tickRoom(room) {
   const inputMap = {};
   for (const [id, inp] of room.inputs) inputMap[id] = inp;
   step(room.state, inputMap, DT);
+  if (room.mode === 'tutorial') tutorialPost(room);
   if (room.mode === 'training') {
     for (const e of room.trainEnemies || []) {
       if (e.role === 'keeper') keeperClamp(room.state, e.id);               // pin the keeper to the box
@@ -1414,7 +1550,7 @@ function humanSignature(room) {
   return `${room.diffLevel}|${hs.join(',')}|${bs.join(',')}`;
 }
 function ensureBotPlan(room) {
-  if (!room || room.mode === 'training' || room.phase === 'match') { room.botPlan = null; room.botPlanSig = null; return; }
+  if (!room || room.mode === 'training' || room.mode === 'tutorial' || room.phase === 'match') { room.botPlan = null; room.botPlanSig = null; return; }
   const sig = humanSignature(room);
   if (room.botPlanSig === sig && Array.isArray(room.botPlan)) return; // unchanged roster -> keep stable cards
   room.botPlanSig = sig;
@@ -1468,6 +1604,19 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'matchmade') { joinMatchmade(member, FORMATS[msg.format] ? msg.format : 'quick', msg.diffLevel, msg.trophies, MM_BUDGET_MODE_MS); return; }
       if (msg.type === 'cancelSearch') { dequeue(member.id); send(member.ws, { type: 'toHome', online: onlineCount() }); return; }
       if (msg.type === 'training') { startTraining(member, msg.diffLevel); return; }
+      if (msg.type === 'tutorial') { startTutorial(member); return; }
+      // The client's step machine reached a new stage; set the pitch up for it. Validated:
+      // tutorial rooms only, and STRICTLY the next stage in sequence — so a stray/duplicated
+      // frame cannot skip a kid past the lesson they are still on, or rewind them into one
+      // they finished.
+      if (msg.type === 'tuStage') {
+        const r = member.room;
+        if (!r || r.mode !== 'tutorial' || r.phase !== 'match') return;
+        const n = msg.n | 0;
+        if (n !== r.tuStage + 1 || n > TU_COUNT) return;
+        applyTuStage(r, n);
+        return;
+      }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field, msg.diffLevel); return; }
       if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
       if (msg.type === 'spectate') { startSpectate(member, msg.diffLevel); return; }
