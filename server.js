@@ -1370,8 +1370,16 @@ function computeBotPlan(room) {
     const team = countT('A') <= countT('B') ? 'A' : 'B';
     const slot = firstFreeSlot(usedT(team), roomTeamSize(room));
     const sideScalar = humanT[team] ? lvl.partner : lvl.enemy; // this preview-bot's side skill
-    const loadout = sideScalar >= 0.95 ? extremeBotLoadout() : botLoadoutForLevel(room.diffLevel);
     const identity = fillerIds[fillerIdx++];
+    // A filler slot that pickBotIdentities handed a NAMED saltiz bot (isSaltiz + botId) must play
+    // THAT bot's own seeded loadout — the exact cards its friend card advertises — never a fresh
+    // room-difficulty roll. Without this, a bot the VS screen calls "אורי" could carry cards אורי's
+    // friend card never shows, breaking "display == gameplay" the moment a player recognizes the
+    // name. Identity fidelity ONLY: namedLevel is deliberately left unset below, so botLvl/strength
+    // in fillBots still comes from room.diffLevel, unchanged.
+    const named = identity && identity.isSaltiz && identity.botId ? SALTIZ_BOT_BY_ID.get(identity.botId) : null;
+    const loadout = named ? saltizBotLoadout(named)
+      : sideScalar >= 0.95 ? extremeBotLoadout() : botLoadoutForLevel(room.diffLevel);
     plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room),
       name: (identity && identity.name) || 'Bot' });
   }
