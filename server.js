@@ -1115,7 +1115,9 @@ function lobbyPayload(room) {
   // one field carries it and no extra packet type is needed. Expired bubbles are dropped here rather
   // than kept forever, so a member who spoke once at the start of a long lobby is not still talking.
   const chatOf = (m) => (m.chat && nowMs() - m.chat.at < LOBBY_BUBBLE_MS ? { text: m.chat.text, chatId: m.chat.chatId || null, at: m.chat.at } : null);
-  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cosmetic: m.cosmetic || DEFAULT_COSMETIC, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards), chat: chatOf(m) }));
+  // `vote` is a NON-host's expressed preference (see `partyVote` below) — a MODES card id or null.
+  // It rides this same broadcast rather than a new packet type, same reasoning as `chat` above.
+  const list = [...room.members].map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null, team: m.team, inMatch: m.inMatch, cosmetic: m.cosmetic || DEFAULT_COSMETIC, cards: m.cards || [], loadout: sanitizeLoadout(m.loadout, m.cards), chat: chatOf(m), vote: m.vote || null }));
   // Invited lobby bots render as members (isBot) so the party looks populated before kickoff.
   // A NAMED bot (שובל/נווה/פז/אורי) carries its own cards + level, so the party lobby shows the same
   // three power slots its friend card advertised. An unnamed one still shows empty slots.
@@ -1683,6 +1685,19 @@ wss.on('connection', (ws, req) => {
         }
         applyFormat(room, mode);
         room.game = msg.game || null;      // the CARD id, so every client can show the same pick
+        broadcastLobby(room);
+        return;
+      }
+      // A MEMBER'S EXPRESSED PREFERENCE — never a decision. Unlike `partyGame` this is open to every
+      // member (host included, though the host's own tap on the roster decides instead of voting —
+      // see public/client.js), and it never touches `teamSize`/`format`/`room.game`: only `partyGame`
+      // does that. It rides the existing lobby broadcast as `member.vote` (see lobbyPayload above),
+      // so the client can glow "who wants what" before the host actually picks.
+      if (msg.type === 'partyVote') {
+        if (!room || !room.isPrivate || room.phase !== 'lobby') return;
+        const cardId = (msg.game || '').toString();
+        if (!CARD_TO_FORMAT[cardId]) return;    // must be a real MODES card id, not a crafted string
+        member.vote = cardId;
         broadcastLobby(room);
         return;
       }

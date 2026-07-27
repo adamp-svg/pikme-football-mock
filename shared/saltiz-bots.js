@@ -88,6 +88,19 @@ function hash(str) {
   return h >>> 0;
 }
 
+// A stable per-MEMBER colour (party-page vote glow, etc.) — no server round-trip, so it must be
+// derivable from the id alone and agree everywhere it's drawn. Starts from the four SALTIZ bot
+// colours (already proven to read against the pixel-art dark background) and adds four more hues so
+// a full 3v3 roster rarely double-books a colour. `hash32` is this file's own bot-loadout seed hash;
+// reusing it means one hashing strategy for the whole file instead of two.
+export const MEMBER_COLOR_PALETTE = [
+  '#4ea0ff', '#f0a934', '#b46bff', '#e0556b',
+  '#35d06a', '#ffce4a', '#5ad1c9', '#ff7db0',
+];
+export function colorForMemberId(id) {
+  return MEMBER_COLOR_PALETTE[hash32(String(id || '')) % MEMBER_COLOR_PALETTE.length];
+}
+
 /**
  * `count` bot identities for a room at difficulty `botLevel` (0..11), stable for `seed`.
  * A named saltiz bot is used when its own level is within 1 of the room's; otherwise a generated
