@@ -800,13 +800,16 @@
       </div>
     </div>
 
-    <!-- Tutorial finale: the one full-screen beat in the whole flow, and only after the winning
-         goal. Celebration ONLY — no XP, no trophies, no cards (c86fa82: practice pays nothing). -->
+    <!-- Tutorial finale: the one full-screen beat in the whole flow, and only after the level's
+         last step. Celebration ONLY — no XP, no trophies, no cards (c86fa82: practice pays
+         nothing). «המשך ל…» appears only while a next level exists and is unlocked, so a kid on a
+         roll never has to go and find a menu; the title becomes «אתה מוכן!» on the last one. -->
     <div id="tu-done" class="tu-done hidden" dir="rtl">
       <div class="tu-done-card">
         <div class="tu-done-ic">🎉</div>
-        <b>אתה מוכן!</b>
-        <button id="tu-done-btn" class="tu-done-btn">למשחק הראשון שלי ›</button>
+        <b id="tu-done-title">כל הכבוד!</b>
+        <button id="tu-next-btn" class="tu-done-btn hidden">המשך ›</button>
+        <button id="tu-done-btn" class="tu-done-btn tu-done-alt">למשחק שלי ›</button>
       </div>
     </div>
 
@@ -912,6 +915,18 @@
         <button id="tc-bots" class="tc-opt"><b>🤖 משחק מול בוטים</b><small>משחק 2 נגד 2 מלא</small></button>
       </div>
       <div class="settings-actions"><button id="tc-cancel" class="ghost-btn">ביטול</button></div>
+    </div>
+  </div>
+
+  <!-- TUTORIAL LEVEL PICKER — opened by «🎓 איך משחקים?» in the אימון sheet. Rendered from
+       TU_LEVELS by renderTuLevels(), so adding level 3 needs no markup here. A level is ⭐ when
+       finished, ▶ when playable, 🔒 until the one before it is done. Every unlocked level is
+       replayable, in any order, forever. -->
+  <div id="tu-levels" class="settings-panel hidden">
+    <div class="settings-card" dir="rtl">
+      <h2>איך משחקים?</h2>
+      <div class="train-choose-opts tu-lv-list"></div>
+      <div class="settings-actions"><button id="tu-lv-cancel" class="ghost-btn">סגירה</button></div>
     </div>
   </div>
 

@@ -88,6 +88,25 @@ async function stickDrag(sel, dx, dy, ms) {
   while (Date.now() - t0 < ms) { await touch('touchMove', r.x + dx, r.y + dy); await sleep(50); }
   await touch('touchEnd', r.x + dx, r.y + dy);
 }
+// Is the HAND actually drawn on the control it is supposed to point at? The `--tu-x/--tu-y` vars
+// only prove the coach AIMED at it; the hand itself is then moved by its gesture keyframes
+// (circle: +/-34px, pull: up to -46px), so the honest check samples its real rect over a full
+// animation cycle and asserts it stays within the gesture's own amplitude of the target.
+async function handOnTarget(sel, maxOff) {
+  const r = await evalJs(`(async()=>{
+    const h=document.getElementById('tu-hand'), s=document.querySelector(${JSON.stringify(sel)});
+    if(!h||!s) return null;
+    let worst=0;
+    for(let i=0;i<14;i++){
+      const a=h.getBoundingClientRect(), b=s.getBoundingClientRect();
+      if(!b.width) return null;
+      worst=Math.max(worst, Math.hypot((a.x+a.width/2)-(b.x+b.width/2),(a.y+a.height/2)-(b.y+b.height/2)));
+      await new Promise(r=>setTimeout(r,90));
+    }
+    return Math.round(worst);
+  })()`);
+  return r;
+}
 const vis = (sel) => evalJs(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return 'missing';const s=getComputedStyle(e);return (s.display!=='none'&&s.visibility!=='hidden'&&e.getClientRects().length)?'shown':'hidden';})()`);
 const text = (sel) => evalJs(`(document.querySelector(${JSON.stringify(sel)})||{}).textContent||''`);
 
@@ -114,7 +133,7 @@ console.log('2) step 1 shows ONLY the move stick — nothing unexplained on scre
   check(await vis('#leave-lobby-btn') === 'hidden', 'no way out on a first run (unskippable)');
   check(await vis('#tu-hand') === 'shown', 'the pointing hand is drawn');
   const pips = await evalJs('document.querySelectorAll("#tu-pips i").length');
-  check(pips === 4, `four progress pips (${pips})`);
+  check(pips === 5, `five progress pips for level 1 (${pips})`);
   const onPip = await evalJs('[...document.querySelectorAll("#tu-pips i")].findIndex(e=>e.className==="on")');
   check(onPip === 0, `the first pip is the live one (index ${onPip})`);
 }
@@ -129,6 +148,8 @@ console.log('3) the hand points at the move stick, and the spotlight follows it'
     return Math.hypot(x-(r.x+r.width/2), y-(r.y+r.height/2));
   })()`);
   check(d < 6, `spotlight sits on the move stick (${Math.round(d)}px off centre)`);
+  const off = await handOnTarget('#stickL', 60);
+  check(off != null && off <= 60, `and the HAND itself orbits it, never straying (worst ${off}px over a full circle)`);
 }
 
 console.log('4) walking into the ring finishes step 1 and unlocks the aim stick');
@@ -158,6 +179,8 @@ console.log('5) the spotlight moves to the aim stick for the shooting step');
   check(d < 6, `spotlight moved to the aim stick (${Math.round(d)}px off centre)`);
   const g = await evalJs('document.getElementById("tu-hand").className');
   check(/gest-pull/.test(g), `hand switched to the hold-drag-release gesture (${g})`);
+  const off = await handOnTarget('#stickR', 70);
+  check(off != null && off <= 70, `and the HAND stays on it through the drag mime (worst ${off}px)`);
 }
 
 console.log('6) nothing overflows the phone viewport');
@@ -168,19 +191,33 @@ console.log('6) nothing overflows the phone viewport');
   check(capBox && capBox.y > 0 && capBox.y < 390, `caption sits on screen (y ${capBox ? Math.round(capBox.y) : '?'} of 390)`);
 }
 
-console.log('7) shooting the dummy finishes step 2');
+console.log('7) shooting the dummy finishes the shoot step');
 {
-  // Aim up-left-ish toward the dummy and let go — a quick release is a shot.
-  for (let i = 0; i < 14 && (await text('#tu-cap')).trim() !== 'גול!'; i++) {
-    await stickDrag('#stickR', -20, -46, 260);   // pull the aim stick toward the dummy, release
+  // A QUICK release auto-aims at the nearest enemy (MECHANICS §3), so a short tap is enough here.
+  for (let i = 0; i < 14 && (await text('#tu-cap')).trim() === 'ירה!'; i++) {
+    await stickDrag('#stickR', -20, -46, 260);
     await sleep(420);
   }
-  const cap = (await text('#tu-cap')).trim();
-  check(cap === 'גול!', `advanced to step 3, caption «גול!» (got «${cap}»)`);
-  await shot('03-step3-goal');
+  check((await text('#tu-cap')).trim() === 'החזק חזק!', `-> the CHARGE step «החזק חזק!» (got «${(await text('#tu-cap')).trim()}»)`);
+  await shot('03-step3-charge');
 }
 
-console.log('8) the done-flag is still unset mid-tutorial (it is written only at the finale)');
+console.log('8) the charge step needs a FULL hold — a tap will not do');
+{
+  // Tap repeatedly: the step must NOT pass on quick shots, or "hold longer = stronger" is not
+  // being taught at all, which was the whole reason this step exists.
+  for (let i = 0; i < 4; i++) { await stickDrag('#stickR', -30, -30, 120); await sleep(260); }
+  check((await text('#tu-cap')).trim() === 'החזק חזק!', 'four quick taps did NOT complete it');
+  // Now hold past SHOOT_CHARGE_TIME (2.0s) and release.
+  for (let i = 0; i < 6 && (await text('#tu-cap')).trim() === 'החזק חזק!'; i++) {
+    await stickDrag('#stickR', -30, -30, 2400);
+    await sleep(500);
+  }
+  check((await text('#tu-cap')).trim() === 'גול!', `a full-power release advanced it -> «גול!» (got «${(await text('#tu-cap')).trim()}»)`);
+  await shot('04-step4-goal');
+}
+
+console.log('8b) the done-flag is still unset mid-tutorial (it is written only at the finale)');
 {
   check(await evalJs('localStorage.getItem("fbTutorialDone")') === null, 'no flag yet — a kid who quits halfway gets the tutorial again');
 }
@@ -196,13 +233,118 @@ console.log('9) REPLAY is reachable and unconditional');
   await evalJs('document.getElementById("training-btn").click()');
   await sleep(400);
   check(await vis('#tc-howto') === 'shown', '«🎓 איך משחקים?» is in the אימון sheet');
-  await shot('04-replay-entry');
+  await shot('05-replay-entry');
   await evalJs('document.getElementById("tc-howto").click()');
+  await sleep(500);
+  check(await vis('#tu-levels') === 'shown', 'it opens the LEVEL PICKER, not the tutorial directly');
+  // Read innerHTML, not textContent: icon-system.js swaps ⭐/▶/⚽ for pixel sprites, so the
+  // badge is gone from textContent while being perfectly visible on screen (see the screenshot).
+  const rows = await evalJs('[...document.querySelectorAll("#tu-levels .tu-lv")].map(e=>({html:e.querySelector("b").innerHTML, locked:e.className.includes("locked"), name:e.querySelector("b").textContent.trim()}))');
+  check(Array.isArray(rows) && rows.length === 2, `two levels listed (${rows && rows.length})`);
+  check(rows && /⭐|si-star|star/.test(rows[0].html) && !rows[0].locked, `level 1 shows finished + unlocked (${rows && rows[0].name})`);
+  check(rows && !rows[1].locked && /קרב/.test(rows[1].name), `level 2 is unlocked and playable (${rows && rows[1].name})`);
+  await shot('06-level-picker');
+  await evalJs('document.querySelector("#tu-levels .tu-lv[data-level=\\"0\\"]").click()');
   await sleep(3000);
   check(await vis('#tutorial') === 'shown', 'replay starts the tutorial even with the flag set');
   check((await text('#tu-cap')).trim() === 'זוז!', 'replay starts from step 1');
   check(await vis('#leave-lobby-btn') === 'shown', 'a REPLAY keeps its way out (only the first run traps you)');
-  await shot('05-replay-running');
+  await shot('07-replay-running');
+}
+
+console.log('10) a LOCKED level says so instead of being dead pixels');
+{
+  await evalJs('localStorage.removeItem("fbTuDone"); localStorage.removeItem("fbTutorialDone")');
+  await cdp('Page.navigate', { url: PAGE });
+  await sleep(3500);
+  // Fresh again => level 1 auto-runs. Leave it, then look at the picker.
+  await evalJs('localStorage.setItem("fbTuDone","")');   // nothing finished, but no auto-hijack loop
+  await cdp('Page.navigate', { url: PAGE });
+  await sleep(3000);
+  await evalJs('document.getElementById("training-btn").click()');
+  await sleep(300);
+  await evalJs('document.getElementById("tc-howto").click()');
+  await sleep(400);
+  const locked = await evalJs('[...document.querySelectorAll("#tu-levels .tu-lv")].map(e=>e.className.includes("locked"))');
+  check(locked && locked[0] === false && locked[1] === true, `level 2 locked until level 1 is done (${JSON.stringify(locked)})`);
+  await shot('08-level2-locked');
+}
+
+console.log('11) LEVEL 2 step 1 — shoot the ball, with 💣/🧱 still not yet introduced');
+{
+  await evalJs(`localStorage.setItem("fbTuDone","basics")`);   // level 1 finished => level 2 open
+  await cdp('Page.navigate', { url: PAGE });
+  await sleep(3000);
+  await evalJs('document.getElementById("training-btn").click()');
+  await sleep(300);
+  await evalJs('document.getElementById("tc-howto").click()');
+  await sleep(400);
+  await evalJs('document.querySelector("#tu-levels .tu-lv[data-level=\\"1\\"]").click()');
+  await sleep(3500);
+  check((await text('#tu-cap')).trim() === 'שוט לכדור!', `caption «שוט לכדור!» (got «${(await text('#tu-cap')).trim()}»)`);
+  check(await vis('#stickR') === 'shown', 'aim stick is live from the first step of level 2');
+  check(await vis('#special') === 'hidden', '💣 not introduced yet');
+  check(await vis('#build') === 'hidden', '🧱 not introduced yet');
+  const onPip = await evalJs('[...document.querySelectorAll("#tu-pips i")].findIndex(e=>e.className==="on")');
+  check(onPip === 0, `pips reset for the new level (on=${onPip})`);
+  await shot('09-l2-step1-ballshot');
+
+  // Shoot it in for real — bullets snooker a loose ball, and the ball is pickup-locked, so this
+  // is the only way through.
+  for (let i = 0; i < 20 && (await text('#tu-cap')).trim() === 'שוט לכדור!'; i++) {
+    await stickDrag('#stickR', 52, 0, 700);   // pull RIGHT (the ball) and hold past QUICK_CHARGE
+    await sleep(420);
+  }
+  check((await text('#tu-cap')).trim() === 'פצצה!', `shot the ball in -> step 2 «פצצה!» (got «${(await text('#tu-cap')).trim()}»)`);
+}
+
+console.log('12) 💣 appears exactly when its step does, and the hand moves onto it');
+{
+  check(await vis('#special') === 'shown', '💣 is now on screen');
+  check(await vis('#build') === 'hidden', '🧱 still held back');
+  const d = await evalJs(`(()=>{
+    const t=document.getElementById('tutorial'), s=document.getElementById('special');
+    const r=s.getBoundingClientRect();
+    const x=parseFloat(getComputedStyle(t).getPropertyValue('--tu-x'));
+    const y=parseFloat(getComputedStyle(t).getPropertyValue('--tu-y'));
+    return Math.hypot(x-(r.x+r.width/2), y-(r.y+r.height/2));
+  })()`);
+  check(d < 6, `spotlight sits on the 💣 button (${Math.round(d)}px off centre)`);
+  const off = await handOnTarget('#special', 70);
+  check(off != null && off <= 70, `and the HAND is drawn on the 💣, not near it (worst ${off}px)`);
+  await shot('10-l2-step2-bomb');
+
+  // Lob it at the foe: drag the 💣 button toward them and let go.
+  for (let i = 0; i < 14 && (await text('#tu-cap')).trim() === 'פצצה!'; i++) {
+    await stickDrag('#special', 40, 0, 200);   // lob RIGHT, at the foe
+    await sleep(2200);   // BOMB.fuse is 1.725s — the blast is what completes the step
+  }
+  check((await text('#tu-cap')).trim() === 'בנה קיר!', `bombed them -> step 3 «בנה קיר!» (got «${(await text('#tu-cap')).trim()}»)`);
+}
+
+console.log('13) 🧱 appears for the wall step — and 💣 is NOT taken back');
+{
+  check(await vis('#build') === 'shown', '🧱 is now on screen');
+  check(await vis('#special') === 'shown', '💣 stayed — nothing taught is ever re-locked');
+  const d = await evalJs(`(()=>{
+    const t=document.getElementById('tutorial'), s=document.getElementById('build');
+    const r=s.getBoundingClientRect();
+    const x=parseFloat(getComputedStyle(t).getPropertyValue('--tu-x'));
+    const y=parseFloat(getComputedStyle(t).getPropertyValue('--tu-y'));
+    return Math.hypot(x-(r.x+r.width/2), y-(r.y+r.height/2));
+  })()`);
+  check(d < 6, `spotlight moved to the 🧱 button (${Math.round(d)}px off centre)`);
+  const off = await handOnTarget('#build', 70);
+  check(off != null && off <= 70, `and the HAND is drawn on the 🧱 (worst ${off}px)`);
+  await shot('11-l2-step3-wall');
+
+  // A wall needs BUILD_WINDUP (0.5s) of hold before the release places it.
+  for (let i = 0; i < 10 && (await text('#tu-cap')).trim() === 'בנה קיר!'; i++) {
+    await stickDrag('#build', 30, 0, 950);     // build RIGHT, between me and the sentry
+    await sleep(700);
+  }
+  check((await text('#tu-cap')).trim() === 'חטוף!', `built it -> step 4 «חטוף!» (got «${(await text('#tu-cap')).trim()}»)`);
+  await shot('12-l2-step4-strip');
 }
 
 ws.close(); chrome.kill();

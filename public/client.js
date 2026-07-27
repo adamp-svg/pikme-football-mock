@@ -10,8 +10,9 @@ import {
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import {
-  TU_COUNT, TU_DONE, TU_RING, TU_DUMMY, TU_GOAL,
-  stepAt, advance, isStepDone, showNudge, tuHasControl, isTutorialOver,
+  TU_LEVELS, TU_RING, TU_GOAL, tuLevel, stepsIn, stepAt, doneStage,
+  advance, isStepDone, showNudge, captionFor, tuHasControl, isTutorialOver,
+  bombHit, tuUnlocked, nextLevel,
 } from '/shared/tutorial.js';
 import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
@@ -649,11 +650,26 @@ function processSnapshotSounds(snap) {
       triggerCelebration(ourGoal ? 'goal-us' : 'goal-them'); // comic Hebrew word overlay
       crowdHypeT = performance.now();          // crowd leaps up, then settles over ~2.5s
     }
+    // TUTORIAL: the ball came LOOSE off an enemy carrier — that is the strip step's whole lesson,
+    // and the moment its caption flips from «חטוף!» to «גול!». Read here, where both the previous
+    // and the current owner are in hand.
+    if (tutorial && previousBallOwner && snap.ball.owner === null) {
+      const prev = (snap.players || []).find((p) => p.id === previousBallOwner);
+      if (prev && prev.team !== me.team) tuEv.stripped = true;
+    }
     if (previousBallOwner === null && snap.ball.owner !== null) {
       // My own pickup = full (it's at me); an OTHER player's is distance-attenuated like every positional SFX.
       playSound('pickup', snap.ball.owner === me.playerId ? 0.55 : 0.28 * proximity(snap.ball.x, snap.ball.y), snap.ball.owner === me.playerId ? 1.08 : 0.96);
     }
     const newBlasts = (snap.blasts || []).filter((b) => !knownBlasts.has(b.id));
+    // TUTORIAL: a blast that went off ON TOP of the step's marked foe completes the bomb step.
+    // Deliberately not "any blast" — aiming the lob IS the lesson — but bombHit() is generous
+    // (1.5x the blast radius), because a kid whose throw lands a sprite short has understood it.
+    if (tutorial && newBlasts.length) {
+      const st = stepAt(tuLvl, tuStage);
+      const foe = st && st.done === 'bombHitFoe' ? tuFoePos(st.markerKey) : null;
+      if (foe && newBlasts.some((b) => bombHit(b.x, b.y, foe.x, foe.y))) tuEv.bombHitFoe = true;
+    }
     for (const blast of newBlasts) {
       playSound('explosion', 0.85 * proximity(blast.x, blast.y), 0.92 + Math.random() * 0.12);
       const distance = rendered ? Math.hypot(blast.x - rendered.x, blast.y - rendered.y) : 0;
@@ -724,6 +740,9 @@ function processSnapshotSounds(snap) {
       bombSrc.set(b.id, pl ? { x: pl.x, y: pl.y } : { x: b.x, y: b.y });      // arc FROM the thrower to where it lands
     }
     for (const w of snap.walls || []) if (!knownWalls.has(w.id)) {            // built a wall
+      // TUTORIAL: a fresh wall completes the fence step. Nothing else on that pitch builds —
+      // the sentry never does — so a new wall is unambiguously the kid's.
+      if (tutorial) tuEv.wallBuilt = true;
       const pl = nearestPlayer(players, w.x, w.y, 130, w.team); if (pl) triggerAnim(pl.id, 'wall', { aimSign: (w.x - pl.x) >= 0 ? 1 : -1 });
       wallSpawnT.set(w.id, performance.now());                                // pop-in intro (see drawBuiltWall)
       spawnDust(w.x, w.y, 10, { col: '150,120,80', spd: 90, up: 55 });        // dust as the planks assemble in
@@ -4313,7 +4332,7 @@ function enterMatch(msg) {
   const tuChrome = ['edit-controls-btn', 'chat-btn', 'pause-btn', 'hud'];
   if (tutorial) {
     for (const id of tuChrome) document.getElementById(id)?.classList.add('tu-off');
-    tuEnter();
+    tuEnter(msg.tuLevel | 0);
   } else {
     for (const id of tuChrome) document.getElementById(id)?.classList.remove('tu-off');
     tuExit();
@@ -5011,6 +5030,12 @@ function releaseShot(aim) {
     if (predVel) { predVel.x -= ax * 60; predVel.y -= ay * 60; }
   }
   const c = currentCharge();
+  // TUTORIAL: the charge step completes on RELEASING at full power — the client knows its own
+  // charge exactly, here, at the moment of release. Deliberately not "a full shot that also
+  // hits": the lesson is the HOLD, and making a seven-year-old land it as well turns one idea
+  // into two and adds a way to get stuck. Counts a kick as well as a bullet — holding longer
+  // makes both stronger, which is the whole point.
+  if (tutorial && c >= FULL_CHARGE) tuEv.chargedShot = true;
   if (holdingBall) playSound('kick', 0.85, 0.92 + c * 0.16);        // kicking the held ball
   else if (c >= FULL_CHARGE) playSound('powerShot', 0.7);           // fully-charged bullet — the "power shoot" cue
   else playSound('shot', 0.38, 0.92 + c * 0.16);                    // a normal bullet (gun blop / shoot)
@@ -7759,7 +7784,7 @@ function renderFrame() {
 }
 requestAnimationFrame(frame);
 
-// ===================== TUTORIAL — the scripted first match =====================
+// ===================== TUTORIAL — the scripted levels =====================
 // docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md
 //
 // A SILENT coach for a kids' audience: no character, no dialogue, and the game never pauses.
@@ -7768,51 +7793,92 @@ requestAnimationFrame(frame);
 // finishes — the hand carries the lesson, the words only confirm it (Epic: "don't expect them
 // to take the time to read").
 //
+//   LEVEL 1 · יסודות — move -> shoot -> goal -> super
+//   LEVEL 2 · קרב    — shoot the ball -> bomb -> wall -> strip the carrier
+//
 // The STEP MACHINE is here, in the client, not on the server: a server-side one puts an RTT in
 // front of every hint, so on a bad connection the hand points AFTER the kid already did the
-// thing. The server owns only what the sim alone can do (ball, keeper, super) and is told which
-// stage to set up. The rules themselves live in shared/tutorial.js so they unit-test.
-const TU_FLAG = 'fbTutorialDone';
-const tutorialSeen = () => { try { return localStorage.getItem(TU_FLAG) === '1'; } catch { return false; } };
-const markTutorialSeen = () => { try { localStorage.setItem(TU_FLAG, '1'); } catch { /* private mode */ } };
+// thing. The server owns only what the sim alone can do and reads the same level table we do.
+// The rules themselves live in shared/tutorial.js so they unit-test.
+const TU_DONE_KEY = 'fbTuDone';        // comma-separated ids of FINISHED levels
+const TU_LEGACY_KEY = 'fbTutorialDone'; // the boolean the first ship wrote, kept in sync
 
-let tuStage = 0;         // 0..TU_COUNT-1, then TU_DONE
+// Which levels this player has finished. Migrates the old boolean: it could only ever have meant
+// level 1, so that is exactly what it seeds.
+function tuDoneSet() {
+  try {
+    const raw = localStorage.getItem(TU_DONE_KEY);
+    if (raw != null) return new Set(raw.split(',').filter(Boolean));
+    const s = new Set();
+    if (localStorage.getItem(TU_LEGACY_KEY) === '1') s.add(TU_LEVELS[0].id);
+    return s;
+  } catch { return new Set(); }
+}
+function tuMarkDone(id) {
+  const s = tuDoneSet(); s.add(id);
+  try {
+    localStorage.setItem(TU_DONE_KEY, [...s].join(','));
+    localStorage.setItem(TU_LEGACY_KEY, '1'); // anything still reading the old flag stays right
+  } catch { /* private mode */ }
+}
+
+let tuLvl = 0;           // which level is running
+let tuStage = 0;         // 0..stepsIn(tuLvl)-1, then doneStage()
 let tuStepT = 0;         // seconds inside the current step (drives the stuck-nudge)
 let tuFinishAt = 0;      // performance.now() at which the finale card shows (0 = not pending)
 let tuPrevT = 0;         // previous frame stamp, for the step machine's dt
-let tuReplay = false;    // replay from אימון => a way out exists. First run has none.
+let tuReplay = false;    // replay from אימון => a way out exists. A first run has none.
 // One-way latches for events seen in the snapshot stream. Latched rather than sampled so a
-// dropped frame cannot lose the goal that completes a step.
-let tuEv = { hitEnemy: false, scored: false };
+// dropped frame cannot lose the goal (or the strip, or the blast) that completes a step.
+const tuBlankEv = () => ({ hitEnemy: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false });
+let tuEv = tuBlankEv();
 
 const tuEl = document.getElementById('tutorial');
-const tuVeil = document.getElementById('tu-veil');
 const tuHandEl = document.getElementById('tu-hand');
 const tuCapEl = document.getElementById('tu-cap');
 const tuNudgeEl = document.getElementById('tu-nudge');
 const tuPipsEl = document.getElementById('tu-pips');
 const tuDoneEl = document.getElementById('tu-done');
+const tuLevelsEl = document.getElementById('tu-levels');
 
-// Launch it. `replay` is the אימון entry: it leaves the exit button in place.
-function startTutorial(replay) {
+// Which on-screen element a step's spotlight points at. move/aim are the sticks (their anchor
+// moves with the controls editor); bomb/wall are fixed buttons.
+const TU_SPOT_SEL = { bomb: '#special', wall: '#build' };
+function tuSpotRect(which) {
+  if (which === 'move' || which === 'aim') {
+    const a = stickAnchor(which);
+    return a ? { x: a.x, y: a.y, size: a.size } : null;
+  }
+  const el = document.querySelector(TU_SPOT_SEL[which] || '');
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  if (!r.width) return null;
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2, size: Math.max(r.width, r.height) };
+}
+
+// Launch a level. `replay` is the אימון entry: it leaves the exit button in place.
+function startTutorial(level, replay) {
   tuReplay = !!replay;
   unlockAudio();
-  sendMsg({ type: 'tutorial' });
+  sendMsg({ type: 'tutorial', level: level | 0 });
 }
 
 // Called from enterMatch when the room is a tutorial room.
-function tuEnter() {
+function tuEnter(level) {
+  tuLvl = Number.isInteger(level) && tuLevel(level) ? level : 0;
   tuStage = 0; tuStepT = 0; tuFinishAt = 0;
-  tuEv = { hitEnemy: false, scored: false };
+  tuEv = tuBlankEv();
   tuDoneEl?.classList.add('hidden');
   tuEl?.classList.remove('hidden');
-  if (tuPipsEl && tuPipsEl.childElementCount !== TU_COUNT) {
-    tuPipsEl.innerHTML = Array.from({ length: TU_COUNT }, () => '<i></i>').join('');
+  const pips = stepsIn(tuLvl);
+  if (tuPipsEl && tuPipsEl.childElementCount !== pips) {
+    tuPipsEl.innerHTML = Array.from({ length: pips }, () => '<i></i>').join('');
   }
-  // First run has NO way out — the whole point of an unskippable tutorial. A replay keeps its
+  // A first run has NO way out — the whole point of an unskippable tutorial. A replay keeps its
   // exit, because a player who chose to revisit it has already proved they don't need trapping.
   document.getElementById('leave-lobby-btn')?.classList.toggle('tu-off', !tuReplay);
   tuSyncControls();
+  tuRenderOverlay();
 }
 
 function tuExit() {
@@ -7824,29 +7890,37 @@ function tuExit() {
 }
 
 // Which controls physically exist right now. A button a step has not taught is hidden AND its
-// input dropped (tuGate), so a kid cannot press something nobody explained. 💣 and 🧱 are gone
-// for the whole tutorial.
+// input dropped (tuGate), so a kid cannot press something nobody explained. Level 1 never shows
+// 💣 or 🧱 at all; level 2 introduces them one at a time.
 function tuSyncControls() {
-  const aimLive = tuHasControl(tuStage, 'aim');
-  document.getElementById('stickR')?.classList.toggle('tu-off', !aimLive);
-  document.getElementById('special')?.classList.add('tu-off');
-  document.getElementById('build')?.classList.add('tu-off');
+  document.getElementById('stickR')?.classList.toggle('tu-off', !tuHasControl(tuLvl, tuStage, 'aim'));
+  document.getElementById('special')?.classList.toggle('tu-off', !tuHasControl(tuLvl, tuStage, 'bomb'));
+  document.getElementById('build')?.classList.toggle('tu-off', !tuHasControl(tuLvl, tuStage, 'wall'));
 }
 
 // Zero every input a step has not unlocked. The server does not police this — it does not need
 // to; a solo, endless, reward-free room has nothing worth cheating for.
 function tuGate(inp) {
-  if (!tuHasControl(tuStage, 'move')) { inp.moveX = 0; inp.moveY = 0; }
-  if (!tuHasControl(tuStage, 'aim')) { inp.hold = false; inp.fire = false; inp.aimed = false; }
-  inp.special = false; inp.build = false; inp.buildHold = false; inp.buildDist = 0;
+  if (!tuHasControl(tuLvl, tuStage, 'move')) { inp.moveX = 0; inp.moveY = 0; }
+  if (!tuHasControl(tuLvl, tuStage, 'aim')) { inp.hold = false; inp.fire = false; inp.aimed = false; }
+  if (!tuHasControl(tuLvl, tuStage, 'bomb')) { inp.special = false; inp.sax = 0; inp.say = 0; }
+  if (!tuHasControl(tuLvl, tuStage, 'wall')) { inp.build = false; inp.buildHold = false; inp.buildDist = 0; }
   return inp;
+}
+
+// The live position of a step's marked foe, straight from the snapshot. Resolved by id prefix
+// (the server names them `<key>-<roomId>`), so the marker tracks a foe that has been shoved,
+// bombed or has walked into its goal — a fixed world point would drift off them.
+function tuFoePos(key) {
+  if (!latest || !key) return null;
+  const p = (latest.players || []).find((q) => q.id && q.id.indexOf(`${key}-`) === 0);
+  return p ? { x: p.x, y: p.y } : null;
 }
 
 const tuCtx = () => ({
   px: rendered ? rendered.x : (predicted ? predicted.x : 0),
   py: rendered ? rendered.y : (predicted ? predicted.y : 0),
-  hitDummy: tuEv.hitEnemy,
-  scored: tuEv.scored,
+  ...tuEv,
   stepElapsed: tuStepT,
 });
 
@@ -7854,24 +7928,24 @@ const tuCtx = () => ({
 function tuTick(dt) {
   if (!tutorial) return;
   if (tuFinishAt) { if (performance.now() >= tuFinishAt) { tuFinishAt = 0; tuFinish(); } return; }
-  if (isTutorialOver(tuStage)) return;
+  if (isTutorialOver(tuLvl, tuStage)) return;
 
-  // The FINAL step ends on the winning goal. Don't sit out the full 5s kickoff reset first —
-  // let the goal celebration play for a beat, then the finale card.
-  if (tuStage === TU_COUNT - 1 && isStepDone(tuStage, tuCtx())) {
-    tuStage = TU_DONE; tuFinishAt = performance.now() + 1600;
+  // The FINAL step of a level ends it. Don't sit out the full 5s kickoff reset first — let the
+  // celebration play for a beat, then the finale card.
+  if (tuStage === stepsIn(tuLvl) - 1 && isStepDone(tuLvl, tuStage, tuCtx())) {
+    tuStage = doneStage(tuLvl); tuFinishAt = performance.now() + 1600;
     tuRenderOverlay();
     return;
   }
-  // Mid-tutorial goal reset: freeze the coach so the celebration has the screen to itself, and
-  // so the step timer doesn't bank 5 idle seconds and fire a stuck-nudge the moment play resumes.
+  // Mid-level goal reset: freeze the coach so the celebration has the screen to itself, and so
+  // the step timer doesn't bank 5 idle seconds and fire a stuck-nudge the moment play resumes.
   if (latest && latest.resetTimer > 0) return;
 
   tuStepT += dt;
-  const next = advance(tuStage, tuCtx());
+  const next = advance(tuLvl, tuStage, tuCtx());
   if (next !== tuStage) {
     tuStage = next; tuStepT = 0;
-    tuEv = { hitEnemy: false, scored: false };
+    tuEv = tuBlankEv();
     sendMsg({ type: 'tuStage', n: tuStage });   // server sets the pitch up for the new step
     tuSyncControls();
     playSound('pickup', 0.5, 1.25);             // a small "yes, that" chime between steps
@@ -7882,12 +7956,13 @@ function tuTick(dt) {
 
 // Position the spotlight + hand over the live control and print this step's words.
 function tuRenderOverlay() {
-  if (!tuEl || isTutorialOver(tuStage)) { if (tuEl && isTutorialOver(tuStage)) tuEl.classList.add('hidden'); return; }
-  const s = stepAt(tuStage);
+  if (!tuEl) return;
+  if (isTutorialOver(tuLvl, tuStage)) { tuEl.classList.add('hidden'); return; }
+  const s = stepAt(tuLvl, tuStage);
   if (!s) return;
-  // The spotlight tracks the control's REAL anchor, so a stick the player moved or resized in
+  // The spotlight tracks the control's REAL position, so a stick the player moved or resized in
   // the controls editor keeps its hand pointing at the right place.
-  const a = s.spotlight ? stickAnchor(s.spotlight) : null;
+  const a = s.spotlight ? tuSpotRect(s.spotlight) : null;
   tuEl.classList.toggle('no-spot', !a);
   if (a) {
     tuEl.style.setProperty('--tu-x', `${Math.round(a.x)}px`);
@@ -7896,8 +7971,9 @@ function tuRenderOverlay() {
   }
   tuHandEl.className = `tu-hand gest-${s.gesture}`;
   tuHandEl.style.display = a ? '' : 'none';
-  if (tuCapEl.textContent !== s.cap) tuCapEl.textContent = s.cap;   // reassigning restarts the pop
-  const nudging = showNudge(tuStage, tuCtx());
+  const cap = captionFor(tuLvl, tuStage, tuCtx());
+  if (tuCapEl.textContent !== cap) tuCapEl.textContent = cap;   // reassigning restarts the pop
+  const nudging = showNudge(tuLvl, tuStage, tuCtx());
   tuEl.classList.toggle('nudging', nudging);
   if (nudging && tuNudgeEl.textContent !== s.nudge) tuNudgeEl.textContent = s.nudge;
   tuNudgeEl.classList.toggle('hidden', !nudging);
@@ -7910,8 +7986,8 @@ function tuRenderOverlay() {
 // The one world-space cue for this step, drawn on the pitch under the players. Called from
 // renderFrame INSIDE the mirrored world transform, so wx/wy/ws_ apply as they do everywhere else.
 function tuDrawWorld() {
-  if (!tutorial || isTutorialOver(tuStage)) return;
-  const s = stepAt(tuStage);
+  if (!tutorial || isTutorialOver(tuLvl, tuStage)) return;
+  const s = stepAt(tuLvl, tuStage);
   if (!s) return;
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
   if (s.marker === 'ring') {
@@ -7923,15 +7999,13 @@ function tuDrawWorld() {
     ctx.beginPath(); ctx.arc(wx(TU_RING.x), wy(TU_RING.y), r, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = `rgba(255,208,106,${0.10 + 0.08 * pulse})`; ctx.fill();
     ctx.restore();
-  } else if (s.marker === 'dummy') {
-    // Shoot this. A bobbing chevron over the target, not a ring — a ring on a body would read
-    // as "stand here", which is the previous step's instruction.
-    const bob = ws_(10) * pulse;
-    const x = wx(TU_DUMMY.x), y = wy(TU_DUMMY.y) - ws_(120) - bob, w = ws_(30);
-    ctx.save();
-    ctx.fillStyle = `rgba(255,208,106,${0.7 + 0.3 * pulse})`;
-    ctx.beginPath(); ctx.moveTo(x - w, y); ctx.lineTo(x + w, y); ctx.lineTo(x, y + w * 1.2); ctx.closePath(); ctx.fill();
-    ctx.restore();
+  } else if (s.marker === 'foe' || s.marker === 'ball') {
+    // Hit THIS. A bobbing chevron over the target, not a ring — a ring on a body would read as
+    // "stand here", which is a different instruction the kid has already been given once.
+    const at = s.marker === 'ball'
+      ? (latest ? { x: latest.ball.x, y: latest.ball.y } : null)
+      : tuFoePos(s.markerKey);
+    if (at) tuChevron(at.x, at.y, pulse);
   } else if (s.marker === 'goal') {
     // Kick it there. A fat arrow along the shot lane into the mouth of the goal.
     const y = wy(TU_GOAL.y), x0 = wx(TU_GOAL.x - 620), x1 = wx(TU_GOAL.x - 90);
@@ -7944,11 +8018,31 @@ function tuDrawWorld() {
     ctx.restore();
   }
 }
+// A downward chevron bobbing over a world point.
+function tuChevron(wxx, wyy, pulse) {
+  const bob = ws_(10) * pulse;
+  const x = wx(wxx), y = wy(wyy) - ws_(120) - bob, w = ws_(30);
+  ctx.save();
+  ctx.fillStyle = `rgba(255,208,106,${0.7 + 0.3 * pulse})`;
+  ctx.beginPath(); ctx.moveTo(x - w, y); ctx.lineTo(x + w, y); ctx.lineTo(x, y + w * 1.2); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
 
-// Finished. Celebration only — no XP, no trophies, no cards (c86fa82: practice pays nothing).
+// Level finished. Celebration only — no XP, no trophies, no cards (c86fa82: practice pays nothing).
 function tuFinish() {
-  markTutorialSeen();
+  const L = tuLevel(tuLvl);
+  if (L) tuMarkDone(L.id);
   tuEl?.classList.add('hidden');
+  const nxt = nextLevel(tuDoneSet());
+  const nextBtn = document.getElementById('tu-next-btn');
+  if (nextBtn) {
+    // A kid on a roll should never have to go and find a menu.
+    const has = nxt != null && nxt !== tuLvl;
+    nextBtn.classList.toggle('hidden', !has);
+    if (has) { nextBtn.textContent = `המשך ל${tuLevel(nxt).name} ›`; nextBtn.dataset.level = String(nxt); }
+  }
+  const t = document.getElementById('tu-done-title');
+  if (t) t.textContent = nxt == null ? 'אתה מוכן!' : 'כל הכבוד!';
   tuDoneEl?.classList.remove('hidden');
   confettiBurst(120);
 }
@@ -7957,19 +8051,51 @@ document.getElementById('tu-done-btn')?.addEventListener('click', () => {
   tuDoneEl?.classList.add('hidden');
   leaveToLobby();
 });
-
-// אימון → 🎓 איך משחקים? — the replay. Unconditional: the done-flag gates the auto-launch only.
-document.getElementById('tc-howto')?.addEventListener('click', () => {
-  document.getElementById('train-choose')?.classList.add('hidden');
-  startTutorial(true);
+document.getElementById('tu-next-btn')?.addEventListener('click', (e) => {
+  const n = Number(e.currentTarget.dataset.level || 0);
+  tuDoneEl?.classList.add('hidden');
+  startTutorial(n, tuReplay);
 });
 
-// FIRST RUN: no flag => the tutorial is what the app opens into, and there is no skip. Fired once
-// the socket has answered `welcome`, so the room request cannot race the connection.
+// ---- The level picker -----------------------------------------------------------------
+// אימון → 🎓 איך משחקים? opens this. Rendered from TU_LEVELS, so level 3 needs no UI work.
+function renderTuLevels() {
+  if (!tuLevelsEl) return;
+  const done = tuDoneSet();
+  const list = tuLevelsEl.querySelector('.tu-lv-list');
+  if (!list) return;
+  list.innerHTML = TU_LEVELS.map((L, i) => {
+    const open = tuUnlocked(i, done);
+    const fin = done.has(L.id);
+    const badge = fin ? '⭐' : open ? '▶' : '🔒';
+    return `<button class="tc-opt tu-lv${open ? '' : ' locked'}" data-level="${i}"${open ? '' : ' aria-disabled="true"'}>`
+      + `<b>${badge} ${L.ic} ${L.name}</b><small>${open ? L.sub : 'סיימו את השלב הקודם'}</small></button>`;
+  }).join('');
+}
+tuLevelsEl?.querySelector('.tu-lv-list')?.addEventListener('click', (e) => {
+  const b = e.target.closest('.tu-lv');
+  if (!b) return;
+  const i = Number(b.dataset.level || 0);
+  if (!tuUnlocked(i, tuDoneSet())) { toast('סיימו קודם את השלב הקודם'); return; }
+  tuLevelsEl.classList.add('hidden');
+  startTutorial(i, true);   // anything reached from the menu is a replay: it keeps its exit
+});
+document.getElementById('tu-lv-cancel')?.addEventListener('click', () => tuLevelsEl?.classList.add('hidden'));
+
+// אימון → 🎓 איך משחקים? — unconditional: the done-set gates the AUTO-launch, never access.
+document.getElementById('tc-howto')?.addEventListener('click', () => {
+  document.getElementById('train-choose')?.classList.add('hidden');
+  renderTuLevels();
+  tuLevelsEl?.classList.remove('hidden');
+});
+
+// FIRST RUN: level 1 unfinished => it is what the app opens into, and there is no skip. Fired
+// once the socket has answered `welcome`, so the room request cannot race the connection.
+// Only LEVEL 1 ever auto-launches; every later level is offered, never forced.
 function tuMaybeAutoStart() {
-  if (tutorialSeen() || tutorial) return;
+  if (tutorial || tuDoneSet().has(TU_LEVELS[0].id)) return;
   if (!homeEl || homeEl.classList.contains('hidden')) return; // only from a cold start on the hub
-  startTutorial(false);
+  startTutorial(0, false);
 }
 
 // ===================== FIELD BUILDER (self-contained DOM editor) =====================
