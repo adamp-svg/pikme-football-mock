@@ -312,6 +312,48 @@ export const TU_LEVELS = [
       { me: TU3_FLY.me, ball: 'park', foes: [{ key: 'watcher', role: 'still', ...TU3_FLY.foe }] },
     ],
   },
+  // LEVEL 4 · מרכז — the HUB, not a pitch. Design: docs/superpowers/specs/2026-07-27-hub-tour-level4-design.md
+  //
+  // Levels 1-3 teach a kid to play a MATCH. Nothing taught the screen they land on BETWEEN matches:
+  // a trophy bar, an album carousel, three power slots, a hero button and a friends rail, none of it
+  // explained. `where: 'hub'` is what makes the client run this level against the DOM and skip the
+  // socket entirely — no room, no stages, no server involvement at all.
+  //
+  // Order is COLLECT-THEN-PLAY. Play is last on purpose: taught first, its tap would launch
+  // matchmaking and abandon the tour halfway through. Ending on the real ⚽ button is also the
+  // Brawl Stars payoff — the lesson puts you back into a game.
+  {
+    id: 'mercaz', name: 'מרכז', sub: 'גביעים · קלפים · כוחות · גיבור', ic: '🏠',
+    where: 'hub',
+    // No `stages` and no `field`: there is no pitch to set up. stageAt/foeKeys/fieldFor all tolerate
+    // a stageless level rather than each caller having to remember to check.
+    steps: [
+      // The trophy bar cannot be tapped, so there is no gesture to teach — the lesson is "this
+      // number is yours and it goes up when you win". minDwell holds it open long enough to read;
+      // 686a72f added minDwell for exactly this class of lesson, one that is watched, not done.
+      { id: 'trophies', controls: [], spotlight: 'hubTrophies', gesture: 'none',
+        cap: 'גביעים', sub: 'נצחון = עוד גביעים', minDwell: 2.5,
+        nudge: 'זה שלך — הוא עולה כשמנצחים', nudgeAfter: 6, done: 'sawTrophies' },
+      { id: 'deck', controls: [], spotlight: 'hubDeck', gesture: 'pull',
+        cap: 'הקלפים שלך', sub: 'החלק לראות עוד',
+        nudge: 'החלק את הקלפים', nudgeAfter: 8, done: 'deckMoved' },
+      { id: 'slots', controls: [], spotlight: 'hubSlots', gesture: 'pull',
+        cap: 'גרור לכאן', sub: 'שלושה כוחות למשחק',
+        nudge: 'גרור קלף לתוך משבצת', nudgeAfter: 10, done: 'slotFilled' },
+      // hero/friends open a screen of their OWN, so each completes on a composite flag the client
+      // derives (opened AND back on the hub). Completing on the tap alone would point the next
+      // step's hand at a hub button currently hidden behind the wardrobe.
+      { id: 'hero', controls: [], spotlight: 'hubHero', gesture: 'tap',
+        cap: 'החלף מראה', sub: 'בחר איך תיראה',
+        nudge: 'הקש על הדמות', nudgeAfter: 10, done: 'heroDone' },
+      { id: 'friends', controls: [], spotlight: 'hubFriends', gesture: 'tap',
+        cap: 'שחק עם חבר', sub: 'הזמן חברים למשחק',
+        nudge: 'הקש על חברים', nudgeAfter: 10, done: 'friendsDone' },
+      { id: 'play', controls: [], spotlight: 'hubPlay', gesture: 'tap',
+        cap: 'קדימה!', sub: 'הכי מהר להתחיל לשחק',
+        nudge: 'הקש כדי לשחק', nudgeAfter: 10, done: 'played' },
+    ],
+  },
 ];
 
 export const TU_LEVEL_COUNT = TU_LEVELS.length;
@@ -319,7 +361,15 @@ export const tuLevel = (l) => TU_LEVELS[l] || null;
 export const tuLevelIndex = (id) => TU_LEVELS.findIndex((L) => L.id === id);
 export const stepsIn = (l) => (tuLevel(l) ? tuLevel(l).steps.length : 0);
 export const stepAt = (l, n) => { const L = tuLevel(l); return L ? (L.steps[n] || null) : null; };
-export const stageAt = (l, n) => { const L = tuLevel(l); return L ? (L.stages[n] || null) : null; };
+// A HUB level has no `stages` — there is no pitch to set up. Tolerated here rather than at every
+// call site, so a stageless level can never throw its way through the server or the tests.
+export const stageAt = (l, n) => { const L = tuLevel(l); return (L && L.stages) ? (L.stages[n] || null) : null; };
+// Does this level run in the HUB instead of on a pitch? A hub level has no room, no stages and no
+// server involvement at all — the client runs it against the DOM.
+// Declared HERE, above tuUnlocked, because tuUnlocked calls it and a `const` arrow below it would
+// hit a temporal-dead-zone at module evaluation.
+export const tuIsHub = (l) => { const L = tuLevel(l); return !!L && L.where === 'hub'; };
+export const TU_HUB_LEVEL = TU_LEVELS.findIndex((L) => L.where === 'hub');
 // Stage index that means "finished": one past the last step. The client shows the celebration and
 // records the level as done on seeing it.
 export const doneStage = (l) => stepsIn(l);
@@ -329,7 +379,7 @@ export const isTutorialOver = (l, n) => n >= stepsIn(l);
 // then only changes their ROLE per stage. No roster churn mid-level.
 export function foeKeys(l) {
   const L = tuLevel(l);
-  if (!L) return [];
+  if (!L || !L.stages) return [];   // a HUB level has no stages, so it has no cast to spawn
   const keys = [];
   for (const st of L.stages) for (const f of (st.foes || [])) if (!keys.includes(f.key)) keys.push(f.key);
   return keys;
@@ -461,6 +511,12 @@ export const bombHit = (bx, by, fx, fy) => Math.hypot(bx - fx, by - fy) <= BOMB.
 export function tuUnlocked(l, done) {
   if (l <= 0) return true;
   if (l >= TU_LEVEL_COUNT) return false;
+  // A HUB level is EXEMPT from the sequential chain and gates on level 1 alone. It has to be: it
+  // auto-launches on the first hub visit, which happens right after level 1, so chaining it behind
+  // קרב and טריקים would make its own entry condition unreachable. It is also honest — the combat
+  // ladder is a skill progression where each level assumes the last, and reading a trophy bar does
+  // not depend on knowing how to rocket-jump.
+  if (tuIsHub(l)) return !!done && done.has(TU_LEVELS[0].id);
   for (let i = 0; i < l; i++) if (!done || !done.has(TU_LEVELS[i].id)) return false;
   return true;
 }

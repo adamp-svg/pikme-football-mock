@@ -18,8 +18,11 @@ import {
   tuLevel, stepsIn, stepAt, stageAt, doneStage, foeKeys,
   advance, isStepDone, showNudge, nudgeFor, captionFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel, fieldFor, subFor, markersFor, TU3_FIND, TU3_FLY, TU3_BUSH,
+  TU_HUB_LEVEL, tuIsHub,
 } from './shared/tutorial.js';
 import { bootServer } from './boot-test-server.mjs';
+// Every match control a step could claim — a HUB step must claim none of them.
+const L4_CTLS = ['move', 'aim', 'bomb', 'wall'];
 
 let failures = 0;
 const check = (cond, msg) => { console.log((cond ? '  ✅ ' : '  ❌ ') + msg); if (!cond) failures++; };
@@ -30,15 +33,19 @@ const L1 = 0, L2 = 1, L3 = 2;
 // ===========================================================================
 console.log('A1) three levels, in the taught order');
 {
-  check(TU_LEVEL_COUNT === 3, `three levels (${TU_LEVEL_COUNT})`);
-  check(TU_LEVELS.map((L) => L.id).join(',') === 'basics,combat,tricks', `ids: ${TU_LEVELS.map((L) => L.id).join(', ')}`);
+  check(TU_LEVEL_COUNT === 4, `four levels (${TU_LEVEL_COUNT})`);
+  check(TU_LEVELS.map((L) => L.id).join(',') === 'basics,combat,tricks,mercaz', `ids: ${TU_LEVELS.map((L) => L.id).join(', ')}`);
   check(TU_LEVELS[L1].steps.map((s) => s.id).join(',') === 'move,shoot,charge,goal,super',
     `level 1: ${TU_LEVELS[L1].steps.map((s) => s.id).join(' -> ')}`);
   check(TU_LEVELS[L2].steps.map((s) => s.id).join(',') === 'ballshot,bomb,wall,strip',
     `level 2: ${TU_LEVELS[L2].steps.map((s) => s.id).join(' -> ')}`);
   check(TU_LEVELS[L3].steps.map((s) => s.id).join(',') === 'find,fly',
     `level 3: ${TU_LEVELS[L3].steps.map((s) => s.id).join(' -> ')}`);
+  // Every PITCH level needs one stage per step. A hub level has no pitch at all, so the rule is
+  // "stages iff not a hub level" — checked both ways so a missing `where` can't smuggle a stageless
+  // pitch level past this.
   for (const L of TU_LEVELS) {
+    if (L.where === 'hub') { check(!L.stages, `${L.id}: a hub level carries no stages`); continue; }
     check(L.steps.length === L.stages.length, `${L.id}: one pitch stage per step (${L.steps.length}/${L.stages.length})`);
   }
 }
@@ -98,7 +105,10 @@ console.log('A6) advance() walks each level to its end and then stops');
 {
   for (const [l, L] of TU_LEVELS.entries()) {
     let n = 0;
-    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, quickHit: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99 };
+    // Every completion flag in the game, true at once — the walker asserts a level CAN be finished,
+    // not how. The second line is level 4's, latched on the tutorial's own mock lobby.
+    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, quickHit: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99,
+      sawTrophies: true, deckMoved: true, slotFilled: true, heroDone: true, friendsDone: true, played: true };
     for (let i = 0; i < L.steps.length; i++) n = advance(l, n, ctx);
     check(n === doneStage(l) && isTutorialOver(l, n), `${L.id}: 0 -> DONE (${n} of ${L.steps.length})`);
     check(advance(l, n, ctx) === doneStage(l), `${L.id}: DONE is terminal`);
@@ -212,7 +222,10 @@ console.log('A10) unlocking: level 1 is always open, level 2 waits for it');
   check(nextLevel(none) === 0, 'nothing done -> offer level 1');
   check(nextLevel(one) === 1, 'level 1 done -> offer level 2');
   check(nextLevel(both) === 2, 'levels 1-2 done -> offer level 3');
-  check(nextLevel(all) === null, 'all done -> nothing left to offer');
+  // The pitch ladder is no longer the whole tutorial: with the hub tour added, finishing טריקים
+  // leaves מרכז to offer. Nothing is left only once all FOUR are done.
+  check(nextLevel(all) === TU_HUB_LEVEL, 'levels 1-3 done -> offer the hub tour');
+  check(nextLevel(new Set([...all, 'mercaz'])) === null, 'all four done -> nothing left to offer');
 }
 
 console.log('A11) every level-2 distance sits inside a MEASURED range');
@@ -230,6 +243,7 @@ console.log('A11) every level-2 distance sits inside a MEASURED range');
   check(FIELD.W - TU2_STRIP.foe.x < 260, `the carrier stands in its OWN goalmouth (${FIELD.W - TU2_STRIP.foe.x}px out), so the loose ball is already there`);
   // Every foe a stage mentions must be one the room actually spawns.
   for (const [l, L] of TU_LEVELS.entries()) {
+    if (!L.stages) continue;                       // a hub level stages nothing and spawns nothing
     const keys = foeKeys(l);
     const missing = L.stages.flatMap((st) => (st.foes || []).map((f) => f.key)).filter((k) => !keys.includes(k));
     check(missing.length === 0, `${L.id}: every staged foe is spawned (${keys.join(', ')})`);
@@ -311,6 +325,55 @@ console.log('A14) both bomb inputs are explained, not just the one the step need
   const bomb = stepAt(L2, 1), wall = stepAt(L2, 2);
   check(/הקשה/.test(bomb.sub) && /גרירה/.test(bomb.sub), `the bomb step spells out tap vs drag: «${bomb.sub}»`);
   check(/הקשה/.test(wall.sub) && /גרירה/.test(wall.sub), `so does the wall step: «${wall.sub}»`);
+}
+
+console.log('A15) LEVEL 4 (מרכז) is a HUB level: six steps, no pitch, no room');
+{
+  const L = tuLevel(TU_HUB_LEVEL);
+  check(L.id === 'mercaz', `level 4 is mercaz (${L.id})`);
+  check(tuIsHub(TU_HUB_LEVEL) === true, 'level 4 runs in the hub');
+  check([0, 1, 2].every((l) => !tuIsHub(l)), 'levels 1-3 do not');
+  check(L.stages === undefined, 'a hub level has no pitch stages');
+  check(stepsIn(TU_HUB_LEVEL) === 6, `six steps (${stepsIn(TU_HUB_LEVEL)})`);
+  check(L.steps.map((s) => s.id).join(',') === 'trophies,deck,slots,hero,friends,play',
+    `collect-then-play: ${L.steps.map((s) => s.id).join(' -> ')}`);
+  // A stageless level must not throw its way through the helpers the server uses.
+  check(stageAt(TU_HUB_LEVEL, 0) === null, 'stageAt on a hub level is null, not a crash');
+  check(foeKeys(TU_HUB_LEVEL).length === 0, 'a hub level has no cast to spawn');
+  check(!!fieldFor(TU_HUB_LEVEL), 'fieldFor falls back rather than returning undefined');
+}
+
+console.log('A16) level 4 completes on TAPS, and isStepDone needs no special-casing to read them');
+{
+  const H = TU_HUB_LEVEL;
+  check(stepAt(H, 0).done === 'sawTrophies' && stepAt(H, 0).minDwell >= 2,
+    'the trophy step is a dwell — the bar cannot be tapped, so the lesson is watching it');
+  check(isStepDone(H, 1, {}) === false, 'deck step incomplete with no gesture');
+  check(isStepDone(H, 1, { deckMoved: true }) === true, 'deck step completes when the carousel moves');
+  check(isStepDone(H, 2, { slotFilled: true }) === true, 'slots step completes when a slot fills');
+  check(isStepDone(H, 5, { played: true }) === true, 'play step completes on the tap');
+  // hero/friends open their own screen: opening is half the step, coming back is the other half.
+  check(isStepDone(H, 3, { heroOpened: true }) === false, 'hero step waits for the return');
+  check(isStepDone(H, 3, { heroDone: true }) === true, 'hero step completes back on the hub');
+  check(isStepDone(H, 4, { friendsOpened: true }) === false, 'friends step waits for the return');
+  check(isStepDone(H, 4, { friendsDone: true }) === true, 'friends step completes back on the hub');
+  // Unfailable, like every other level: the nudge escalates and that is all it does.
+  check(showNudge(H, 1, { stepElapsed: 999 }) === true, 'a stuck kid gets the nudge');
+  check(showNudge(H, 1, { stepElapsed: 999, deckMoved: true }) === false, 'no nudge once done');
+  check(advance(H, 5, { played: true }) === doneStage(H), 'the last step ends the level');
+  // No control is ever claimed by a hub step — the sticks and buttons are not on this screen.
+  check(L4_CTLS.every((c) => !tuHasControl(H, 0, c)), 'a hub step claims no match controls');
+}
+
+console.log('A17) the hub tour is EXEMPT from the sequential chain (it auto-launches after level 1)');
+{
+  const H = TU_HUB_LEVEL;
+  check(tuUnlocked(H, new Set()) === false, 'locked before level 1');
+  check(tuUnlocked(H, new Set(['basics'])) === true, 'open on level 1 alone — not gated on קרב/טריקים');
+  check(tuUnlocked(H, new Set(['basics', 'mercaz'])) === true, 'and stays open, so it can be replayed');
+  // The exemption must not leak into the pitch ladder.
+  check(tuUnlocked(2, new Set(['basics'])) === false, 'טריקים still waits for קרב');
+  check(tuUnlocked(2, new Set(['basics', 'combat'])) === true, 'and opens once קרב is done');
 }
 
 // ===========================================================================
