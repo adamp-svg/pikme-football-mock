@@ -65,7 +65,10 @@ const T = (memberId, level, queuedAt, budgetMs = MM_BUDGET_QUICK_MS, mode = 'qui
   const r = planMatches([T('a', 5, 0), T('b', 5, 0), T('c', 5, 0)], 100, OPTS);
   ok('3 of 4 does NOT start early', r.groups.length === 0);
   ok('all three are waiting', r.waiting.length === 3);
-  ok('each sees the other two searching', r.waiting.every((w) => w.searchingCount === 3), JSON.stringify(r.waiting.map((w) => w.searchingCount)));
+  // searchingCount INCLUDES SELF (matches the design's "3 שחקנים מחפשים כרגע" mockup copy for a pool
+  // of 3), so 3 here is correct, not an off-by-one — the old label ("...the other two") implied 2 and
+  // would send a future debugger chasing a phantom bug that isn't there.
+  ok('each sees searchingCount 3 (self + the other two, not just the other two)', r.waiting.every((w) => w.searchingCount === 3), JSON.stringify(r.waiting.map((w) => w.searchingCount)));
   ok('phase is "searching" at t=100ms', r.waiting.every((w) => w.phase === 'searching'));
 }
 { // 3v3 needs 6, not 4
