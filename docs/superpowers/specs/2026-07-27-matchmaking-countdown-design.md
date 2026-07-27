@@ -1,7 +1,7 @@
 # Skill-based matchmaking and the search screen
 
 **Date:** 2026-07-27
-**Status:** approved design, not yet implemented
+**Status:** implemented 2026-07-27, pushed
 **Repo:** `football-mock` (game only — no `pikme-server` change)
 
 ## The problem
