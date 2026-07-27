@@ -100,7 +100,16 @@ ok('quickVs is set from that gate', gateLine.includes('quickVs = true'));
 
 console.log('4) every live matchmade mode maps to a server format');
 const serverSrc = readFileSync(join(here, 'server.js'), 'utf8');
-const fmtBlock = serverSrc.slice(serverSrc.indexOf('const FORMATS = {'), serverSrc.indexOf('const publicRooms'));
+// Guard the slice ANCHORS themselves. `publicRooms` is dead code kept ONLY to give this slice an end
+// marker; if a future edit deletes it, indexOf silently returns -1 and the slice below WIDENS instead
+// of failing — slice(start, -1) runs to nearly the end of the file, so every "format exists in
+// FORMATS" check below would still pass by accident against the wrong, much bigger haystack. Assert
+// both anchors are found FIRST so a missing marker fails the suite instead of quietly weakening it.
+const fmtStart = serverSrc.indexOf('const FORMATS = {');
+const fmtEnd = serverSrc.indexOf('const publicRooms');
+ok('server.js still has the FORMATS block start marker', fmtStart !== -1, String(fmtStart));
+ok('server.js still has the FORMATS block end marker (publicRooms)', fmtEnd !== -1, String(fmtEnd));
+const fmtBlock = serverSrc.slice(fmtStart, fmtEnd);
 const modesSrc = src.slice(src.indexOf('const MODES = ['), src.indexOf('function renderAllModeLists'));
 const dom = new JSDOM(readFileSync(join(here, 'public/index.html'), 'utf8'));
 global.document = dom.window.document;
