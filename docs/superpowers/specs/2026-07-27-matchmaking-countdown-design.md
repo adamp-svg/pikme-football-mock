@@ -228,10 +228,12 @@ carry it):
 
 Once the room exists the existing `lobby` → `matchStart` path is unchanged.
 
-### Also fixed here
+### Not a bug — noted so nobody "fixes" it
 
-The mode label currently renders `כדורגל · 2 נגד 2ראשון ל-3 · עד 2 דק׳` — two spans with no
-separator between them (`#ti-mode`).
+Reading `#ti-mode`'s `textContent` yields `כדורגל · 2 נגד 2ראשון ל-3 · עד 2 דק׳`, which looks like a
+missing separator. It isn't: `.ti-mode-name` and `.ti-mode-rule` are separate block spans and render
+correctly on two lines. The run-together string is an artefact of concatenating a parent's text across
+two children. Leave `showVsMode` alone.
 
 ## 4. Bot naming
 
