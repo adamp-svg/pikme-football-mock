@@ -16,8 +16,8 @@ import {
   TU_LEVELS, TU_LEVEL_COUNT, TU_RING, TU_BALL_PARK, TU_SPAWN, TU_SHOT_SPOT,
   TU2_SHOOT, TU2_BOMB, TU2_WALL, TU2_STRIP,
   tuLevel, stepsIn, stepAt, stageAt, doneStage, foeKeys,
-  advance, isStepDone, showNudge, captionFor, tuHasControl, isTutorialOver,
-  bombHit, tuUnlocked, nextLevel, fieldFor, subFor, TU3_FIND, TU3_FLY, TU3_BUSH,
+  advance, isStepDone, showNudge, nudgeFor, captionFor, tuHasControl, isTutorialOver,
+  bombHit, tuUnlocked, nextLevel, fieldFor, subFor, markersFor, TU3_FIND, TU3_FLY, TU3_BUSH,
 } from './shared/tutorial.js';
 import { bootServer } from './boot-test-server.mjs';
 
@@ -79,9 +79,9 @@ console.log('A4) level 1 step 1 completes by standing in the ring, and only ther
 
 console.log('A5) every other step completes on its OWN event and nothing else');
 {
-  const flags = ['hitEnemy', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'foundFoe', 'flew'];
+  const flags = ['hitEnemy', 'quickHit', 'overHeld', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'foundFoe', 'flew'];
   const cases = [
-    [L1, 1, 'hitEnemy'], [L1, 2, 'chargedShot'], [L1, 3, 'scored'], [L1, 4, 'scored'],
+    [L1, 1, 'quickHit'], [L1, 2, 'chargedShot'], [L1, 3, 'scored'], [L1, 4, 'scored'],
     [L2, 0, 'scored'], [L2, 1, 'bombHitFoe'], [L2, 2, 'wallBuilt'], [L2, 3, 'stripped'],
     [L3, 0, 'foundFoe'], [L3, 1, 'flew'],
   ];
@@ -98,7 +98,7 @@ console.log('A6) advance() walks each level to its end and then stops');
 {
   for (const [l, L] of TU_LEVELS.entries()) {
     let n = 0;
-    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99 };
+    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, quickHit: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99 };
     for (let i = 0; i < L.steps.length; i++) n = advance(l, n, ctx);
     check(n === doneStage(l) && isTutorialOver(l, n), `${L.id}: 0 -> DONE (${n} of ${L.steps.length})`);
     check(advance(l, n, ctx) === doneStage(l), `${L.id}: DONE is terminal`);
@@ -136,6 +136,53 @@ console.log('A8b) the gesture mimes match the gestures being taught');
   check(g(L2, 0) === 'hold', 'so does shooting the ball');
   check(g(L2, 1) === 'lob' && g(L2, 2) === 'lob', '💣 and 🧱 mime the slow carry-it-outward lob');
   check(stepAt(L1, 1).minDwell === 1 && stepAt(L1, 2).minDwell === 1, 'both new L1 steps hold a beat before moving on');
+}
+
+console.log('A8c) the TAP step insists on a tap, and corrects a kid who holds');
+{
+  // The two gestures only stay distinct if «כוון והקש!» refuses a charged shot. It used to accept
+  // any hit, so holding finished the tap step and the next step then asked for what they just did.
+  const s = stepAt(L1, 1);
+  check(s.done === 'quickHit', `it completes on quickHit, not on any old hit (${s.done})`);
+  check(isStepDone(L1, 1, { quickHit: true }), 'a QUICK shot that HITS finishes it');
+  check(!isStepDone(L1, 1, { hitEnemy: true }), '...a hit on its own does not — that is what holding gets you');
+  check(!isStepDone(L1, 1, { hitEnemy: true, chargedShot: true }), '...and a fully-charged hit certainly does not');
+  check(!isStepDone(L1, 1, { overHeld: true }), 'over-holding does not complete it either');
+  // NO WAY TO GET STUCK: the mistake flag is inert everywhere except the line it prints.
+  check(advance(L1, 1, { overHeld: true, stepElapsed: 600, sinceDone: 99 }) === 1, 'over-holding for ten minutes neither passes nor fails the step');
+  check(advance(L1, 1, { overHeld: true, quickHit: true, sinceDone: 2 }) === 2, '...and the kid still passes the instant they tap, mistake and all');
+  // The correction rides the nudge slot — one escalated line, never two.
+  check(s.fix === 'הקש קצר — בלי להחזיק', `the correction reads «${s.fix}»`);
+  check(nudgeFor(L1, 1, {}) === s.nudge, 'no mistake yet -> the escalated line is the ordinary stuck-hint');
+  check(nudgeFor(L1, 1, { overHeld: true }) === s.fix, 'held too long -> it becomes the correction');
+  check(nudgeFor(L1, 1, { overHeld: true, stepElapsed: 600 }) === s.fix, '...and the correction still wins once the stuck-hint is also due');
+  check(!showNudge(L1, 1, { stepElapsed: 1 }), 'a kid one second in is told nothing extra');
+  check(showNudge(L1, 1, { stepElapsed: 1, overHeld: true }), '...but an over-hold is answered AT ONCE, not after nudgeAfter seconds');
+  check(!showNudge(L1, 1, { stepElapsed: 1, overHeld: true, quickHit: true }), '...and the correction goes away the moment the tap lands');
+  check(captionFor(L1, 1, { hitEnemy: true }) === s.cap, '«פגעת!» does not fire on a hit the step is not accepting...');
+  check(captionFor(L1, 1, { quickHit: true }) === 'פגעת!', '...only on the quick one it is');
+  // The correction belongs to THIS step only: the charge step's whole lesson is the hold.
+  const ch = stepAt(L1, 2);
+  check(!ch.fix && !ch.fixWhen, 'the charge step has no over-hold correction — holding is the point of it');
+  check(nudgeFor(L1, 2, { overHeld: true }) === ch.nudge, '...so the flag cannot change its line');
+  check(!showNudge(L1, 2, { stepElapsed: 1, overHeld: true }), '...nor make it shout at a kid who is doing it right');
+  check(TU_LEVELS.flatMap((L) => L.steps).every((st) => !st.fix === !st.fixWhen), 'every correction names the flag that triggers it, and vice versa');
+  check(TU_LEVELS.flatMap((L) => L.steps).every((st) => st.fixWhen !== st.done), 'and no step is ever corrected for the thing that completes it');
+}
+
+console.log('A8d) the ball-shot step points at BOTH the ball and the goal');
+{
+  // «שוט לכדור!» is two facts, and it used to show one: the ball had a chevron and the goal — off
+  // to the right of a landscape phone — had nothing on the grass naming it, so the step said shove
+  // the ball and never said where.
+  const cues = markersFor(stepAt(L2, 0));
+  check(cues.includes('ball'), 'the ball is still marked — the kid has to know what to hit');
+  check(cues.includes('goal'), '...and the goal is marked too, so they know where it has to end up');
+  check(cues.indexOf('goal') < cues.indexOf('ball'), 'goal first: the arrow is drawn under the chevron, not over it');
+  check(markersFor(stepAt(L1, 3)).join() === 'goal', 'the cue it reuses is level 1\'s own goal arrow, unchanged');
+  // One name or several, the renderer only ever sees a list (tuDrawCue is called per cue).
+  check(markersFor(stepAt(L1, 0)).join() === 'ring', 'a single-cue step still resolves to a one-item list');
+  check(markersFor(null).length === 0 && markersFor({}).length === 0, 'and no step / no marker is an empty one');
 }
 
 console.log('A9) the bomb step is generous about where the blast lands');
@@ -194,6 +241,14 @@ console.log('A12) minDwell holds a finished step open so the lesson lands');
   check(advance(L2, 2, { wallBuilt: true, sinceDone: 1 }) === 2, '...still holding a second later');
   check(advance(L2, 2, { wallBuilt: true, sinceDone: 3 }) === 3, '...and moves on once the kid has watched it');
   check(captionFor(L2, 2, { wallBuilt: true }) === 'הקיר עוצר יריות!', 'and it says what the wall is DOING during the dwell');
+  // ...which is only true if the shooting STARTS with the wall already standing in the way. The
+  // stage says so declaratively: its sentry holds its fire until the kid builds, so the dwell above
+  // is the window the fire arrives in, not the leftovers of a burst that began before the wall did.
+  const wallFoe = (stageAt(L2, 2).foes || [])[0];
+  check(wallFoe.role === 'sentry' && wallFoe.armOn === 'wallBuilt',
+    `the wall stage's sentry is armed by the build itself (armOn: '${wallFoe.armOn}')`);
+  check(!TU_LEVELS.flatMap((L) => L.stages).some((st) => (st.foes || []).some((f) => f.armOn && f.role !== 'sentry')),
+    'and armOn is only ever put on a foe that has a gun to hold');
   for (const [l, n] of [[L3, 0], [L3, 1]]) {
     const st = stepAt(l, n);
     check(st.minDwell > 0, `${TU_LEVELS[l].id}/${st.id} dwells too (${st.minDwell}s)`);
@@ -225,7 +280,10 @@ console.log('A13) level 3 is the only level with scenery: a bush to find someone
 console.log('A13b) the find step teaches its lesson AFTER the discovery, not before');
 {
   const f = stepAt(L3, 0);
-  check(f.done === 'foundFoe' && !f.marker, 'no world cue points at the bush — that would answer the question');
+  // Asked through markersFor, not `!f.marker`: the step writes its intent as `marker: 'none'`, which
+  // is a truthy string, so the old form failed on a step that is in fact correct. What matters is
+  // that the step resolves to NO cues, whatever it wrote to say so.
+  check(f.done === 'foundFoe' && markersFor(f).length === 0, 'no world cue points at the bush — that would answer the question');
   check(!f.controls.includes('bomb') && !f.controls.includes('wall'), 'and nothing to press: it is a walk and a look');
   // The payoff line is «גם אתה יכול להתחבא שם», and it must NOT be on screen before they find him.
   check(subFor(L3, 0, {}) === f.sub, 'before the sighting the second line is the search hint');
@@ -447,7 +505,7 @@ console.log('C3) the bomb step puts a target inside lob range');
   check(s.ball.owner == null && Math.hypot(s.ball.x - TU_BALL_PARK.x, s.ball.y - TU_BALL_PARK.y) < 12, 'ball parked out of the way');
 }
 
-console.log('C4) the wall step turns that same foe into a sentry that really shoots');
+console.log('C4) the wall step turns that same foe into a sentry that HOLDS ITS FIRE');
 {
   c.send({ type: 'tuStage', n: 2 });
   await c.until((x) => {
@@ -457,20 +515,24 @@ console.log('C4) the wall step turns that same foe into a sentry that really sho
   const placed = c.snap();
   const foe = placed && placed.players.find((p) => p.id !== myId2);
   check(!!foe && Math.abs(foe.x - TU2_WALL.foe.x) < 80, 'foe re-homed to the sentry spot — same body, new job (no roster churn)');
-  // It must actually open fire, or "build a wall to hide behind" is a lesson about nothing.
+  // This assertion used to be the opposite one ("opened fire within 9s"), and a phone report killed
+  // it: a seven-year-old was being shot at while still working out what 🧱 does, and every shot
+  // landed BEFORE the wall existed, so the wall was never seen stopping anything. The sentry now
+  // waits for the build (armOn), so silence here is the feature. 5s is a third of the time a kid
+  // spends on this step and ~3x the sentry's longest quiet window if it were live at all.
   const d = driver(c);
   const t0 = Date.now();
   let sawShot = false;
-  while (Date.now() - t0 < 9000 && !sawShot) {
-    d.input({});                                  // stand still and be shot at
+  while (Date.now() - t0 < 5000 && !sawShot) {
+    d.input({});                                  // stand still, build nothing
     const s = c.snap();
     if (s && (s.projectiles || []).length) sawShot = true;
     await sleep(60);
   }
-  check(sawShot, 'the sentry opened fire within 9s');
+  check(!sawShot, 'nothing was fired in 5s of standing there with no wall up');
 }
 
-console.log('C5) building a wall works on that step');
+console.log('C5) building a wall works on that step — and THAT is what opens fire');
 {
   // A wall is NOT one button press: buildHold has to be held for BUILD_WINDUP (0.5s) until
   // buildWindup >= 0.9, and only then does the build edge place it (sim.js:901). Drive it the way
@@ -481,6 +543,34 @@ console.log('C5) building a wall works on that step');
   d.input({ buildHold: true, build: true, aimX: 1, aimY: 0, buildDist: 0.5 });
   const s = await c.until((x) => (x.walls || []).length > before, 'wall up', 4000);
   check(!!s, `a wall went up (${before} -> ${s ? s.walls.length : '?'})`);
+  // The other half of the lesson: the wall is up, so the shooting starts, and it starts inside the
+  // step's ~3s dwell — the kid is looking at the wall when the tracers reach it. The sentry is armed
+  // on the tick after the build and its opening burst is immediate, so 4s is generous.
+  const t0 = Date.now();
+  let sawShot = false;
+  while (Date.now() - t0 < 4000 && !sawShot) {
+    d.input({});                                  // hands off — watch the wall do its job
+    const x = c.snap();
+    if (x && (x.projectiles || []).length) sawShot = true;
+    await sleep(60);
+  }
+  check(sawShot, 'the sentry opened fire once the wall was standing — «הקיר עוצר יריות!» has something to stop');
+  // And it STAYS armed: the wall it is shooting at is 4 blocks of hp3 and will be rubble soon, and a
+  // sentry that fell silent when the wall broke would teach that the wall works by not being shot at.
+  const dead = await c.until((x) => !(x.walls || []).length, 'wall smashed', 12000);
+  if (dead) {
+    let stillShooting = false;
+    const t1 = Date.now();
+    while (Date.now() - t1 < 4000 && !stillShooting) {
+      d.input({});
+      const x = c.snap();
+      if (x && (x.projectiles || []).length) stillShooting = true;
+      await sleep(60);
+    }
+    check(stillShooting, 'and it keeps firing after that wall is gone — the arming is a one-way latch');
+  } else {
+    console.log('  · the wall outlived the 12s watch; the stays-armed half is untested this run');
+  }
 }
 
 console.log('C6) the strip step hands the ball to the foe, in its own goalmouth');

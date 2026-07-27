@@ -117,7 +117,45 @@ export const SENTRY_SKILL = {
   easy:   { idle: [1.6, 3.6], burst: [0.20, 0.60], powerChance: 0.12, chargeHold: 0.75, aimSigma: 0.16,  lead: 0.65, turn: 0.12, laneCheck: false },
   normal: { idle: [0.8, 2.0], burst: [0.40, 1.00], powerChance: 0.38, chargeHold: 1.00, aimSigma: 0.06,  lead: 0.90, turn: 0.30, laneCheck: true },
   hard:   { idle: [0.35, 1.0], burst: [0.60, 1.40], powerChance: 0.60, chargeHold: 1.20, aimSigma: 0.025, lead: 1.00, turn: 0.60, laneCheck: true },
+  // TUTORIAL tier — a sentry whose only job is to be VISIBLY SHOOTING while a seven-year-old is
+  // told to build a wall. Not a difficulty step between easy and normal; a different purpose, which
+  // is why it is its own entry instead of a tweak to `easy` (the training ground uses those).
+  //   * NEVER CHARGES (powerChance 0). Two reasons, both measured. (1) A charge is
+  //     `chargeHold` seconds of HOLDING and not firing — dead air in the one step that needs
+  //     noise. (2) A charged hit is the only sentry output that can carry knockback above
+  //     BUILD_INTERRUPT_KV (300), and that CANCELS the kid's wall windup (sim.js). A quick
+  //     uncharged shot applies no push at all — just a slow stack — so this sentry can hammer
+  //     away without ever making the lesson impossible to complete.
+  //   * DUTY CYCLE, not difficulty. easy is silent 1.6-3.6s between 0.2-0.6s bursts — roughly 15%
+  //     of the time firing, so a kid can easily spend the whole step being shot at zero times.
+  //     1.2-2.0s of fire against 0.3-0.6s of quiet is ~75%. The rate INSIDE a burst is capped by
+  //     the gun, not by this table: shootCooldown 0.2s x MAG_SIZE 3 then EMPTY_RELOAD 1.2s
+  //     = ~1.9 shots/sec sustained, so `fire` held down is self-limiting and never a wall of lead.
+  //   * aimSigma is left at easy's 0.16 — the tracers must fly past the kid, not through them.
+  tutorial: { idle: [0.30, 0.60], burst: [1.20, 2.00], powerChance: 0, chargeHold: 0.75, aimSigma: 0.16, lead: 0.55, turn: 0.14, laneCheck: false },
 };
+
+// Re-arm a sentry's firing memory so it opens fire THIS TICK, already facing (atX,atY).
+//
+// createSentryMem() is right for a sentry that exists from the moment its room boots: it starts in
+// a short idle hold and its aim points at -x. It is WRONG for a body that only BECOMES a sentry
+// partway through a script (the tutorial's wall step re-roles the same foe it just used as a bomb
+// target). Such a foe arrives holding whatever mem it was created with — an idle countdown plus an
+// aim vector pointing nowhere in particular — so the step opens with the sentry standing there
+// silently slewing its aim around, and the first shot lands after the moment it was meant to
+// motivate. Call this when the ROLE flips, not when the body spawns.
+//
+// mode 'burst' means `fire` is held for `t` seconds straight; the gun's own cooldown/mag paces the
+// shots inside it (see the tutorial tier above), so this is "start shooting now", not "spray".
+export function armSentryFiring(mem, fromX, fromY, atX, atY, skill = 'normal') {
+  if (!mem) return mem;
+  const S = SENTRY_SKILL[skill] || SENTRY_SKILL.normal;
+  const dx = atX - fromX, dy = atY - fromY, d = Math.hypot(dx, dy) || 1;
+  mem.aimX = dx / d; mem.aimY = dy / d;   // already on target — no slew-in before the first shot
+  mem.mode = 'burst';
+  mem.t = S.burst[1];                     // a full-length opening burst
+  return mem;
+}
 
 // Solve the intercept aim: where to point so a bullet of speed `ps` meets a target
 // at (tx,ty) moving (tvx,tvy). Returns a unit [x,y]; falls back to straight-at-now.

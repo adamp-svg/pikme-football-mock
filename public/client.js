@@ -11,8 +11,8 @@ import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import {
   TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, TU2_WALL, tuLevel, stepsIn, stepAt, doneStage,
-  advance, isStepDone, showNudge, captionFor, subFor, tuHasControl, isTutorialOver,
-  bombHit, tuUnlocked, nextLevel,
+  advance, isStepDone, showNudge, nudgeFor, captionFor, subFor, tuHasControl, isTutorialOver,
+  bombHit, tuUnlocked, nextLevel, markersFor,
 } from '/shared/tutorial.js';
 import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
@@ -646,8 +646,17 @@ function processSnapshotSounds(snap) {
       if (tutorial && ourGoal) tuEv.scored = true;   // latch: completes the goal + super steps
       playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
       haptic(ourGoal ? 'goal' : 'concede'); // melodic buzz when we score
-      confettiBurst(ourGoal ? 90 : 45);      // the stands erupt on a goal
-      triggerCelebration(ourGoal ? 'goal-us' : 'goal-them'); // comic Hebrew word overlay
+      // A goal in a tutorial is a LESSON STEP, not a match event, so it doesn't get the match's
+      // celebration: the comic word covers the middle of the screen — exactly where the coach's
+      // caption for the next step is about to appear — and between the word's hold and the confetti
+      // the kid is watching an animation instead of being told what to do next. Short feedback is
+      // still right for a child, so the jingle, the buzz and the crowd's own pulse behind the pitch
+      // all stay; none of them sit on top of the caption. (tuFinish()'s confetti is the reward for
+      // finishing a whole level and is deliberately untouched.)
+      if (!tutorial) {
+        confettiBurst(ourGoal ? 90 : 45);      // the stands erupt on a goal
+        triggerCelebration(ourGoal ? 'goal-us' : 'goal-them'); // comic Hebrew word overlay
+      }
       crowdHypeT = performance.now();          // crowd leaps up, then settles over ~2.5s
     }
     // TUTORIAL: the ball came LOOSE off an enemy carrier — that is the strip step's whole lesson,
@@ -731,10 +740,19 @@ function processSnapshotSounds(snap) {
     for (const im of snap.impacts || []) if (im.type === 'player' && !knownImpacts.has(im.id)) { // took a hit
       const pl = nearestPlayer(players, im.x, im.y, 42);
       if (pl) triggerAnim(pl.id, 'hit', { force: Math.hypot(pl.vx || 0, pl.vy || 0) > 300 ? 1 : 0, dir: [im.dx || -1, im.dy || 0] });
-      // TUTORIAL: landing a shot on ANY enemy completes the shoot step. Nothing shoots back in
-      // there, so a player-impact IS the kid hitting something. Latched, not sampled: a dropped
-      // frame must not lose the hit that finishes the lesson.
-      if (tutorial && pl && pl.team !== me.team) tuEv.hitEnemy = true;
+      // TUTORIAL: landing a shot on ANY enemy is a hit. Nothing shoots back in there, so a
+      // player-impact IS the kid hitting something. Latched, not sampled: a dropped frame must not
+      // lose the hit that finishes the lesson.
+      // quickHit is that same hit ATTRIBUTED to a quick tap, and it has to be assembled here
+      // because the two halves arrive at different times: the release is local and instant
+      // (releaseShot stamps tuQuickShotAt when the charge was under QUICK_CHARGE), the impact
+      // comes back off the wire a bullet-flight plus an RTT later. Anything inside the window is
+      // that tap's bullet — a quick shot only lives PROJECTILE.ttl (1.3s) anyway, and releaseShot
+      // clears the stamp on any harder release, so a charged shot can never inherit it.
+      if (tutorial && pl && pl.team !== me.team) {
+        tuEv.hitEnemy = true;
+        if (tuQuickShotAt && performance.now() - tuQuickShotAt <= TU_QUICK_HIT_MS) tuEv.quickHit = true;
+      }
     }
     for (const b of snap.bombs || []) if (!knownBombs.has(b.id)) {            // planted a bomb
       // A LOB lands up to BOMB_LOB_RANGE (250) from the planter, so a proximity search near the
@@ -5045,6 +5063,12 @@ function releaseShot(aim) {
   // into two and adds a way to get stuck. Counts a kick as well as a bullet — holding longer
   // makes both stronger, which is the whole point.
   if (tutorial && c >= FULL_CHARGE) tuEv.chargedShot = true;
+  // ...and the QUICK counterpart, for the TAP step. This one cannot be decided here: a tap into
+  // empty grass is not the lesson, so all we record is that the shot now in flight was a quick
+  // one, and the impact handler upgrades it to tuEv.quickHit if it lands on an enemy. Any release
+  // at or above QUICK_CHARGE CLEARS the stamp instead of leaving it to rot — otherwise a kid who
+  // taps, misses, then holds and hits would be credited with a tap they didn't land.
+  if (tutorial) tuQuickShotAt = c < QUICK_CHARGE ? performance.now() : 0;
   if (holdingBall) playSound('kick', 0.85, 0.92 + c * 0.16);        // kicking the held ball
   else if (c >= FULL_CHARGE) playSound('powerShot', 0.7);           // fully-charged bullet — the "power shoot" cue
   else playSound('shot', 0.38, 0.92 + c * 0.16);                    // a normal bullet (gun blop / shoot)
@@ -7841,10 +7865,17 @@ let tuDoneAt = 0;        // when the current step first completed (0 = not yet) 
 // the pair: a blast under your feet followed by real distance covered IS a rocket jump, and it
 // needs no new wire field to detect.
 let tuSelfBlastAt = 0, tuSelfBlastPos = null;
+// The pending QUICK shot: performance.now() of a release under QUICK_CHARGE, 0 for none. Half of
+// the shoot step's `quickHit` — see releaseShot (the stamp) and the impact handler (the payoff).
+let tuQuickShotAt = 0;
+// How long that stamp stays good. A quick bullet is bulletSpeed 720 x chargeMul for
+// PROJECTILE.ttl (1.3s) and then expires, so 2s covers the whole flight plus a bad phone's RTT
+// and still cannot reach a shot from a later, separate press.
+const TU_QUICK_HIT_MS = 2000;
 let tuReplay = false;    // replay from אימון => a way out exists. A first run has none.
 // One-way latches for events seen in the snapshot stream. Latched rather than sampled so a
 // dropped frame cannot lose the goal (or the strip, or the blast) that completes a step.
-const tuBlankEv = () => ({ hitEnemy: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false, foundFoe: false, flew: false });
+const tuBlankEv = () => ({ hitEnemy: false, quickHit: false, overHeld: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false, foundFoe: false, flew: false });
 let tuEv = tuBlankEv();
 
 const tuEl = document.getElementById('tutorial');
@@ -7881,7 +7912,7 @@ function startTutorial(level, replay) {
 function tuEnter(level) {
   tuLvl = Number.isInteger(level) && tuLevel(level) ? level : 0;
   tuStage = 0; tuStepT = 0; tuFinishAt = 0; tuDoneAt = 0;
-  tuSelfBlastAt = 0; tuSelfBlastPos = null;
+  tuSelfBlastAt = 0; tuSelfBlastPos = null; tuQuickShotAt = 0;
   tuEv = tuBlankEv();
   tuDoneEl?.classList.add('hidden');
   tuEl?.classList.remove('hidden');
@@ -7979,12 +8010,18 @@ function tuTick(dt) {
     if (age > 1600) { tuSelfBlastAt = 0; tuSelfBlastPos = null; }
     else if (tuSelfBlastPos && Math.hypot(rendered.x - tuSelfBlastPos.x, rendered.y - tuSelfBlastPos.y) > 260) tuEv.flew = true;
   }
+  // The over-hold correction is sampled here for the same reason: it is about a charge that is
+  // STILL GROWING under the kid's thumb, and it has to be answered while the thumb is down — not
+  // on release, by which time the mistake is over and the ring has already emptied. Only a step
+  // that ASKS for the correction watches for it (st.fixWhen), so the charge step, whose whole
+  // lesson is the hold, can never trip it.
+  if (st && st.fixWhen === 'overHeld' && !tuEv.overHeld && holding && currentCharge() >= QUICK_CHARGE) tuEv.overHeld = true;
   // minDwell: remember WHEN the step completed, so advance() can hold it open afterwards.
   if (!tuDoneAt && isStepDone(tuLvl, tuStage, tuCtx())) tuDoneAt = performance.now();
   const next = advance(tuLvl, tuStage, tuCtx());
   if (next !== tuStage) {
     tuStage = next; tuStepT = 0; tuDoneAt = 0;
-    tuSelfBlastAt = 0; tuSelfBlastPos = null;
+    tuSelfBlastAt = 0; tuSelfBlastPos = null; tuQuickShotAt = 0;
     tuEv = tuBlankEv();
     sendMsg({ type: 'tuStage', n: tuStage });   // server sets the pitch up for the new step
     tuSyncControls();
@@ -8013,14 +8050,18 @@ function tuRenderOverlay() {
   tuHandEl.style.display = a ? '' : 'none';
   const cap = captionFor(tuLvl, tuStage, tuCtx());
   if (tuCapEl.textContent !== cap) tuCapEl.textContent = cap;   // reassigning restarts the pop
-  // Three possible second lines, in priority order. `nudge` wins when the kid is stuck; otherwise
-  // subFor() decides between the step's standing `sub` (how the control works) and its `sub2` (the
-  // payoff, once the step's `when` flag has latched — «גם אתה יכול להתחבא שם» the moment they spot
-  // the foe in the bush). A kid who is doing fine is told what the button does; a kid who isn't is
-  // told what to fix; a kid who just succeeded is told what it MEANT.
+  // ONE second line, decided by two pure functions and never by this file. showNudge() says
+  // whether the line is escalated at all — either the kid has gone quiet past `nudgeAfter`, or
+  // they just made the mistake the step is watching for (`fixWhen`, which does not wait). If it
+  // is, nudgeFor() picks between the correction and the stuck-hint; if it isn't, subFor() picks
+  // between the step's standing `sub` (how the control works) and its `sub2` (the payoff, once
+  // `when` has latched — «גם אתה יכול להתחבא שם» the moment they spot the foe in the bush).
+  // A kid who is doing fine is told what the button does; a kid who isn't is told what to fix;
+  // a kid who just succeeded is told what it MEANT. The 'nudging' class styles all of that the
+  // same way on purpose: the correction is the same "look here" beat as the hint, not a scold.
   const nudging = showNudge(tuLvl, tuStage, tuCtx());
   tuEl.classList.toggle('nudging', nudging);
-  const second = nudging ? s.nudge : subFor(tuLvl, tuStage, tuCtx());
+  const second = nudging ? nudgeFor(tuLvl, tuStage, tuCtx()) : subFor(tuLvl, tuStage, tuCtx());
   if (tuNudgeEl.textContent !== second) tuNudgeEl.textContent = second;
   tuNudgeEl.classList.toggle('hidden', !second);
   const pips = tuPipsEl ? tuPipsEl.children : [];
@@ -8036,7 +8077,14 @@ function tuDrawWorld() {
   const s = stepAt(tuLvl, tuStage);
   if (!s) return;
   const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
-  if (s.marker === 'ring') {
+  // A step may name more than one cue (markersFor), drawn in the order it lists them so a step can
+  // decide what sits on top: the ball-shot step draws its goal arrow first and the ball's chevron
+  // over it. One shared pulse, so two cues on the same pitch breathe together instead of beating
+  // against each other.
+  for (const m of markersFor(s)) tuDrawCue(m, s, pulse);
+}
+function tuDrawCue(m, s, pulse) {
+  if (m === 'ring') {
     // Walk here. A ring on the grass reads as a destination in every game a kid has played.
     const r = ws_(TU_RING.r) * (0.92 + 0.08 * pulse);
     ctx.save();
@@ -8045,14 +8093,14 @@ function tuDrawWorld() {
     ctx.beginPath(); ctx.arc(wx(TU_RING.x), wy(TU_RING.y), r, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = `rgba(255,208,106,${0.10 + 0.08 * pulse})`; ctx.fill();
     ctx.restore();
-  } else if (s.marker === 'foe' || s.marker === 'ball') {
+  } else if (m === 'foe' || m === 'ball') {
     // Hit THIS. A bobbing chevron over the target, not a ring — a ring on a body would read as
     // "stand here", which is a different instruction the kid has already been given once.
-    const at = s.marker === 'ball'
+    const at = m === 'ball'
       ? (latest ? { x: latest.ball.x, y: latest.ball.y } : null)
       : tuFoePos(s.markerKey);
     if (at) tuChevron(at.x, at.y, pulse);
-  } else if (s.marker === 'wallspot') {
+  } else if (m === 'wallspot') {
     // A dashed outline the exact size of a built wall, standing where it should go. Showing the
     // placement beats describing it, and it gives the kid something to aim the drag at.
     const spot = TU2_WALL.spot;
@@ -8066,7 +8114,7 @@ function tuDrawWorld() {
     ctx.save();
     ctx.setLineDash([]);
     ctx.restore();
-  } else if (s.marker === 'bush') {
+  } else if (m === 'bush') {
     // Outline the bush and drop a chevron on it. The bush already renders as scenery; this says
     // "that one, go in it".
     const b = TU3_BUSH;
@@ -8076,7 +8124,7 @@ function tuDrawWorld() {
     ctx.strokeRect(wx(b.x), wy(b.y), ws_(b.w), ws_(b.h));
     ctx.restore();
     tuChevron(b.x + b.w / 2, b.y + b.h / 2, pulse);
-  } else if (s.marker === 'goal') {
+  } else if (m === 'goal') {
     // Kick it there. A fat arrow along the shot lane into the mouth of the goal.
     const y = wy(TU_GOAL.y), x0 = wx(TU_GOAL.x - 620), x1 = wx(TU_GOAL.x - 90);
     ctx.save();

@@ -59,10 +59,23 @@ export const TU2_SHOOT = { me: { x: 1400, y: MID }, ball: { x: 1792, y: MID } };
                                                                                  // the line so one shove
                                                                                  // is enough
 export const TU2_BOMB = { me: { x: 900, y: MID }, foe: { x: 1080, y: MID } };    // 180px: inside lob range
-// `spot` is where the dashed ghost is drawn — square between the kid and the sentry, so "build it
-// THERE" is shown rather than described. BUILT_WALL.offset (60) is how far in front of you a wall
-// lands, so standing put and building forward puts it right on the mark.
-export const TU2_WALL = { me: { x: 700, y: MID }, foe: { x: 1150, y: MID }, spot: { x: 760, y: MID } }; // 450px: inside the
+// How far in front of the kid the dashed ghost sits — i.e. where they are being TOLD to put the
+// wall. MEASURED against the placement formula, and the ceiling on it is hard:
+//   * wallPlacement() (shared/arena.js) puts the wall centre at
+//     BUILT_WALL.offset (60) + drag(0..1) x BUILD_DIST_MAX (120)  ->  60..180px in front;
+//   * but the CLIENT scales a full drag to `wallMaxPx`, which DEFAULTS to BUILT_WALL.offset + 32
+//     = 92 (loadAimNum('fbWallMax', ...) in client.js). BUILD_DIST_MAX is only the sim's ceiling.
+//   => a kid on DEFAULT settings can place a wall at 60..92px in front of themselves and NOWHERE
+//      ELSE. A ghost drawn past 92 is an instruction that cannot be obeyed.
+// 88 leaves 4px of headroom under that 92px ceiling and needs ~88% of a full drag — firm, but not
+// pixel-perfect. It was 60 (dead on BUILT_WALL.offset): with ht 16 the wall's near face landed
+// 44px from a 21px-radius body, i.e. on top of the kid, which both looks wrong and lets the
+// placement shove them. DO NOT raise this above (BUILT_WALL.offset + 32) without also raising the
+// default wallMaxPx — test-tutorial.mjs A11 asserts the range.
+export const TU2_WALL_GAP = 88;
+// `spot` is where the dashed ghost is drawn — out in front of the kid, on the line to the sentry,
+// so "build it THERE" is shown rather than described.
+export const TU2_WALL = { me: { x: 700, y: MID }, foe: { x: 1150, y: MID }, spot: { x: 700 + TU2_WALL_GAP, y: MID } }; // 450px: inside the
                                                                                  // sentry's VISION_RANGE
                                                                                  // (620), so it really
                                                                                  // does shoot at you
@@ -114,18 +127,33 @@ export const TU3_FLY = { me: { x: TU3_WALL.cx + TU3_WALL.ht + TU3_FLY_GAP, y: MI
 //               kid cannot press a button that has not been explained.
 //   spotlight — the control the pointing hand animates over ('move' | 'aim' | 'bomb' | 'wall').
 //   gesture   — 'circle' (walk the stick around) | 'pull' (hold, drag, let go) | 'tap'.
-//   marker    — the one world cue on the pitch: 'ring' | 'goal' | 'ball' | 'foe' (+ markerKey).
+//   marker    — the world cue on the pitch: 'ring' | 'goal' | 'ball' | 'foe' (+ markerKey) |
+//               'wallspot' | 'bush' | 'none'. An ARRAY when one cue cannot say the whole
+//               instruction — see markersFor.
 //   cap       — 1-2 Hebrew words. Epic's rule taken literally: a kid who cannot read still finishes.
 //   sub       — the standing second line: what the control DOES. Always visible, calm.
 //   cap2/when — an optional SECOND caption, swapped in once `when` (a ctx flag) latches. Used by
 //               the strip step, which is one continuous action with two halves.
 //   sub2      — the same swap for the second line (see subFor). The find step's payoff lives here.
 //   nudge     — the escalated line, shown only after `nudgeAfter` idle seconds. Replaces `sub`.
+//   fix/fixWhen — a CORRECTION: `fix` is the line to print the moment the ctx flag `fixWhen`
+//               latches, because the kid did the wrong GESTURE rather than nothing at all. It
+//               rides the same escalated slot as `nudge` (see nudgeFor/showNudge) and jumps the
+//               `nudgeAfter` queue: waiting 8 idle seconds to answer a mistake we can already see
+//               is how a seven-year-old decides the game is broken. A correction never fails the
+//               step and never resets anything — it just says what to do instead.
 //   done      — the ctx flag (or predicate) that completes the step.
 //
 // Each stage (one per step, same index) is the PITCH SETUP the server applies:
 //   me/ball/foes/super — declarative, so the server interprets one table instead of hand-writing
 //   a branch per level. See applyTuStage in server.js.
+// A foe entry is { key, role, skill?, x?, y?, armOn? }, and `armOn` is the one part of it that is
+// about TIME rather than placement: it names the thing the kid has to DO before that foe is allowed
+// to shoot at all. Until then the body just stands there. The server reads the condition off the
+// SIM (see tuArmFoes in server.js), never off the client's step flags — the client only ever names
+// the stage it reached, and a foe that opened fire on a spoofable message would be a foe that never
+// held its fire. Once the condition latches the foe stays armed for the rest of the step. The only
+// value is 'wallBuilt' = a wall of the kid's own team is standing.
 export const TU_LEVELS = [
   {
     id: 'basics', name: 'יסודות', sub: 'לזוז · לירות · גול · סופר', ic: '⚽',
@@ -135,10 +163,21 @@ export const TU_LEVELS = [
       // TAP first, HOLD second — two separate steps for two separate gestures, each with its own
       // hand mime, and each holding a beat after it lands so the kid connects what they did to
       // what happened.
+      // Which is only true if the TAP step insists on a tap. It used to complete on `hitEnemy` —
+      // ANY hit — so a kid who held finished «כוון והקש!» without ever tapping, and the very next
+      // step then asked them to do the thing they had just done. `quickHit` is the honest
+      // predicate: a shot RELEASED below QUICK_CHARGE that also LANDS. It needs the hit as well as
+      // the tap because a tap alone would tick the step over while the kid fires into empty grass,
+      // and «פגעת!» would be a lie.
+      // `fix` is the other half: hold too long and you are told at once, in the nudge slot, to tap
+      // short instead. Nothing is failed, nothing resets — the charge just wasn't the gesture, and
+      // they can try again the same second. The HOLD they were reaching for is the next step
+      // anyway, so the correction is a "not yet", never a "no".
       { id: 'shoot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'tap',
         marker: 'foe', markerKey: 'dummy', cap: 'כוון והקש!', sub: 'הקשה קצרה = ירייה מהירה',
-        cap2: 'פגעת!', when: 'hitEnemy', minDwell: 1,
-        nudge: 'משוך לכיוון שלו ותשחרר', nudgeAfter: 8, done: 'hitEnemy' },
+        cap2: 'פגעת!', when: 'quickHit', minDwell: 1,
+        fix: 'הקש קצר — בלי להחזיק', fixWhen: 'overHeld',
+        nudge: 'משוך לכיוון שלו ותשחרר', nudgeAfter: 8, done: 'quickHit' },
       // CHARGE gets a step of its own. It used to be a footnote — the shoot step completed on any
       // hit, so a kid could finish the whole tutorial having only ever tapped, and the one line
       // that mentioned holding only appeared if they got stuck. Hold-to-power is the single most
@@ -171,8 +210,13 @@ export const TU_LEVELS = [
       // Opens with the thing closest to what level 1 already taught — you know how to shoot; now
       // learn that bullets move the BALL. The ball is pickup-locked this stage, so "just walk over
       // and carry it in" is not available and the lesson cannot be sidestepped.
+      // TWO cues, because one cue is half an instruction. «שוט לכדור!» with only the ball marked
+      // tells the kid what to hit and nothing about where it has to end up — and the goal is off
+      // to the right of a landscape phone with nothing on the grass naming it, so the step read as
+      // "shove the ball, somewhere". The goal arrow is level 1's own cue, reused as-is; the ball
+      // chevron stays and is listed SECOND so it draws on top of the arrow's tail.
       { id: 'ballshot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
-        marker: 'ball', cap: 'שוט לכדור!', sub: 'החזק ושחרר — ירי דוחף את הכדור',
+        marker: ['goal', 'ball'], cap: 'שוט לכדור!', sub: 'החזק ושחרר — ירי דוחף את הכדור',
         nudge: 'כוון לכדור, החזק, שחרר', nudgeAfter: 10, done: 'scored' },
       // Both bomb inputs, in the two lines a kid will actually read: TAP drops it at your feet,
       // DRAG throws it where you point. The nudge is the one they need if the lob isn't landing.
@@ -202,7 +246,19 @@ export const TU_LEVELS = [
     stages: [
       { me: TU2_SHOOT.me, ball: TU2_SHOOT.ball, ballLocked: true, foes: [{ key: 'foe', role: 'still', ...TU2_PARK }] },
       { me: TU2_BOMB.me, ball: 'park', foes: [{ key: 'foe', role: 'still', ...TU2_BOMB.foe }] },
-      { me: TU2_WALL.me, ball: 'park', foes: [{ key: 'foe', role: 'sentry', skill: 'easy', ...TU2_WALL.foe }] },
+      // `armOn: 'wallBuilt'` — the sentry is standing there from the first frame of the step and
+      // does not shoot until the kid's wall is up. THE BUILD IS WHAT ARMS IT. Reported from a phone:
+      // firing from the top of the step means a seven-year-old is under fire while working out a
+      // brand-new button, and every shot lands in the seconds BEFORE the wall exists — so the wall
+      // is never seen stopping anything and «הקיר עוצר יריות!» is a claim about something that
+      // didn't happen on screen. Armed on the build instead, the step's ~3s minDwell IS the window
+      // in which the fire arrives and breaks on the new wall, which is the lesson.
+      // `tutorial` tier, not `easy`, for exactly that window: easy is silent 1.6-3.6s at a stretch,
+      // long enough for the whole dwell to pass with nothing fired. The tutorial tier fires ~75% of
+      // the time and NEVER charges, so it can never knock a build windup out (see SENTRY_SKILL in
+      // shared/training.js) — which still matters after the arming, because a kid who wants a second
+      // wall must be able to get one.
+      { me: TU2_WALL.me, ball: 'park', foes: [{ key: 'foe', role: 'sentry', skill: 'tutorial', armOn: 'wallBuilt', ...TU2_WALL.foe }] },
       { me: TU2_STRIP.me, ball: 'toFoe', foes: [{ key: 'foe', role: 'still', ...TU2_STRIP.foe }] },
     ],
   },
@@ -268,6 +324,17 @@ export function foeKeys(l) {
   return keys;
 }
 
+// A step's world cues, always as a LIST, so the renderer never has to care whether the step wrote
+// one name or several. Most steps name one; a step naming two is drawing two halves of a single
+// instruction (level 2's opener: this ball, that goal), and the list order is the DRAW order.
+// 'none' is a step declaring on purpose that it has no cue — the bush hunt, where pointing at the
+// answer would delete the question — and it resolves to an empty list here so that intent is
+// written where the step is, not inferred from a missing field.
+export const markersFor = (s) => {
+  if (!s || !s.marker) return [];
+  return (Array.isArray(s.marker) ? s.marker : [s.marker]).filter((m) => m && m !== 'none');
+};
+
 // Does a control exist at this stage? Everything not listed is hidden AND its input dropped.
 // Out of range (the celebration) => nothing is live.
 export function tuHasControl(l, n, ctl) {
@@ -281,6 +348,12 @@ export function tuHasControl(l, n, ctl) {
 // ctx is built from the snapshot the client already receives:
 //   { px, py }   my position
 //   hitEnemy     a bullet of mine hit an enemy since this step began
+//   quickHit     ...and the shot that landed was released BELOW QUICK_CHARGE — the tap lesson.
+//                Strictly stronger than hitEnemy: the client stamps the quick RELEASE and only
+//                latches this if an enemy impact follows, because the tap and the hit are two
+//                different moments and only the pair of them is «כוון והקש!».
+//   overHeld     I held past QUICK_CHARGE on a step that asked for a tap — the mistake behind the
+//                `fix` line. A correction flag, not a completion one: nothing reads it as `done`.
 //   chargedShot  I released a shot at FULL charge — the hold-to-power lesson
 //   scored       my side's score went up since this step began
 //   bombHitFoe   one of my blasts went off on top of the marked foe
@@ -322,11 +395,30 @@ export function subFor(l, n, ctx = {}) {
   return (s.sub2 && s.when && ctx[s.when]) ? s.sub2 : (s.sub || '');
 }
 
-// The escalated hint: shown once a step has gone `nudgeAfter` seconds with no completion.
+// Is the escalated second line up? Two different things raise it, and they are on purpose the
+// SAME slot rather than two competing lines on screen:
+//   * the stuck-hint — `nudgeAfter` seconds have gone by with nothing achieved;
+//   * a CORRECTION — `fixWhen` latched, i.e. the kid is doing something, just not the gesture the
+//     step is teaching. That one is immediate. A hint answers silence and can afford to wait; a
+//     correction answers an ACTION, and an answer that arrives eight seconds after the action is
+//     no longer attached to it in a child's head.
+// Either way it goes quiet the moment the step is satisfied — nobody is corrected for a mistake
+// they have already fixed.
 export function showNudge(l, n, ctx = {}) {
   const s = stepAt(l, n);
   if (!s) return false;
-  return (ctx.stepElapsed || 0) >= s.nudgeAfter && !isStepDone(l, n, ctx);
+  if (isStepDone(l, n, ctx)) return false;
+  if (s.fix && s.fixWhen && ctx[s.fixWhen]) return true;
+  return (ctx.stepElapsed || 0) >= s.nudgeAfter;
+}
+
+// WHICH escalated line to print. The correction wins over the stuck-hint whenever both are up:
+// «הקש קצר — בלי להחזיק» names the exact thing that just went wrong, and a generic "you seem
+// stuck" on top of that is noise. Steps with no `fix` never notice this function exists.
+export function nudgeFor(l, n, ctx = {}) {
+  const s = stepAt(l, n);
+  if (!s) return '';
+  return (s.fix && s.fixWhen && ctx[s.fixWhen]) ? s.fix : (s.nudge || '');
 }
 
 // Advance if the step is complete, else stay. Returns the stage the level should now be in;

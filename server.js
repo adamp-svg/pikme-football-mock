@@ -37,7 +37,7 @@ import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy,
 import { planMatches, bandOf } from './shared/matchmaker.js';
 import { isChatId, chatById, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
 import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout, pickBotIdentities } from './shared/saltiz-bots.js';
-import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
+import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, armSentryFiring, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
 import { TU_BALL_PARK, TU_LEVEL_COUNT, foeKeys, stageAt, stepsIn, fieldFor } from './shared/tutorial.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -695,6 +695,7 @@ function startTutorial(member, level) {
   room.tuLevel = l;
   room.tuStage = 0;                 // 0..stepsIn(l)-1, then stepsIn(l) = finished
   room.tuBallDead = 0;              // seconds the ball has been loose+idle (goal steps respawn it)
+  room.tuFoeArmed = false;          // has this stage's `armOn` foe been let off the leash? (tuArmFoes)
   room.tuPlayerId = member.id;      // the one human; the super grant and the ball both target them
   // Empty for every level but the tricks one, which needs exactly one bush to teach hiding.
   setField(room.state, sanitizeField(fieldFor(l)));
@@ -736,6 +737,10 @@ function applyTuStage(room, n) {
   const stage = stageAt(room.tuLevel, n);
   room.tuStage = n;
   room.tuBallDead = 0;
+  // A new stage starts with its held-fire foe (if it has one) held again — so a replayed level, or
+  // the same level reached a second time in one room, teaches the lesson from scratch instead of
+  // inheriting the armed sentry the previous stage finished with.
+  room.tuFoeArmed = false;
   if (!stage) return;                       // past the last step: the celebration, nothing to set up
 
   // Where each foe stands and what it does this stage. A foe the stage doesn't mention keeps
@@ -743,14 +748,39 @@ function applyTuStage(room, n) {
   for (const f of (stage.foes || [])) {
     const e = (room.trainEnemies || []).find((x) => x.key === f.key);
     if (!e) continue;
+    const wasSentry = e.role === 'sentry';
     e.role = f.role;
     e.skill = f.skill || 'easy';
+    e.armOn = f.armOn || null;              // "hold your fire until the kid does this" — see tuArmFoes
     // A stage may place a foe (x,y) or leave it where it is — the level-1 keeper switches to
     // 'keeper' with no coordinates and walks to the goal on its own.
     if (typeof f.x === 'number') {
       e.home = { x: f.x, y: f.y };
       const p = st.players[e.id];
       if (p) { p.x = f.x; p.y = f.y; p.vx = 0; p.vy = 0; p.kvx = 0; p.kvy = 0; }
+    }
+    // A foe that just BECAME a sentry opens fire immediately. Its mem was built at room creation
+    // (every foe gets one, because a foe's role changes per stage and the body never does), so
+    // without this it arrives holding a stale idle countdown and an aim pointing at -x, and the
+    // step that says "build a wall, you are being shot at" opens with several seconds of silence
+    // — which is how the wall step ended up teaching itself backwards, the kid building first and
+    // only then finding out why. Re-armed on the ROLE EDGE only, so re-applying the same stage
+    // (applyTuStage is idempotent, and a duplicate client message must stay harmless) does not
+    // restart the burst every time.
+    // ...except that the WALL STEP — the only sentry the tutorial currently has — is no longer that
+    // case. It carries `armOn`, so it is not supposed to be shooting yet at all and arming its gun on
+    // the role edge would arm it for a moment that hasn't come; tuArmFoes does it later, on the kid's
+    // build. A phone report overruled the paragraph above for that step: "shot at before the wall
+    // exists" is not the wall being motivated, it is a brand-new button being learned under fire.
+    // The branch stays because "a body that BECOMES a sentry mid-script arrives with a stale mem and
+    // an aim pointing at -x" is still true of any sentry stage added without armOn — not because
+    // anything takes this path today.
+    if (e.role === 'sentry' && !wasSentry && !e.armOn) {
+      const p = st.players[e.id];
+      // Aim at where the kid is ABOUT to be: `stage.me` is applied further down, so reading the
+      // player's live position here would point the opening burst at last stage's spot.
+      const me = stage.me || st.players[room.tuPlayerId];
+      if (p) armSentryFiring(e.mem, p.x, p.y, me ? me.x : p.x - 1, me ? me.y : p.y, e.skill);
     }
   }
 
@@ -775,14 +805,72 @@ function applyTuStage(room, n) {
   }
 }
 
+// Let a HELD-FIRE foe off the leash once the kid has done the thing its step teaches — `armOn` on
+// the stage's foe entry (shared/tutorial.js). The one condition so far is 'wallBuilt', and it is
+// answered by the SIM: a built wall belonging to the kid's team. Not by the client's `wallBuilt`
+// flag — the client sends stages, not events, and the flag is its own private latch for the caption.
+//
+// `room.tuFoeArmed` is a ONE-WAY latch for the rest of the stage (applyTuStage clears it). Deliberate:
+// the wall the kid just built is what the sentry is now shooting at, so it will be rubble in a few
+// hits, and re-reading the condition every tick would put the sentry back to sleep the moment the
+// lesson worked — the kid would see the shooting stop because their wall BROKE, which is the opposite
+// of «הקיר עוצר יריות!».
+function tuArmFoes(room) {
+  if (room.tuFoeArmed) return;
+  const held = (room.trainEnemies || []).filter((e) => e.armOn === 'wallBuilt' && e.role === 'sentry');
+  if (!held.length) return;
+  const me = room.state.players[room.tuPlayerId];
+  if (!me) return;
+  // `!w.field` — a level's own dry walls are seeded into builtWalls too, so a pitch that shipped with
+  // cover would otherwise arm the sentry on frame one, before the kid had built anything.
+  if (!(room.state.builtWalls || []).some((w) => !w.field && w.team === me.team)) return;
+  room.tuFoeArmed = true;
+  // Open fire THIS TICK, already on target. The step then dwells ~3s (minDwell) and that dwell is
+  // the entire lesson — shots arriving and stopping at the wall the kid just put up. A sentry that
+  // spent it slewing its aim in from -x, or counting down the idle window it happened to be in,
+  // would let the window close in silence.
+  for (const e of held) {
+    const p = room.state.players[e.id];
+    if (p) armSentryFiring(e.mem, p.x, p.y, me.x, me.y, e.skill || 'easy');
+  }
+}
+
 // Per-tick tutorial upkeep, run BEFORE step() (foe inputs) — see tickRoom.
 function updateTutorial(room) {
   const st = room.state;
   const stage = stageAt(room.tuLevel, room.tuStage);
+  // A GOAL IS THE END OF A STEP HERE, NOT A RESTART. goal() (shared/sim.js) schedules a kickoff —
+  // `pendingReset` — and step() then calls repositionKickoff, which snaps every body onto its start
+  // slot. For the kid that slot is team A / 0, i.e. beside their OWN goal, the whole pitch away from
+  // the shot they just took: this is what "the player gets moved back to his goalpost" was, on the
+  // ball-shot step and on level 1's two goal steps alike. A tutorial has no clock, no opponent
+  // taking a restart and no way to lose, so there is nothing for a kickoff to restart — the kid
+  // stays where they are and the coach moves on.
+  // Only the RESTART is cancelled, never the freeze: `resetTimer` and `lastGoal` are left exactly as
+  // the sim set them, because the client reads that very edge to know a goal happened at all — the
+  // `scored` latch that completes the step, plus the jingle and the buzz, are all hung off
+  // `resetTimer` going 0 -> positive with `lastGoal` set (processSnapshotSounds).
+  // THE BALL HAS TO BE KILLED IN THE SAME BREATH. `pendingReset` also drives rollBallIntoNet, which
+  // is the only thing that ever brings a scoring ball to rest, and repositionKickoff was the only
+  // thing that ever brought it back onto the pitch. Cancel the restart and leave the velocity alone
+  // and the ball sits a pixel past the line still travelling at +x for the whole freeze — then play
+  // resumes, ballPhysics sees `vx > 0 && x > FIELD.W` with lastTouch A, and scores again, and again:
+  // an endless goal every 5 seconds. Stopped dead it cannot re-cross anything (the sim's goal test
+  // needs a ball that is MOVING), it reads as "it went in", and the next stage places it properly.
+  if (st.pendingReset) {
+    st.pendingReset = false; st.pendingBallTeam = null;
+    st.ball.vx = 0; st.ball.vy = 0;
+  }
+  tuArmFoes(room);
   for (const e of room.trainEnemies || []) {
     let inp = null;
+    // A sentry that is still holding its fire is driven as a STILL body — it walks back to its spot
+    // if shoved and does nothing else. Not "a sentry with `fire` suppressed": the difference the kid
+    // sees is that nothing is being tracked or pointed at them, which is the point of a foe that is
+    // scenery until they act on it.
+    const holdingFire = e.armOn && !room.tuFoeArmed;
     if (e.role === 'keeper') inp = trainingKeeperInput(st, e.id);
-    else if (e.role === 'sentry') inp = trainingSentryInput(st, e.id, e.mem, DT, e.skill || 'easy', e.home);
+    else if (e.role === 'sentry' && !holdingFire) inp = trainingSentryInput(st, e.id, e.mem, DT, e.skill || 'easy', e.home);
     else inp = trainingStillInput(st, e.id, e.home);
     if (inp) room.inputs.set(e.id, inp);
   }
@@ -825,6 +913,8 @@ function tutorialPost(room) {
     // still/keeper/sentry and never chase — it is the SIM's own kickoff: scoring makes B the
     // conceding side, and attachBall hands the restart to whoever conceded. Left alone, the
     // reward for the goal step is the dummy walking off with the ball.
+    // Belt and braces since updateTutorial started cancelling that kickoff outright: nothing in a
+    // tutorial should reach repositionKickoff any more, and if something ever does, this still holds.
     const owner = st.ball.owner && st.players[st.ball.owner];
     if (owner && owner.team === 'B') { attachBall(st, 'A'); room.tuBallDead = 0; }
   }
