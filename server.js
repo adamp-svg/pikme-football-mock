@@ -1566,15 +1566,26 @@ wss.on('connection', (ws, req) => {
         startChallengeMatch(challenger, member);
         return;
       }
-      // Party invite: host invites an ONLINE friend into their private room. No 3-digit code
-      // and no host-approval step (the host initiated it — mutual consent, like a challenge).
+      // Party invite: ANY member of a private room may invite an ONLINE friend into it — not just
+      // the host. No 3-digit code and no host-approval step (the inviter initiated it — mutual
+      // consent, like a challenge). hostId is never touched here: whoever created the room stays
+      // its host no matter how many other members go on to invite people themselves (an invited
+      // friend inviting a friend of their own, and the party staying under the FIRST inviter, is
+      // the whole point — see the design note this replaces).
       if (msg.type === 'inviteFriend') {
         const toUserId = (msg.toUserId || '').toString();
         if (!member.userId) { send(ws, { type: 'partyError', msg: 'לא מחובר' }); return; }
         if (!member.friends.includes(toUserId)) { send(ws, { type: 'partyError', msg: 'לא חבר' }); return; }
-        // Ensure I host a private room to invite into (self-heal if I lost/left it).
+        // Ensure I have a private room to invite into. A room I'm already IN — host or not — is
+        // reused as-is; only a missing/non-private room (fresh join, or still queued in public
+        // matchmaking) triggers a fresh one, which makes ME its host.
+        // BUG THIS FIXES: this used to also self-heal whenever `r.hostId !== member.id`, i.e. for
+        // every non-host. That treated "I'm a normal member of a real party" as "I have no room",
+        // so createPrivateRoom silently split the inviter into a brand-new room they now hosted —
+        // the party fractured in two with nobody told. A room already in 'match' phase still falls
+        // through to the phase check below and gets refused there, same as before.
         let r = member.room;
-        if (!r || !r.isPrivate || r.hostId !== member.id) { createPrivateRoom(member); r = member.room; }
+        if (!r || !r.isPrivate) { createPrivateRoom(member); r = member.room; }
         if (!r) { send(ws, { type: 'partyError', msg: 'לא ניתן ליצור חדר' }); return; }
         if (r.phase === 'match') { send(ws, { type: 'partyError', msg: 'המשחק כבר התחיל' }); return; }
         if (r.members.size >= roomMax(r)) { send(ws, { type: 'partyError', msg: 'החדר מלא' }); return; }
