@@ -22,10 +22,8 @@ import { buildArenaFromField } from './arena.js';
 export const TU_FIELD = { version: 1, bushes: [], hardWalls: [], dryWalls: [], crates: [] };
 export const TU_ARENA = buildArenaFromField(TU_FIELD);
 
-// LEVEL 3 needs one piece of scenery — you cannot teach hiding on a bare pitch. Exactly one bush,
-// big enough to be unmissable and sitting square on the walk between the kid and the watcher.
-export const TU3_BUSH = { x: 1040, y: 400, w: 340, h: 300 };
-export const TU3_FIELD = { version: 1, bushes: [TU3_BUSH], hardWalls: [], dryWalls: [], crates: [] };
+// Level 3's pitch (the bush + the rocket-jump wall) is declared with the rest of its geometry,
+// further down — see the TDZ note there.
 // A level's pitch. Everything but the tricks level plays on the empty one.
 export const fieldFor = (l) => (tuLevel(l) && tuLevel(l).field) || TU_FIELD;
 
@@ -77,12 +75,29 @@ export const TU2_STRIP = { me: { x: 1400, y: MID }, foe: { x: 1800, y: MID } }; 
 export const TU2_PARK = { x: 120, y: 1000 };  // where level 2's foe waits out the steps it isn't in
 
 // --- LEVEL 3 geometry ------------------------------------------------------------------
-// HIDE: the watcher stands inside VISION_RANGE (620) of the start, so it genuinely has eyes on
-// the kid — walking into the bush is what breaks the line, and the 🌿 cue is the proof.
-export const TU3_HIDE = { me: { x: 900, y: MID }, foe: { x: 1450, y: MID } };
-// FLY: room to the right to be launched into, and the foe well out of the way — this step is
-// about the kid and their own bomb, nobody else.
-export const TU3_FLY = { me: { x: 520, y: MID }, foe: { x: 1900, y: 1020 } };
+// FIND: the lesson is taught from the OTHER SIDE of the bush. The watcher is planted INSIDE it, so
+// it is genuinely invisible (BUSH_REVEAL_DIST = 110 — a bushed enemy renders at alpha 0 until you
+// are almost on top of it), and the kid is sent to look for it. Discovering that a bush ate a whole
+// player is what teaches that a bush will do the same for them; being told to stand in a bush
+// teaches only that the coach said so. The walk is ~610px, one screen, so the bush is on frame one.
+export const TU3_FIND = { me: { x: 600, y: MID }, foe: { x: 1210, y: MID } }; // foe = the bush's centre
+// FLY: the steel wall is BEHIND the kid and the whole pitch is in front. 84px of clearance is
+// deliberate — BOMB_WALL_DIST is 150, so the wall is inside the cannon's reach (×1.24 here) but not
+// close enough to stand in. applyTuStage points every stage's aim at +x, so a kid who taps 💣
+// without touching the aim stick flies RIGHT, into the open, first try.
+export const TU3_FLY = { me: { x: 640, y: MID }, foe: { x: 1900, y: 1020 } };
+
+// Level 3's scenery, and the only scenery in the tutorial. Declared HERE, below MID, and not up
+// with TU_FIELD: a module-level const that reads another one from inside an object initializer is a
+// TDZ crash waiting for the next reorder, and this repo has already lost a whole client.js to that.
+//   * the BUSH the watcher hides in;
+//   * one STEEL WALL for the rocket-jump to cannon off (MECHANICS §6: a static wall behind the
+//     launch peaks at BOMB_WALL_CANNON_STATIC = 1.55, ramped by proximity). The kid does NOT build
+//     it. Building is level 2's lesson, and charging it as rent on level 3's turns "you can ride
+//     your own bomb" into a two-part errand.
+export const TU3_BUSH = { x: 1040, y: 400, w: 340, h: 300 };
+export const TU3_WALL = { cx: 540, cy: MID, angle: Math.PI / 2, hl: 200, ht: 16 };
+export const TU3_FIELD = { version: 1, bushes: [TU3_BUSH], hardWalls: [TU3_WALL], dryWalls: [], crates: [] };
 
 // ---------------------------------------------------------------------------
 // The levels
@@ -94,9 +109,11 @@ export const TU3_FLY = { me: { x: 520, y: MID }, foe: { x: 1900, y: 1020 } };
 //   gesture   — 'circle' (walk the stick around) | 'pull' (hold, drag, let go) | 'tap'.
 //   marker    — the one world cue on the pitch: 'ring' | 'goal' | 'ball' | 'foe' (+ markerKey).
 //   cap       — 1-2 Hebrew words. Epic's rule taken literally: a kid who cannot read still finishes.
+//   sub       — the standing second line: what the control DOES. Always visible, calm.
 //   cap2/when — an optional SECOND caption, swapped in once `when` (a ctx flag) latches. Used by
 //               the strip step, which is one continuous action with two halves.
-//   nudge     — the escalated line, shown only after `nudgeAfter` idle seconds.
+//   sub2      — the same swap for the second line (see subFor). The find step's payoff lives here.
+//   nudge     — the escalated line, shown only after `nudgeAfter` idle seconds. Replaces `sub`.
 //   done      — the ctx flag (or predicate) that completes the step.
 //
 // Each stage (one per step, same index) is the PITCH SETUP the server applies:
@@ -183,26 +200,41 @@ export const TU_LEVELS = [
     ],
   },
   {
-    id: 'tricks', name: 'טריקים', sub: 'להתחבא · לעוף', ic: '🌿',
-    field: TU3_FIELD,   // the ONLY level with scenery — you cannot teach hiding on a bare pitch
+    id: 'tricks', name: 'טריקים', sub: 'למצוא · לעוף', ic: '🌿',
+    field: TU3_FIELD,   // the ONLY level with scenery — a bush to find someone in, a wall to fly off
     steps: [
-      // Stealth. The watcher is deliberately motionless and harmless: the lesson is the bush and
-      // the 🌿 cue, and a bot that chases would turn it into a panic instead of a discovery.
-      // minDwell holds the step 2s after they vanish so they SEE the cue and connect it to the act.
-      { id: 'hide', controls: ['move', 'aim'], spotlight: 'move', gesture: 'circle',
-        marker: 'bush', cap: 'תתחבא!', sub: 'בתוך השיח אף אחד לא רואה אותך',
-        cap2: 'הוא לא רואה אותך!', when: 'hidden', minDwell: 2,
-        nudge: 'תיכנס לתוך הירוק', nudgeAfter: 10, done: 'hidden' },
+      // Stealth, taught as a HUNT rather than an instruction. The watcher is planted inside the
+      // bush and is therefore invisible, and the kid is told to go find it. What they discover is
+      // that a bush swallowed a whole player — and a kid who has just failed to see somebody works
+      // out on their own that the same bush will hide THEM. Telling them to go stand in the green
+      // teaches the opposite: that the coach knows a rule, not that the rule is worth having.
+      // The watcher is motionless and harmless on purpose — a bot that chased would turn a
+      // discovery into a chase. minDwell holds the step open 2.5s after the sighting so the
+      // «גם אתה יכול להתחבא שם» line is read while the kid is still looking at the proof.
+      // `findKey` names the foe to be found — no `marker`, because a cue pointing at the bush would
+      // answer the question the step is asking.
+      { id: 'find', controls: ['move', 'aim'], spotlight: 'move', gesture: 'circle', findKey: 'watcher',
+        marker: 'none', cap: 'איפה הוא?', sub: 'מישהו מתחבא כאן — לך תמצא אותו',
+        cap2: 'הוא היה בשיח!', sub2: 'גם אתה יכול להתחבא שם', when: 'foundFoe', minDwell: 2.5,
+        nudge: 'תחפש בתוך הירוק', nudgeAfter: 8, done: 'foundFoe' },
       // The combo the whole game is built around (MECHANICS §6: 2 bombs + a wall behind + standing
-      // on top flings a player ~92% of the pitch). Taught with the simple version — one bomb, one
-      // wall — because the point is that you can ride your own blast, not the world record.
-      { id: 'fly', controls: ['move', 'aim', 'bomb', 'wall'], spotlight: 'bomb', gesture: 'tap',
-        marker: 'none', cap: 'תעוף!', sub: 'קיר מאחוריך · פצצה מתחתיך · תעמוד עליה',
+      // on top flings a player ~92% of the pitch). Taught with ONE bomb and a wall that is already
+      // standing: 🧱 is not in this step's controls at all. The point is that you can ride your own
+      // blast, and making them build the ramp first re-tests level 2 before letting them try it.
+      // Tap-plant leaves the bomb dead under your feet, and a blast you are standing dead-centre on
+      // has no radial direction to throw you in — so the sim uses your AIM (see explode(), the
+      // `rd > 6` branch). "Point where you want to go, then tap" is therefore literally the
+      // mechanic, not a simplification of it.
+      { id: 'fly', controls: ['move', 'aim', 'bomb'], spotlight: 'bomb', gesture: 'tap',
+        marker: 'none', cap: 'תעוף!', sub: 'כוון לאן שתרצה לעוף · הקש 💣 · ואל תזוז',
         cap2: 'איזה עף!', when: 'flew', minDwell: 1.5,
-        nudge: 'בנה קיר, הקש 💣 מתחתיך, אל תזוז', nudgeAfter: 14, done: 'flew' },
+        // The one way to get nothing at all: aim INTO the steel. A launch with a static wall ahead
+        // of it is cancelled outright (explode(), `jumpBlocked`), so the stuck-hint is about
+        // direction, not about the button.
+        nudge: 'כוון לצד הפתוח — לא לקיר', nudgeAfter: 12, done: 'flew' },
     ],
     stages: [
-      { me: TU3_HIDE.me, ball: 'park', foes: [{ key: 'watcher', role: 'still', ...TU3_HIDE.foe }] },
+      { me: TU3_FIND.me, ball: 'park', foes: [{ key: 'watcher', role: 'still', ...TU3_FIND.foe }] },
       { me: TU3_FLY.me, ball: 'park', foes: [{ key: 'watcher', role: 'still', ...TU3_FLY.foe }] },
     ],
   },
@@ -247,7 +279,7 @@ export function tuHasControl(l, n, ctl) {
 //   bombHitFoe   one of my blasts went off on top of the marked foe
 //   wallBuilt    a wall of mine appeared
 //   stripped     the ball came loose off an enemy carrier
-//   hidden       I am standing in a bush
+//   foundFoe     I got close enough to SEE the foe that was hiding in the bush
 //   flew         my own bomb launched me across the pitch
 //   stepElapsed  seconds since this step began
 //   sinceDone    seconds since this step first completed (drives minDwell)
@@ -271,6 +303,16 @@ export function captionFor(l, n, ctx = {}) {
   const s = stepAt(l, n);
   if (!s) return '';
   return (s.cap2 && s.when && ctx[s.when]) ? s.cap2 : s.cap;
+}
+
+// The second line, with the same swap rule as the caption above: `sub` explains the control while
+// the kid is working, and `sub2` replaces it the instant `when` latches. That swap is the whole
+// teaching device of the find step — «גם אתה יכול להתחבא שם» is worth nothing said in advance and
+// worth the entire lesson said one second after a bush ate a player in front of them.
+export function subFor(l, n, ctx = {}) {
+  const s = stepAt(l, n);
+  if (!s) return '';
+  return (s.sub2 && s.when && ctx[s.when]) ? s.sub2 : (s.sub || '');
 }
 
 // The escalated hint: shown once a step has gone `nudgeAfter` seconds with no completion.

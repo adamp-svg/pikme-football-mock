@@ -11,7 +11,7 @@ import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import {
   TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, TU2_WALL, tuLevel, stepsIn, stepAt, doneStage,
-  advance, isStepDone, showNudge, captionFor, tuHasControl, isTutorialOver,
+  advance, isStepDone, showNudge, captionFor, subFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel,
 } from '/shared/tutorial.js';
 import { drawModeArt } from '/mode-art.js';
@@ -7844,7 +7844,7 @@ let tuSelfBlastAt = 0, tuSelfBlastPos = null;
 let tuReplay = false;    // replay from אימון => a way out exists. A first run has none.
 // One-way latches for events seen in the snapshot stream. Latched rather than sampled so a
 // dropped frame cannot lose the goal (or the strip, or the blast) that completes a step.
-const tuBlankEv = () => ({ hitEnemy: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false, hidden: false, flew: false });
+const tuBlankEv = () => ({ hitEnemy: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false, foundFoe: false, flew: false });
 let tuEv = tuBlankEv();
 
 const tuEl = document.getElementById('tutorial');
@@ -7926,9 +7926,12 @@ function tuGate(inp) {
 // The live position of a step's marked foe, straight from the snapshot. Resolved by id prefix
 // (the server names them `<key>-<roomId>`), so the marker tracks a foe that has been shoved,
 // bombed or has walked into its goal — a fixed world point would drift off them.
-function tuFoePos(key) {
+function tuFoeSnap(key) {
   if (!latest || !key) return null;
-  const p = (latest.players || []).find((q) => q.id && q.id.indexOf(`${key}-`) === 0);
+  return (latest.players || []).find((q) => q.id && q.id.indexOf(`${key}-`) === 0) || null;
+}
+function tuFoePos(key) {
+  const p = tuFoeSnap(key);
   return p ? { x: p.x, y: p.y } : null;
 }
 
@@ -7959,9 +7962,18 @@ function tuTick(dt) {
 
   tuStepT += dt;
   // Two flags are sampled here rather than latched off a snapshot event, because they are about a
-  // STATE and a MOVEMENT, not a moment: standing in a bush, and having been thrown by your own
-  // blast. Once true they stay true for the step, like every other flag.
-  if (rendered && !tuEv.hidden && inBushAt(rendered.x, rendered.y)) tuEv.hidden = true;
+  // SIGHTING and a MOVEMENT, not a moment: spotting the foe in the bush, and having been thrown by
+  // your own blast. Once true they stay true for the step, like every other flag.
+  //
+  // foundFoe asks the RENDERER's own stealth function rather than measuring a distance, so what
+  // completes the step is exactly what the kid can see: bushRevealAlpha is the same value the foe
+  // is drawn at, and 0.6 is comfortably past the fade-in — a sprite that faint is a hint, not a
+  // sighting, and the step should not tick over on something the kid would not swear they saw.
+  const st = stepAt(tuLvl, tuStage);
+  if (st && st.done === 'foundFoe' && !tuEv.foundFoe && rendered) {
+    const foe = tuFoeSnap(st.findKey);
+    if (foe && inBushAt(foe.x, foe.y) && bushRevealAlpha(foe) >= 0.6) tuEv.foundFoe = true;
+  }
   if (rendered && tuSelfBlastAt && !tuEv.flew) {
     const age = performance.now() - tuSelfBlastAt;
     if (age > 1600) { tuSelfBlastAt = 0; tuSelfBlastPos = null; }
@@ -8001,12 +8013,14 @@ function tuRenderOverlay() {
   tuHandEl.style.display = a ? '' : 'none';
   const cap = captionFor(tuLvl, tuStage, tuCtx());
   if (tuCapEl.textContent !== cap) tuCapEl.textContent = cap;   // reassigning restarts the pop
-  // Two different second lines. `sub` is a STANDING one-liner the step always shows (how the
-  // control works — tap vs drag); `nudge` replaces it only once they are stuck. A kid who is
-  // doing fine still gets told what the button does; a kid who isn't gets told what to fix.
+  // Three possible second lines, in priority order. `nudge` wins when the kid is stuck; otherwise
+  // subFor() decides between the step's standing `sub` (how the control works) and its `sub2` (the
+  // payoff, once the step's `when` flag has latched — «גם אתה יכול להתחבא שם» the moment they spot
+  // the foe in the bush). A kid who is doing fine is told what the button does; a kid who isn't is
+  // told what to fix; a kid who just succeeded is told what it MEANT.
   const nudging = showNudge(tuLvl, tuStage, tuCtx());
   tuEl.classList.toggle('nudging', nudging);
-  const second = nudging ? s.nudge : (s.sub || '');
+  const second = nudging ? s.nudge : subFor(tuLvl, tuStage, tuCtx());
   if (tuNudgeEl.textContent !== second) tuNudgeEl.textContent = second;
   tuNudgeEl.classList.toggle('hidden', !second);
   const pips = tuPipsEl ? tuPipsEl.children : [];

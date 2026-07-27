@@ -11,13 +11,13 @@
 // Run: node test-tutorial.mjs
 import { WebSocket } from 'ws';
 import { decodeSnapshot } from './shared/wire.js';
-import { FIELD, BOMB, BOMB_LOB_RANGE, VISION_RANGE, PROJECTILE } from './shared/constants.js';
+import { FIELD, BOMB, BOMB_LOB_RANGE, VISION_RANGE, PROJECTILE, BUSH_REVEAL_DIST, BOMB_WALL_DIST } from './shared/constants.js';
 import {
   TU_LEVELS, TU_LEVEL_COUNT, TU_RING, TU_BALL_PARK, TU_SPAWN, TU_SHOT_SPOT,
   TU2_SHOOT, TU2_BOMB, TU2_WALL, TU2_STRIP,
   tuLevel, stepsIn, stepAt, stageAt, doneStage, foeKeys,
   advance, isStepDone, showNudge, captionFor, tuHasControl, isTutorialOver,
-  bombHit, tuUnlocked, nextLevel, fieldFor, TU3_HIDE, TU3_BUSH,
+  bombHit, tuUnlocked, nextLevel, fieldFor, subFor, TU3_FIND, TU3_FLY, TU3_BUSH,
 } from './shared/tutorial.js';
 import { bootServer } from './boot-test-server.mjs';
 
@@ -36,7 +36,7 @@ console.log('A1) three levels, in the taught order');
     `level 1: ${TU_LEVELS[L1].steps.map((s) => s.id).join(' -> ')}`);
   check(TU_LEVELS[L2].steps.map((s) => s.id).join(',') === 'ballshot,bomb,wall,strip',
     `level 2: ${TU_LEVELS[L2].steps.map((s) => s.id).join(' -> ')}`);
-  check(TU_LEVELS[L3].steps.map((s) => s.id).join(',') === 'hide,fly',
+  check(TU_LEVELS[L3].steps.map((s) => s.id).join(',') === 'find,fly',
     `level 3: ${TU_LEVELS[L3].steps.map((s) => s.id).join(' -> ')}`);
   for (const L of TU_LEVELS) {
     check(L.steps.length === L.stages.length, `${L.id}: one pitch stage per step (${L.steps.length}/${L.stages.length})`);
@@ -79,11 +79,11 @@ console.log('A4) level 1 step 1 completes by standing in the ring, and only ther
 
 console.log('A5) every other step completes on its OWN event and nothing else');
 {
-  const flags = ['hitEnemy', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'hidden', 'flew'];
+  const flags = ['hitEnemy', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'foundFoe', 'flew'];
   const cases = [
     [L1, 1, 'hitEnemy'], [L1, 2, 'chargedShot'], [L1, 3, 'scored'], [L1, 4, 'scored'],
     [L2, 0, 'scored'], [L2, 1, 'bombHitFoe'], [L2, 2, 'wallBuilt'], [L2, 3, 'stripped'],
-    [L3, 0, 'hidden'], [L3, 1, 'flew'],
+    [L3, 0, 'foundFoe'], [L3, 1, 'flew'],
   ];
   // ...but a minDwell step will not ADVANCE on its flag alone, so give the predicate check the
   // dwell it needs (isStepDone is the flag; advance() is the flag plus the dwell — see A12).
@@ -98,7 +98,7 @@ console.log('A6) advance() walks each level to its end and then stops');
 {
   for (const [l, L] of TU_LEVELS.entries()) {
     let n = 0;
-    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, hidden: true, flew: true, sinceDone: 99 };
+    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99 };
     for (let i = 0; i < L.steps.length; i++) n = advance(l, n, ctx);
     check(n === doneStage(l) && isTutorialOver(l, n), `${L.id}: 0 -> DONE (${n} of ${L.steps.length})`);
     check(advance(l, n, ctx) === doneStage(l), `${L.id}: DONE is terminal`);
@@ -200,15 +200,45 @@ console.log('A12) minDwell holds a finished step open so the lesson lands');
   }
 }
 
-console.log('A13) level 3 is the only level with scenery, and it is one bush');
+console.log('A13) level 3 is the only level with scenery: a bush to find someone in, a wall to fly off');
 {
   check(fieldFor(L1).bushes.length === 0 && fieldFor(L2).bushes.length === 0, 'levels 1-2 play on a bare pitch');
-  check(fieldFor(L3).bushes.length === 1, 'level 3 has exactly one bush — you cannot teach hiding without it');
+  check(fieldFor(L1).hardWalls.length === 0 && fieldFor(L2).hardWalls.length === 0, '...and no steel either');
+  check(fieldFor(L3).bushes.length === 1, 'level 3 has exactly one bush — you cannot teach stealth without it');
+  check(fieldFor(L3).hardWalls.length === 1, '...and exactly one steel wall, for the rocket-jump to cannon off');
+  // THE WATCHER IS IN THE BUSH. That is the step: it is invisible until you are almost on top of it
+  // (BUSH_REVEAL_DIST = 110), so finding it is what teaches that a bush hides a whole player.
   const b = fieldFor(L3).bushes[0];
-  const d = Math.hypot((b.x + b.w / 2) - TU3_HIDE.me.x, (b.y + b.h / 2) - TU3_HIDE.me.y);
-  check(d < 420, `and it sits ${Math.round(d)}px from the start — a short walk, not a hunt`);
-  check(Math.hypot(TU3_HIDE.foe.x - TU3_HIDE.me.x, TU3_HIDE.foe.y - TU3_HIDE.me.y) < VISION_RANGE,
-    'the watcher genuinely has eyes on the kid before they duck in');
+  const inBush = TU3_FIND.foe.x > b.x && TU3_FIND.foe.x < b.x + b.w && TU3_FIND.foe.y > b.y && TU3_FIND.foe.y < b.y + b.h;
+  check(inBush, 'the watcher stands INSIDE the bush, not beside it');
+  const d = Math.hypot(TU3_FIND.foe.x - TU3_FIND.me.x, TU3_FIND.foe.y - TU3_FIND.me.y);
+  check(d > BUSH_REVEAL_DIST * 2, `and starts ${Math.round(d)}px away — genuinely invisible, so there is something to find`);
+  check(d < VISION_RANGE + 120, '...but within a screen, so the bush is on frame one and the hunt is bounded');
+  // THE FLY STEP'S WALL: behind the kid, inside the cannon's reach, not close enough to stand in.
+  const w = fieldFor(L3).hardWalls[0];
+  check(w.cx < TU3_FLY.me.x, 'the steel is BEHIND the kid (they fly right, into the open pitch)');
+  const gap = TU3_FLY.me.x - (w.cx + w.ht);
+  check(gap > 40 && gap < BOMB_WALL_DIST, `and ${Math.round(gap)}px back: inside BOMB_WALL_DIST (${BOMB_WALL_DIST}), clear of the stone`);
+  check(Math.abs(w.cy - TU3_FLY.me.y) < w.hl, 'and tall enough to actually be behind them');
+}
+
+console.log('A13b) the find step teaches its lesson AFTER the discovery, not before');
+{
+  const f = stepAt(L3, 0);
+  check(f.done === 'foundFoe' && !f.marker, 'no world cue points at the bush — that would answer the question');
+  check(!f.controls.includes('bomb') && !f.controls.includes('wall'), 'and nothing to press: it is a walk and a look');
+  // The payoff line is «גם אתה יכול להתחבא שם», and it must NOT be on screen before they find him.
+  check(subFor(L3, 0, {}) === f.sub, 'before the sighting the second line is the search hint');
+  check(subFor(L3, 0, { foundFoe: true }) === f.sub2, '...and swaps to the "you can hide there too" payoff after it');
+  check(captionFor(L3, 0, { foundFoe: true }) === 'הוא היה בשיח!', 'the caption names where he was');
+  check(advance(L3, 0, { foundFoe: true, sinceDone: 0 }) === 0, 'and the step holds open so both lines get read');
+  check(advance(L3, 0, { foundFoe: true, sinceDone: 3 }) === 1, '...then moves on to the fly step');
+  // The fly step: one tap, and the wall is already there — 🧱 is level 2's lesson, not this one.
+  const fly = stepAt(L3, 1);
+  check(fly.gesture === 'tap' && fly.spotlight === 'bomb', 'the fly step mimes a TAP on 💣');
+  check(!fly.controls.includes('wall'), 'and never asks the kid to build the ramp themselves');
+  check(/כוון/.test(fly.sub), `it says to aim first: «${fly.sub}»`);
+  check(/קיר/.test(fly.nudge), `and the stuck-hint is about the wall, not the button: «${fly.nudge}»`);
 }
 
 console.log('A14) both bomb inputs are explained, not just the one the step needs');
