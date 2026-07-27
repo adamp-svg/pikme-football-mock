@@ -175,11 +175,18 @@ console.log('A8d) the ball-shot step points at BOTH the ball and the goal');
   // «שוט לכדור!» is two facts, and it used to show one: the ball had a chevron and the goal — off
   // to the right of a landscape phone — had nothing on the grass naming it, so the step said shove
   // the ball and never said where.
+  // The fix was the goal ARROW at first, and the user rejected it on sight — "i want a gohst thin
+  // line stight". So the second fact is now carried by `aimline`, a thin dashed ray from the kid
+  // through the ball to the pitch edge, and the arrow is not on this step at all.
   const cues = markersFor(stepAt(L2, 0));
   check(cues.includes('ball'), 'the ball is still marked — the kid has to know what to hit');
-  check(cues.includes('goal'), '...and the goal is marked too, so they know where it has to end up');
-  check(cues.indexOf('goal') < cues.indexOf('ball'), 'goal first: the arrow is drawn under the chevron, not over it');
-  check(markersFor(stepAt(L1, 3)).join() === 'goal', 'the cue it reuses is level 1\'s own goal arrow, unchanged');
+  check(cues.includes('aimline'), '...and a thin ghost line says where to point, so they know where it ends up');
+  check(!cues.includes('goal'), 'and NOT the fat goal arrow — it was tried here and rejected');
+  check(cues.indexOf('aimline') < cues.indexOf('ball'), 'line first: it draws under the chevron, not over it');
+  check(markersFor(stepAt(L1, 3)).join() === 'goal', 'the arrow itself is untouched, and still level 1 goal step\'s cue');
+  // ...but only that ONE step's. The level-1 finale drops it: the kid has already scored from that
+  // exact spot with the arrow up, so a second one competes with the super meter for the screen.
+  check(markersFor(stepAt(L1, 4)).length === 0, 'the super finale shows no world cue at all');
   // One name or several, the renderer only ever sees a list (tuDrawCue is called per cue).
   check(markersFor(stepAt(L1, 0)).join() === 'ring', 'a single-cue step still resolves to a one-item list');
   check(markersFor(null).length === 0 && markersFor({}).length === 0, 'and no step / no marker is an empty one');

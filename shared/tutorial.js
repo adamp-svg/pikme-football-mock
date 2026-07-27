@@ -190,8 +190,12 @@ export const TU_LEVELS = [
       { id: 'goal', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
         marker: 'goal', cap: 'החזק ושחרר!', sub: 'ככה בועטים רחוק — לשער',
         nudge: 'כוון לשער והחזק', nudgeAfter: 10, done: 'scored' },
+      // NO CUE on the finale, deliberately. By this step the kid has already scored once from this
+      // exact spot with the arrow up, so a second arrow says nothing they don't know and steals the
+      // screen from the one new thing — the super meter that just lit up. Nothing on the grass; the
+      // spotlight on the aim stick carries it.
       { id: 'super', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'pull',
-        marker: 'goal', cap: 'בעיטת ענק!', nudge: 'הכדור חזק פי שניים', nudgeAfter: 12, done: 'scored' },
+        marker: 'none', cap: 'בעיטת ענק!', nudge: 'הכדור חזק פי שניים', nudgeAfter: 12, done: 'scored' },
     ],
     stages: [
       { me: TU_SPAWN, ball: 'park', foes: [{ key: 'dummy', role: 'still', ...TU_DUMMY }, { key: 'keeper', role: 'still', ...TU_KEEPER_IDLE }] },
