@@ -3105,11 +3105,26 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   text-shadow: 0 5px 0 #a56a16, 0 9px 0 #252a21, 0 12px 26px rgba(0,0,0,.55);
   animation: tu-pop .32s cubic-bezier(.2,1.5,.4,1);
 }
+/* The second line is now TWO different messages through one element: a step's standing `sub` (how
+   the control works — "tap = under you, drag = where you point"), replaced by its `nudge` only once
+   the kid is stuck. They must not look the same. This is the calm one: a quiet dark pill that a
+   child who is doing fine can ignore. `max-width` matters here and did not before — a `sub` runs to
+   three clauses where the old nudges were four words, and unconstrained it walks off both screen
+   edges in landscape on a phone. */
 .tu-caption small {
   font: 700 clamp(13px, 3.2vw, 19px)/1.2 system-ui, sans-serif; color: #fff;
   background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 999px;
+  max-width: min(86vw, 560px); text-wrap: balance;
   animation: tu-pop .3s cubic-bezier(.2,1.5,.4,1);
 }
+/* ...and this is the escalation. Same words-in-a-pill, but amber and breathing, matching the hand
+   that grew and sped up at the same moment (`.nudging .tu-hand` above) — one signal, two places, so
+   a kid who is stuck sees the screen change rather than having to notice new text. */
+.tutorial.nudging .tu-caption small {
+  color: #2a1c05; background: #ffd06a; box-shadow: 0 3px 12px rgba(255,208,106,.35);
+  animation: tu-pop .3s cubic-bezier(.2,1.5,.4,1), tu-nudge-breathe 1.2s ease-in-out .3s infinite;
+}
+@keyframes tu-nudge-breathe { 0%, 100% { scale: 1; } 50% { scale: 1.06; } }
 .tu-caption small.hidden { display: none; }
 @keyframes tu-pop { from { scale: .6; opacity: 0; } to { scale: 1; opacity: 1; } }
 

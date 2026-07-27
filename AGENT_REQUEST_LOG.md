@@ -50,6 +50,15 @@
   - **Files being taken:** new `shared/tutorial.js` + `test-tutorial.mjs`, plus `server.js` (`startTutorial` + `applyTuStage` + the `tutorial`/`tuStage` messages), `public/client.js`, `public/index.html`, `public/style.css`. Orchestration locks held per file.
   - **Status: building on localhost (`PORT=3012`). Not pushed.**
 
+- **Tutorial coach layer — the `tap` gesture + the standing-`sub` vs `nudge` split (agent `tu-coach-css`). JOINED the tutorial work above.** User: "there are two other agents working on the toturial you also work on this."
+  - **File taken: `public/style.css` ONLY** (the coach block, ~L3059–3120). `shared/tutorial.js`, `server.js`, `public/client.js` and `test-tutorial.mjs` were mid-edit by the level-3 agent when I looked and I did **not** touch them. Nothing of theirs staged or committed by me.
+  - **Two gaps the level-2/3 work had just opened, both purely presentational:**
+    1. **`gesture: 'tap'` had no keyframes.** Level 3's `fly` step spotlights 💣 with `gesture:'tap'`, and `.tu-hand.gest-tap` didn't exist — so the hand parked over the button and sat there frozen. On a screen where every other step's hand moves, a still hand reads as "nothing here". Added `@keyframes tu-tap`: straight down/up twice then a beat, **never sideways** (sideways is what `tu-pull` means — this button gets pressed where it is, not dragged).
+    2. **`sub` and `nudge` looked identical.** The new always-on `sub` line ("הקשה = מתחתיך · גרירה = לאן שתכוון") shares `#tu-nudge` with the stuck-nudge, so an escalation was invisible. Now `.tu-caption small` is the calm dark pill and `.tutorial.nudging .tu-caption small` turns amber + breathes, matching the hand that grows/speeds up at the same moment — one signal in two places.
+    3. Also gave that pill `max-width: min(86vw, 560px)` + `text-wrap: balance`: the old nudges were four words, a `sub` runs to three clauses, and unconstrained it walks off both screen edges in phone landscape.
+  - **Not verified** — the user's instruction this session was "you do not test stuff, just build and wait for my feedback", so no test run and no CDP screenshots from me. CSS-only, additive, no existing selector's declarations changed; the `tu-tap`/`tu-nudge-breathe` keyframe names are new and unused elsewhere.
+  - **Status: committed locally (style.css + this log entry only). NOT pushed.**
+
 - **New players start at 50% volume for both music and SFX (agent `corner-style`).** User: "i want the voulme at the start of the game for new player when they start to be at 50% for both songs and sounds."
   - **File taken:** `public/client.js` only (2 literals + comment, orchestration lock held/released). No markup change — the sliders in `index.html` carry no `value` attribute, they take their position from these variables.
   - `soundVol` 0.72 → **0.5**, `musicUserVol` 0.6 → **0.5** (`public/client.js` ~line 283/285). These are STARTING values only: the `pikme-soundvol` / `pikme-musicvol` reads a few lines below still win, so no existing player's own setting is rewritten.
