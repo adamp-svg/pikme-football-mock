@@ -8114,6 +8114,57 @@ function tuDrawCue(m, s, pulse) {
     ctx.save();
     ctx.setLineDash([]);
     ctx.restore();
+  } else if (m === 'aimline') {
+    // WHERE TO POINT THE STICK — the one thing a kid cannot read off a mark lying on the grass. A
+    // ghost of the shot itself: it leaves the kid's body, passes through the ball, and carries on the
+    // SAME line until it runs off the pitch, which — when the three of them are lined up — is dead in
+    // the goal mouth.
+    // Extending the AIM rather than bending the line toward the goal is what makes it honest: a
+    // bullet shoves the ball along the bullet's own line (MECHANICS §2), so a kid standing off the
+    // lane watches the far end climb into the side netting, and lining it up again is what drops it
+    // back into the mouth. A ghost that hooked into the goal from wherever they stood would be
+    // promising a shot the sim will not play.
+    // Anchored to `rendered` and the SNAPSHOT ball, never to TU2_SHOOT: the kid can walk, and the
+    // ball leaves the moment they hit it, so a line drawn from the stage's literals would be lying
+    // within a second of the step starting.
+    if (!rendered || !latest) return;
+    const dx = latest.ball.x - rendered.x, dy = latest.ball.y - rendered.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 40) return;   // ball at their feet: there is a body there, not a line
+    // Gone the instant the step is satisfied. The 5s goal freeze that follows is the kid's to watch
+    // the ball sitting in the net with; a hint still telling them to shoot it is noise on a job done.
+    if (isStepDone(tuLvl, tuStage, tuCtx())) return;
+    const ux = dx / dist, uy = dy / dist;
+    // Ride the ray out to the first pitch edge it meets — the goal line ahead, or a touchline if
+    // they are aiming off. Clipping instead of using a fixed length is what lets the far end be the
+    // feedback: it lands in the mouth only when the aim actually scores.
+    const hits = [];
+    if (ux > 1e-3) hits.push((TU_GOAL.x - rendered.x) / ux);
+    if (uy > 1e-3) hits.push((FIELD.H - rendered.y) / uy);
+    if (uy < -1e-3) hits.push(-rendered.y / uy);
+    const len = hits.length ? Math.min(...hits) : dist + 300;
+    const off = 26;          // world px: clear of a 21px body, so the line does not stab the sprite
+    if (len <= off) return;
+    const d1 = Math.max(2, ws_(10)), d2 = Math.max(2, ws_(10));
+    ctx.save();
+    ctx.globalAlpha = 0.26 + 0.18 * pulse;
+    ctx.strokeStyle = '#ffd06a';
+    // THIN, and the floor is 1px, not 2. This is the thinnest stroke in the coach layer on purpose:
+    // the bomb's ghost trajectory — the closest existing "this is only a hint" line — is ws_(3), the
+    // goal arrow is ws_(22), and the user's word for what this should be was "thin". Anything with
+    // heft reads as an object lying on the pitch, which is the failure the arrow already had.
+    ctx.lineWidth = Math.max(1, ws_(2.5));
+    ctx.lineCap = 'butt';                  // square ends keep short dashes from fattening into pills
+    ctx.setLineDash([d1, d2]);
+    // The dashes CRAWL toward the goal. Every other dashed thing this client draws is STATIC and
+    // means "an object goes here" (the wall ghost, the bomb's blast ring), so movement is what keeps
+    // a dashed line lying across the pitch from reading as one more thing in the way.
+    ctx.lineDashOffset = -((performance.now() / 20) % (d1 + d2));
+    ctx.beginPath();
+    ctx.moveTo(wx(rendered.x + ux * off), wy(rendered.y + uy * off));
+    ctx.lineTo(wx(rendered.x + ux * len), wy(rendered.y + uy * len));
+    ctx.stroke();
+    ctx.restore();
   } else if (m === 'bush') {
     // Outline the bush and drop a chevron on it. The bush already renders as scenery; this says
     // "that one, go in it".

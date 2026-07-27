@@ -128,8 +128,8 @@ export const TU3_FLY = { me: { x: TU3_WALL.cx + TU3_WALL.ht + TU3_FLY_GAP, y: MI
 //   spotlight — the control the pointing hand animates over ('move' | 'aim' | 'bomb' | 'wall').
 //   gesture   — 'circle' (walk the stick around) | 'pull' (hold, drag, let go) | 'tap'.
 //   marker    — the world cue on the pitch: 'ring' | 'goal' | 'ball' | 'foe' (+ markerKey) |
-//               'wallspot' | 'bush' | 'none'. An ARRAY when one cue cannot say the whole
-//               instruction — see markersFor.
+//               'wallspot' | 'aimline' | 'bush' | 'none'. An ARRAY when one cue cannot say the
+//               whole instruction — see markersFor.
 //   cap       — 1-2 Hebrew words. Epic's rule taken literally: a kid who cannot read still finishes.
 //   sub       — the standing second line: what the control DOES. Always visible, calm.
 //   cap2/when — an optional SECOND caption, swapped in once `when` (a ctx flag) latches. Used by
@@ -210,13 +210,20 @@ export const TU_LEVELS = [
       // Opens with the thing closest to what level 1 already taught — you know how to shoot; now
       // learn that bullets move the BALL. The ball is pickup-locked this stage, so "just walk over
       // and carry it in" is not available and the lesson cannot be sidestepped.
-      // TWO cues, because one cue is half an instruction. «שוט לכדור!» with only the ball marked
-      // tells the kid what to hit and nothing about where it has to end up — and the goal is off
-      // to the right of a landscape phone with nothing on the grass naming it, so the step read as
-      // "shove the ball, somewhere". The goal arrow is level 1's own cue, reused as-is; the ball
-      // chevron stays and is listed SECOND so it draws on top of the arrow's tail.
+      // «שוט לכדור!» with only the ball marked says what to hit and never says where it has to end
+      // up, and the goal is off the right of a landscape phone with nothing naming it. The fix is
+      // `aimline`: ONE thin dashed ghost from the kid, through the ball, to the goal mouth. It is the
+      // whole instruction in a single line — where to point, what it passes through, where it ends.
+      // NOT the 'goal' arrow. That was tried on this step first and the user rejected it on sight
+      // ("the arrow which is not what ive asked... i want a gohst thin line stight"): a fat wedge
+      // lying on the grass is a diagram of the answer, and it is also the one shape on this pitch
+      // that a seven-year-old could mistake for a thing they have to get around. 'goal' itself is
+      // untouched and still right for level 1's two goal steps, where the ball is already at the
+      // kid's feet — a line from the kid THROUGH the ball is degenerate there, which is the same
+      // reason `aimline` is on this step only.
+      // The ball chevron stays and is listed SECOND, so it bobs over the line rather than under it.
       { id: 'ballshot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
-        marker: ['goal', 'ball'], cap: 'שוט לכדור!', sub: 'החזק ושחרר — ירי דוחף את הכדור',
+        marker: ['aimline', 'ball'], cap: 'שוט לכדור!', sub: 'החזק ושחרר — ירי דוחף את הכדור',
         nudge: 'כוון לכדור, החזק, שחרר', nudgeAfter: 10, done: 'scored' },
       // Both bomb inputs, in the two lines a kid will actually read: TAP drops it at your feet,
       // DRAG throws it where you point. The nudge is the one they need if the lob isn't landing.
