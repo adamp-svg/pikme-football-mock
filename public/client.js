@@ -3893,7 +3893,11 @@ function connect(name, avatar) {
     } else if (msg.type === 'home') {
       homeOnlineEl.textContent = msg.online; // count only — don't yank the user off a sub-screen
     } else if (msg.type === 'roomJoined') {
-      hideSearching();
+      // RESOLUTION. The banner is chosen by HUMAN COUNT, never by mmReason: a 'deadline' group can
+      // contain exactly one human, and announcing "נמצאו יריבים!" over four bots is the dishonesty
+      // this screen was rebuilt to remove.
+      if (searchingLive) showResolution((msg.humans | 0) >= 2);
+      else hideSearching();
       roomMode = msg.mode; roomCode = msg.code || null;
       isRoomHost = !!msg.host;                 // #14: host gets approval + kick controls
       clearRoomRequests(); hideRoomWait();     // fresh room: no stale pending UI / waiting overlay
@@ -4153,6 +4157,8 @@ let searchingLive = false;
 function showSearching(msg) {
   if (!teamIntroEl) return;
   searchingLive = true;
+  const box0 = document.getElementById('ti-search');
+  box0?.classList.remove('found', 'alone');   // a fresh search must not inherit the last one's banner
   quickVs = true;
   const perTeam = Math.max(1, ((msg.slots && msg.slots.total) || 4) / 2);
   // No `loadout` needed: introCardsFor() already special-cases p.id === myMemberId and reads
@@ -4187,10 +4193,26 @@ function hideSearching() {
   searchingLive = false;
   document.getElementById('ti-search')?.classList.add('hidden');
 }
+function showResolution(foundHumans) {
+  const box = document.getElementById('ti-search');
+  const title = document.getElementById('ti-search-title');
+  const sub = document.getElementById('ti-search-sub');
+  if (!box || !title) { hideSearching(); return; }
+  searchingLive = false;
+  box.classList.remove('hidden');
+  box.classList.add(foundHumans ? 'found' : 'alone');
+  title.textContent = foundHumans ? 'נמצאו יריבים!' : 'אין שחקנים פנויים כרגע';
+  sub.textContent = '';
+  document.getElementById('ti-search-pips')?.querySelectorAll('i').forEach((d) => d.classList.add('on'));
+}
 // Quick-match VS screen: HOME (my team) vs RIVALS from lobby members (bots fill empty
 // slots), with the big 5..0 countdown. Refreshed on every lobby payload.
 function updateVsCountdown(msg) {
   if (!teamIntroEl) return;
+  // Keep whatever resolution banner showResolution set; only a fresh search replaces it.
+  const searchBox = document.getElementById('ti-search');
+  const keepBanner = searchBox && !searchBox.classList.contains('hidden')
+    && (searchBox.classList.contains('found') || searchBox.classList.contains('alone'));
   // #18: the server previews the bots that will fill the empty slots (msg.bots — each with team +
   // loadout + cards), so opponents show WITH their power cards during the wait/countdown, not only at
   // the pre-kickoff reveal. fillIntroCol already renders isBot rows + loadout art.
@@ -4206,6 +4228,7 @@ function updateVsCountdown(msg) {
   preloadCards(roster.flatMap((m) => introCardsFor(m)));
   startLobbyMusic(); // #12: lobby theme plays for the whole wait (starts on entry, loops through the countdown)
   setTiCount(msg.phase === 'countdown' && msg.countdown > 0 ? msg.countdown : null);
+  if (!keepBanner) hideSearching();
   teamIntroEl.classList.remove('hidden');
   requestAnimationFrame(() => teamIntroEl.classList.add('show'));
 }

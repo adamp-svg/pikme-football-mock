@@ -2827,3 +2827,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    than as a broken row. Preview bots used to occupy these from the first tick. */
 .ti-row.ti-empty .ti-av { border: 1px dashed rgba(255, 255, 255, .3); background: transparent; }
 .ti-row.ti-empty .ti-name { opacity: .5; }
+.ti-search.found .ti-search-title { color: #8ef2a3; }
+.ti-search.alone .ti-search-title { color: #ffd06a; }
+/* A resolution banner (found/alone) survives into the reveal per updateVsCountdown's keepBanner, which
+   is also when #ti-mode (the ⚽ mode-name + rule pill) shows for the first time — both anchored at the
+   same top-center spot, so without this they print on top of each other. Found via a real CDP
+   screenshot: "אין שחקנים פנויים כרגע" over "⚽ כדורגל · 2 נגד 2", both illegible. #ti-mode measures
+   34px tall at this viewport; 44px clears it with a few px to spare. */
+#ti-mode:not(.hidden) ~ .ti-search { top: max(44px, calc(env(safe-area-inset-top) + 40px)); }
