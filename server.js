@@ -382,6 +382,13 @@ function fillBots(room, rosterOut) {
     const entry = {
       id, name: botName, avatar: null, team, cards: loadoutToCards(loadout), cosmetic, loadout, isBot: true,
       buffs, skill: sideScalar, botLevel: botLvl, partnerSide: teamHasHuman,
+      // `level`/`xp` — the same fields lobbyPayload's countdown preview already sends
+      // (displayLevelForBot/xpForBotLevel of this same botLvl). Without these the LIVE matchStart
+      // roster carried no level/xp at all (only the differently-scaled `botLevel`), so the pre-kickoff
+      // reveal's "רמה N · X XP" badge (fillIntroCol) silently went blank the moment the countdown
+      // preview handed off to the real roster — caught by test-matchmaking-live.mjs §3 comparing a
+      // rookie's vs a veteran's bot `.level`.
+      level: displayLevelForBot(botLvl), xp: xpForBotLevel(botLvl),
       // Set only for an invited house bot. It is what pins this bot's skill (applyTeamSkill) and keeps
       // relevelBots off it — its level is its identity, not the room's difficulty setting.
       ...(namedLevel != null ? { namedLevel } : {}),
@@ -1103,15 +1110,16 @@ function lobbyPayload(room) {
   // you wait. Private rooms also backfill bots at kickoff, but their lobby is for real friends, so we
   // don't preview bots there — they still appear at the pre-kickoff reveal.
   const showBots = !room.isPrivate && room.phase !== 'match';
+  // Name comes straight off the plan (computeBotPlan stamps it once, from the same pickBotIdentities
+  // call fillBots consumes at kickoff) rather than re-rolling a second, separate set of identities
+  // here — that duplication (fixed alongside test-matchmaking-live.mjs) is exactly what let this
+  // preview and the live matchStart roster disagree on bot names.
   const bots = (showBots && Array.isArray(room.botPlan))
-    ? (() => {
-        const ids = pickBotIdentities(room.botPlan.length, room.diffLevel, room.id);
-        return room.botPlan.map((b, i) => ({
-          id: `botprev-${room.id}-${i}`, name: ids[i].name, avatar: null, team: b.team, isBot: true,
-          cards: b.cards, loadout: b.loadout,
-          level: displayLevelForBot(room.diffLevel), xp: xpForBotLevel(room.diffLevel),
-        }));
-      })()
+    ? room.botPlan.map((b, i) => ({
+        id: `botprev-${room.id}-${i}`, name: b.name || 'Bot', avatar: null, team: b.team, isBot: true,
+        cards: b.cards, loadout: b.loadout,
+        level: displayLevelForBot(room.diffLevel), xp: xpForBotLevel(room.diffLevel),
+      }))
     : [];
   const fmt = FORMATS[room.format] || FORMATS.quick;
   return {
@@ -1348,12 +1356,24 @@ function computeBotPlan(room) {
     plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room),
       name: lb.name, ...(named ? { namedLevel: lb.namedLevel } : {}) });
   }
+  // The remaining (uninvited) slots get a real identity too — the SAME pickBotIdentities call
+  // lobbyPayload used to make separately (and never persisted back onto this plan), which is why the
+  // countdown preview could show real Hebrew names while the match that actually kicked off fielded
+  // "Bot"/"Bot"/"Bot": fillBots() reads b.name off THIS plan, and an entry with none silently fell
+  // back to 'Bot'. Stamping it here, once, is what makes the preview and the live roster agree
+  // (test-matchmaking-live.mjs §1). Sized to exactly the filler count so a partly-invited room never
+  // asks pickBotIdentities for more identities than it has uninvited slots for.
+  const fillerCount = Math.max(0, roomMax(room) - humans.length - plan.length);
+  const fillerIds = pickBotIdentities(fillerCount, room.diffLevel, room.id);
+  let fillerIdx = 0;
   while (humans.length + plan.length < roomMax(room)) {
     const team = countT('A') <= countT('B') ? 'A' : 'B';
     const slot = firstFreeSlot(usedT(team), roomTeamSize(room));
     const sideScalar = humanT[team] ? lvl.partner : lvl.enemy; // this preview-bot's side skill
     const loadout = sideScalar >= 0.95 ? extremeBotLoadout() : botLoadoutForLevel(room.diffLevel);
-    plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room) });
+    const identity = fillerIds[fillerIdx++];
+    plan.push({ team, slot, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room),
+      name: (identity && identity.name) || 'Bot' });
   }
   return plan;
 }
