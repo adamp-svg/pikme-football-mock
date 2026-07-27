@@ -151,8 +151,12 @@ function applyFormat(room, mode) {
   room.teamSize = fmt.teamSize;
   room.goalsToWin = fmt.goalsToWin;
 }
-// mode -> the room currently forming for that mode. Each format matchmakes in its OWN pool so
-// first-to-3 and timed players never mix. Was two hand-rolled `publicRoom*` globals.
+// DEAD — the ticket queue (`tickets`, below) replaced this as the real matchmaking pool: nothing
+// calls `.set()` on it any more, so `formingRoom` always returns null and `clearForming` (still called
+// below) is a no-op. Kept only because test-vs-consistency.mjs:103 slices this file's source text
+// between the strings 'const FORMATS = {' and 'const publicRooms' — deleting this binding would make
+// that `indexOf` return -1 and silently widen the slice over most of the file instead of failing
+// loudly. Don't remove it without updating that test's slice boundary first.
 const publicRooms = new Map();
 const formingRoom = (mode) => publicRooms.get(mode) || null;
 // Drop a room from its matchmaking pool (it started, or it died) so the next joiner forms a fresh one.
@@ -565,11 +569,16 @@ function formGroup(group) {
   room.diffLevel = botLevelFromXp(xpForPlayerLevel(group.level));
   room.mmReason = group.reason;         // diagnostics + the client's screen hint
   room.mmBandLo = group.bandLo; room.mmBandHi = group.bandHi;
-  // HUMANS ON OPPOSITE TEAMS: sorted by trophies and alternated, so the two closest-matched players
-  // are the ones opposed and the human contest decides the match.
+  // HUMANS ON OPPOSITE TEAMS (explicit product decision): sort by trophies, then insert into this
+  // still-EMPTY room one at a time. addToRoom() below stamps each member's team via balancedTeam(room),
+  // which ties towards 'A' when both sides are equal — so on an empty room, insertion order ALONE
+  // produces A,B,A,B. The sort is what makes that alternation land on the two closest-matched players
+  // (so the human contest decides the match); addToRoom is what actually WRITES m.team. A `.forEach`
+  // used to set m.team here too, but it was dead — addToRoom always overwrote it a few lines down, so
+  // the alternation has only ever come from sort-order + balancedTeam's tie-break. Pinned by
+  // test-matchmaking-teams.mjs so a future change to that tie-break cannot silently break it.
   const members = group.memberIds.map((id) => tickets.get(id)).filter(Boolean)
     .sort((a, b) => b.trophies - a.trophies).map((t) => t.member);
-  members.forEach((m, i) => { m.team = i % 2 === 0 ? 'A' : 'B'; });
   for (const m of members) {
     dequeue(m.id);
     addToRoom(m, room);
