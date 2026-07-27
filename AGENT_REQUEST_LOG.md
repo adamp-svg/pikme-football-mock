@@ -12,6 +12,23 @@
 > don't redo them. **§0 first: prod is ~half a session stale, so the bots on the phone are NOT the
 > bots in this repo — a "the bots are broken" report may be about 10-hour-old code.**
 
+> ⚠️ **BEFORE YOU PUSH (added 2026-07-27 11:0x, chat agent — read this if you are the one deploying):**
+> `81d1701` (free text in friend threads) is **HALF A FEATURE ON ITS OWN.** It needs
+> **`pikme-server` commit `5448f17`** deployed, or the new «שלח» in a friend thread hits an API that
+> still validates `kind: 'preset'|'arena'`, returns `400 bad kind`, and the player just sees
+> «השליחה נכשלה».
+> - **Push order: API FIRST, then the game.** The reverse ships a visibly broken button. (Same order as
+>   the release train: api → game → app.)
+> - `pikme-server` is a SEPARATE checkout at `../pikme-server`, branch `main`, remote
+>   `homericentertainment/pikmeTV-server` — **it is not pushed by pushing this repo.** Its two unpushed
+>   commits are `5448f17` (mine) and `3ada01c` (the `/handle-friends/rank` career block, someone
+>   else's profile-page work) — pushing that repo ships BOTH, so check with whoever owns `3ada01c`.
+> - Nothing else of mine is pending. The deck alignment and the friend-card bubble are game-only and
+>   safe to ship alone. No app/TestFlight build is needed for any of it.
+> - If the API cannot go out yet, **hold `81d1701` back rather than shipping it alone** — the other two
+>   changes in that commit are cosmetic, but the composer is not.
+> - Details, measurements and how it was verified: my entry under `## 2026-07-27` below.
+
 ## 🔒 STANDING RULES (from the user — apply to EVERY agent, every session)
 
 > Full version: [`AGENT_RULES.md`](AGENT_RULES.md). Summary:
