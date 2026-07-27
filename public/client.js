@@ -3732,15 +3732,18 @@ function renderParty(msg) {
   partyRosterEl.appendChild(meBlock);
   partyRosterEl.appendChild(partyAddTile());
   mates.slice(half).forEach((m) => partyRosterEl.appendChild(mateBlock(m)));
-  // SOLO EMPTY STATE: the team page is the FIRST thing seen now, so a party of one must not look
-  // broken — spell out that starting alone (with bots filling the rest) is a real option, not a
-  // stuck state waiting for a friend.
-  if (!mates.length) {
-    const e = document.createElement('div'); e.className = 'pr-empty';
-    e.textContent = 'אתם לבד כרגע — הזמינו חבר עם ה־+, או התחילו לבד ומקומות פנויים יתמלאו בבוטים';
-    partyRosterEl.appendChild(e);
-  }
-  // Every member can advance to the groups page to pick a team; only the host starts.
+  // SOLO EMPTY STATE: its own line (#party-solo-hint), a SIBLING of the roster right after it —
+  // never a flex ITEM of .party-roster. An earlier version appended a `.pr-empty` div straight INTO
+  // partyRosterEl (flex-direction:row, wrap): a whole sentence rarely fits beside the hero + the `+`
+  // tile, so it wrapped onto its own row and pushed the mode-list entirely below the 390px landscape
+  // fold (measured via CDP: the roster alone grew to 261px). Putting the same text on #party-hint
+  // instead (tried next) just moved the problem: that element sits AFTER .party-games, so the
+  // message itself ended up below the fold along with the games. #party-solo-hint sits BEFORE
+  // .party-games, so it is always visible without scrolling regardless of the games list's height.
+  const soloHint = document.getElementById('party-solo-hint');
+  if (soloHint) soloHint.classList.toggle('hidden', !!mates.length);
+  // Every member can advance to the groups page to pick a team; only the host starts. Unrelated to
+  // the solo state above — this is the pre-existing host-progress hint, next to the games list.
   const hint = document.getElementById('party-hint');
   if (hint) { hint.textContent = 'בחרו משחק ואז קבוצה — המארח מתחיל'; hint.classList.toggle('hidden', isRoomHost); }
   // The picked mode and this room's capacity, so "3 נגד 3" is visible to everyone rather than being

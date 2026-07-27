@@ -1233,6 +1233,14 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 }
 .screen#friend-select .subpage-head { margin-bottom: 8px; }
 .screen#friend-select .subpage-head h2 { font-size: 18px; }
+/* BUG FOUND VIA CDP, NOT ASSUMED: at 844x390 the fixed-height card (88vh = 343px here) is shorter
+   than .fs-actions' own content (code box + new-room + join-by-code form, ~343px on its own,
+   measured) — .fs-actions' inherited `position:sticky` does nothing for its OWN overflow (sticky
+   only affects positioning within a scrolling ANCESTOR), so the join button rendered ~46px below
+   the card's visible bottom edge, past the rounded border, and was unclickable. Every other
+   .screen#friend-select .subpage is short on room the same way on a landscape phone, so the actions
+   column gets its own scroll independent of .fs-people's (which already scrolled on its own). */
+.screen#friend-select .fs-actions { position: static; overflow-y: auto; max-height: 100%; padding-inline-end: 2px; }
 /* Cards page: blur + darken the stadium behind the album so the sleeves read clearly on top —
    matching the wardrobe / hero-suits backdrop (dark rgba + blur). A ::before carries a blurred,
    dimmed copy of the bg (scaled + inset -24px so the blur has no bright edge); ::after is the
@@ -1305,6 +1313,18 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Widened from 460 so four MINI picker cards sit in ONE row (4x104 + 3x8 gaps) instead of wrapping. */
 .party-games { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 .party-games-h { font: 900 13px "Arial Black", sans-serif; color: #fff4ca; text-align: right; }
+/* VERTICAL FIT on a 390px landscape phone (#party is now the FIRST screen seen, not a page you
+   arrive at after already scrolling past an invite step): the roster's own hero block is ~220px
+   tall on its own (hero canvas + name + card row + the reserved speech-bubble slot, none of that new
+   here), which left very little of the remaining ~356px content budget for the mode-list below it.
+   #party-solo-hint already dropped its own margin in favour of this gap; .party-roster's top padding
+   and .party-games's top margin are trimmed too — every px here was previously spent on whitespace,
+   not content. Still may need a small scroll on a genuinely short phone; .subpage-body already
+   scrolls (overflow-y:auto), so nothing is ever unreachable, just not all visible without it. */
+#party .subpage-body { gap: 6px; }
+#party .party-roster { padding-top: 0; }
+#party-solo-hint { margin-top: 0; }
+#party .party-games { margin-top: 0; }
 
 /* ---- Team-page CHAT RAIL (item 2) ------------------------------------------------------------
    A vertical column pinned to the PHYSICAL right edge, roughly a quarter of the width, independent

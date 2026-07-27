@@ -574,6 +574,11 @@
       <div class="subpage-head"><h2>הקבוצה שלי</h2></div>
       <div class="subpage-body">
         <div id="party-roster" class="party-roster"></div>
+        <!-- SOLO EMPTY STATE (a party of one): sits right after the roster, not inside its flex row
+             (a `.pr-empty` flex ITEM there wrapped the roster onto a second row and pushed the whole
+             mode-list below the 390px landscape fold — measured via CDP). Only #party-hint's
+             ORIGINAL purpose (host-progress guidance) lives near the games list below. -->
+        <p id="party-solo-hint" class="hint hidden">אתם לבד כרגע — הזמינו חבר, או התחילו לבד עם בוטים</p>
         <div class="party-games">
           <div class="party-games-h">בחרו משחק</div>
           <!-- Rendered from MODES (party surface — see renderModeList in client.js). Non-host taps
@@ -620,8 +625,8 @@
   <div id="friend-select" class="screen hidden">
     <div class="subpage" dir="rtl">
       <div class="subpage-head">
-        <h2>הזמינו חברים</h2>
         <button id="friend-select-close" class="subpage-back" aria-label="סגור">✕</button>
+        <h2>הזמינו חברים</h2>
       </div>
       <div class="subpage-body fs-split">
         <aside class="fs-actions">
