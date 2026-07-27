@@ -350,6 +350,29 @@ export const MM_BAND_TOP = 12;
 // rendered fields actually changed, so a widen or a resolution is never delayed by it.
 export const MM_SEND_INTERVAL_MS = 200;
 
+// --- PRACTICE MODES: play that must never touch progression -------------------------------------
+// The user's rule (2026-07-27): "I want the trophies and rank to never increase from training ground
+// games." These three rooms ARE the training ground:
+//   training — solo vs a penned dummy + a sentry
+//   builder  — playtesting your own arena
+//   botgame  — the practice "full 2v2 vs bots" offered from the same surface
+//
+// `training` and `builder` set state.noClock, so they never reach phase 'ended' and could never have
+// posted a result. `botgame` is the one that actually paid out: it has a real win condition, so it
+// ends, the client posts matchResult, and pikme-server credits BOTH tracks — xpDelta (which is the
+// גביעים/trophy track; see the "TROPHIES — the monotonic track" comment in its record-match) and
+// rankDelta. The bot economy only DISCOUNTED those; it never zeroed them.
+//
+// A MATCHMADE room whose empty slots were backfilled with bots is deliberately NOT in here: that is a
+// real match the player queued for, and it still pays at the bot-reduced rate. Blocking it would leave
+// almost no progression at this population, since most matchmade games end up part-bot.
+//
+// Shared so the client's "should I post this result?" and the server's "may difficulty change live?"
+// cannot disagree about what practice means — three hand-kept copies of a mode list is exactly the
+// drift that produced the settings-panel crash earlier today.
+export const PRACTICE_MODES = ['training', 'builder', 'botgame'];
+export const isPracticeMode = (mode) => PRACTICE_MODES.includes(mode);
+
 export function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }

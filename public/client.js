@@ -5,7 +5,7 @@ import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION, OVERTIME_DURATION,
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_DIST_MAX, BUILD_WINDUP, BUILD_WINDUP_SLOW, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
-  defaultSettings,
+  defaultSettings, isPracticeMode,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
@@ -1014,8 +1014,19 @@ function myCards() {
 }
 // Hero unlocks: every 7 DISTINCT cards owned opens the next hero, in rarity order
 // (striker → alien). 0-6 → striker only, 7-13 → +dwarf, etc. Always ≥1 (striker free).
-// DEV: unlock every hero for testing. Set false to restore the 7-distinct-cards-per-hero gating.
-const DEV_UNLOCK_ALL = true;
+//
+// ⚠️ THIS WAS HARDCODED `true` AND SHIPPED (found 2026-07-27, from the user: "now they are unlocked
+// for all heroes"). It short-circuits BOTH unlockedHeroCount() and isHeroUnlocked(), so every hero was
+// open to everyone and the card-count gate above had simply never run in production. It arrived inside
+// `c58c327 checkpoint: parallel agents' in-flight work` — a batch commit, which is how a debug switch
+// gets pushed without anyone reviewing it as a decision.
+//
+// Now OPT-IN PER LOAD, not ambient: `?heroes=all`. It is deliberately NOT tied to DEV_LOCAL or
+// DEV_HOST, because a gate that behaves one way on a laptop and another on a phone is the trap this
+// repo keeps paying for — the LAN surface silently running difficulty LEVEL 0 invalidated a whole
+// round of bot reports the same way. One value everywhere, and an explicit query flag when you want to
+// look at every hero.
+const DEV_UNLOCK_ALL = new URLSearchParams(location.search).get('heroes') === 'all';
 function distinctOwnedCount() { return new Set(myCards().map((c) => c.r + '/' + c.n)).size; }
 function unlockedHeroCount() { return DEV_UNLOCK_ALL ? HERO_KEYS.length : Math.max(1, Math.min(HERO_KEYS.length, Math.floor(distinctOwnedCount() / 7) + 1)); }
 function isHeroUnlocked(hk) { if (DEV_UNLOCK_ALL) return HERO_KEYS.includes(hk); const i = HERO_KEYS.indexOf(hk); return i >= 0 && i < unlockedHeroCount(); }
@@ -7204,17 +7215,28 @@ function drawHUD() {
   else if (latest.phase === 'ended') {
     // Win/lose is the canvas comic overlay (drawCelebration) — keep the DOM banner hidden.
     banner.classList.add('hidden'); banner.classList.remove('count');
-    // Report the final result to the app exactly once (PII-free, one-way bridge).
     if (!matchResultSent) {
       matchResultSent = true;
       stopMusic();                                                    // clear the pitch for the sting
       if (myScore !== opScore) playSound(myScore > opScore ? 'win' : 'loss', 0.9);
       triggerCelebration(myScore > opScore ? 'win' : (myScore < opScore ? 'lose' : 'draw'));
-      // Post the result WITH the per-player stats: fire as soon as the server's matchStats arrives,
-      // else a 1.2s fallback posts without them (never miss the record).
-      _pendingPost = () => { _pendingPost = null; postMatchResult(myT, opT, myScore, opScore); };
-      if (myMatchStats) { const f = _pendingPost; _pendingPost = null; f(); }
-      else setTimeout(() => { if (_pendingPost) { const f = _pendingPost; _pendingPost = null; f(); } }, 1200);
+      // PRACTICE PAYS NOTHING. Per the user (2026-07-27) the training ground must never move trophies
+      // or rank, and this post is the ONLY thing that can move them — pikme-server credits both tracks
+      // off matchResult (xpDelta is the גביעים/trophy track, rankDelta the ladder). `training` and
+      // `builder` are endless (noClock) so they never reached here anyway; `botgame` did, and paid out
+      // at a merely-discounted rate rather than zero. Suppressing the post beats asking the server for
+      // zero: it stays game-side, so no API change and no app rebuild.
+      // The celebration above still runs — you won, you should see it. Only the payout is withheld, and
+      // the hub then has nothing to reveal on return, which is correct.
+      // Guarded, NOT an early `return`: this runs inside the per-frame HUD update, and returning here
+      // would silently skip everything after this branch for the rest of the frame.
+      if (!isPracticeMode(roomMode)) {
+        // Post the result WITH the per-player stats: fire as soon as the server's matchStats arrives,
+        // else a 1.2s fallback posts without them (never miss the record).
+        _pendingPost = () => { _pendingPost = null; postMatchResult(myT, opT, myScore, opScore); };
+        if (myMatchStats) { const f = _pendingPost; _pendingPost = null; f(); }
+        else setTimeout(() => { if (_pendingPost) { const f = _pendingPost; _pendingPost = null; f(); } }, 1200);
+      }
     }
   } else if (latest.resetTimer > 0 && latest.lastGoal) {
     // GOAL! is the canvas comic overlay (fired on the goal event). Hide the DOM banner during
