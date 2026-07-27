@@ -12,7 +12,7 @@ import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import {
   TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, TU2_WALL, tuLevel, stepsIn, stepAt, doneStage,
   advance, isStepDone, showNudge, nudgeFor, captionFor, subFor, tuHasControl, isTutorialOver,
-  bombHit, tuUnlocked, nextLevel, markersFor,
+  bombHit, tuUnlocked, nextLevel, markersFor, tuIsHub, TU_HUB_LEVEL,
 } from '/shared/tutorial.js';
 import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
@@ -180,7 +180,9 @@ function loadCosmetic() {
     return normalizeCosmetic(localStorage.getItem('pikme_cosmetic'));
   } catch { return DEFAULT_COSMETIC; }
 }
-function saveCosmetic(c) { try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } postPrefs(); }
+// LEVEL 4's demo: the look is a LESSON, not a choice. postPrefs() below reaches the app, which
+// saves prefs under the player's phone number, so a demo hero must not get that far.
+function saveCosmetic(c) { if (tuHub) return; try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ } postPrefs(); }
 // Push the player's prefs out to the app (which saves them under the phone). Debounced — a slider
 // drag or a controls-editor drag would otherwise fire this on every tick.
 let _prefsT = null;
@@ -1060,7 +1062,62 @@ const DEV_SAMPLE_CARDS = [
 // map here (RARITY_RANK/PCT/GLOW, HEB_RAR), the CSS rarity-<r> classes and the art URLs use
 // LOWERCASE keys — so an un-lowercased rarity ranks as 0 and gets dropped from "select best"
 // (the "2 legend + 1 epic instead of 3 legend" bug). Normalize casing at the single source.
+// ---- LEVEL 4's demo album (see the hub tour, further down) ----------------------------
+// With an EMPTY album the hub has nothing to teach on: renderCarousel() ADDS `hidden` when there
+// are no cards, so the deck is not even on screen, and unlockedHeroCount() returns 1, so the
+// wardrobe has nothing to switch to. Three demo cards for the duration of the lesson.
+//
+// ⚠️ NOTHING HERE MAY PERSIST, and the reason is not localStorage. saveLoadout/saveCosmetic both
+// call postPrefs(), which posts to window.ReactNativeWebView — and the APP saves those prefs under
+// the player's PHONE NUMBER. Unsandboxed, this would write cards a kid does not own into their
+// real, server-side, cross-device loadout. Hence three guards (setSlotCard, swapSlots,
+// saveCosmetic), snapshot+restore here, and teardown BEFORE the finale starts matchmaking.
+//
+// Declared HERE, above myCards(), on purpose: renderHomeCharacter() runs at module scope and
+// reaches myCards() through renderPowerSlots(), so a `let tuDemo` further down the file would be
+// read before its declaration and throw a temporal-dead-zone ReferenceError at load.
+const TU_DEMO_CARDS = [
+  { r: 'rare', n: 12, w: 120000, c: 1, demo: true },
+  { r: 'common', n: 44, w: 8000, c: 2, demo: true },
+  { r: 'epic', n: 7, w: 640000, c: 1, demo: true },
+];
+let tuDemo = false;
+let tuLessonSaved = null;
+// Declared up here with tuDemo, not down in the hub-tour block: the write guards below read it,
+// and module-scope rendering runs long before that block is evaluated.
+let tuHub = false;
+function tuDemoOn() { return tuDemo; }
+function tuHubRunning() { return tuHub; }
+
+// Enter the LESSON's sandbox. Two separate things happen here, and keeping them separate matters:
+//   • the sandbox itself covers the whole lesson for EVERYONE, demo album or not. A kid with a
+//     real album who equips a card mid-lesson must not have that written either — otherwise the
+//     tutorial silently rearranges their loadout, and "practice pays nothing" stops being true.
+//   • the demo album is layered on top, and ONLY when the kid has nothing of their own.
+function tuLessonSandboxEnter() {
+  tuLessonSaved = { loadout: myLoadout, cosmetic: myCosmetic };
+  // The slots must arrive EMPTY or the drag step teaches nothing: effectiveLoadout() auto-fills
+  // the best three whenever myLoadout is null — exactly a new player's state — so 'slotFilled'
+  // would be true on arrival and the step would complete before the kid touched anything. (This
+  // is not hypothetical: the first browser run blew straight through it.) An explicitly empty
+  // loadout is also the honest picture of a new account: cards owned, none equipped yet.
+  myLoadout = [null, null, null];
+  // Only fake an album if there is none. A kid who owns cards learns on their OWN.
+  if (myCards().length < 3) tuDemo = true;
+  renderHubStats(); renderCarousel(); renderPowerSlots(); renderHomeCharacter();
+}
+
+function tuLessonSandboxExit() {
+  tuDemo = false;
+  if (tuLessonSaved) { myLoadout = tuLessonSaved.loadout; myCosmetic = tuLessonSaved.cosmetic; }
+  tuLessonSaved = null;
+  // Restoring is just putting the variables back: the real values were never written over
+  // anywhere else, which is the whole point of the guards.
+  renderHubStats(); renderCarousel(); renderPowerSlots(); renderHomeCharacter();
+}
+
 function myCards() {
+  if (tuDemo) return TU_DEMO_CARDS;                 // LEVEL 4's sandboxed lesson album
   const raw = Array.isArray(window.SALTIZ_CARDS) ? window.SALTIZ_CARDS.slice(0, 256)
     : (DEV_LOCAL ? DEV_SAMPLE_CARDS : []);
   return raw.map((c) => (c && typeof c.r === 'string' && c.r !== c.r.toLowerCase())
@@ -1082,7 +1139,9 @@ function myCards() {
 // look at every hero.
 const DEV_UNLOCK_ALL = new URLSearchParams(location.search).get('heroes') === 'all';
 function distinctOwnedCount() { return new Set(myCards().map((c) => c.r + '/' + c.n)).size; }
-function unlockedHeroCount() { return DEV_UNLOCK_ALL ? HERO_KEYS.length : Math.max(1, Math.min(HERO_KEYS.length, Math.floor(distinctOwnedCount() / 7) + 1)); }
+// LEVEL 4's demo opens a few heroes: three demo cards alone still yield floor(3/7)+1 = 1, so the
+// «החלף מראה» step would open a wardrobe with nothing to change to.
+function unlockedHeroCount() { if (tuDemo) return Math.min(3, HERO_KEYS.length); return DEV_UNLOCK_ALL ? HERO_KEYS.length : Math.max(1, Math.min(HERO_KEYS.length, Math.floor(distinctOwnedCount() / 7) + 1)); }
 function isHeroUnlocked(hk) { if (DEV_UNLOCK_ALL) return HERO_KEYS.includes(hk); const i = HERO_KEYS.indexOf(hk); return i >= 0 && i < unlockedHeroCount(); }
 // Best-first: worth, then rarity, then copies. Drives the carousel + the top-3 intro.
 function rankCards(cards) {
@@ -1496,6 +1555,7 @@ function renderCarousel() {
   cfCards.forEach((c, i) => {
     const el = document.createElement('div');
     el.className = 'cf-card rarity-' + c.r;
+    if (c.demo) el.classList.add('cf-demo');   // LEVEL 4: say «דוגמה» on it — see renderCarousel's caller
     el.dataset.n = c.n;
     el.dataset.idx = i; // card-powers drag: identify which card was grabbed
     const img = document.createElement('img');
@@ -1638,6 +1698,9 @@ function setSlotCard(slotIdx, card) {
   const eff = effectiveLoadout();
   if (card) for (let i = 0; i < 3; i++) if (eff[i] && eff[i].r === card.r && +eff[i].n === +card.n) eff[i] = null;
   eff[slotIdx] = card ? { r: card.r, n: +card.n } : null;
+  // LEVEL 4's demo: equip IN MEMORY so the slot fills and the step completes, but write nothing —
+  // no localStorage, no postPrefs (the app would persist it under the player's phone), no socket.
+  if (tuHub) { myLoadout = eff; renderPowerSlots(); return; }
   myLoadout = eff; saveLoadout(myLoadout);
   renderPowerSlots();
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
@@ -1648,6 +1711,7 @@ function swapSlots(a, b) {
   if (a === b) return;
   const eff = effectiveLoadout();
   const t = eff[a]; eff[a] = eff[b]; eff[b] = t;
+  if (tuHub) { myLoadout = eff; renderPowerSlots(); return; }   // LEVEL 4 lesson: never persisted
   myLoadout = eff; saveLoadout(myLoadout);
   renderPowerSlots();
   sendMsg({ type: 'setLoadout', loadout: myLoadout });
@@ -2528,7 +2592,11 @@ document.addEventListener('click', (e) => {
 }, true);
 
 // Home actions.
-document.getElementById('quick-match-btn').addEventListener('click', () => { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel(), trophies: myTrophies() }); });
+// Named so LEVEL 4's finale can start a real match itself. It must NOT do that by synthesising a
+// click on the button: the tutorial's own capture-phase handler swallows that click on purpose, and
+// syncLoadout() below would push the tutorial's demo album to the server if it ran before teardown.
+function startQuickMatch() { unlockAudio(); syncLoadout(); sendMsg({ type: 'quickMatch', diffLevel: xpDiffLevel(), trophies: myTrophies() }); }
+document.getElementById('quick-match-btn').addEventListener('click', startQuickMatch);
 // Cancel a live search. Hidden once a group resolves — at that point a room exists and the match is
 // about to start, so "cancel" would mean leaving a match, not a queue.
 document.getElementById('ti-search-cancel')?.addEventListener('click', () => {
@@ -7888,7 +7956,15 @@ const tuLevelsEl = document.getElementById('tu-levels');
 
 // Which on-screen element a step's spotlight points at. move/aim are the sticks (their anchor
 // moves with the controls editor); bomb/wall are fixed buttons.
-const TU_SPOT_SEL = { bomb: '#special', wall: '#build' };
+const TU_SPOT_SEL = {
+  bomb: '#special', wall: '#build',
+  // LEVEL 4 (the hub tour). tuSpotRect below already resolves ANY selector via
+  // getBoundingClientRect, so pointing the hand at hub furniture costs no new code.
+  // `.hub-xpbar` rather than `#hub-xp`: renderHubXp() rebuilds #hub-xp's innerHTML on every poll,
+  // so the BOX is the stable thing to point at, not its contents.
+  hubTrophies: '.hub-xpbar', hubDeck: '#home-carousel', hubSlots: '#power-slots',
+  hubHero: '#pick-hero-btn', hubFriends: '#friends-btn', hubPlay: '#quick-match-btn',
+};
 function tuSpotRect(which) {
   if (which === 'move' || which === 'aim') {
     const a = stickAnchor(which);
@@ -7905,8 +7981,236 @@ function tuSpotRect(which) {
 function startTutorial(level, replay) {
   tuReplay = !!replay;
   unlockAudio();
+  // A HUB level has no room: no pitch to set up, nothing for the sim to own, and no server change
+  // at all. It runs against the DOM, right here, driven by its own rAF.
+  if (tuIsHub(level)) { tuHubEnter(level | 0, replay); return; }
   sendMsg({ type: 'tutorial', level: level | 0 });
 }
+
+// =====================================================================================
+// LEVEL 4 · מרכז — the hub tour
+// =====================================================================================
+// Design: docs/superpowers/specs/2026-07-27-hub-tour-level4-design.md
+//
+// Same step machine, same hand, same captions, same nudge as the pitch levels. Two differences,
+// both forced by the screen it runs on:
+//   1) NO ROOM. There is no pitch, so there is nothing for the server to set up and nothing to
+//      send it. startTutorial branches on `where` and never opens a socket for this level.
+//   2) ITS OWN CLOCK. tuTick is driven by the match render loop, which does not run on the hub, so
+//      this level ticks itself off requestAnimationFrame.
+// Completion comes from one-way TAP latches instead of snapshot events, but isStepDone reads them
+// generically (`!!ctx[s.done]`), so shared/tutorial.js needed no special-casing at all.
+// tuHub / tuHubRunning() are declared up with the demo album — the write guards need them early.
+// Deliberately NOT the global `tutorial` flag, which gates match input/render paths this level
+// has no business in.
+let tuHubRAF = 0;
+let tuHubPrev = 0;
+let tuHubEv = null;         // one-way latches, same contract as tuEv
+let tuHubDeckStart = null;      // {x,y,i} at pointerdown on the carousel — a swipe is measured from it
+let tuHubDeckTouchedAt = null;  // cfIndex when they last TOUCHED the deck; arms the tap-to-move check
+const tuHubBlankEv = () => ({ sawTrophies: false, deckMoved: false, slotFilled: false,
+  heroOpened: false, friendsOpened: false, played: false });
+// "On the hub" has to mean VISIBLE AND UNCOVERED. The friends list is a screen swap (#home goes
+// hidden), but the wardrobe is an OVERLAY — #hero-picker opens on top and #home stays shown. The
+// first browser run proved the difference: checking only #home meant the hero step completed the
+// instant it was tapped, because the kid had technically never left.
+const tuOverlayOpen = () => ['#hero-picker', '#cards-page', '#settings-panel']
+  .some((s) => { const e = document.querySelector(s); return !!e && !e.classList.contains('hidden'); });
+const tuOnHub = () => !!homeEl && !homeEl.classList.contains('hidden') && !tuOverlayOpen();
+
+// Whitelist the one live target so the gate CSS lets taps through to it.
+// Applied on every STEP CHANGE, never per frame: re-deriving pointer-events every repaint is
+// exactly the shape of the corner-tap bug (76686d6), where a tappable thing silently wasn't.
+function tuHubMarkLive() {
+  document.querySelectorAll('.tu-live').forEach((el) => el.classList.remove('tu-live'));
+  const s = stepAt(tuLvl, tuStage);
+  const sel = s && TU_SPOT_SEL[s.spotlight];
+  if (!sel) return;
+  const el = document.querySelector(sel);
+  if (!el) return;
+  el.classList.add('tu-live');
+  // #home-carousel and #power-slots sit INSIDE boxes the gate dimmed, so whitelisting the element
+  // alone would leave its own ancestor swallowing the tap.
+  const box = el.closest('.hub > *');
+  if (box) box.classList.add('tu-live');
+}
+
+function tuHubCtx() {
+  const onHub = tuOnHub();
+  return {
+    ...tuHubEv,
+    backOnHub: onHub,
+    // Steps 4-5 open a screen of their own, so each needs BOTH halves: it opened, AND the kid came
+    // back. Completing on the tap alone would point the next step's hand at a hub button that is
+    // currently behind the wardrobe.
+    heroDone: tuHubEv.heroOpened && onHub,
+    friendsDone: tuHubEv.friendsOpened && onHub,
+    stepElapsed: tuStepT,
+    sinceDone: tuDoneAt ? (performance.now() - tuDoneAt) / 1000 : 0,
+  };
+}
+
+// The hub tour needs its OWN way out. The pitch levels dismiss with #leave-lobby-btn, which is a
+// match control and is not on this screen — and the gate makes every other button inert, so
+// without this a kid who wants to just play is trapped on a lesson. Built in JS rather than added
+// to index.html: that file is shared with several other agents and this needs no markup from them.
+let tuHubSkipEl = null;
+function tuHubSkipBtn() {
+  if (tuHubSkipEl) return tuHubSkipEl;
+  const b = document.createElement('button');
+  b.id = 'tu-hub-skip'; b.type = 'button'; b.textContent = 'דלג ✕';
+  b.addEventListener('click', (e) => { e.stopPropagation(); tuHubSkip(); });
+  tuEl?.appendChild(b);
+  tuHubSkipEl = b;
+  return b;
+}
+// Skipping is NOT finishing: the level stays ▶ in the picker so it can be taken properly later.
+function tuHubSkip() {
+  tuHubMarkSkipped();
+  tuHubExit();
+}
+// Remember the offer was made, so auto-launch doesn't ambush them again on the next load. Separate
+// from the done-set on purpose — «מרכז» must still read as unfinished in the 🎓 picker.
+const TU_HUB_SKIP_KEY = 'fbTuHubSkipped';
+function tuHubMarkSkipped() { try { localStorage.setItem(TU_HUB_SKIP_KEY, '1'); } catch { /* private mode */ } }
+function tuHubWasSkipped() { try { return localStorage.getItem(TU_HUB_SKIP_KEY) === '1'; } catch { return false; } }
+
+function tuHubEnter(level, replay) {
+  if (tuHub) return;
+  tuLvl = Number.isInteger(level) && tuLevel(level) ? level : TU_HUB_LEVEL;
+  tuStage = 0; tuStepT = 0; tuDoneAt = 0; tuFinishAt = 0;
+  tuHub = true; tuReplay = !!replay;
+  tuHubEv = tuHubBlankEv();
+  tuHubDeckStart = null; tuHubDeckTouchedAt = null;
+  tuLessonSandboxEnter();                          // pin an empty loadout; fake an album only if needed
+  document.body.classList.add('hub-tu-gate');
+  tuDoneEl?.classList.add('hidden');
+  tuEl?.classList.remove('hidden');
+  const pips = stepsIn(tuLvl);
+  if (tuPipsEl && tuPipsEl.childElementCount !== pips) {
+    tuPipsEl.innerHTML = Array.from({ length: pips }, () => '<i></i>').join('');
+  }
+  tuHubSkipBtn().classList.remove('hidden');
+  tuHubMarkLive();
+  tuRenderOverlay();
+  tuHubPrev = performance.now();
+  if (!tuHubRAF) tuHubRAF = requestAnimationFrame(tuHubLoop);
+}
+
+function tuHubExit() {
+  if (!tuHub) return;
+  tuHub = false;
+  if (tuHubRAF) { cancelAnimationFrame(tuHubRAF); tuHubRAF = 0; }
+  document.body.classList.remove('hub-tu-gate');
+  document.querySelectorAll('.tu-live').forEach((el) => el.classList.remove('tu-live'));
+  tuHubSkipEl?.classList.add('hidden');
+  tuEl?.classList.add('hidden');
+  tuLessonSandboxExit();                           // puts the real album and loadout back
+}
+
+function tuHubLoop(now) {
+  if (!tuHub) { tuHubRAF = 0; return; }
+  tuHubRAF = requestAnimationFrame(tuHubLoop);
+  const dt = Math.min(0.25, Math.max(0, (now - tuHubPrev) / 1000));
+  tuHubPrev = now;
+  if (tuFinishAt) { if (now >= tuFinishAt) { tuFinishAt = 0; tuHubFinish(); } return; }
+  if (isTutorialOver(tuLvl, tuStage)) return;
+
+  // The coach belongs to the hub. While the kid is in the wardrobe or the friends list, hide it
+  // (its hand would be pointing at a button that isn't on screen) and freeze the step clock, or
+  // they bank idle seconds and get nudged the instant they come back.
+  const onHub = tuOnHub();
+  tuEl?.classList.toggle('hidden', !onHub);
+  if (!onHub) { tuRenderOverlay(); return; }
+  tuStepT += dt;
+
+  const s = stepAt(tuLvl, tuStage);
+  // Three flags are OBSERVED rather than tapped, because each is the result of a gesture, not the
+  // gesture itself.
+  if (s) {
+    // The trophy bar cannot be tapped at all: seeing it IS the step, and minDwell paces it.
+    if (s.done === 'sawTrophies') tuHubEv.sawTrophies = true;
+    // The deck step is latched by a REAL gesture (below), not by watching cfIndex: the carousel
+    // AUTO-ROTATES on a timer, so an index watcher completes the step by itself while the kid sits
+    // there — which is exactly what the first browser run did.
+    if (s.done === 'deckMoved') {
+      stopCarouselAuto();                            // hold it still, so the hand has a stable target
+      // Armed only once the kid has actually touched the deck (see the pointerup latch), so the
+      // carousel's own auto-rotation can never complete this step on their behalf.
+      if (tuHubDeckTouchedAt != null && cfIndex !== tuHubDeckTouchedAt) tuHubEv.deckMoved = true;
+    }
+    // A slot that was empty now holds a card. tuDemoEnter pins an empty loadout, so on arrival all
+    // three are empty and any successful drag completes the step.
+    if (s.done === 'slotFilled' && effectiveLoadout().some(Boolean)) tuHubEv.slotFilled = true;
+  }
+
+  const ctx = tuHubCtx();
+  if (!tuDoneAt && isStepDone(tuLvl, tuStage, ctx)) tuDoneAt = performance.now();
+  const last = stepsIn(tuLvl) - 1;
+  if (tuStage === last && isStepDone(tuLvl, tuStage, ctx)) {
+    tuStage = doneStage(tuLvl); tuFinishAt = now + 350;
+    tuRenderOverlay();
+    return;
+  }
+  const next = advance(tuLvl, tuStage, ctx);
+  if (next !== tuStage) {
+    tuStage = next; tuStepT = 0; tuDoneAt = 0;
+    tuHubDeckStart = null; tuHubDeckTouchedAt = null;
+    tuHubMarkLive();
+    playSound('pickup', 0.5, 1.25);                // the same "yes, that" chime the pitch levels use
+    haptic('goal');
+  }
+  // Re-rendered every frame on purpose: the hub is a scaled stage (fitHub) and the play strip
+  // scrolls, so a target's rect is not static.
+  tuRenderOverlay();
+}
+
+// The level ends on the ⚽ tap, so this is also the handoff into a real match. Order matters:
+// the demo album must be GONE before matchmaking starts, because startQuickMatch → syncLoadout()
+// pushes the album to the server and the join sends `cards: myCards()`.
+function tuHubFinish() {
+  const L = tuLevel(tuLvl);
+  if (L) tuMarkDone(L.id);
+  const play = tuHubEv && tuHubEv.played;
+  tuHubExit();                                     // tears the demo down and restores the album
+  if (play) { startQuickMatch(); return; }         // straight into a real game — the payoff
+  tuDoneEl?.classList.remove('hidden');
+  confettiBurst(120);
+}
+
+// One capture-phase listener for the whole hub. Capture, so a latch never depends on the target's
+// own handler running or on the element surviving the re-render that handler triggers.
+document.addEventListener('pointerdown', (e) => {
+  if (!tuHub || !tuHubEv || !e.target.closest) return;
+  if (e.target.closest('#pick-hero-btn')) tuHubEv.heroOpened = true;
+  if (e.target.closest('#friends-btn')) tuHubEv.friendsOpened = true;
+  // The deck lesson is «החלק» — swipe — so it wants a real drag, not merely a touch. Measured
+  // from this pointerdown to the matching pointerup, which also makes it immune to the carousel's
+  // own auto-rotation.
+  if (e.target.closest('#home-carousel')) tuHubDeckStart = { x: e.clientX, y: e.clientY, i: cfIndex };
+}, true);
+document.addEventListener('pointerup', (e) => {
+  if (!tuHub || !tuHubEv || !tuHubDeckStart) return;
+  const travel = Math.hypot(e.clientX - tuHubDeckStart.x, e.clientY - tuHubDeckStart.y);
+  if (travel > 18) tuHubEv.deckMoved = true;          // a genuine swipe — the gesture being taught
+  // A TAP on a card also moves the stack, but via a click handler that runs AFTER this pointerup,
+  // so the index has not changed yet and cannot be compared here. Remember where the deck stood
+  // when they touched it and let the loop notice the move — which keeps the auto-rotation immunity,
+  // because an untouched carousel never arms this.
+  tuHubDeckTouchedAt = tuHubDeckStart.i;
+  tuHubDeckStart = null;
+}, true);
+
+// The ⚽ button is the one tap the tutorial does NOT let through. Its own handler would start
+// matchmaking immediately — while the demo album is still installed, so syncLoadout() would push
+// cards the kid does not own to the server. Latch it, swallow it, and let tuHubFinish start the
+// match once teardown has run.
+document.addEventListener('click', (e) => {
+  if (!tuHub || !tuHubEv || !e.target.closest) return;
+  if (!e.target.closest('#quick-match-btn')) return;
+  e.preventDefault(); e.stopPropagation();
+  tuHubEv.played = true;
+}, true);
 
 // Called from enterMatch when the room is a tutorial room.
 function tuEnter(level) {
@@ -8262,9 +8566,18 @@ document.getElementById('tc-howto')?.addEventListener('click', () => {
 // once the socket has answered `welcome`, so the room request cannot race the connection.
 // Only LEVEL 1 ever auto-launches; every later level is offered, never forced.
 function tuMaybeAutoStart() {
-  if (tutorial || tuDoneSet().has(TU_LEVELS[0].id)) return;
+  if (tutorial || tuHubRunning()) return;
   if (!homeEl || homeEl.classList.contains('hidden')) return; // only from a cold start on the hub
-  startTutorial(0, false);
+  const done = tuDoneSet();
+  // LEVEL 1: the app opens into it, and there is no skip.
+  if (!done.has(TU_LEVELS[0].id)) { startTutorial(0, false); return; }
+  // LEVEL 4 (the hub tour): the first time a kid actually REACHES the hub, which is the moment it
+  // is about. The only other level that ever auto-runs, and unlike level 1 it is SKIPPABLE — a
+  // brand-new player has nothing else to do yet, but a kid standing on the hub does. Passing
+  // replay:true is what keeps the exit alive; tuReplay means "a way out exists", which is exactly
+  // what is wanted here, so it is not a lie about provenance.
+  const hub = TU_LEVELS[TU_HUB_LEVEL];
+  if (hub && !done.has(hub.id) && !tuHubWasSkipped() && tuUnlocked(TU_HUB_LEVEL, done)) startTutorial(TU_HUB_LEVEL, true);
 }
 
 // ===================== FIELD BUILDER (self-contained DOM editor) =====================

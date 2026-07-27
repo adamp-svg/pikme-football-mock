@@ -3240,3 +3240,43 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    MODES cards follow. */
 .tu-lv.locked { opacity: .5; }
 .tu-lv.locked b { filter: grayscale(1); }
+
+/* ===== LEVEL 4 · מרכז — the hub tour ==============================================
+   The pitch levels hide an untaught control with .tu-off (display:none). That is wrong here:
+   the hub's furniture has to stay VISIBLE — the lesson is what the screen contains — it just
+   must not be reachable. So the hub gate dims instead of hiding, and kills pointer-events, with
+   the one live target whitelisted.
+
+   ⚠️ Applied as a CLASS on <body>, with .tu-live set once per STEP CHANGE — never re-derived per
+   frame. That is deliberate: 76686d6 (the arena builder's corners) set pointer-events at render
+   time only, so a corner drawn with the wall tool stayed untappable until the next repaint, and
+   no unit test caught it — only a real browser did. One class, applied once, cannot drift. */
+.hub-tu-gate .hub > * { pointer-events: none; filter: grayscale(.7) brightness(.55); transition: filter .18s ease; }
+.hub-tu-gate .hub .tu-live,
+.hub-tu-gate .hub .tu-live * { pointer-events: auto; filter: none; }
+.hub-tu-gate .hub .tu-live { position: relative; z-index: 3; }
+/* The coach's own overlay must stay above the lit target. */
+.hub-tu-gate #tutorial { z-index: 40; }
+
+/* LEVEL 4's demo cards are a LESSON, not a collection. Say so ON the card: a kid should never be
+   shown three cards they don't own and left to work out later that they were props. */
+.cf-card.cf-demo::after {
+  content: 'דוגמה';
+  position: absolute; inset-inline-start: 4px; top: 4px; z-index: 2;
+  font: 700 9px/1 system-ui, sans-serif; letter-spacing: .5px;
+  color: #1b1b1b; background: #ffd06a; padding: 2px 4px; border-radius: 3px;
+  pointer-events: none;
+}
+
+/* The hub tour's own way out. The pitch levels dismiss with #leave-lobby-btn, which is a match
+   control and is not on this screen; the gate makes everything else inert, so without this a kid
+   who just wants to play is trapped on a lesson. Deliberately quiet — visible, not inviting. */
+#tu-hub-skip {
+  position: fixed; top: max(10px, env(safe-area-inset-top)); inset-inline-end: max(10px, env(safe-area-inset-right));
+  z-index: 41; pointer-events: auto;
+  font: 700 12px/1 system-ui, sans-serif; color: #dfe6ee;
+  background: rgba(12, 16, 22, .72); border: 1px solid rgba(223, 230, 238, .28);
+  border-radius: 999px; padding: 7px 12px; cursor: pointer;
+}
+#tu-hub-skip:active { transform: scale(.96); }
+#tu-hub-skip.hidden { display: none; }
