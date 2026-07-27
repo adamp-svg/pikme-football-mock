@@ -598,21 +598,23 @@
     </div>
   </div>
 
-  <!-- Party flow: start sheet (tap «שחק עם חברים»). Create a party (then invite friends +
-       pick a game in the lobby), OR join a friend's existing room by its shared code. -->
-  <!-- Play With Friends · STEP 1 invite screen — a full-bleed sub-page (matches clubs/news),
-       scrollable body, leave by tapping the empty background. -->
+  <!-- Play With Friends · INVITE SHEET — a MODAL over #party, opened by the `+` tile next to the
+       hero (either the host's or any other member's — item 4: an invited friend can invite a friend
+       too, and the party's original inviter stays host regardless). The party room already exists
+       by the time this opens, so there is no "step 1" anymore: no play-now CTA here, just people to
+       invite. Each friend row carries its own invite button (fc-invite, from friendCardEl); the sheet
+       stays open after an invite so several friends can be invited in one visit. Close via the ✕ or
+       by tapping the dim backdrop — either way #party underneath was never hidden, so it is simply
+       there again. The room-code box + join-by-code form are kept (a non-friend can still join a
+       shared code, and "new room" rotates a stale one) but are secondary to the friend list now. -->
   <div id="friend-select" class="screen hidden">
-    <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
-      <div class="subpage-head"><h2>הזמינו חברים</h2></div>
-      <!-- TWO COLUMNS. Left (a quarter, floored at 130px): the actions, always visible — play now, this
-           room's code, a fresh room, and join-by-code so somebody who is NOT your friend can still play
-           (friends a->b<-c: a and c never added each other, but both can enter b's code).
-           Right: the friend cards, in the same look as the friends page, smaller and scrollable. -->
+      <div class="subpage-head">
+        <h2>הזמינו חברים</h2>
+        <button id="friend-select-close" class="subpage-back" aria-label="סגור">✕</button>
+      </div>
       <div class="subpage-body fs-split">
         <aside class="fs-actions">
-          <button id="friend-select-go" class="play fs-play"><span>שחק עכשיו</span><b>›</b></button>
           <div class="fs-code-box">
             <div class="fs-code-h">קוד החדר</div>
             <button id="fs-code" class="fs-code" type="button" title="העתקת הקוד">---</button>
