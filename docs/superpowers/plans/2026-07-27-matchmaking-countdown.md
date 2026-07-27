@@ -282,15 +282,27 @@ const T = (memberId, level, queuedAt, budgetMs = MM_BUDGET_QUICK_MS, mode = 'qui
   const r = planMatches([T('a', 5, 0), T('b', 5, 0), T('c', 5, 0, MM_BUDGET_MODE_MS, '3v3'), T('d', 5, 0, MM_BUDGET_MODE_MS, '3v3')], 100, OPTS);
   ok('a quick ticket is never grouped with a 3v3 ticket', r.groups.length === 0 && r.waiting.length === 4);
 }
-{ // FAIRNESS: the oldest ticket seeds. 'old' has waited 4s; two fresh L5s arrive.
-  // Seeding by newest would let the pair form and leave 'old' still waiting.
-  const r = planMatches([T('fresh1', 5, 3900), T('old', 5, 0), T('fresh2', 5, 3900), T('fresh3', 5, 3900)], 4000, OPTS);
-  ok('the longest-waiting ticket is in the group', r.groups[0]?.memberIds.includes('old'), JSON.stringify(r.groups[0]?.memberIds));
+{ // FAIRNESS: the oldest ticket seeds. FIVE tickets for FOUR slots, so somebody must be left out —
+  // with only four this assertion could not fail. 'old' has waited 4s; four fresh L5s just arrived.
+  // Seeding by newest would form a group of the four fresh arrivals and leave 'old' waiting again.
+  const r = planMatches([
+    T('fresh1', 5, 3900), T('old', 5, 0), T('fresh2', 5, 3900), T('fresh3', 5, 3900), T('fresh4', 5, 3900),
+  ], 4000, OPTS);
+  ok('exactly one group of 4 forms', r.groups.length === 1 && r.groups[0].memberIds.length === 4, JSON.stringify(r.groups.map((g) => g.memberIds)));
+  ok('the longest-waiting ticket is in it', r.groups[0]?.memberIds.includes('old'), JSON.stringify(r.groups[0]?.memberIds));
+  ok('...and the one left out is a fresh arrival, not the oldest', r.waiting.length === 1 && r.waiting[0].memberId.startsWith('fresh'), JSON.stringify(r.waiting.map((w) => w.memberId)));
 }
 { // MUTUAL compatibility through the real planner, not just the predicate
   // L1 (widened, caps at L2) + three L3s at t=4s. The L3s have widened to +/-1 and would accept L2..L4.
+  // The beginner DOES get its own group here (short-circuited as 'alone', which is correct — nobody
+  // compatible exists). What must never happen is the beginner sharing a group WITH an L3, so assert
+  // that and not "the beginner is ungrouped".
   const r = planMatches([T('beginner', 1, 0), T('x', 3, 0), T('y', 3, 0), T('z', 3, 0)], 4000, OPTS);
-  ok('an L1 is not absorbed into an L3 group', !(r.groups[0]?.memberIds || []).includes('beginner'), JSON.stringify(r.groups.map((g) => g.memberIds)));
+  const mixed = r.groups.some((g) => g.memberIds.includes('beginner') && g.memberIds.length > 1);
+  ok('an L1 is never in the same group as an L3', !mixed, JSON.stringify(r.groups.map((g) => g.memberIds)));
+  ok('...and the L1 is served alone instead of waiting forever',
+    r.groups.some((g) => g.memberIds.length === 1 && g.memberIds[0] === 'beginner' && g.reason === 'alone'),
+    JSON.stringify(r.groups));
 }
 { // ALONE: one ticket, empty pool -> resolves at MM_ALONE_MS with reason 'alone'
   const solo = [T('a', 5, 0)];
@@ -315,9 +327,13 @@ const T = (memberId, level, queuedAt, budgetMs = MM_BUDGET_QUICK_MS, mode = 'qui
   // 2 humans, roomMax 4 -> 1 + 1 nearby = 2 < 4 -> NO grace, resolve at deadline.
   const r = planMatches([T('a', 5, 0), T('b', 5, 0)], MM_BUDGET_QUICK_MS, OPTS);
   ok('2 of 4 gets no grace — the room cannot be completed', (r.grants || []).length === 0 && r.groups.length === 1);
-  // 4 humans but incompatible bands at deadline: a is L5, three are L8. 1 + 3 = 4 >= roomMax -> grace.
-  const r2 = planMatches([T('a', 5, 0), T('p', 8, 0), T('q', 8, 0), T('r', 8, 0)], MM_BUDGET_QUICK_MS, OPTS);
+  // 4 humans, incompatible at +/-1 but WITHIN the +/-2 nearby window: a is L5, three are L7.
+  // At the deadline a accepts L4-L6 and they accept L6-L8, so no group forms — but |7-5| = 2, so
+  // nearby = 3 and 1 + 3 >= roomMax, which is exactly the case grace exists for.
+  // (L8 would NOT work here: |8-5| = 3 falls outside the nearby window, so no grace and no group.)
+  const r2 = planMatches([T('a', 5, 0), T('p', 7, 0), T('q', 7, 0), T('r', 7, 0)], MM_BUDGET_QUICK_MS, OPTS);
   ok('a completable-but-mismatched pool grants grace', (r2.grants || []).length > 0, JSON.stringify(r2.grants));
+  ok('...and grants it to the SEED, not to everyone at once', (r2.grants || []).length === 1, JSON.stringify(r2.grants));
 }
 { // Grace is granted at most once: a ticket carrying an EXPIRED graceUntil resolves, never re-grants.
   const expired = [{ memberId: 'a', mode: 'quick', level: 5, trophies: 0, queuedAt: 0, budgetMs: MM_BUDGET_QUICK_MS, graceUntil: MM_BUDGET_QUICK_MS + MM_GRACE_MS }];
@@ -332,19 +348,26 @@ const T = (memberId, level, queuedAt, budgetMs = MM_BUDGET_QUICK_MS, mode = 'qui
   ok('...and the band is +/-2', w?.bandLo === 3 && w?.bandHi === 7, `${w?.bandLo}-${w?.bandHi}`);
 }
 { // Band reported for display widens visibly at 40%.
-  const w0 = planMatches([T('a', 5, 0), T('b', 9, 0)], 100, OPTS).waiting.find((x) => x.memberId === 'a');
-  const w1 = planMatches([T('a', 5, 0), T('b', 9, 0)], MM_BUDGET_QUICK_MS * 0.5, OPTS).waiting.find((x) => x.memberId === 'a');
+  // The partner is L6, NOT L9: with nobody compatible at all, 'a' would short-circuit as 'alone' at
+  // MM_ALONE_MS and never appear in `waiting` to be inspected. L6 is incompatible at widen 0 and
+  // compatible at widen 1, which is precisely the transition being measured.
+  const pair = () => [T('a', 5, 0), T('b', 6, 0)];
+  const w0 = planMatches(pair(), 100, OPTS).waiting.find((x) => x.memberId === 'a');
+  const w1 = planMatches(pair(), MM_BUDGET_QUICK_MS * 0.5, OPTS).waiting.find((x) => x.memberId === 'a');
   ok('band starts exact', w0.bandLo === 5 && w0.bandHi === 5, `${w0.bandLo}-${w0.bandHi}`);
   ok('band widens to 4-6 at half budget', w1.bandLo === 4 && w1.bandHi === 6, `${w1.bandLo}-${w1.bandHi}`);
   ok('phase reports "widened" then', w1.phase === 'widened', w1.phase);
 }
 { // remainingMs counts down and never goes negative.
-  const w = planMatches([T('a', 5, 0), T('b', 9, 0)], 3000, OPTS).waiting.find((x) => x.memberId === 'a');
+  const w = planMatches([T('a', 5, 0), T('b', 6, 0)], 3000, OPTS).waiting.find((x) => x.memberId === 'a');
   ok('remainingMs is budget - elapsed', w.remainingMs === MM_BUDGET_QUICK_MS - 3000, String(w.remainingMs));
 }
-{ // The group's level is the MEDIAN, not the newest joiner's — the bug in joinMatchmade today.
-  const r = planMatches([T('a', 4, 0), T('b', 5, 0), T('c', 6, 0), T('d', 5, 0)], MM_BUDGET_QUICK_MS, OPTS);
-  ok('group level is the median of its humans', r.groups[0]?.level === 5, String(r.groups[0]?.level));
+{ // The group's level is the MEDIAN, not the seed's — the bug in joinMatchmade today.
+  // L4 + three L5s at half budget: widen 1 makes them all mutually compatible, so a FULL group forms
+  // before any deadline logic runs. The seed is L4 and the median is 5, so a median bug is visible.
+  const r = planMatches([T('a', 4, 0), T('b', 5, 0), T('c', 5, 0), T('d', 5, 0)], MM_BUDGET_QUICK_MS * 0.5, OPTS);
+  ok('the group forms full at half budget', r.groups[0]?.reason === 'full', JSON.stringify(r.groups));
+  ok('group level is the MEDIAN of its humans, not the seed\'s', r.groups[0]?.level === 5, String(r.groups[0]?.level));
 }
 { // planMatches must not mutate its input — the caller owns ticket state.
   const t = T('a', 5, 0);
