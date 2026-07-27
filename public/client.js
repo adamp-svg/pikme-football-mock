@@ -5,6 +5,7 @@ import {
   FIELD, GOAL, POST_R, PENALTY, BALL_RADIUS, CHARACTERS, TEAM, PROJECTILE, BOMB, MOVE_ACCEL,
   SHOOT_CHARGE_TIME, SUPER_CHARGE_RATE, MAG_SIZE, GOAL_RESET, GOAL_FREEZE_HOLD, MATCH_DURATION, OVERTIME_DURATION,
   BUSH_REVEAL_DIST, SHOT_REVEAL_TIME, BUILD_MAG, BUILT_WALL, BUILD_DIST_MAX, BUILD_WINDUP, BUILD_WINDUP_SLOW, FULL_CHARGE, QUICK_CHARGE, BOMB_LOB_RANGE, VISION_RANGE, clamp,
+  defaultSettings,
 } from '/shared/constants.js';
 import { ARENA, resolveWalls, pointInBush, segBlockedByWall, buildArenaFromField, capsuleAABB, wallPlacement } from '/shared/arena.js';
 import { PEN, TRAIN_ARENA } from '/shared/training.js';
@@ -239,16 +240,15 @@ let mySuperLatched = false;  // I began loading a shot while in super → keep t
 
 // Live-tunable settings (pause menu). Client keeps its own copy for prediction
 // + rendering and pushes changes to the authoritative server.
-const settings = {
-  speedMul: 0.8,
-  sizeMul: 1.25,
-  carrySpeedMul: 0.9,
-  ballSizeMul: 2,
-  shotPower: 1850,
-  bulletSpeed: 720,
-  bulletKnockback: 1500,
-  bombPower: 1500,
-};
+// THE SIM'S OWN DEFAULTS, not a copy of them. This used to be a hand-written literal, and it had
+// drifted to EIGHT of the ten keys in SETTING_KEYS: bombReloadSpeed and wallReloadSpeed were added to
+// defaultSettings() and never mirrored here. syncSliderUI() formats every SETTING_KEY, so opening the
+// settings panel before a matchStart had filled the gaps threw
+// «undefined is not an object (evaluating 'v.toFixed')» straight over the pitch.
+// It only reproduced sometimes because matchStart carries `settings` and Object.assign patched the
+// holes after the fact — so the crash needed the panel opened BEFORE that arrived.
+// Importing the function means the next key added to the sim cannot desync this again.
+const settings = defaultSettings();
 
 // --------------------------------------------------------------------------
 // Sound — short CC0 cues, mixed locally in the browser/WKWebView
@@ -5175,8 +5175,14 @@ function syncSliderUI() {
   for (const k of SETTING_KEYS) {
     const slider = document.getElementById('s-' + k);
     const label = document.getElementById('v-' + k);
-    if (slider) slider.value = settings[k];
-    if (label) label.textContent = SETTING_FMT[k](settings[k]);
+    // Guard, not a fix: `settings` now comes from defaultSettings() so every SETTING_KEY is present.
+    // This is here because the failure mode was so bad — a formatter calling .toFixed on a missing
+    // value threw inside the settings panel and painted an error banner across a LIVE match. A key
+    // that somehow has no value should render as blank, never take the game down with it.
+    const v = settings[k];
+    if (!Number.isFinite(v)) continue;
+    if (slider) slider.value = v;
+    if (label) label.textContent = SETTING_FMT[k](v);
   }
 }
 function sendSettings() {
