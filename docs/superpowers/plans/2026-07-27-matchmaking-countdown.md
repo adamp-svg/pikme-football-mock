@@ -617,6 +617,15 @@ function joinMatchmade(member, mode, diffLevel, trophies, budgetMs) {
 }
 ```
 
+> **Two contracts Task 2 established that this task must honour** (found during Task 2's review, and
+> the reason `planMatches` stays pure):
+> 1. **Stamp every grant, every tick.** If the caller silently fails to write `graceUntil` from
+>    `grants`, the ticket does not loudly fail — it quietly resolves as `deadline` on the next call.
+>    A dropped stamp therefore looks like working code with a missing feature.
+> 2. **A ticket must survive in `tickets` across the grant tick.** `planMatches` reports a
+>    just-granted ticket in `waiting` (phase `grace`), but the caller must not treat "absent from
+>    `groups`" as "resolved" and delete it.
+
 - [ ] **Step 3: Add `runMatchmaker` and `formGroup`**
 
 Add after `joinMatchmade`:
