@@ -245,7 +245,11 @@ export function buildArenaFromField(field) {
   // Crates are plain AABB boxes (no `angle`) → resolveCircleBox treats them as solid stone.
   // `crate:true` lets the client render them as wooden crates instead of the stone slab.
   const crates = (field?.crates || []).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h, crate: true }));
-  return { walls: walls.concat(crates), bushes, trampolines: [] };
+  // `joints` = the field's per-corner style overrides (shared/joint-style.js). Render-only — corner
+  // joints have no collision of their own (the walls already do) — but it has to ride along here or a
+  // field played in a match would show every corner on AUTO while the builder showed the author's
+  // choices. The sim ignores it.
+  return { walls: walls.concat(crates), bushes, trampolines: [], joints: field?.joints || null };
 }
 // Dry-wall templates → builtWall entries (destructible capsules). Caller assigns ids.
 // `field:true` marks them so the MAX_BUILT_WALLS cap and per-kickoff reseed treat them

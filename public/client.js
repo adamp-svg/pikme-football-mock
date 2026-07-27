@@ -33,6 +33,7 @@ import {
   DEFAULT_COSMETIC, normalizeCosmetic,
 } from '/shared/cosmetics.js';
 import { buildProfileModel, readHeroPlays, readBestBotLevel, bumpHeroPlays, bumpBestBotLevel, heroKeyOf } from '/shared/profile-stats.js';
+import { jointKey, resolveJointStyle, overrideOf, cycleJointStyle, setJointOverride, pruneJointOverrides } from '/shared/joint-style.js';
 import { renderProfile } from '/profile.js';
 let slotIds = [], slotTeam = [], rosterVersion = -1; // binary-snapshot slot->id/team (from the 'roster' control msg)
 
@@ -135,7 +136,7 @@ const PREVIEW_KIT = { J: '#3f7bd6', JS: '#2c5aa6' }; // home/picker preview kit 
 const PREF_KEYS = [
   'pikme-sound', 'pikme-music', 'pikme-musicvol', 'pikme-soundvol', 'pikme-diff-level', // audio + difficulty
   'fbControls', 'fbAimSens', 'fbBombMax', 'fbWallMax',                                   // touch layout + aim feel
-  'pikme-joint-style', 'pikme-field-v1', 'pikme-fields', 'pikme-field-name',             // builder style + fields
+  'pikme-field-v1', 'pikme-fields', 'pikme-field-name',                                  // builder fields (corner style now lives on the field itself)
   'saltizBotFriends',                                                                    // which named bots you added as friends
   'fbHeroPlays', 'fbBestBotLevel',                                                       // profile page: most-played hero + peak bot level
 ];
@@ -7456,9 +7457,9 @@ function drawObstacles() {
   for (const tr of A.trampolines) drawTramp(tr, t);
   for (const w of A.walls) drawWallBlock(w);
   // Steel-wall corner joints — smooth L/T/X at any angle (square mitre or round disc; no gap/"+").
-  for (const j of wallJoints(A.walls)) {
+  for (const j of wallJoints(A.walls, A.joints)) {
     ctx.save(); ctx.fillStyle = '#6b7280';
-    if (fbJointStyle === 'round') { ctx.beginPath(); ctx.arc(wx(j.cx), wy(j.cy), ws_(j.r), 0, 7); ctx.fill(); }
+    if (j.style === 'round') { ctx.beginPath(); ctx.arc(wx(j.cx), wy(j.cy), ws_(j.r), 0, 7); ctx.fill(); }
     else { ctx.beginPath(); ctx.moveTo(wx(j.poly[0].x), wy(j.poly[0].y)); for (let k = 1; k < j.poly.length; k++) ctx.lineTo(wx(j.poly[k].x), wy(j.poly[k].y)); ctx.closePath(); ctx.fill(); }
     ctx.fillStyle = 'rgba(255,255,255,.10)'; ctx.fill(); ctx.restore(); // faint sheen → reads as one piece with the slabs
   }
@@ -7686,14 +7687,20 @@ let FB_W = sizeOf(fbSizeId).W, FB_H = sizeOf(fbSizeId).H;
 const FB_WALL = { hl: 88, ht: 16 };   // half-thickness 16 → thin wall (thick 32), same as before. Literal (not FB_GRID/2) to avoid a TDZ if declaration order shifts.
 // Steel-wall corner joint style: 'square' = filled mitre corner, 'round' = disc. Both gapless/no-"+".
 // Literal-returning IIFE (references no later const) so it can't hit a TDZ wherever it lands.
-let fbJointStyle = (() => { try { return localStorage.getItem('pikme-joint-style') || 'square'; } catch (e) { return 'square'; } })();
+// Corner style is NOT a session setting any more. It was one localStorage flag applied to every
+// corner of every field, chosen before the author had drawn a single wall (project owner, 2026-07-27:
+// corners should build themselves; the choice belongs on the corner you selected). Each corner now
+// auto-styles from its own angle and stores an override on the FIELD (`fbField.joints`) when the
+// author overrides it — so it travels with the field, into the match, and through undo.
+// Rule + key format: shared/joint-style.js. Old 'pikme-joint-style' values are simply ignored.
 const FB_BUSH = { w: 224, h: 160 };
 const FB_GRID = 50;                          // fine grid cell — snap + overlay. Cell COUNT is per-size (s2v2 40x22, sBig 52x30, sHuge 58x34); every size is a whole, even number of cells on both axes so the centre line stays a junction and mirroring is exact.
 const fbSnap = (v) => Math.round(v / FB_GRID) * FB_GRID;            // snaps to grid JUNCTIONS (cell corners)
 const fbSnapCell = (v) => Math.floor(v / FB_GRID) * FB_GRID + FB_GRID / 2; // snaps to CELL CENTRES (the box grid) — used for walls so they line up with crates
-let fbField = { version: 3, size: DEFAULT_SIZE, bushes: [], hardWalls: [], dryWalls: [], crates: [], spawns: [], ball: null };
+let fbField = { version: 4, size: DEFAULT_SIZE, bushes: [], hardWalls: [], dryWalls: [], crates: [], spawns: [], ball: null, joints: {} };
 let fbTool = null;   // 'bush' | 'hard' | 'dry' | 'crate' | 'spawn' | 'ball' | null (placement tool)
-let fbSel = null;    // { type, i } selected element | null
+let fbSel = null;    // { type, i } selected element, or { type:'joint', key } for a corner | null
+let fbLiveJoints = []; // last rendered corners (derived, not stored) — the selection + prune read this
 let fbDrag = null;   // active pointer drag
 const fbPit = () => document.getElementById('builder-pitch');
 // MARKERS (start slots + the ball) are not geometry: nothing collides with them, so they stay out of
@@ -7710,17 +7717,34 @@ const FB_MARKER = (t) => t === 'spawn' || t === 'ball';
 // A field with no `size` was drawn before sizes existed, so it IS s2v2. Never rescale it.
 // v3 adds `spawns` (start slots) + `ball` (kickoff spot). A v1/v2 save simply has neither, which is
 // exactly "this field doesn't declare a formation" — the sim then runs its formula, unchanged.
+// version 4 adds `joints` — per-corner style overrides. Every earlier field (1/3, and the built-in
+// presets) simply has none, which means "every corner auto-styles", i.e. exactly how they looked
+// before. Nothing to migrate: absence IS the old behaviour.
 function fbNorm(j, sizeId) {
   const size = sizeOf(sizeId != null ? sizeId : (j && j.size)).id;
+  const rawJoints = j && j.joints && typeof j.joints === 'object' && !Array.isArray(j.joints) ? j.joints : {};
+  const joints = {};
+  // Keep only the two real looks. A junk value must not survive a load, or it would resolve to AUTO
+  // for evermore while still occupying a key that prune() then treats as a deliberate choice.
+  for (const k of Object.keys(rawJoints)) if (rawJoints[k] === 'square' || rawJoints[k] === 'round') joints[k] = rawJoints[k];
   return {
-    version: 3, size,
+    version: 4, size,
     bushes: (j && j.bushes) || [], hardWalls: (j && j.hardWalls) || [], dryWalls: (j && j.dryWalls) || [], crates: (j && j.crates) || [],
     spawns: (j && Array.isArray(j.spawns)) ? j.spawns : [],
     ball: (j && j.ball && typeof j.ball === 'object') ? { x: +j.ball.x, y: +j.ball.y } : null,
+    joints,
   };
 }
 function fbLoad() { try { const j = JSON.parse(localStorage.getItem(FB_KEY)); if (j && j.version) return fbNorm(j); } catch (e) {} return fbNorm(null, DEFAULT_SIZE); }
-function fbSave() { try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {} }
+function fbSave() {
+  // Drop overrides whose corner no longer exists. Deleting or moving a wall orphans its corner
+  // silently, and a stale key would later be inherited by a DIFFERENT corner that happens to land on
+  // the same junction — a style the author never chose for it. fbLiveJoints is what was last drawn.
+  if (fbField.joints && Object.keys(fbField.joints).length && fbLiveJoints.length) {
+    fbField.joints = pruneJointOverrides(fbField.joints, new Set(fbLiveJoints.map((j) => j.key)));
+  }
+  try { localStorage.setItem(FB_KEY, JSON.stringify(fbField)); } catch (e) {}
+}
 
 // --- Arena SIZE (shared/field-sizes.js) -----------------------------------------------------
 // Would anything currently placed fall outside `size`? Used to refuse a SHRINK rather than
@@ -7771,6 +7795,28 @@ function fbRestore(json) { const j = JSON.parse(json); fbField = fbNorm(j); fbSe
 function fbUndo() { if (fbHistIdx > 0) { fbHistIdx--; fbRestore(fbHist[fbHistIdx]); } }
 function fbRedo() { if (fbHistIdx < fbHist.length - 1) { fbHistIdx++; fbRestore(fbHist[fbHistIdx]); } }
 function fbUpdateHistBtns() { const u = document.getElementById('b-undo'), r = document.getElementById('b-redo'); if (u) u.disabled = fbHistIdx <= 0; if (r) r.disabled = fbHistIdx >= fbHist.length - 1; }
+// The פינה button mirrors the SELECTED corner. It reports the author's choice for that corner ('auto'
+// included) rather than what is on screen, because those differ: an AUTO corner already draws as a
+// square or a disc, and a button reading ⬛ on an auto corner would look like an override that is not
+// there. Disabled with no corner selected — a control with no target must not look pressable.
+function fbSyncJointBtn() {
+  const bj = document.getElementById('b-joint');
+  if (!bj) return;
+  const sel = fbSel && fbSel.type === 'joint' ? fbSel.key : null;
+  if (!sel) {
+    bj.disabled = true; bj.textContent = '⬛ פינה'; bj.style.opacity = '.45';
+    bj.title = 'בחרו פינה במגרש כדי לשנות את הסגנון שלה';
+    return;
+  }
+  const mode = overrideOf(fbField.joints, sel);
+  const live = fbLiveJoints.find((j) => j.key === sel);
+  const shown = live ? (live.style === 'round' ? '⬤' : '⬛') : '⬛';
+  bj.disabled = false; bj.style.opacity = '1';
+  bj.textContent = mode === 'auto' ? `אוטו ${shown} פינה` : `${mode === 'round' ? '⬤' : '⬛'} פינה`;
+  bj.title = mode === 'auto'
+    ? `אוטומטי — הפינה נבחרת לפי הזווית (כרגע ${shown}). לחצו כדי לקבוע ידנית.`
+    : 'לחצו כדי להחליף סגנון · עוד לחיצה מחזירה לאוטומטי';
+}
 // --- Overlap detection (no two elements may overlap) ---
 function fbSegSegDist(ax, ay, bx, by, cx, cy, ex, ey) {
   const ux = bx - ax, uy = by - ay, vx = ex - cx, vy = ey - cy, wx = ax - cx, wy = ay - cy;
@@ -7823,11 +7869,14 @@ function fpCloneArr(a) { return Array.isArray(a) ? a.map((o) => ({ ...o })) : []
 // 2000x1100 with every element stranded outside the canvas.
 // Carries `spawns`/`ball` too — dropping them here is the same class of bug as the `size` drop this
 // function's comment already documents: a saved field would lose its formation on the way in or out.
+// Carries `joints` for the same reason: a saved field that lost its per-corner styling would reopen
+// with every corner back on AUTO, quietly discarding a decision the author made corner by corner.
 function fpNormField(f) {
   return {
-    version: 3, size: sizeOfField(f).id,
+    version: 4, size: sizeOfField(f).id,
     bushes: fpCloneArr(f && f.bushes), hardWalls: fpCloneArr(f && f.hardWalls), dryWalls: fpCloneArr(f && f.dryWalls), crates: fpCloneArr(f && f.crates),
     spawns: fpCloneArr(f && f.spawns), ball: (f && f.ball) ? { x: f.ball.x, y: f.ball.y } : null,
+    joints: { ...((f && f.joints && typeof f.joints === 'object' && !Array.isArray(f.joints)) ? f.joints : {}) },
   };
 }
 // Saved slots: validated + id-stamped + deep-copied. Corrupt/non-object entries are skipped so a
@@ -8009,20 +8058,30 @@ function jointPolygon(walls, J) {
     side(1, hl - s); side(-1, hl + s);
   }
   if (!anyStub) return null; // pure mid-span crossing = an intended "+"; leave it
+  // `minAngle` = the sharpest real arm pair at this junction. It is what AUTO styling reads
+  // (shared/joint-style.js): the pairs rejected by MITER just below are exactly the ones whose mitre
+  // would spike, so they must be MEASURED here even though no apex point is emitted for them —
+  // skipping them would report an acute corner as if it were a clean right angle.
+  let minAngle = null;
   for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
     const a = arms[i], b = arms[j];
     const dot = Math.max(-1, Math.min(1, a.g.x * b.g.x + a.g.y * b.g.y)), th = Math.acos(dot);
     if (th < 0.15 || Math.PI - th < 0.15) continue;
+    if (minAngle == null || th < minAngle) minAngle = th;
     const sh = Math.sin(th / 2); if (1 / sh > MITER) continue;
     let bx = -(a.g.x + b.g.x), by = -(a.g.y + b.g.y); const bl = Math.hypot(bx, by) || 1; bx /= bl; by /= bl;
     const m = Math.max(a.ht, b.ht) / sh; pts.push({ x: J.x + bx * m, y: J.y + by * m });
   }
-  return convexHull(pts);
+  return { poly: convexHull(pts), minAngle };
 }
-let _wjRef = null, _wjOut = null; // memoize the GAME path — arena walls are a stable ref; the editor's fbField.hardWalls mutates in place, so it's never cached
-function wallJoints(walls) {
+let _wjRef = null, _wjOut = null, _wjOvr = null; // memoize the GAME path — arena walls are a stable ref; the editor's fbField.hardWalls mutates in place, so it's never cached
+// `overrides` = the field's per-corner style map ({ "x:y": 'square'|'round' }); absent → every corner
+// takes its AUTO look. Each returned joint carries `key`/`style` so the renderer never re-derives them.
+function wallJoints(walls, overrides) {
   const cacheable = walls === fieldArena().walls;
-  if (cacheable && walls === _wjRef && _wjOut) return _wjOut; // static arena joints — recomputed only on arena swap, not every frame
+  // The overrides map is part of the cache identity: a corner restyled while the same arena is loaded
+  // must repaint, and caching on `walls` alone would serve the old look until the next arena swap.
+  if (cacheable && walls === _wjRef && overrides === _wjOvr && _wjOut) return _wjOut; // static arena joints — recomputed only on arena swap, not every frame
   const hw = (walls || []).filter((w) => w && w.angle != null && w.cx != null);
   const raw = [];
   for (let i = 0; i < hw.length; i++) for (let j = i + 1; j < hw.length; j++) {
@@ -8045,13 +8104,15 @@ function wallJoints(walls) {
   }
   const out = [];
   for (const c of clusters) {
-    const poly = jointPolygon([...c.set].map((i) => hw[i]), { x: c.x, y: c.y });
+    const j = jointPolygon([...c.set].map((i) => hw[i]), { x: c.x, y: c.y });
+    const poly = j && j.poly;
     if (poly && poly.length >= 3) {
       let r = 0; for (const p of poly) r = Math.max(r, Math.hypot(p.x - c.x, p.y - c.y)); // bounding disc = round joint
-      out.push({ cx: c.x, cy: c.y, r, poly });
+      const key = jointKey(c.x, c.y);
+      out.push({ cx: c.x, cy: c.y, r, poly, key, minAngle: j.minAngle, style: resolveJointStyle(overrides, key, j.minAngle) });
     }
   }
-  if (cacheable) { _wjRef = walls; _wjOut = out; }
+  if (cacheable) { _wjRef = walls; _wjOut = out; _wjOvr = overrides; }
   return out;
 }
 // SEED THE DEFAULT FORMATION as real, draggable markers.
@@ -8093,11 +8154,27 @@ function fbRender() {
   let svg = pit.querySelector('svg.bjoints');
   if (!svg) { svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'bjoints'); svg.setAttribute('viewBox', '0 0 ' + FB_W + ' ' + FB_H); svg.setAttribute('preserveAspectRatio', 'none'); svg.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:2'; pit.appendChild(svg); }
   svg.innerHTML = '';
-  for (const j of wallJoints(fbField.hardWalls)) {
+  // The corner is never placed by hand — it exists because two walls meet, and it styles itself
+  // (shared/joint-style.js). It IS selectable though: tap one and the פינה button restyles that corner
+  // alone. The <svg> stays pointer-events:none so it never eats a tap meant for the pitch; each joint
+  // re-enables events for itself, and only while a selection tool is active (see the pointerdown).
+  fbLiveJoints = wallJoints(fbField.hardWalls, fbField.joints);
+  for (const j of fbLiveJoints) {
     let el;
-    if (fbJointStyle === 'round') { el = document.createElementNS(NS, 'circle'); el.setAttribute('cx', j.cx); el.setAttribute('cy', j.cy); el.setAttribute('r', j.r); }
+    if (j.style === 'round') { el = document.createElementNS(NS, 'circle'); el.setAttribute('cx', j.cx); el.setAttribute('cy', j.cy); el.setAttribute('r', j.r); }
     else { el = document.createElementNS(NS, 'polygon'); el.setAttribute('points', j.poly.map((p) => p.x + ',' + p.y).join(' ')); }
-    el.setAttribute('fill', '#7b828d'); el.setAttribute('stroke', '#43484f'); el.setAttribute('stroke-width', '1');
+    const picked = fbSel && fbSel.type === 'joint' && fbSel.key === j.key;
+    el.setAttribute('fill', '#7b828d');
+    el.setAttribute('stroke', picked ? '#ffd34d' : '#43484f');
+    el.setAttribute('stroke-width', picked ? '3' : '1');
+    el.setAttribute('class', 'bjoint');
+    el.dataset.key = j.key;
+    // ALWAYS tappable, and the pointerdown decides what a tap means. Gating this on the active tool
+    // at render time meant a corner drawn with the wall tool stayed pointer-events:none until the next
+    // repaint, so switching to ✋ and tapping it did nothing (caught in the browser, not by a unit
+    // test). Harmless with a placement tool active: the event still bubbles to the pitch, and the
+    // normal path looks for `.bel`, which a joint is not — so drawing over a corner still draws.
+    el.style.pointerEvents = 'auto';
     svg.appendChild(el);
   }
   fbField.dryWalls.forEach((w, i) => mk('dry', i, w.cx, w.cy, w.hl * 2, w.ht * 2, w.angle));
@@ -8111,6 +8188,9 @@ function fbRender() {
   // Fields saved before that rule may still carry a `ball` point; it round-trips untouched but is not
   // drawn, because drawing it would advertise a position the match ignores.
   fbUpdateCap();
+  // Selection can change from a dozen places (tap, tool switch, undo, delete) — syncing the corner
+  // control here means every one of them is covered, instead of remembering to call it at each site.
+  fbSyncJointBtn();
 }
 // "How many players does this map hold?" — min(A slots, B slots), because a 3-vs-1 layout can only
 // seat 1v1 without stacking two players on one marker. Rendered as a live badge next to the size
@@ -8248,9 +8328,19 @@ function openBuilder() { fbField = fbLoad(); fbSeedSpawns(); fbSel = null; fbSet
   document.getElementById('b-save')?.addEventListener('click', () => { fbSave(); const h = document.querySelector('#builder .builder-hint'); if (h) { const p = h.textContent; h.textContent = 'נשמר ✓'; h.style.color = '#7CFC7C'; setTimeout(() => { h.textContent = p; h.style.color = ''; }, 1200); } });
   // Field picker: open the floating panel to clone an in-game preset or a saved field.
   // Joint-style toggle (square mitre ⬛ ↔ round ⬤). Both are gapless/no-"+"; render-only.
+  // פינה now acts on the SELECTED corner only: auto → square → round → auto, so the automatic look is
+  // always recoverable. With no corner selected it is disabled and says so — the button can no longer
+  // restyle a whole field, and it can no longer be pressed before the corner it describes exists.
   { const bj = document.getElementById('b-joint');
-    if (bj) { bj.textContent = fbJointStyle === 'round' ? '⬤ פינה' : '⬛ פינה';
-      bj.addEventListener('click', () => { fbJointStyle = fbJointStyle === 'round' ? 'square' : 'round'; bj.textContent = fbJointStyle === 'round' ? '⬤ פינה' : '⬛ פינה'; try { localStorage.setItem('pikme-joint-style', fbJointStyle); } catch (e) {} fbRender(); }); } }
+    if (bj) {
+      fbSyncJointBtn();
+      bj.addEventListener('click', () => {
+        if (!fbSel || fbSel.type !== 'joint') return;             // nothing selected → nothing to restyle
+        const next = cycleJointStyle(overrideOf(fbField.joints, fbSel.key));
+        fbField.joints = setJointOverride(fbField.joints, fbSel.key, next);
+        fbRender(); fbSyncJointBtn(); fbPush();                    // one undo step per corner change
+      });
+    } }
   document.getElementById('builder-fields')?.addEventListener('click', () => { unlockAudio && unlockAudio(); openFieldPicker(); });
   document.querySelectorAll('#field-picker .fr-tab').forEach((t) => t.addEventListener('click', () => setFpTab(t.dataset.fptab)));
   document.querySelectorAll('#field-picker [data-fp-close]').forEach((el) => el.addEventListener('click', closeFieldPicker));
@@ -8294,6 +8384,15 @@ function openBuilder() { fbField = fbLoad(); fbSeedSpawns(); fbSel = null; fbSet
     if (fbTwoFinger) return; // a pinch/pan is in progress — don't start drawing
     const w = fbToWorld(e.clientX, e.clientY);
     const el = e.target.closest('.bel');
+    // A CORNER was tapped. Corners are derived geometry, so this selects (never places, never drags)
+    // and hands the פינה button a target. Gated to the selection tools: while a wall/bush tool is
+    // active the same tap must keep drawing, and a corner sits exactly where authors draw.
+    const jel = e.target.closest('.bjoint');
+    if (jel && (fbTool === 'move' || fbTool === null)) {
+      fbSel = { type: 'joint', key: jel.dataset.key };
+      fbRender(); fbSyncJointBtn();
+      return;
+    }
     // ERASER — remove what you touch/drag over.
     if (fbTool === 'eraser') { fbDrag = { id: e.pointerId, erase: true, pre: fbSnapshot() }; try { pit.setPointerCapture(e.pointerId); } catch (x) {} fbDeleteEl(el); return; }
     // MOVE — grab an element and drag it (no placement, no resize).
