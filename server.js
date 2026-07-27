@@ -17,7 +17,7 @@ import {
 import {
   TICK_RATE, DT, SNAPSHOT_RATE, MAX_PLAYERS, FIELD, GOAL, CHARACTERS, DEFAULT_CHAR, ENDED_HOLD, INTRO_PROMO,
   MAG_SIZE, AMMO_REGEN, EMPTY_RELOAD, BUILD_MAG, BUILD_RELOAD, GOALS_TO_WIN,
-  MM_BUDGET_QUICK_MS, MM_BUDGET_MODE_MS, MM_REVEAL_MS,
+  MM_BUDGET_QUICK_MS, MM_BUDGET_MODE_MS, MM_REVEAL_MS, MM_SEND_INTERVAL_MS,
 } from './shared/constants.js';
 import { ARENA } from './shared/arena.js';
 import { coalesceInput, consumeEdges } from './shared/input-merge.js';
@@ -181,6 +181,10 @@ function enqueue(member, mode, budgetMs, trophies) {
     trophies: t == null ? 0 : t,
     level: bandOf(t == null ? xpFallbackTrophies(member) : t),
     queuedAt: nowMs(), graceUntil: null, member,
+    // Throttle bookkeeping for runMatchmaker's outbound `searching` send — see the note there. Starts
+    // at "never sent" so the ticket's first real matcher-computed values go out immediately, right
+    // behind this enqueue-time message, rather than waiting out the throttle window.
+    mmSentAt: 0, mmSentSig: null,
   });
   send(member.ws, { type: 'searching', mode, phase: 'searching', bandLo: 0, bandHi: 0,
     searchingCount: 0, remainingMs: budgetMs, slots: { filled: 1, total: roomMaxForMode(mode) } });
@@ -544,7 +548,8 @@ function joinMatchmade(member, mode, diffLevel, trophies, budgetMs) {
 // One matcher pass. Called from tickAll, so it runs at TICK_RATE with the rest of the sim.
 function runMatchmaker() {
   if (!tickets.size) return;
-  const { groups, waiting, grants } = planMatches(tickets.values(), nowMs(), { roomMaxFor: roomMaxForMode });
+  const now = nowMs();
+  const { groups, waiting, grants } = planMatches(tickets.values(), now, { roomMaxFor: roomMaxForMode });
   // Stamp the grants the pure function asked for. It never mutates its input, so this is the one
   // place graceUntil is written — which is also what makes "granted at most once" enforceable.
   for (const g of grants) {
@@ -552,11 +557,22 @@ function runMatchmaker() {
     // A ticket with unknown trophies never gets extended: we do not know its band well enough to
     // justify making it wait longer.
     if (t && t.member.trophies != null) t.graceUntil = g.graceUntil;
-    else if (t) t.graceUntil = nowMs(); // mark spent so it resolves next tick instead of looping
+    else if (t) t.graceUntil = now; // mark spent so it resolves next tick instead of looping
   }
+  // The MATCHER above runs every tick on purpose (cheap, and what resolves a full group or a grace/
+  // deadline boundary within ~16ms instead of up to MM_SEND_INTERVAL_MS late). The outbound `searching`
+  // MESSAGE is not cheap to send at that rate: a whole-second timer, a pip row, a band chip and a
+  // player count don't change 60 times a second. Measured before this throttle: 115 frames/2000ms to
+  // one lone client, ~570-600 for a 10s team-mode search. Throttle to MM_SEND_INTERVAL_MS (the same
+  // cadence broadcastPresence already uses for this class of waiting-room state) UNLESS a ticket's
+  // rendered fields actually changed — so a band widen or a resolution is never held back by it.
   for (const w of waiting) {
     const t = tickets.get(w.memberId);
     if (!t) continue;
+    const remWhole = Math.max(0, Math.ceil(w.remainingMs / 1000)); // the whole-second value the UI renders
+    const sig = `${w.phase}|${w.bandLo}|${w.bandHi}|${w.searchingCount}|${remWhole}`;
+    if (sig === t.mmSentSig && now - t.mmSentAt < MM_SEND_INTERVAL_MS) continue;
+    t.mmSentAt = now; t.mmSentSig = sig;
     send(t.member.ws, { type: 'searching', mode: t.mode, phase: w.phase,
       bandLo: w.bandLo, bandHi: w.bandHi, searchingCount: w.searchingCount,
       remainingMs: Math.round(w.remainingMs), slots: { filled: 1, total: roomMaxForMode(t.mode) } });

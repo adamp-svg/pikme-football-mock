@@ -343,6 +343,12 @@ export const MM_REVEAL_MS = 1500;
 // playerLevelFromXp is unbounded (30000 xp = L25), so without a ceiling the highest-XP player can
 // never match anyone. Brawl Stars' single-pool-above-a-threshold rule, applied to our ladder.
 export const MM_BAND_TOP = 12;
+// The MATCHER (planMatches) runs every tick on purpose — TICK_RATE latency for group-formation is
+// cheap and worth it. The outbound `searching` WIRE MESSAGE is not: a whole-second timer, a pip row, a
+// band chip and a player count do not change at 60Hz. Throttle sends to this cadence — the same one
+// broadcastPresence already uses for this class of waiting-room state — except when a ticket's
+// rendered fields actually changed, so a widen or a resolution is never delayed by it.
+export const MM_SEND_INTERVAL_MS = 200;
 
 export function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
