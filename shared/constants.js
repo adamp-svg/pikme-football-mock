@@ -323,6 +323,27 @@ export const TEAM = {
 
 export const MAX_PLAYERS = 4; // 2 per team
 
+// --- MATCHMAKING (see docs/superpowers/specs/2026-07-27-matchmaking-countdown-design.md) ------
+// Budgets live on the TICKET, not the format: the yellow משחק מהיר button and the 2v2 picker card
+// resolve to the SAME format ('quick', teamSize 2), so the 5s/10s split can only be expressed per
+// entry point. A 5s and a 10s ticket share one pool and can match each other; each gives up on its
+// own clock.
+export const MM_BUDGET_QUICK_MS = 5000;  // משחק מהיר button
+export const MM_BUDGET_MODE_MS = 10000;  // a mode card from the picker (2v2 / brawl / 3v3)
+// Empty pool -> resolve fast and say so, instead of running a search that cannot succeed. Thin
+// population is this game's NORMAL case, so the short countdown is the common path.
+// RE-EVALUATED EVERY TICK, NEVER LATCHED: two players pressing play 1.5s apart would otherwise both
+// short-circuit into separate bot matches while each was the other's match.
+export const MM_ALONE_MS = 2000;
+// Extra wait granted ONCE when the room is theoretically completable (1 + nearby >= roomMax).
+export const MM_GRACE_MS = 5000;
+// Fixed reveal hold after a group resolves, on EVERY path — a room that fills at t=3s still gets a
+// VS beat instead of jumping straight into play.
+export const MM_REVEAL_MS = 1500;
+// playerLevelFromXp is unbounded (30000 xp = L25), so without a ceiling the highest-XP player can
+// never match anyone. Brawl Stars' single-pool-above-a-threshold rule, applied to our ladder.
+export const MM_BAND_TOP = 12;
+
 export function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
