@@ -107,6 +107,18 @@ const HERO_STEP = {
   cap: 'נדיר על הגיבור',
   sub: 'קלף נדיר = מראה מיוחד',
   nudge: 'גרור את הקלף הנדיר על הדמות',
+  // THE CORRECTION, shown the moment they drop the wrong card rather than after nine idle seconds:
+  // a common/epic/legendary on the hero re-skins to base/holo/sig, so the step's `done` stays false and
+  // without this the kid is left dragging cards at a lesson that looks broken. Rare borders are blue
+  // (.cf-card.rarity-rare, #4ea0ff), which is the one cue a child who cannot read can use.
+  fix: 'זה לא הנדיר — קח את הקלף הכחול',
+  // BRING THE RARE TO THE FRONT before asking for it. The front card is the only one a player really
+  // grabs: it is 141px against the side cards' 90 and it sits on top of them. Measured on the real
+  // page, the front card was whatever the auto-rotate had spun in — so the hand pointed at a rare
+  // hiding behind a legendary, and the obvious drag taught nothing.
+  // Done through the carousel's OWN behaviour: every .cf-card has a click handler that calls
+  // setCarousel(i) and centres it (client.js renderCarousel). No new mechanism, no internals.
+  onEnter: () => { const r = $('#home-carousel .cf-card.rarity-rare'); if (r && !r.classList.contains('cf-center')) r.click(); },
   src: () => $('#home-carousel .cf-card.rarity-rare') || $('#home-carousel .cf-card.cf-center'),
   dst: () => $('#pick-hero-btn'),
   // BOTH ENDS must be live. The drop is resolved with document.elementFromPoint, which skips
@@ -154,6 +166,13 @@ const BEST_STEP = {
   cap: 'הכי טוב',
   sub: 'ממלא לבד את שלושת החזקים',
   nudge: 'הקש על ✨ הכי טוב',
+  // HOLD 2s AFTER THE TAP (user: "should equip best and wait 2 seconds before exiting"). This is the
+  // last step, so completing it ends the tour — and the tour's exit RESTORES the player's own loadout,
+  // which means without a dwell the three cards appear and vanish in the same breath and the kid never
+  // sees what the button did. Same reasoning as `minDwell` on the pitch levels: some lessons are only
+  // learned in the seconds after the action.
+  dwell: 2,
+  done2: 'שלושת החזקים מצוידים!',
   src: () => $('#select-best-btn'),
   dst: () => $('#select-best-btn'),
   live: ['#select-best-btn'],
@@ -225,6 +244,12 @@ let runToken = 0;
 // What client.js should do once the tour is out of the way — its own tuMaybeAutoStart(), so the pitch
 // tutorial follows the lobby tour instead of racing it.
 let resumeAfter = null;
+// When the current step first completed, in ms — drives `dwell` (hold a finished step open so the kid
+// sees what they just did). 0 = not yet.
+let doneAt = 0;
+// They dropped a card on the hero and it was NOT the rare: the step cannot complete, so say so at
+// once rather than eight seconds later. Cleared on every step change.
+let wrongDrop = false;
 
 // ---------------------------------------------------------------------------------------------
 // Setup
@@ -316,6 +341,10 @@ function markLive() {
 // then two more drags), and a catcher left up over a drag step would eat the gesture.
 function applyStep() {
   const read = !!STEPS[step]?.read;
+  doneAt = 0; wrongDrop = false;
+  // A step may need the screen arranged before it can be taught — the hero step centres the rare card,
+  // because the front card is the only one anybody actually grabs.
+  try { STEPS[step]?.onEnter?.(); } catch (e) { console.warn('[hub-tour] onEnter failed', e); }
   markLive();
   nextCatcher(read);
   // Read steps make the whole hub inert. Not just the lit element: `#power-slots .pslot-item` sets
@@ -440,15 +469,21 @@ function render() {
   tuEl.style.setProperty('--tu-x', `${Math.round(anchor.x)}px`);
   tuEl.style.setProperty('--tu-y', `${Math.round(anchor.y)}px`);
 
-  const nudging = stepT >= NUDGE_AFTER && !s.done();
+  // The correction jumps the queue: an idle hint can afford to wait, but an answer to something the kid
+  // just DID has to arrive while they still connect the two. Same rule as the pitch levels' `fix`.
+  const done = s.done();
+  const correcting = !!(s.fix && wrongDrop && !done);
+  const nudging = correcting || (stepT >= NUDGE_AFTER && !done);
   tuEl.classList.toggle('nudging', nudging);
   if (s.gesture === 'drag') aimHand(from, to, nudging); else tapHand();
 
-  if (capEl.textContent !== s.cap) capEl.textContent = s.cap;   // reassigning restarts the pop
+  // A finished step that is being HELD (dwell) says what just happened instead of what to do.
+  const cap = (done && s.done2 && doneAt) ? s.done2 : s.cap;
+  if (capEl.textContent !== cap) capEl.textContent = cap;       // reassigning restarts the pop
   // On the element tour the second line is the EXPLANATION and is never replaced by a nudge — "what
   // this button does" is the entire content of the step, and swapping it for «הקש להמשך» after nine
   // seconds would delete the lesson from the screen of anyone who reads slowly.
-  const second = (nudging && !s.read) ? s.nudge : s.sub;
+  const second = correcting ? s.fix : ((nudging && !s.read) ? s.nudge : s.sub);
   if (nudgeEl.textContent !== second) nudgeEl.textContent = second;
   nudgeEl.classList.toggle('hidden', !second);
 
@@ -469,6 +504,10 @@ function tick(now, token) {
 
   const s = STEPS[step];
   if (s && s.done()) {
+    if (!doneAt) doneAt = now;
+    // `dwell` holds a COMPLETED step open. «הכי טוב» uses it so the three cards are actually SEEN
+    // landing before the tour ends and hands the player their own loadout back.
+    if (s.dwell && (now - doneAt) / 1000 < s.dwell) { render(); return; }
     step += 1; stepT = 0; handKey = ''; advanceReq = false;
     if (step >= STEPS.length) { finish(false); return; }
     applyStep();
@@ -482,6 +521,7 @@ function finish(skipped) {
   // before any of the visual teardown, so a throw further down cannot leave the player sandboxed with
   // a lesson's loadout in memory.
   prefs()?.end();
+  prefs()?.thawCarousel();          // the lobby's own idle animation resumes
   // Skipping is not finishing. Both stop the auto-launch coming back tomorrow, but only one of them
   // means the kid was actually shown the screen.
   mark(skipped ? SKIP_KEY : DONE_KEY);
@@ -551,6 +591,10 @@ function start(which, restart) {
   // It is also what makes the three slot explanations legible: an empty slot is the only time each one
   // shows its own ⚡/🏃/🛡️ glyph instead of a card.
   if (STEPS.some((s) => s.id === 'slot' || s.id === 'best')) prefs()?.emptySlots();
+  // HOLD THE CAROUSEL STILL. It auto-rotates every 2.6s, which slides the card out from under the
+  // pointing hand and — measured on the real page — leaves whichever card spun in at the front as the
+  // one the player actually grabs. The lab never saw this: its sandbox filters that interval out.
+  if (STEPS.some((s) => s.gesture === 'drag')) prefs()?.freezeCarousel();
 
   doneEl?.classList.add('hidden');
   document.body.classList.add('ht-tour');
@@ -644,6 +688,19 @@ const state = () => ({
 });
 
 window.HubTour = { pending, begin, start: (which) => start(which, true), state };
+
+// A release over the HERO that did not turn him gold. The step's own `done` cannot tell the difference
+// between "hasn't tried yet" and "tried with the wrong card", and those need different words on screen.
+// Checked a beat after the release so setHeroSkinByRarity has run.
+document.addEventListener('pointerup', (e) => {
+  if (!running || STEPS[step]?.id !== 'hero') return;
+  const overHero = !!(e.target?.closest?.('#pick-hero-btn')
+    || document.elementFromPoint(e.clientX, e.clientY)?.closest?.('#pick-hero-btn'));
+  if (!overHero) return;
+  setTimeout(() => {
+    if (running && STEPS[step]?.id === 'hero' && !STEPS[step].done()) wrongDrop = true;
+  }, 250);
+}, true);
 
 // ---- the lobby's ? button --------------------------------------------------------------------
 // Replayable forever, and it does NOT hand the floor back to the pitch tutorial the way the first-run

@@ -256,7 +256,43 @@ try {
   // The hero step needs a RARE in the album; DEV_SAMPLE_CARDS has two.
   const rare = await b2.ev("!!document.querySelector('#home-carousel .cf-card.rarity-rare')");
   check(rare, 'the sample album has a rare to teach with');
-  await b2.liftTo('#home-carousel .cf-card.rarity-rare', '#pick-hero-btn');
+
+  // ---- THE CAROUSEL IS STILL, AND THE RARE IS THE FRONT CARD --------------------------------
+  // Both were real bugs on this page: the coverflow auto-rotates every 2.6s (the lab's sandbox filters
+  // that interval out, so the bench froze and the shipped tour did not), and the front card — the only
+  // one anybody actually grabs, 141px against the side cards' 90 — was whatever had spun in. Measured
+  // before the fix: a LEGENDARY at the front with the rare tucked behind it, so the obvious drag gave
+  // setHeroSkinByRarity('legendary') and the step could never complete.
+  const front1 = await b2.ev("(document.querySelector('#home-carousel .cf-card.cf-center')||{}).className||''");
+  check(/rarity-rare/.test(front1), `the RARE is the front card, so the obvious drag is the taught one (${front1})`);
+  await sleep(3200);   // longer than one 2.6s rotation
+  const front2 = await b2.ev("(document.querySelector('#home-carousel .cf-card.cf-center')||{}).className||''");
+  check(front2 === front1, `and it is STILL there 3.2s later — the auto-rotate is frozen (${front2})`);
+
+  // ---- A WRONG CARD ON THE HERO IS CORRECTED, NOT IGNORED ----------------------------------
+  // A common/epic/legendary re-skins to base/holo/sig, so `done` stays false. Without a word on screen
+  // the kid is left dragging at a lesson that looks broken — which is exactly what was reported.
+  // Grab it the way a player can: CENTRE a non-rare first (the carousel's own tap-a-side-card-to-centre
+  // behaviour), because a card behind the front one cannot be picked up — the front card is on top and
+  // takes the touch. An earlier version of this check dragged from a side card's coordinates and
+  // silently moved the RARE instead, which passed the lesson and failed the test.
+  const notRare = await b2.ev(`(()=>{
+    const c=[...document.querySelectorAll('#home-carousel .cf-card')].find(e=>!e.classList.contains('rarity-rare'));
+    if(!c) return null; c.click(); return c.className;
+  })()`);
+  check(!!notRare, `there is a non-rare card to try it with (${notRare})`);
+  await sleep(600);   // the coverflow animates to centre
+  const centred = await b2.ev("(document.querySelector('#home-carousel .cf-card.cf-center')||{}).className||''");
+  check(!/rarity-rare/.test(centred), `a non-rare is at the front for this attempt (${centred})`);
+  await b2.liftTo('#home-carousel .cf-card.cf-center', '#pick-hero-btn');
+  const corrected = await b2.waitFor(async () => (await b2.ev("(document.querySelector('#tu-nudge')||{}).textContent||''")).includes('לא הנדיר'), 5000);
+  check(!!corrected, 'dropping the WRONG card says so at once: «זה לא הנדיר — קח את הקלף הכחול»');
+  check((await b2.state()).stepId === 'hero', 'and the step is still the hero step — a wrong card advances nothing');
+
+  // Now the taught gesture. Bring the rare back to the front first, as a player would after a wrong go.
+  await b2.ev("document.querySelector('#home-carousel .cf-card.rarity-rare').click()");
+  await sleep(600);
+  await b2.liftTo('#home-carousel .cf-card.cf-center', '#pick-hero-btn');
   const gold = await b2.waitFor(async () => { const s = await b2.state(); return s && String(s.cosmetic).endsWith(':gold') ? s : null; }, 8000);
   check(!!gold, `the hero really re-skinned on the real page (myCosmetic = ${(await b2.state())?.cosmetic})`);
   await b2.shot('first-03-cards-hero-gold');
@@ -268,9 +304,20 @@ try {
   await b2.liftTo('#home-carousel .cf-card.cf-center', '#power-slots .pslot[data-slot="0"]');
   const atBest = await b2.waitFor(async () => { const s = await b2.state(); return s && s.stepId === 'best' ? s : null; }, 8000);
   check(!!atBest, `and that to «הכי טוב» (stepId=${(await b2.state())?.stepId})`);
+  // ---- «הכי טוב» HOLDS FOR 2s BEFORE THE TOUR ENDS ----------------------------------------
+  // User: "when pressing the equipped best should equipe best and wait 2 seconds before exiting". It is
+  // the last step, and the exit restores the player's own loadout — so without the hold the three cards
+  // appear and vanish in the same breath.
+  const t0 = Date.now();
   await b2.tapAt('#select-best-btn');
-  const finished = await b2.waitFor(async () => { const s = await b2.state(); return s && !s.running ? s : null; }, 8000);
+  const filled3 = await b2.waitFor(async () => (await b2.ev("document.querySelectorAll('#power-slots .pslot:not(.pslot-empty)').length")) === 3, 6000);
+  check(!!filled3, 'all three slots fill on the tap');
+  const held = await b2.ev("(document.querySelector('#tu-cap')||{}).textContent||''");
+  check(held.includes('החזקים'), `and the caption says what just happened while it holds («${held}»)`);
+  const finished = await b2.waitFor(async () => { const s = await b2.state(); return s && !s.running ? s : null; }, 12000);
+  const heldFor = (Date.now() - t0) / 1000;
   check(!!finished, 'the tour finished');
+  check(heldFor >= 2, `…but only after holding ~2s so the kid SEES the three cards land (${heldFor.toFixed(1)}s from the tap)`);
   check(!!finished && finished.finished === true, 'and recorded a FINISH (not a skip)');
   await b2.shot('first-04-cards-finished');
 

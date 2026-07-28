@@ -269,6 +269,16 @@ window.__hubPrefs = {
     myLoadout = [null, null, null];
     renderPowerSlots();
   },
+  // HOLD THE CAROUSEL STILL FOR THE LESSON.
+  // startCarouselAuto() spins the coverflow every 2.6s, which means the card the coach's hand is
+  // pointing at slides out from under it — and worse, whichever card happens to be at the front when
+  // the hero step arrives is the one a player will actually grab. Measured on the real page: the front
+  // card was a LEGENDARY while the hand pointed at a 90px rare tucked behind it, so the natural drag
+  // produced setHeroSkinByRarity('legendary'), no gold, and the step could never complete.
+  // The lab had been hiding this: its sandbox filters the 2.6s interval out, so the bench froze and
+  // the shipped tour did not.
+  freezeCarousel() { stopCarouselAuto(); },
+  thawCarousel() { startCarouselAuto(); },
   cosmetic: () => myCosmetic,
 };
 // MID-SESSION prefs push from the app (it can call this any time after load — e.g. the player's prefs
