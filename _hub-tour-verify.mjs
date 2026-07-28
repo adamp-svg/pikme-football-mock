@@ -235,13 +235,18 @@ async function readStep(i, id, name, sel, label) {
     const r=e.getBoundingClientRect(), cx=r.x+r.width/2, cy=r.y+r.height/2;
     return { pick: e.classList.contains('ht-pick'), boxShown: box.classList.contains('ht-show'),
              filter: getComputedStyle(box).filter, pe: getComputedStyle(e).pointerEvents,
-             handCovers: cx>=h.left&&cx<=h.right&&cy>=h.top&&cy<=h.bottom };
+             handCovers: cx>=h.left&&cx<=h.right&&cy>=h.top&&cy<=h.bottom,
+             // THE CAPTION MUST NOT COVER THE ELEMENT IT DESCRIBES. Only ever checked on the hero step
+             // before, which is how a caption parked at the bottom came to sit on the play strip for
+             // steps 9-12 — the buttons those steps are about. Now every step.
+             capCovers: (()=>{const c=document.querySelector('.tu-caption').getBoundingClientRect();
+               return cx>=c.left&&cx<=c.right&&cy>=c.top&&cy<=c.bottom;})() };
   })()`);
   const cap = await text('#tu-cap'), sub = await text('#tu-nudge');
   const ok = lit && lit.pick && lit.boxShown && lit.filter === 'none' && lit.pe === 'none'
-    && !lit.handCovers && cap.includes(name) && sub.length > 3;
+    && !lit.handCovers && !lit.capCovers && cap.includes(name) && sub.length > 3;
   if (!ok) { console.log(`  ❌ ${label} ${id}: ${JSON.stringify({ lit, cap, sub })}`); failures++; return false; }
-  console.log(`  ✅ ${label} «${name}» lit, inert, explained, hand clear — «${sub}»`);
+  console.log(`  ✅ ${label} «${name}» lit, inert, explained, hand + caption clear — «${sub}»`);
   return true;
 }
 // Advance a read step the way a kid does: a tap on the dark.

@@ -249,7 +249,12 @@ window.__hubPrefs = {
     if (!_hubSnap) return;
     myLoadout = _hubSnap.loadout;
     myCosmetic = _hubSnap.cosmetic;
+    const hadCards = 'cards' in _hubSnap;
+    const cards = _hubSnap.cards;
     _hubSnap = null;
+    // The demo deck goes with the lesson. A player who owns nothing must be looking at an empty hub
+    // again the moment it ends — not at seven cards they do not have.
+    if (hadCards) { window.SALTIZ_CARDS = cards; renderCarousel(); renderHubStats(); }
     tuHub = false;                      // lowered BEFORE the re-sends, or they would be swallowed too
     renderPowerSlots();                 // the hero canvas reads myCosmetic live (drawDancer), so it follows
     syncLoadout();
@@ -268,6 +273,18 @@ window.__hubPrefs = {
     if (!_hubSnap) return;              // only inside a tour; never a way to wipe a real loadout
     myLoadout = [null, null, null];
     renderPowerSlots();
+  },
+  // A DEMO ALBUM, for a player who owns nothing yet.
+  // Without it the card half of the tour cannot run at all: no cards means no carousel, nothing to drag
+  // into a slot and nothing to drop on the hero. myCards() reads window.SALTIZ_CARDS (the app injects
+  // it pre-load), so handing it a temporary deck and re-rendering is enough — no client internals move.
+  // The previous album is remembered and put back by end(), including the case where there wasn't one:
+  // `'cards' in snap` distinguishes "no album" from "not swapped", which plain `undefined` cannot.
+  demoAlbum(cards) {
+    if (!_hubSnap || 'cards' in _hubSnap) return;      // only inside a tour, and only once
+    _hubSnap.cards = window.SALTIZ_CARDS;
+    window.SALTIZ_CARDS = cards;
+    renderCarousel(); renderPowerSlots(); renderHubStats();
   },
   // HOLD THE CAROUSEL STILL FOR THE LESSON.
   // startCarouselAuto() spins the coverflow every 2.6s, which means the card the coach's hand is

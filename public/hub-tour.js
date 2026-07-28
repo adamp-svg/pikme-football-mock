@@ -181,6 +181,29 @@ const BEST_STEP = {
 };
 
 // ---------------------------------------------------------------------------------------------
+// THE DEMO DECK — for a player who owns nothing yet
+// ---------------------------------------------------------------------------------------------
+// 6 common + 1 rare, the composition the user specified. Without a deck the card half cannot run at
+// all: no cards means no carousel, nothing to drag into a slot, nothing to drop on the hero.
+//
+// The numbers are not arbitrary. Card art is fetched from a remote bucket as `<rarity>/<n>.webp`
+// (CARD_ART_BASE), so a number with no art behind it shows a broken card to a seven-year-old on their
+// first screen. Every pair here was HEAD-checked: 200.
+//
+// `w` (worth) is what the carousel ranks by, and the RARE holds the top worth so the mechanism itself
+// brings it to the front — it is the only card whose drop on the hero does anything visible
+// (RARITY_SKIN.common is 'base', and the hero already IS base).
+const DEMO_DECK = [
+  { r: 'rare',   n: 22, c: 1, w: 900000 },
+  { r: 'common', n: 3,  c: 4, w: 420000 },
+  { r: 'common', n: 8,  c: 2, w: 380000 },
+  { r: 'common', n: 1,  c: 1, w: 330000 },
+  { r: 'common', n: 5,  c: 3, w: 280000 },
+  { r: 'common', n: 6,  c: 1, w: 240000 },
+  { r: 'common', n: 11, c: 2, w: 190000 },
+];
+
+// ---------------------------------------------------------------------------------------------
 // THE HOME LEGEND — what everything on this screen is. Runs FIRST.
 // ---------------------------------------------------------------------------------------------
 // The order is the user's, verbatim. Each step lights ONE element, names it, and says what it does.
@@ -250,6 +273,9 @@ let doneAt = 0;
 // They dropped a card on the hero and it was NOT the rare: the step cannot complete, so say so at
 // once rather than eight seconds later. Cleared on every step change.
 let wrongDrop = false;
+// True while the hub is showing the tour's demo deck rather than the player's own album. Drives the
+// «דוגמה» marking, so nobody mistakes example cards for cards they own.
+let demoing = false;
 
 // ---------------------------------------------------------------------------------------------
 // Setup
@@ -473,6 +499,15 @@ function render() {
   // just DID has to arrive while they still connect the two. Same rule as the pitch levels' `fix`.
   const done = s.done();
   const correcting = !!(s.fix && wrongDrop && !done);
+  // THE CAPTION STAYS AT THE TOP (user: "i want the text to be at the top, currently it hids the
+  // buttons" — at the bottom it sat on the play strip, which is what steps 9-12 point at). The only
+  // adjustment is for the handful of steps whose target IS the top row: those drop the caption just
+  // below that row instead, so it is never on top of the element being described.
+  // Decided from the TARGET's position, never from the caption's own rect — that would be an input that
+  // its own movement changes.
+  const targetTop = Math.min(from.y - from.h / 2, to.y - to.h / 2);
+  document.body.classList.toggle('ht-cap-bottom', targetTop < window.innerHeight * 0.24);
+
   const nudging = correcting || (stepT >= NUDGE_AFTER && !done);
   tuEl.classList.toggle('nudging', nudging);
   if (s.gesture === 'drag') aimHand(from, to, nudging); else tapHand();
@@ -530,7 +565,8 @@ function finish(skipped) {
   // and leaving it on the body meant the PITCH tutorial that follows inherited all of it: its caption,
   // which is authored at the TOP of the screen, was drawn at the bottom over the build tag for the rest
   // of the session. Caught in a screenshot of the hand-off, not by any assertion.
-  document.body.classList.remove('hub-tu-gate', 'ht-inert', 'ht-tour', 'ht-read', 'ht-lab');
+  document.body.classList.remove('hub-tu-gate', 'ht-inert', 'ht-tour', 'ht-read', 'ht-lab', 'ht-demo', 'ht-cap-bottom');
+  demoing = false;
   clearMarks();
   nextCatcher(false);
   $('.ht-scrim')?.remove();          // the lobby goes back to full brightness
@@ -587,15 +623,24 @@ function start(which, restart) {
   // postPrefs() — which the app persists under the player's PHONE NUMBER. finish() puts both back.
   // MUST come before the first step is applied: the guard only helps for writes made after it.
   prefs()?.begin();
-  // AN EMPTY ALBUM CANNOT BE TAUGHT THE CARDS. With no cards there is nothing to drag, and the hero
-  // wardrobe is card-gated too (every 7 distinct cards unlocks one), so the whole card half would be
-  // a hand pointing at things that cannot happen. Those steps are dropped and the kid gets the screen
-  // legend, which is the part that still means something. Counted off the DOM — the carousel renders
-  // one .cf-card per owned card and hides itself at zero — so no client.js internal is needed.
+  // AN EMPTY ALBUM GETS A DEMO DECK, not a shortened lesson. A brand-new player owns nothing, which is
+  // exactly who this tour is for — so the hub is filled with example cards for the length of the lesson
+  // and every step can be taught on something real. Nothing about them survives it: the deck is
+  // restored (to empty) by finish(), and the sandbox flag means no write ever leaves the page.
+  // Counted off the DOM — the carousel renders one .cf-card per owned card — so no client internal is
+  // read to find out.
   const owned = $$('#home-carousel .cf-card').length;
-  if (owned < 1 && tour === 'full') {
-    tour = 'home';
-    console.info('[hub-tour] empty album — running the screen legend only, the card lessons need cards');
+  if (owned < 1 && tour !== 'home') {
+    if (prefs()?.demoAlbum) {
+      prefs().demoAlbum(DEMO_DECK);
+      demoing = true;
+      console.info('[hub-tour] empty album — teaching on a demo deck for the lesson');
+    } else {
+      // No seam (an older client.js): fall back to the part that still means something rather than
+      // pointing a hand at cards that do not exist.
+      tour = 'home';
+      console.warn('[hub-tour] empty album and no demoAlbum seam — screen legend only');
+    }
   }
   // A step whose element is gone is dropped rather than allowed to stall the tour: this hub is
   // edited daily by other agents, and the console line names exactly what went missing.
@@ -638,6 +683,8 @@ function start(which, restart) {
   if (pipsEl.childElementCount !== STEPS.length) {
     pipsEl.innerHTML = STEPS.map(() => '<i></i>').join('');
   }
+  // Say whose cards these are. The user's rule from the start: demo cards must be marked as examples.
+  document.body.classList.toggle('ht-demo', demoing);
   step = 0; stepT = 0; handKey = ''; advanceReq = false;
   applyStep();
   render();

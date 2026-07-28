@@ -19,25 +19,34 @@ body.ht-tour .ht-scrim {
   background: rgba(4, 7, 11, .52);
 }
 
-/* The caption sits at the TOP of the screen (style.css .tu-caption), and on this lesson the top is
-   where the CARDS are. At the bottom it lands on the play strip instead (measured: caption
-   y310-382, #play-strip y322-371) — which is FINE, because the strip is dimmed and inert for the
-   whole lesson and is not what any step is about. What is not fine is bold text over button labels,
-   so it gets a plate to sit on. (The level-4 tour's caption-over-the-trophy-bar fault was different:
-   there the bar was the subject of the step.) */
+/* THE CAPTION LIVES AT THE TOP (user: "i want the text to be at the top, currently it hids the
+   buttons") — the bottom placement sat on the play strip, which is exactly what steps 9-12 point at.
+   The top row is what steps 1, 2 and 13 point at, though, so the caption STEPS ASIDE for those: JS adds
+   .ht-cap-bottom when the lit target is in the top of the screen. Whichever end it is at, it never
+   covers the thing being explained. */
 body.ht-tour .tu-caption {
+  top: max(6px, env(safe-area-inset-top));
+  bottom: auto;
+  padding: 6px 0 10px;
+  background: linear-gradient(to bottom, rgba(4, 7, 11, .92) 0%, rgba(4, 7, 11, .74) 60%, rgba(4, 7, 11, 0) 100%);
+}
+/* …and it steps aside for the handful of steps whose target IS the top row (⚙, «מחוברים», the profile
+   box). There is nowhere else up there to put it: measured, «מחוברים» sits at y 56-80 and the front card
+   starts at 104, so any band that clears the first also lands on the second. For those three steps the
+   caption goes to the BOTTOM — where nothing being explained lives on those steps — and returns to the
+   top for the other sixteen, including every play-strip step, which is what the bottom used to cover. */
+body.ht-tour.ht-cap-bottom .tu-caption {
   top: auto;
   bottom: 0;
   padding: 10px 0 max(7px, calc(env(safe-area-inset-bottom) + 5px));
   background: linear-gradient(to top, rgba(4, 7, 11, .92) 0%, rgba(4, 7, 11, .78) 55%, rgba(4, 7, 11, 0) 100%);
 }
-/* Smaller than the pitch levels': there it owns an empty sky, here it shares a crowded landscape
-   hub with a play strip underneath it. */
+/* Smaller than the pitch levels': there it owns an empty sky, here it shares a crowded landscape hub. */
 body.ht-tour .tu-caption b { font-size: clamp(17px, 3.4vw, 25px); }
-/* Pips ABOVE the text, not below it. They are the last child of .tu-caption, and with the caption
-   moved to the bottom edge that put them on the build tag — caught by screenshot: the lit pip was
-   sitting on top of «25JUL-v5». Reordered rather than nudged, so it holds at any caption height. */
-body.ht-tour .tu-pips { order: -1; margin: 0 0 3px; }
+/* Pips below the text at the top (the shipped order); above it at the bottom, where the screen edge is —
+   caught by screenshot once already, with the lit pip landing on the «25JUL-v5» build tag. */
+body.ht-tour .tu-pips { order: 0; margin: 3px 0 0; }
+body.ht-tour.ht-cap-bottom .tu-pips { order: -1; margin: 0 0 3px; }
 
 /* The lit box is raised above its dimmed siblings by `.hub-tu-gate .hub .tu-live { z-index: 3 }`.
    Three is right for the hub boxes that tour pointed at, and WRONG here: #power-slots is authored
@@ -183,3 +192,14 @@ body.ht-tour #tu-hub-skip {
   border: 2px solid rgba(207, 216, 227, .35); font-weight: 700; padding: 8px 18px;
 }
 .ht-done button.ht-ghost:active { transform: translateY(1px); box-shadow: none; }
+
+/* DEMO CARDS ARE MARKED. A brand-new player is taught on a deck the tour supplies, and nothing about it
+   is theirs — so every card wears «דוגמה» for the length of the lesson. .cf-card has overflow:hidden,
+   so the tag rides inside the card's own frame. */
+body.ht-demo #home-carousel .cf-card::after {
+  content: 'דוגמה';
+  position: absolute; inset-inline-start: 0; bottom: 0;
+  font: 900 8px/1 "Arial Black", sans-serif; letter-spacing: .3px;
+  color: #10161d; background: rgba(255, 208, 106, .92);
+  padding: 2px 5px; border-start-end-radius: 4px; pointer-events: none;
+}

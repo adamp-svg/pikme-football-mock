@@ -152,8 +152,22 @@ try {
   await b1.go(`${BASE}/`);
   const ran = await b1.waitFor(async () => { const s = await b1.state(); return s && s.running ? s : null; }, 20000);
   check(!!ran, 'the lobby tour launched itself — nobody asked for it');
-  check(!!ran && ran.tour === 'home', `an empty album runs the SCREEN LEGEND only (tour='${ran?.tour}')`);
-  check(!!ran && ran.stepIds.length === 13, `13 steps, no card lessons — with no cards there is nothing to drag (${ran?.stepIds.length})`);
+  // A BRAND-NEW PLAYER OWNS NOTHING — which is precisely who this tour is for. So the hub is filled with
+  // a demo deck for the length of the lesson and every step can be taught on something real, rather than
+  // the card half being dropped.
+  check(!!ran && ran.tour === 'full', `an empty album still gets the FULL tour, on a demo deck (tour='${ran?.tour}')`);
+  check(!!ran && ran.stepIds.length === 19, `all 19 steps (${ran?.stepIds.length})`);
+  const deck = await b1.ev(`JSON.stringify({
+    cards: document.querySelectorAll('#home-carousel .cf-card').length,
+    rare: document.querySelectorAll('#home-carousel .cf-card.rarity-rare').length,
+    common: document.querySelectorAll('#home-carousel .cf-card.rarity-common').length,
+    marked: document.body.classList.contains('ht-demo'),
+    tag: getComputedStyle(document.querySelector('#home-carousel .cf-card'), '::after').content
+  })`);
+  const d0 = JSON.parse(deck);
+  check(d0.cards === 7, `7 demo cards in the REAL carousel (${d0.cards})`);
+  check(d0.rare === 1 && d0.common === 6, `6 common + 1 rare, as specified (${d0.common} + ${d0.rare})`);
+  check(d0.marked && /דוגמה/.test(d0.tag || ''), `and every one is MARKED as an example (${d0.tag})`);
   check(!!ran && ran.stepId === 'settings', `and it opens on ⚙ (step 1 = '${ran?.stepId}')`);
   // THE PITCH TUTORIAL IS HELD BACK. Before this change, tuMaybeAutoStart() took a brand-new player
   // straight into level 1 on the server's `welcome` and they never saw the hub at all.
@@ -190,6 +204,11 @@ try {
   await b1.tapAt('#tu-hub-skip');
   const stopped = await b1.waitFor(async () => { const s = await b1.state(); return s && !s.running ? s : null; }, 6000);
   check(!!stopped, 'the tour stopped');
+  // THE DEMO DECK GOES WITH THE LESSON. A player who owns nothing must be looking at an empty hub again,
+  // not at seven cards they do not have.
+  const gone = await b1.waitFor(async () => (await b1.ev("document.querySelectorAll('#home-carousel .cf-card').length")) === 0, 5000);
+  check(gone !== null, `the demo deck was taken away with it (${await b1.ev("document.querySelectorAll('#home-carousel .cf-card').length")} cards left)`);
+  check(await b1.ev("!document.body.classList.contains('ht-demo')"), 'and the «דוגמה» marking is gone');
   check(!!stopped && stopped.skipped === true, 'and it recorded a SKIP, which is not the same as finishing');
   // The hand-back: client.js resumes its own auto-start, so the pitch tutorial follows.
   const level1 = await b1.waitFor(async () => (await b1.vis('#home')) !== 'shown', 12000);
@@ -257,7 +276,10 @@ try {
   await b1.tapAt('#hub-howto');
   const replay = await b1.waitFor(async () => { const s = await b1.state(); return s && s.running ? s : null; }, 12000);
   check(!!replay, 'tapping it starts the tour again, even though this player already waved it away');
-  check(!!replay && replay.tour === 'home', `same album rules apply on a replay (tour='${replay?.tour}')`);
+  // The same album rules apply on a replay — which now means an empty album gets the demo deck and the
+  // full nineteen, not a shortened tour.
+  check(!!replay && replay.tour === 'full', `a replay on an empty album also gets the demo deck (tour='${replay?.tour}')`);
+  check(await b1.ev("document.querySelectorAll('#home-carousel .cf-card').length") === 7, 'the 7 demo cards are back for the replay');
   // AND THE PANEL IS GONE. #settings is a fixed overlay at z-index 20 with a blurred backdrop; a
   // lesson running underneath it would point a hand at a hub nobody can see or touch.
   check(await b1.vis('#settings') !== 'shown', 'the settings panel closed itself first — the lesson is not running under a modal');
