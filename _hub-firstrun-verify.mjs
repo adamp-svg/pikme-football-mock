@@ -32,6 +32,12 @@ const lanIp = () => Object.values(networkInterfaces()).flat()
 const LAN = process.env.HOST || lanIp() || '127.0.0.1';
 const SHOTS = new URL('./_tu-shots/', import.meta.url).pathname;
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// BASE lets this be pointed at a deployed origin (BASE=https://pikme-football.onrender.com) instead of
+// the dev server. The two-host trick below only works locally — DEV_LOCAL is a localhost-only predicate
+// — so against a remote origin the with-cards half cannot run and says so rather than skipping quietly.
+const BASE = (process.env.BASE || `http://${LAN}:${PORT}`).replace(/\/$/, '');
+const LOCAL_CARDS = `http://127.0.0.1:${PORT}`;
+const REMOTE = !!process.env.BASE;
 
 let failures = 0;
 const check = (cond, msg) => { console.log((cond ? '  ✅ ' : '  ❌ ') + msg); if (!cond) failures++; };
@@ -92,6 +98,21 @@ async function browser(cdpPort, label) {
   api.vis = (sel) => api.ev(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return 'missing';const s=getComputedStyle(e);return (s.display!=='none'&&s.visibility!=='hidden'&&e.getClientRects().length)?'shown':'hidden';})()`);
   api.rect = (sel) => api.ev(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
   api.waitFor = async (fn, ms = 12000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(200); } return null; };
+  // WAIT FOR THE STYLESHEETS. Until style.css arrives there is no `.hidden { display: none }`, so a
+  // modal that is supposed to be closed renders wide open and every element reports an unscaled rect.
+  // Against a fast dev server this flash is invisible; against a deployed origin it is long enough that
+  // assertions land inside it — which is how "the ? is not in the settings box" failed on prod while
+  // prod was byte-identical to local. `#settings` computing display:none is the proof CSS is applied.
+  api.styled = async (ms = 20000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const ok = await api.ev("getComputedStyle(document.querySelector('#settings')).display === 'none'"
+        + " && !!document.querySelector('#hub-settings') && document.querySelector('#hub-settings').getBoundingClientRect().width > 0");
+      if (ok) return true;
+      await sleep(200);
+    }
+    return false;
+  };
   api.tapDark = async () => { await api.touch('touchStart', 60, 200); await sleep(30); await api.touch('touchEnd', 60, 200); await sleep(240); };
   // WAIT FOR THE LAYOUT TO STOP MOVING before trusting a rect. The hub is a scaled stage: fitHub()
   // runs at load and again as fonts/art settle, so a rect read the instant a page appears can be from
@@ -122,13 +143,13 @@ async function browser(cdpPort, label) {
 }
 
 // ==============================================================================================
-console.log(`\n🧪 FIRST RUN on the REAL page — http://${LAN}:${PORT}/\n`);
+console.log(`\n🧪 FIRST RUN on the REAL page — ${BASE}/\n`);
 
 // ---- SCENARIO 1 · a brand-new device, EMPTY album --------------------------------------------
 console.log('▶ a brand-new player arrives (empty album — the real new-player surface)');
 const b1 = await browser(9451, 'empty');
 try {
-  await b1.go(`http://${LAN}:${PORT}/`);
+  await b1.go(`${BASE}/`);
   const ran = await b1.waitFor(async () => { const s = await b1.state(); return s && s.running ? s : null; }, 20000);
   check(!!ran, 'the lobby tour launched itself — nobody asked for it');
   check(!!ran && ran.tour === 'home', `an empty album runs the SCREEN LEGEND only (tour='${ran?.tour}')`);
@@ -177,7 +198,7 @@ try {
 
   // ---- second launch: do not ask again -------------------------------------------------------
   console.log('\n▶ they open the game again tomorrow');
-  await b1.go(`http://${LAN}:${PORT}/`);
+  await b1.go(`${BASE}/`);
   await sleep(9000);
   const s2 = await b1.state();
   check(!!s2 && !s2.running && !s2.waiting, 'the lobby tour does NOT come back');
@@ -190,14 +211,22 @@ try {
   // is zero — which an earlier version of these checks passed vacuously (0 < 90 is true).
   console.log('\n▶ the ? inside SETTINGS replays it, forever');
   await b1.ev("localStorage.setItem('fbTuDone','basics,combat,tricks'); localStorage.setItem('fbTutorialDone','1')");
-  await b1.go(`http://${LAN}:${PORT}/`);
+  await b1.go(`${BASE}/`);
   const onHub = await b1.waitFor(async () => (await b1.vis('#home')) === 'shown', 20000);
   check(!!onHub, 'a returning player stands on the lobby and nothing auto-starts');
+  check(await b1.styled(), 'the stylesheets have landed (so a closed modal really reads as closed)');
   // It lives INSIDE the settings panel now, so it must NOT be on the lobby itself.
   check(await b1.vis('#hub-howto') !== 'shown', 'the ? is not loose on the hub — it is in the settings box');
   // Reached the way a player reaches it: ⚙ on the lobby.
-  await b1.tapAt('#hub-settings');
-  const opened = await b1.waitFor(async () => (await b1.vis('#settings')) === 'shown' && (await b1.vis('#hub-howto')) === 'shown', 8000);
+  // Retried, not assumed: against a deployed origin the hub is still settling for a while after the
+  // first paint (fitHub re-runs, art arrives), so a single tap can land on a layout that has moved.
+  // A probe confirmed ⚙ itself opens the panel on prod every time it is actually hit.
+  let opened = null;
+  for (let attempt = 1; attempt <= 3 && !opened; attempt++) {
+    await b1.tapAt('#hub-settings');
+    opened = await b1.waitFor(async () => (await b1.vis('#settings')) === 'shown' && (await b1.vis('#hub-howto')) === 'shown', 4000);
+    if (!opened) console.log(`     (⚙ tap ${attempt} did not open the panel — retrying)`);
+  }
   check(!!opened, 'main lobby → ⚙ → the ? is there');
   await b1.settled('#hub-howto');
   await b1.shot('first-05-question-mark-in-settings');
@@ -239,10 +268,15 @@ try {
 // ---- SCENARIO 2 · a player WITH cards --------------------------------------------------------
 // localhost, where DEV_LOCAL hands the client DEV_SAMPLE_CARDS — the only way to exercise the card
 // half without an app injecting a real album.
+if (REMOTE) {
+  console.log('\n▶ a brand-new player who HAS cards — SKIPPED against a remote origin');
+  console.log('     (DEV_SAMPLE_CARDS only exists on localhost, and only the app injects a real album,');
+  console.log('      so the card half cannot be exercised here. Run without BASE= for that.)');
+} else {
 console.log('\n▶ a brand-new player who HAS cards (localhost sample album) — the full nineteen');
 const b2 = await browser(9452, 'cards');
 try {
-  await b2.go(`http://127.0.0.1:${PORT}/`);
+  await b2.go(`${LOCAL_CARDS}/`);
   const ran = await b2.waitFor(async () => { const s = await b2.state(); return s && s.running ? s : null; }, 20000);
   check(!!ran, 'the tour launched');
   check(!!ran && ran.tour === 'full', `with cards it runs the FULL tour (tour='${ran?.tour}')`);
@@ -332,6 +366,7 @@ try {
   check(!!level1b, 'the pitch tutorial took over after the lobby tour finished');
   check(b2.errors.length === 0, `no uncaught JS errors${b2.errors.length ? `\n     ${b2.errors.slice(0, 3).join('\n     ')}` : ''}`);
 } finally { b2.close(); }
+}
 
 console.log(`\n${failures ? '❌' : '✅'} ${failures ? failures + ' FAILED' : 'ALL PASS'}\n`);
 process.exit(failures ? 1 : 0);
