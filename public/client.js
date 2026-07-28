@@ -2686,7 +2686,10 @@ document.getElementById('play-friends-btn')?.addEventListener('click', () => {
   openPartyDirect();
 });
 function openPartyDirect() {
-  selectedGame = null; partyFlow = true; invitedSet.clear(); lastLobby = null;
+  // roomCode is cleared with lastLobby, not left behind: the code chip falls back to it, and a fresh
+  // party rendered before `roomJoined` lands would otherwise flash the PREVIOUS room's number — a
+  // number a kid might read out to a friend before the real one arrives.
+  selectedGame = null; partyFlow = true; invitedSet.clear(); lastLobby = null; roomCode = '';
   syncLoadout(); loadFriends();      // refresh presence so the roster's `+` sheet has fresh candidates
   partyRenderSig = '';               // force a real rebuild even if a previous party left the same sig
   showScreen('party'); renderParty(); // show the team page IMMEDIATELY (solo empty state) — don't wait on the round-trip
@@ -2786,25 +2789,38 @@ const roomWaitEl = document.getElementById('room-wait');
 roomWaitEl?.addEventListener('click', (e) => { if (e.target === roomWaitEl) { sendMsg({ type: 'leaveRoom' }); hideRoomWait(); } });
 
 function clearRoomRequests() { pendingReqs.clear(); renderRoomRequests(); }
+// The approval panel is drawn into EVERY container that wants one, not into a single element.
+//
+// THE BUG THIS FIXES, end to end: a friend who joins by CODE does not enter the room — the server
+// puts them in `room.pending`, sends them `joinPending` (the «ממתין לאישור המארח…» overlay) and sends
+// the HOST a `joinRequest`. The host's only way to answer it was `#room-requests`, which lives inside
+// `#lobby`. But the whole play-with-friends flow lands on `#party` instead (openPartyDirect, and every
+// lobby payload re-asserts it), so #lobby is never on screen for the person holding the decision. The
+// request was therefore unanswerable: the host saw a friend "waiting", the friend waited for ever, and
+// nobody was told why. So the panel now exists on both screens and both are filled from here.
+const roomRequestHosts = () => [roomRequestsEl, document.getElementById('party-requests')].filter(Boolean);
 function renderRoomRequests() {
-  if (!roomRequestsEl) return;
   const reqs = isRoomHost ? [...pendingReqs.values()] : [];
-  roomRequestsEl.innerHTML = '';
-  roomRequestsEl.classList.toggle('hidden', reqs.length === 0);
-  if (!reqs.length) return;
-  const h = document.createElement('div'); h.className = 'room-req-h'; h.textContent = 'בקשות הצטרפות';
-  roomRequestsEl.appendChild(h);
-  for (const r of reqs) {
-    const row = document.createElement('div'); row.className = 'room-req';
-    const av = document.createElement('div'); av.className = 'room-req-av';
-    if (r.avatar) av.style.backgroundImage = `url("${r.avatar}")`; else av.textContent = memberInitials(r.name);
-    const nm = document.createElement('div'); nm.className = 'room-req-name'; nm.textContent = r.name || 'שחקן';
-    const ok = document.createElement('button'); ok.className = 'room-req-ok'; ok.textContent = 'אישור';
-    const no = document.createElement('button'); no.className = 'room-req-no'; no.textContent = 'דחייה';
-    ok.addEventListener('click', () => decideRequest(r.joinerId, true));
-    no.addEventListener('click', () => decideRequest(r.joinerId, false));
-    row.append(av, nm, ok, no);
-    roomRequestsEl.appendChild(row);
+  for (const host of roomRequestHosts()) {
+    host.innerHTML = '';
+    host.classList.toggle('hidden', reqs.length === 0);
+    if (!reqs.length) continue;
+    const h = document.createElement('div'); h.className = 'room-req-h'; h.textContent = 'בקשות הצטרפות';
+    host.appendChild(h);
+    for (const r of reqs) {
+      const row = document.createElement('div'); row.className = 'room-req';
+      const av = document.createElement('div'); av.className = 'room-req-av';
+      if (r.avatar) av.style.backgroundImage = `url("${r.avatar}")`; else av.textContent = memberInitials(r.name);
+      const nm = document.createElement('div'); nm.className = 'room-req-name'; nm.textContent = r.name || 'שחקן';
+      const ok = document.createElement('button'); ok.className = 'room-req-ok'; ok.textContent = 'אישור';
+      const no = document.createElement('button'); no.className = 'room-req-no'; no.textContent = 'דחייה';
+      // Listeners per rendered row, as before. decideRequest re-renders BOTH panels, so answering on
+      // one screen clears the row from the other — the two copies cannot disagree.
+      ok.addEventListener('click', () => decideRequest(r.joinerId, true));
+      no.addEventListener('click', () => decideRequest(r.joinerId, false));
+      row.append(av, nm, ok, no);
+      host.appendChild(row);
+    }
   }
 }
 function decideRequest(joinerId, accept) {
@@ -3894,9 +3910,31 @@ function partyAddTile() {
   btn.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio(); openInviteSheet(); });
   return btn;
 }
+// The room's code, on the team page. Updated OUTSIDE renderParty's no-rebuild guard below, because it
+// changes on its own schedule: `roomJoined` brings the code in while the roster is byte-identical to
+// what is already drawn, and a chip updated after the guard would stay «····» until somebody joined.
+function renderPartyCode(lob) {
+  const wrap = document.getElementById('party-code-wrap');
+  const el = document.getElementById('party-code');
+  if (!wrap || !el) return;
+  const code = (lob && lob.code) || roomCode || '';
+  wrap.classList.toggle('hidden', !code);
+  if (code) el.textContent = code;
+}
+// Tap to copy — a room number exists to be passed to somebody. clipboard.writeText needs a secure
+// context and this is served over plain http on the LAN, so the failure path is real and gets a toast
+// that shows the code instead of silently doing nothing.
+document.getElementById('party-code-wrap')?.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  const code = document.getElementById('party-code')?.textContent || '';
+  if (!code) return;
+  try { await navigator.clipboard.writeText(code); toast('הקוד הועתק'); }
+  catch { toast(`קוד החדר: ${code}`); }
+});
 let partyRenderSig = '';
 function renderParty(msg) {
   if (!partyRosterEl) return;
+  renderPartyCode(msg || lastLobby || {});
   const members = (msg || lastLobby || {}).members || [];
   // Each block renders a hero canvas + card art (expensive). Lobby broadcasts fire often, so
   // skip the full rebuild when the roster is unchanged (this was the friends→group lag).

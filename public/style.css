@@ -943,6 +943,22 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .lobby-code-wrap { color: #c8d4bf; font-size: 11px; font-weight: 800; letter-spacing: 1px; margin-top: 6px; }
 .lobby-code-wrap b { color: var(--gold); font: 900 22px "Arial Black", sans-serif; letter-spacing: 4px; margin: 0 6px; }
 .lobby-code-wrap small { color: #8aa08c; font-size: 9px; letter-spacing: 1px; }
+/* The same chip on the TEAM page (#party), where it is a <button> because tapping it copies the code.
+   `.subpage-head` is a flex row holding «הקבוצה שלי», so the chip is pushed to the far end with
+   margin-inline-start:auto rather than being given a width. Button chrome is stripped — it has to read
+   as the same label it is in #lobby, not as a second action next to the heading — leaving the tap
+   target and a pressed state as the only signs it is pressable. margin-top is cleared: the #lobby copy
+   sits UNDER a title in a column, this one sits BESIDE one and would hang low. */
+.party-code-wrap {
+  appearance: none; background: none; border: 0; padding: 4px 6px; margin: 0 0 0 auto; cursor: pointer;
+  /* ONLY the family is inherited. `font: inherit` was wrong here: it is shorthand, so it also reset the
+     size/weight/letter-spacing that `.lobby-code-wrap` (same element, earlier rule) is supplying, and
+     the chip came out at the body's default size. A button needs its family un-defaulted and nothing
+     else. */
+  font-family: inherit; text-align: end; line-height: 1.1;
+}
+.party-code-wrap:active { scale: .96; }
+.party-code-wrap.hidden { display: none; }   /* the room has no code yet (or is not private) */
 
 /* ---- Hero picker ---------------------------------------------------------- */
 .pick-open {
