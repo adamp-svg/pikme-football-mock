@@ -1,0 +1,985 @@
+<!-- ============================================================================
+     GENERATED FILE — DO NOT EDIT. Regenerate with: node scripts/make-hub-tour.mjs
+
+     This is public/index.html with a sandbox + a two-lesson coach injected. It exists so the
+     hub tour can be taught on an EXACT clone of the lobby (real markup, real CSS, real client.js,
+     real drag handlers) with a dummy album, on its own port, writing nothing.
+
+     Design: docs/superpowers/specs/2026-07-28-hub-tour-lab-design.md
+     ============================================================================ -->
+<!doctype html>
+<html lang="he">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>שיעור לובי — קלפים וכוחות</title>
+  <link rel="icon" type="image/png" href="/assets/pixel-icon-system-01/transparent/play.png?v=1" />
+  <link rel="stylesheet" href="/style.css" />
+  <!-- rank badge + trophy bar layer, kept separate from style.css (see public/rank.css) -->
+  <link rel="stylesheet" href="/rank.css" />
+  <!-- Loaded last so the sprite pack also replaces legacy CSS pseudo-element emoji. -->
+  <link rel="stylesheet" href="/icon-system.css" />
+  <link rel="stylesheet" href="/_hub-tour.css" />
+</head>
+<body>
+  <script src="/_hub-tour-sandbox.js"></script>
+  <!-- Start screen retired: the user/home screen is shown first. Kept (empty, hidden)
+       so existing references (startEl) stay valid. -->
+  <div id="start" class="screen hidden"></div>
+
+  <!-- Home / user hub — landscape, single screen: identity + XP (top), tappable hero
+       (center → wardrobe), cards strip, Quick Match + scrollable mode rail.
+       Keeps every id the app + other agents rely on (#home-online/-face/-name/-char,
+       #home-carousel, #pick-hero-btn [wardrobe opener], #quick-match-btn, #friends-btn). -->
+  <div id="home" class="screen">
+    <div class="start-shade"></div>
+    <!-- Brawl-style LANDSCAPE hub. Authored at a fixed 900x415 logical stage and scaled
+         uniformly to fit via a JS transform (fitHub in client.js), so the whole hub scales
+         as one unit and never clips — like a game canvas. Every JS hook is preserved. -->
+    <div class="hub" dir="rtl">
+      <div class="hub-pitch" aria-hidden="true"></div>
+
+      <!-- BAKED LOBBY LAYOUT (feat/lobby-redesign): EVERY control is now its own atomic box —
+           a DIRECT child of the fixed 900x415 .hub stage, positioned + sized in logical stage
+           px by style.css ("BAKED LOBBY LAYOUT" section). Holds WITHOUT the editor script and
+           without localStorage. In ?edit=1 every box is draggable AND resizable, and drags
+           from these baked positions. All JS hook ids/classes are preserved. -->
+
+      <!-- top-left controls (each its own box) -->
+      <!-- Exit (✕) removed: the phone/app shell provides its own back/close affordance. -->
+      <button id="hub-settings" class="hub-icobtn" title="הגדרות" aria-label="הגדרות">⚙</button>
+      <span class="hub-season">עונה 1</span>
+      <span class="hub-online"><i></i><span id="home-online">0</span> מחוברים</span>
+
+      <!-- profile pic + player name as separate boxes -->
+      <div id="home-face" class="hub-pfp"></div>
+      <div id="home-name" class="hub-name">שחקן</div>
+
+      <!-- גביעים (trophies) — the MONOTONIC collectible, in its original top-row slot. Same bar that
+           used to be labelled XP; renderHubXp() fills #hub-xp with a pixel trophy + "N גביעים".
+           The RANK (losable ladder) is the badge over the hero (#hub-tier), not here. -->
+      <div class="hub-xpbar" aria-label="גביעים"><div id="hub-xp" class="hub-xp hidden"></div></div>
+
+      <!-- album stats: individual chips + collector badge, each its own box -->
+      <span id="chip-copies" class="hub-chip"><b id="hub-extra">0</b><small id="hub-extra-l">עותקים</small></span>
+      <span id="chip-worth" class="hub-chip gold"><b id="hub-worth">0</b><small>שווי</small></span>
+      <span id="chip-cards" class="hub-chip"><b id="hub-count">0</b><small>קלפים</small></span>
+      <div id="hub-rank" class="hub-rank hidden"></div>
+
+      <!-- edge controls (rails split into individual boxes) -->
+      <button class="hub-sat" data-open-screen="news"><span class="hub-sat-ic">📰</span><b>חדשות</b></button>
+      <button id="rank-btn" class="hub-sat"><span class="hub-sat-ic">🏅</span><b>דירוג</b></button>
+      <button class="hub-sat" data-open-screen="shop"><span class="hub-sat-ic">🛒</span><b>חנות</b></button>
+      <button id="friends-btn" class="hub-sat"><span class="hub-sat-ic">👥</span><b>חברים</b><i id="friends-dot" class="hub-sat-dot hidden"></i><i id="friends-unread" class="hub-sat-unread hidden">0</i></button>
+      <button class="hub-sat" data-open-screen="clubs"><span class="hub-sat-ic">🏰</span><b>מועדונים</b></button>
+
+      <!-- COMPACT carousel: one BIG front card + a couple of small ones -->
+      <div class="hub-cards"><div id="home-carousel" class="carousel hub-thumbs hidden"></div></div>
+
+      <!-- Rank-progress badge OVER the hero — mirrors the #hub-rank collector badge over the
+           cards (same pill size/style). renderHubTier() fills it: tier icon + sub-rank
+           («🥉 ברונזה 2») + a slim progress bar toward the next sub-rank. 7 tiers × 4 sub-ranks. -->
+      <div id="hub-tier" class="hub-tier">
+        <span id="hub-tier-lbl" class="hub-tier-lbl"><span class="px-ic">🥉</span><span class="px-sub">1</span></span>
+        <span class="hub-tier-bar"><b id="hub-tier-fill"></b></span>
+      </div>
+
+      <!-- BIG hero. Tap opens the wardrobe (client.js binds open() to #pick-hero-btn). -->
+      <button id="pick-hero-btn" class="hub-hero" aria-label="הקש להחלפת מראה">
+        <canvas id="home-char" class="hub-char" width="200" height="210"></canvas>
+      </button>
+
+      <!-- Card powers: 3 equipped slots rendered by client.js into #power-slots. #power-slots
+           is a full-stage transparent overlay; the 3 .pslot-item boxes are positioned
+           individually (see .pslot-item nth-child rules) so each is its own movable box. -->
+      <div id="power-slots" class="power-slots" aria-label="כוחות מצוידים"></div>
+
+      <!-- Quick Match (primary, FIXED — never in the strip) -->
+      <button id="quick-match-btn" class="hub-mode quick">
+        <span class="hub-mic">⚽</span>
+        <span class="hub-mtx"><b>משחק מהיר</b><small>2 נגד 2 · התאמה אוטומטית</small></span>
+        <span class="hub-go">›</span>
+      </button>
+
+      <!-- Pick-best loadout (own box): resets to the album's top-3 (restored behavior). -->
+      <button id="select-best-btn" class="hub-mode hub-secondary hub-compact" title="בחר את שלושת הקלפים הכי טובים">
+        <span class="hub-mic">✨</span>
+        <span class="hub-mtx"><b>הכי טוב</b></span>
+      </button>
+
+      <!-- BOTTOM SCROLLABLE STRIP (single editor box "playStrip"): secondary buttons in one
+           horizontal, horizontally-scrollable row. Order = training · arena · play-friends,
+           then the coming-soon ones (tournament · goal-brawl) revealed by scrolling. The big
+           yellow quick-match box above is NOT in the strip. dir=ltr so the strip scrolls
+           left→right from training. Each button keeps its id/class/handler. -->
+      <!-- Order = 2v2 arena FIRST (primary, flush at the start limit / most visible), then
+           play-friends · training, then the coming-soon pills revealed by swiping.
+           dir=rtl: page is RTL, so 2v2 sits flush at the RIGHT (natural start) and swipe
+           reveals the rest leftward. -->
+      <div id="play-strip" class="hub-strip" dir="rtl">
+        <button class="hub-arena" data-open-screen="arena">
+          <span class="hub-arena-ic">🎮</span>
+          <span class="hub-arena-tx"><b>בחר משחק</b><small>כל המצבים</small></span>
+          <span class="hub-arena-chev">‹</span>
+        </button>
+        <button id="play-friends-btn" class="hub-mode hub-secondary">
+          <span class="hub-mic">👥</span>
+          <span class="hub-mtx"><b>שחק עם חברים</b></span>
+        </button>
+        <button id="training-btn" class="hub-mode hub-training">
+          <span class="hub-mic">🎯</span>
+          <span class="hub-mtx"><b>אימון</b></span>
+        </button>
+        <button id="field-builder-btn" class="hub-mode hub-training">
+          <span class="hub-mic">🏗️</span>
+          <span class="hub-mtx"><b>בונה מגרש</b></span>
+        </button>
+        <div id="tournament-btn" class="hub-cs" role="button" aria-disabled="true">
+          <span class="hub-mic">🏆</span>
+          <span class="hub-cs-tx"><b>טורניר</b></span>
+          <span class="hub-cs-soon">בקרוב</span>
+        </div>
+        <!-- קרב על השער moved OUT of the strip: it is a game mode, so it belongs in
+             בחר משחק with the others. The strip is now exactly the five non-mode entries. -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= FIELD BUILDER ================= -->
+  <div id="builder" class="screen hidden">
+    <!-- dir="rtl" so «‹ חזרה» sits at the RTL start edge (top-right), the same corner it occupies on
+         every sub-page. <html lang="he"> carries no dir attribute and no CSS sets `direction`, so
+         this bar used to be an LTR row and its back button was the MIRROR of every other page's.
+         .builder-body re-forces direction:ltr (style.css), so the tool rails are unaffected. -->
+    <div class="builder-top" dir="rtl">
+      <button data-home-back class="builder-btn builder-back">‹ חזרה</button>
+      <div class="builder-titlewrap">
+        <span class="builder-title">🏗️ בונה מגרש</span>
+        <span id="builder-fieldname" class="builder-fieldname"></span>
+        <!-- Live capacity readout: how many players this LAYOUT seats = min(A slots, B slots). Filled
+             by fbUpdateCap(); long-press/hover for the per-team split + the surplus rule. It lives in
+             the TOP BAR, not the tool rail — the rails are already full of buttons at phone height. -->
+        <span id="b-cap" class="bcap">👥 ברירת מחדל</span>
+      </div>
+      <div class="builder-top-right">
+        <button id="builder-fields" class="builder-btn builder-clone">⧉ מגרשים</button>
+        <button id="builder-play" class="builder-btn builder-play">▶ שחק</button>
+      </div>
+    </div>
+    <!-- Body: actions rail (LEFT) · maximized field (CENTER, zoomable) · materials rail (RIGHT).
+         dir=ltr fixes the left/right order regardless of the page's RTL. All button ids/data-
+         attrs are preserved so the existing #builder handlers still bind. -->
+    <div class="builder-body">
+      <div class="builder-side builder-actions" dir="rtl">
+        <button id="b-undo" class="bact">↶</button>
+        <button id="b-redo" class="bact">↷</button>
+        <span class="builder-sep"></span>
+        <button class="bact" data-mirror="sides">⇆ צד</button>
+        <button class="bact" data-mirror="top">⇅ עליון</button>
+        <button class="bact" data-mirror="diag">⤢ אלכסון</button>
+        <span class="builder-sep"></span>
+        <button id="b-joint" class="bact" title="סגנון פינה">⬛ פינה</button>
+        <!-- Arena SIZE cycler (shared/field-sizes.js). Label is set from the active size by
+             fbApplySize; the pitch aspect follows via the --fb-aspect custom property. -->
+        <button id="b-size" class="bact" title="גודל מגרש">📐 רגיל</button>
+        <!-- Bot level for ▶ שחק. Cycles on tap (same pattern as 📐 גודל) and shares the ONE stored
+             level with the settings grid, so the builder and the panel can never disagree. -->
+        <button id="b-diff" class="bact" title="רמת בוטים">🤖 שלב 5</button>
+      </div>
+      <div class="builder-stage">
+        <div class="builder-arena">
+          <div id="builder-pitch" class="builder-pitch" dir="ltr">
+            <div class="bp-box bp-box-l"></div>
+            <div class="bp-box bp-box-r"></div>
+            <div class="bp-circle"></div>
+            <div class="bp-mid"></div>
+            <div class="bp-goal bp-goal-l"></div>
+            <div class="bp-goal bp-goal-r"></div>
+            <!-- element divs injected by client.js -->
+          </div>
+        </div>
+        <div class="builder-zoom">
+          <button id="b-zoom-in" aria-label="הגדל">＋</button>
+          <button id="b-zoom-out" aria-label="הקטן">－</button>
+          <button id="b-zoom-reset" aria-label="איפוס תצוגה">⤢</button>
+        </div>
+      </div>
+      <div class="builder-side builder-materials" dir="rtl">
+        <button class="btool" data-tool="hard">🧱 קשיח</button>
+        <button class="btool" data-tool="dry">🟫 חלש</button>
+        <button class="btool" data-tool="bush">🌳 שיח</button>
+        <button class="btool" data-tool="crate">📦 ארגז</button>
+        <!-- KICKOFF markers: where players start. They travel inside the saved field
+             (shared/field-spawns.js); a field with none is seeded with the built-in formation so the
+             pitch shows the same slots the match will actually use. -->
+        <button class="btool" data-tool="spawn">🏁 פתיחה</button>
+        <!-- No ball tool: the ball ALWAYS starts at the centre spot, and after a goal it starts
+             with a player of the team that conceded (shared/sim.js attachBall). A per-field ball
+             spot would silently do nothing, so the tool is gone rather than lying. -->
+        <button class="btool" data-tool="move">✋ הזז</button>
+        <button class="btool" data-tool="eraser">🩹 מחק</button>
+      </div>
+    </div>
+    <!-- Bottom bar MIRRORS the top bar: clear-all sits under ‹ back (left), save under play (right). -->
+    <div class="builder-bottom">
+      <button id="b-clear" class="builder-btn builder-clear">✕ נקה הכל</button>
+      <!-- Intentionally EMPTY. This is the builder's transient message surface, not a caption:
+           fbFlash() writes build errors here and #b-save writes «נשמר ✓». The permanent instruction
+           line that used to live here was 481x42px of screen in a 303px-tall viewport. Keep the
+           element — fbFlash() early-returns without it, which would kill save confirmation. -->
+      <span class="builder-hint"></span>
+      <button id="b-save" class="builder-btn builder-save">💾 שמור</button>
+    </div>
+  </div>
+
+  <!-- Floating FIELD PICKER (mirrors the friends subpage look): clone an in-game preset OR a
+       saved field into the builder. Top-level overlay so it floats above the builder screen. -->
+  <div id="field-picker" class="field-modal hidden">
+    <div class="start-shade" data-fp-close></div>
+    <div class="subpage fp-sheet" dir="rtl">
+      <div class="subpage-head"><h2>בחר מגרש</h2><button class="fp-x" data-fp-close aria-label="סגור">✕</button></div>
+      <div class="subpage-body">
+        <div class="fr-tabs" role="tablist">
+          <button class="fr-tab active" data-fptab="ingame">מגרשים במשחק</button>
+          <button class="fr-tab" data-fptab="saved">מגרשים שמורים</button>
+        </div>
+        <div class="fr-pane" data-fppane="ingame"><div id="fp-ingame" class="friend-list"></div></div>
+        <div class="fr-pane hidden" data-fppane="saved">
+          <button id="fp-save-current" class="builder-btn fp-save-btn">💾 שמור עותק מהמגרש הנוכחי</button>
+          <div id="fp-saved" class="friend-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-sheet NAME input (save / rename) — replaces window.prompt, which is a no-op in the RN WebView. -->
+  <div id="field-name-modal" class="field-modal hidden">
+    <div class="start-shade" data-fpname-cancel></div>
+    <div class="subpage fp-sheet fp-name-sheet" dir="rtl">
+      <div class="subpage-head"><h2 id="field-name-title">שם המגרש</h2></div>
+      <div class="subpage-body">
+        <input id="field-name-input" class="friend-input" maxlength="40" placeholder="שם המגרש…" />
+        <div class="fp-name-actions">
+          <button id="field-name-ok" class="builder-btn builder-play">אישור</button>
+          <button class="builder-btn builder-back" data-fpname-cancel>ביטול</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= NEW SUB-SCREENS (arena / news / shop / clubs) ================= -->
+  <!-- .screen hidden divs; open/close via showScreen() (client.js registers them). -->
+  <div id="arena" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <h2>מה משחקים?</h2>
+      </div>
+      <!-- Cards are RENDERED from the MODES table in client.js — never hand-written.
+           Four hand-copied lists had already drifted apart (goal-brawl was live but
+           shown «בקרוב» in three of them). One table, one renderer, no drift. -->
+      <div class="subpage-body">
+        <div class="mode-list" data-modes="launch"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEWS: Fortnite-style feed — one featured banner (MOTD) + a scrollable list of
+       update cards. Live entries describe what already ships; future content is «בקרוב». -->
+  <div id="news" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <h2>חדשות</h2>
+      </div>
+      <div class="subpage-body">
+        <div class="news-feature">
+          <span class="news-tag">חדש</span>
+          <b>ברוכים הבאים לכדורגל הבלוקים!</b>
+          <small>2 נגד 2 · אספו קלפים · שדרגו כוחות והתחילו לשחק</small>
+        </div>
+        <div class="feed">
+          <div class="news-item"><span class="news-ic">⚽</span><div class="news-tx"><b>משחק מהיר · 2 נגד 2</b><small>התאמה אוטומטית · בוטים ממלאים מקומות פנויים</small></div></div>
+          <div class="news-item"><span class="news-ic">🃏</span><div class="news-tx"><b>קלפים וכוחות</b><small>ציידו את שלושת הקלפים הכי טובים לפני הקרב</small></div></div>
+          <div class="news-item"><span class="news-ic">🏗️</span><div class="news-tx"><b>בונה מגרש</b><small>עצבו מגרש משלכם והזמינו חברים</small></div></div>
+          <div class="news-item lock"><span class="news-ic">🏆</span><div class="news-tx"><b>עונה 1</b><small>אירועים, מסלול פרסים ובאנרים</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="news-item lock"><span class="news-ic">🎉</span><div class="news-tx"><b>אירועי לו״ז</b><small>טורנירים, אתגרים ופרסים מוגבלים בזמן</small></div><span class="soon-pill">בקרוב</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHOP: Brawl Stars + Fortnite pattern — wallet header, daily-deal row with a 24h
+       reset countdown, one featured bundle, then category tiles. No economy yet → «בקרוב». -->
+  <div id="shop" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <h2>חנות</h2>
+        <div class="shop-wallet">
+          <span class="wallet-chip"><b>0</b> 🪙</span>
+          <span class="wallet-chip gem"><b>0</b> 💎</span>
+        </div>
+      </div>
+      <div class="subpage-body">
+        <div class="shop-section">
+          <div class="shop-sec-head"><b>מבצע יומי</b><span id="shop-daily-timer" class="shop-timer">מתאפס בעוד --:--:--</span></div>
+          <div class="shop-row">
+            <div class="shop-item lock"><span class="shop-thumb">🎁</span><b>ערכת פתיחה</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-item lock"><span class="shop-thumb">🪙</span><b>חבילת מטבעות</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-item lock"><span class="shop-thumb">💎</span><b>אבני חן</b><span class="soon-pill">בקרוב</span></div>
+          </div>
+        </div>
+        <div class="shop-section">
+          <div class="shop-sec-head"><b>מומלצים</b></div>
+          <div class="shop-feature lock"><span class="shop-thumb big">🌟</span><div class="shop-feat-tx"><b>חבילת עונה</b><small>סקינים · כוחות · מטבעות</small></div><span class="soon-pill">בקרוב</span></div>
+        </div>
+        <div class="shop-section">
+          <div class="shop-sec-head"><b>קטגוריות</b></div>
+          <div class="shop-cats">
+            <div class="shop-cat lock"><span>👕</span><b>מראה</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-cat lock"><span>⚡</span><b>כוחות</b><span class="soon-pill">בקרוב</span></div>
+            <div class="shop-cat lock"><span>🎟️</span><b>מסלול עונה</b><span class="soon-pill">בקרוב</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CLUBS: Brawl Stars clubs — «not in a club» landing = create / find, plus a preview
+       of what clubs unlock (chat · club league · roles). All actions «בקרוב» until built. -->
+  <div id="clubs" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <h2>מועדונים</h2>
+      </div>
+      <div class="subpage-body">
+        <div class="club-hero">
+          <span class="club-hero-ic">🏰</span>
+          <b>הצטרפו למועדון</b>
+          <small>שחקו יחד · צ׳אטו · התחרו בליגת מועדונים</small>
+        </div>
+        <button class="club-cta lock"><span class="club-cta-ic">➕</span><b>צור מועדון</b><span class="soon-pill">בקרוב</span></button>
+        <button class="club-cta lock"><span class="club-cta-ic">🔎</span><b>חפש מועדון</b><span class="soon-pill">בקרוב</span></button>
+        <div class="club-feats">
+          <div class="club-feat lock"><span class="club-feat-ic">💬</span><div class="club-feat-tx"><b>צ׳אט מועדון</b><small>תיאום משחקים ושיחה</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="club-feat lock"><span class="club-feat-ic">🏆</span><div class="club-feat-tx"><b>ליגת מועדונים</b><small>עונה תחרותית של שבועיים</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="club-feat lock"><span class="club-feat-ic">👑</span><div class="club-feat-tx"><b>תפקידים</b><small>נשיא · סגן · בכיר · חבר</small></div><span class="soon-pill">בקרוב</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RANK: Brawl Stars trophy/ranked pattern — live global position (from
+       /handle-friends/rank) on top, then the tier ladder (Bronze→Master) as the visual
+       basis. Season rewards + full leaderboard list are «בקרוב». -->
+  <div id="rank" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <h2>דירוג</h2>
+      </div>
+      <div class="subpage-body">
+        <div class="rank-me">
+          <span class="rank-me-ic" id="rank-me-ic">🥉</span>
+          <div class="rank-me-tx"><b id="rank-me-div">ברונזה 1</b><small id="rank-me-sub">שחקו משחק כדי להיכנס לטבלה</small></div>
+        </div>
+        <div class="rank-section"><b>דרגות</b><span class="rank-sec-hint">4 תת־דרגות בכל דרגה</span></div>
+        <div class="rank-ladder">
+          <div class="rank-tier t-bronze"  data-tier="bronze"><span>🥉</span><b>ברונזה</b></div>
+          <div class="rank-tier t-silver"  data-tier="silver"><span>🥈</span><b>כסף</b></div>
+          <div class="rank-tier t-gold"    data-tier="gold"><span>🥇</span><b>זהב</b></div>
+          <div class="rank-tier t-diamond" data-tier="diamond"><span>💎</span><b>יהלום</b></div>
+          <div class="rank-tier t-mythic"  data-tier="mythic"><span>🔮</span><b>מיתי</b></div>
+          <div class="rank-tier t-legend"  data-tier="legend"><span>👑</span><b>אגדי</b></div>
+          <div class="rank-tier t-master"  data-tier="master"><span>🏆</span><b>אלוף</b></div>
+        </div>
+        <div class="rank-subnote">מתקדמים תת־דרגה בכל עלייה ברמה: ברונזה 1 → ברונזה 2 → … → ברונזה 4 → כסף 1</div>
+        <div class="rank-note lock"><b>פרסי עונה</b><span class="soon-pill">בקרוב</span></div>
+        <div class="rank-note lock"><b>טבלת מובילים מלאה</b><span class="soon-pill">בקרוב</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cards / loadout page — opened by tapping a power slot on the home hub. Renders the
+       3 equipped slots (tap a slot for its power info) + the album deck (tap a card to reveal,
+       drag onto a slot to equip). Equipped cards are hidden from the album. "צייד הכי טוב"
+       auto-fills the 3 best cards. -->
+  <div id="cards" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button data-home-back class="subpage-back">‹ חזרה</button>
+        <h2>הקלפים שלי</h2>
+      </div>
+      <div class="subpage-body cards-split">
+        <!-- RTL: first child sits on the RIGHT → power slots right, album on the left. -->
+        <div class="cards-right">
+          <div id="cards-slots" class="cards-slots"></div>
+          <button id="cards-best-btn" class="cards-best">✨ צייד את הכי טוב</button>
+          <div class="cards-hint">גרור קלף אל חריץ · הקש חריץ להסבר</div>
+        </div>
+        <div class="cards-left">
+          <div id="cards-deck" class="cards-deck"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Play with friends: create / join a private room -->
+  <div id="friends" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head"><h2>חברים</h2></div>
+      <div class="subpage-body">
+
+      <!-- Redesign: segmented tabs (my friends · requests · add). Panes keep the ORIGINAL
+           ids (#friend-list/#friend-requests/#friend-search/#friend-search-results) so the
+           existing loadFriends()/searchFriends()/render* keep working unchanged. -->
+      <div id="friends-panel">
+        <div class="fr-tabs" role="tablist">
+          <button class="fr-tab active" data-tab="list">החברים שלי</button>
+          <button class="fr-tab" data-tab="online">מחוברים<span id="fr-online-badge" class="fr-badge hidden">0</span></button>
+          <button class="fr-tab" data-tab="requests">בקשות<span id="fr-req-badge" class="fr-badge hidden">0</span></button>
+          <button class="fr-tab" data-tab="add">➕ הוסף</button>
+        </div>
+
+        <div class="fr-pane" data-pane="list">
+          <div id="friend-list" class="friend-list"></div>
+        </div>
+        <div class="fr-pane hidden" data-pane="online"><div id="friend-online" class="friend-list"></div></div>
+        <div class="fr-pane hidden" data-pane="requests">
+          <div id="friend-requests" class="friend-list"></div>
+        </div>
+        <div class="fr-pane hidden" data-pane="add">
+          <input id="friend-search" class="friend-input" placeholder="חיפוש לפי כינוי או מספר טלפון…" />
+          <div id="friend-search-results" class="friend-list"></div>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= FRIEND THREAD (messages + shared arenas) =================
+       Opened by tapping a friend card. Players pick a preset phrase, type a short line (capped at
+       FREE_TEXT_MAX and sanitized on both sides), or attach a built arena. -->
+  <div id="thread" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head th-head">
+        <button id="th-back" class="th-back" aria-label="חזרה">›</button>
+        <div id="th-who" class="th-who" role="button" tabindex="0">
+          <div id="th-pfp" class="fc-pfp sm"></div>
+          <span id="th-name" class="th-name"></span>
+          <span id="th-dot" class="friend-dot"></span>
+        </div>
+      </div>
+      <div class="subpage-body th-body">
+        <div id="th-msgs" class="th-msgs"></div>
+        <div class="th-compose">
+          <form id="th-form" class="th-write" autocomplete="off">
+            <input id="th-text" class="th-input" type="text" placeholder="כתבו הודעה…" aria-label="הודעה לחבר" />
+            <span id="th-left" class="th-left"></span>
+            <button id="th-send" class="th-cbtn send" type="submit">שלח</button>
+          </form>
+          <div class="th-cbtns">
+            <button id="th-say" class="th-cbtn" type="button">💬 הודעה</button>
+            <button id="th-share" class="th-cbtn" type="button">🏟️ שתף מגרש</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preset phrase picker: grouped tabs, filled from shared/quick-messages.js -->
+    <div id="th-sheet" class="th-sheet hidden">
+      <div class="th-sheet-card" dir="rtl">
+        <div id="th-sheet-tabs" class="th-sheet-tabs"></div>
+        <div id="th-sheet-list" class="th-sheet-list"></div>
+        <button id="th-sheet-close" class="th-sheet-close" type="button">ביטול</button>
+      </div>
+    </div>
+
+    <!-- Saved-arena picker: the player's builder library -->
+    <div id="th-arena-sheet" class="th-sheet hidden">
+      <div class="th-sheet-card" dir="rtl">
+        <div class="th-sheet-title">שתף מגרש</div>
+        <div id="th-arena-list" class="th-sheet-list"></div>
+        <button id="th-arena-close" class="th-sheet-close" type="button">ביטול</button>
+      </div>
+    </div>
+
+    <!-- Reaction bar (long-press a message) -->
+    <div id="th-react" class="th-react hidden"></div>
+  </div>
+
+  <div id="friend-profile-modal" class="fp-modal hidden">
+    <div class="fp-card">
+      <button id="fp-close" class="fp-close" aria-label="close">✕</button>
+      <div class="fp-hero"><div id="fp-pfp" class="fp-pfp"></div><div id="fp-online" class="fp-online hidden">מחובר</div></div>
+      <div id="fp-name" class="fp-name"></div>
+      <div id="fp-div" class="fp-div"></div>
+      <div id="fp-slots" class="fc-slots fp-slots"></div>
+      <div id="fp-stats" class="fp-stats"></div>
+      <button id="fp-remove" class="fp-remove hidden">הסר חבר</button>
+    </div>
+  </div>
+
+  <!-- Own profile / stats page. Intentionally EMPTY: public/profile.js builds and styles the whole
+       page (and injects its own CSS), the same self-contained pattern net-hud.js uses, so this file
+       and style.css stay almost untouched while other agents work in them. -->
+  <div id="profile" class="screen hidden"></div>
+
+  <!-- Lobby / waiting room -->
+  <div id="lobby" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="lobby-wrap" dir="rtl">
+      <div class="lobby-head">
+        <button id="lobby-leave" class="lobby-leave">‹ יציאה</button>
+        <div id="lobby-title" class="eyebrow"><span></span> משחק מהיר <span></span></div>
+        <div id="lobby-code-wrap" class="lobby-code-wrap hidden">קוד חדר <b id="lobby-code">····</b> <small>שתפו עם חברים</small></div>
+        <div class="lobby-counts">
+          <div class="count-pill"><strong id="lobby-online">0</strong><small>מחוברים</small></div>
+        </div>
+      </div>
+      <!-- #14: HOST-only pending join requests (accept/reject), rendered by client.js -->
+      <div id="room-requests" class="room-requests hidden" dir="rtl"></div>
+      <!-- Party flow: HOST-only panel of ONLINE friends to invite straight into this lobby
+           (no code). Rendered by renderPartyInvite() from FRIENDS ∩ ONLINE. -->
+      <div id="party-invite" class="party-invite hidden" dir="rtl"></div>
+      <div class="teams">
+        <div class="team-panel team1">
+          <div class="team-title">קבוצה 1 <span class="team-seats" data-team-head="A"></span></div>
+          <div id="team-a-list" class="team-members"></div>
+          <button id="join-a" class="team-join">הצטרף</button>
+        </div>
+        <div class="vs">נגד</div>
+        <div class="team-panel team2">
+          <div class="team-title">קבוצה 2 <span class="team-seats" data-team-head="B"></span></div>
+          <div id="team-b-list" class="team-members"></div>
+          <button id="join-b" class="team-join">הצטרף</button>
+        </div>
+      </div>
+      <!-- TEAM-PAGE CHAT (same composer as the party roster: the in-match words + emotes, plus a
+           short free text in private rooms). Bubbles appear on each member's row above. -->
+      <div id="lobby-chat" class="party-chat"></div>
+      <button id="play-now" class="play"><span>שחק עכשיו</span><b>›</b></button>
+      <!-- Party flow: host's start CTA — opens the game picker instead of starting directly. -->
+      <button id="pick-game-btn" class="play hidden"><span>בחר משחק</span><b>›</b></button>
+      <p id="lobby-hint" class="hint">בחרו קבוצה כדי להיות עם חבר, ואז <b>שחקו עכשיו</b> — המשחק מתחיל אחרי ספירה של 5 שניות; מקומות פנויים מתמלאים בבוטים.</p>
+    </div>
+    <div id="lobby-countdown" class="lobby-countdown hidden">5</div>
+  </div>
+
+  <!-- Play With Friends · TEAM PAGE (roster + game list; own colour picked → groups #lobby).
+       This is now the FIRST screen «שחק עם חברים» lands on — the party room is created and this
+       shows immediately, no separate invite-first step. Leave by tapping the empty background (no
+       back button, per the sub-page convention). renderParty() fills #party-roster from the room's
+       lobby members. The `+` tile next to the hero (rendered by renderParty, see partyAddTile in
+       client.js) opens #friend-select as a MODAL on top of this page — it never navigates away, so
+       closing that sheet always lands back here with nothing lost. -->
+  <div id="party" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head"><h2>הקבוצה שלי</h2></div>
+      <div class="subpage-body">
+        <div id="party-roster" class="party-roster"></div>
+        <!-- SOLO EMPTY STATE (a party of one): sits right after the roster, not inside its flex row
+             (a `.pr-empty` flex ITEM there wrapped the roster onto a second row and pushed the whole
+             mode-list below the 390px landscape fold — measured via CDP). Only #party-hint's
+             ORIGINAL purpose (host-progress guidance) lives near the games list below. -->
+        <p id="party-solo-hint" class="hint hidden">אתם לבד כרגע — הזמינו חבר, או התחילו לבד עם בוטים</p>
+        <div class="party-games">
+          <div class="party-games-h">בחרו משחק</div>
+          <!-- Rendered from MODES (party surface — see renderModeList in client.js). Non-host taps
+               glow a vote (renderPartyVotes); only the HOST's tap decides (partyGame). -->
+          <div class="mode-list" data-modes="party"></div>
+        </div>
+        <p id="party-hint" class="hint hidden">ממתינים שהמארח יבחר משחק…</p>
+      </div>
+    </div>
+    <!-- CHAT BUBBLE (revision of the old always-on right rail): a small round pixel icon, bottom-left,
+         own safe-area inset (see style.css `.party-chat-bubble`). Tap toggles the sheet below open/
+         closed — client.js's click handler on it stops propagation, so it never ALSO reads as a
+         backdrop tap (see partyEl's listener). Icon is the shared pack's `si-chat` glyph — the SAME
+         one #chat-btn uses for in-match quick chat — never a text glyph. -->
+    <button id="party-chat-bubble" type="button" class="party-chat-bubble" aria-label="צ'אט קבוצה">
+      <span class="build-icon"><span class="saltiz-icon si-chat" aria-hidden="true"></span></span>
+      <span class="pchat-bubble-dot"></span>
+    </button>
+    <!-- CHAT SHEET: hovers over the team page at ~half the viewport height, sliding up from the
+         bottom edge on open / down on close (style.css `.party-chat-sheet` / `.open`). History
+         scrolls above a composer pinned at the base. Per-member bubbles still render on each roster
+         block as before (partyBlock/.pr-say) — this sheet is the scrolling LOG, not a replacement. -->
+    <aside id="party-chat-sheet" class="party-chat-sheet" dir="rtl">
+      <!-- Built by renderPartyChatLog() in client.js from the same `member.chat` the bubbles use. -->
+      <div id="party-chat-log" class="party-chat-log"></div>
+      <!-- Composer: preset phrases + up to 40 characters of free text. Party rooms only (the server
+           refuses free text elsewhere — shared/quick-messages.js FREE_TEXT_ROOMS). Built by
+           renderPartyChat() from shared/quick-chat.js so the lobby and the roster cannot drift apart. -->
+      <div id="party-chat" class="party-chat"></div>
+    </aside>
+  </div>
+
+  <!-- #14: joiner "waiting for host approval" overlay (top-level). Closes on cancel or a
+       backdrop click (client.js withdraws the request). -->
+  <div id="room-wait" class="room-wait hidden" dir="rtl">
+    <div class="room-wait-card">
+      <div class="room-wait-spin"></div>
+      <div class="room-wait-title">ממתין לאישור המארח…</div>
+      <div class="room-wait-sub">הבקשה נשלחה · קוד חדר <b class="room-wait-code">···</b></div>
+      <button id="room-wait-cancel" class="play ghost small">ביטול</button>
+    </div>
+  </div>
+
+  <!-- Play With Friends · INVITE SHEET — a MODAL over #party, opened by the `+` tile next to the
+       hero (either the host's or any other member's — item 4: an invited friend can invite a friend
+       too, and the party's original inviter stays host regardless). The party room already exists
+       by the time this opens, so there is no "step 1" anymore: no play-now CTA here, just people to
+       invite. Each friend row carries its own invite button (fc-invite, from friendCardEl); the sheet
+       stays open after an invite so several friends can be invited in one visit. Close via the ✕ or
+       by tapping the dim backdrop — either way #party underneath was never hidden, so it is simply
+       there again. The room-code box + join-by-code form are kept (a non-friend can still join a
+       shared code, and "new room" rotates a stale one) but are secondary to the friend list now. -->
+  <div id="friend-select" class="screen hidden">
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button id="friend-select-close" class="subpage-back" aria-label="סגור">✕</button>
+        <h2>הזמינו חברים</h2>
+      </div>
+      <div class="subpage-body fs-split">
+        <aside class="fs-actions">
+          <div class="fs-code-box">
+            <div class="fs-code-h">קוד החדר</div>
+            <button id="fs-code" class="fs-code" type="button" title="העתקת הקוד">---</button>
+            <div class="fs-code-hint">גם מי שאינו חבר יכול להצטרף בקוד</div>
+          </div>
+          <button id="fs-new-room" class="fs-btn" type="button">חדר חדש</button>
+          <form id="fs-join" class="fs-join">
+            <label class="fs-join-h" for="join-code">הצטרפות עם קוד</label>
+            <input id="join-code" class="code-input" dir="ltr" maxlength="3" inputmode="numeric" pattern="[0-9]*" placeholder="קוד" autocomplete="off" />
+            <button id="join-room-btn" class="fs-btn fs-btn-go" type="submit">הצטרף</button>
+          </form>
+        </aside>
+        <div class="fs-people">
+          <div class="fs-sections">
+            <div id="fs-online-wrap"><div class="fs-sec-h">מחוברים · הזמינו</div><div id="fs-online" class="friend-list fs-list"></div></div>
+            <div id="fs-pending-wrap" class="hidden"><div class="fs-sec-h">הוזמנו · ממתינים לאישור</div><div id="fs-pending" class="friend-list fs-list"></div></div>
+            <div id="fs-accepted-wrap" class="hidden"><div class="fs-sec-h">✓ הצטרפו לקבוצה</div><div id="fs-accepted" class="friend-list fs-list"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Party flow: game picker (host taps "בחר משחק" in the lobby). 2v2 is live; the rest are
+       coming-soon. Choosing a live mode starts the match (sends `ready`). Backdrop click closes. -->
+  <div id="game-select" class="game-select hidden" dir="rtl">
+    <div class="game-select-card">
+      <div class="game-select-head">
+        <h2>בחר משחק</h2>
+        <button id="game-select-close" class="subpage-back" aria-label="סגור">›</button>
+      </div>
+      <!-- Rendered from MODES (setup surface — see renderModeList in client.js). -->
+      <div class="mode-list" data-modes="party"></div>
+    </div>
+  </div>
+
+  <!-- Team intro / quick-match VS + countdown screen (top-level overlay) -->
+  <div id="team-intro" class="team-intro hidden">
+    <!-- Which mode you're about to play + its win rule. Both live modes share this screen, so
+         without the label ראשון ל-3 and קרב על השער are indistinguishable while you wait. -->
+    <div id="ti-mode" class="ti-mode hidden"><span class="ti-mode-name"></span><span class="ti-mode-rule"></span></div>
+    <div id="ti-count" class="ti-count hidden">5</div>
+    <!-- SEARCH CHROME. Shown while a ticket is live (no room exists yet), hidden once the group
+         resolves. The band chip is load-bearing: an unexplained countdown reads as lag, whereas
+         "רמה 5" widening to "רמה 4–6" reads as the server working. -->
+    <div id="ti-search" class="ti-search hidden">
+      <div class="ti-search-head">
+        <span id="ti-search-title" class="ti-search-title">מחפש יריבים...</span>
+        <span id="ti-search-pips" class="ti-search-pips"></span>
+        <span id="ti-search-band" class="ti-search-band"></span>
+        <!-- Small SECONDARY search-budget timer (⏱ N) — deliberately NOT #ti-count, the giant
+             kickoff countdown. See client.js renderSearchChrome/showSearching for why. -->
+        <span id="ti-search-timer" class="ti-search-timer"></span>
+      </div>
+      <div id="ti-search-sub" class="ti-search-sub"></div>
+      <!-- Cancel. .ti-search is pointer-events:none so the VS art stays tappable-through; the button
+           re-enables them for itself only. -->
+      <button type="button" id="ti-search-cancel" class="builder-btn ti-search-cancel">‹ חזרה</button>
+    </div>
+    <div class="ti-inner">
+      <div class="ti-col ti-home"><div class="ti-team-title">הקבוצה שלי</div><div class="ti-rows"></div></div>
+      <div class="ti-vs">נגד</div>
+      <div class="ti-col ti-away"><div class="ti-team-title">יריבים</div><div class="ti-rows"></div></div>
+    </div>
+    <div class="ti-tap">הקש לדילוג</div>
+  </div>
+
+  <!-- Match-start promo: team reveal + the team's top-3 cards meteoring onto the pitch -->
+  <div id="promo" class="promo hidden" dir="rtl">
+    <div class="promo-team">
+      <div class="promo-team-label">הקבוצה שלך</div>
+      <div class="promo-heroes"></div>
+    </div>
+    <div id="promo-cards"></div>
+    <div id="promo-flash"></div>
+  </div>
+
+  <!-- Game -->
+  <div id="game" class="screen hidden">
+    <canvas id="canvas"></canvas>
+
+    <div id="hud">
+      <div class="score">
+        <span class="team-a" id="scoreA">0</span>
+        <span class="dash">–</span>
+        <span class="team-b" id="scoreB">0</span>
+      </div>
+      <!-- Match FORMAT caption: first-to-N vs timed. Driven by matchStart.goalsToWin;
+           flips to a match-point cue when either team is one goal from winning. -->
+      <div class="score-fmt" id="score-fmt"></div>
+      <div class="timer" id="timer">2:00</div>
+      <!-- Card powers: read-only. MY TEAM's cards to the LEFT of the clock/score, the OPPONENTS' to
+           the RIGHT — one row per player (see renderMatchPowers / fillPowerRail in client.js). #hud is
+           a 3-column grid and every child is placed explicitly, so DOM order here doesn't matter. -->
+      <div class="match-powers" id="match-powers"></div>
+      <div class="match-powers match-powers-foe" id="match-powers-foe"></div>
+      <div class="net" id="net">מתחבר…</div>
+    </div>
+
+    <!-- Training-only: label + bot-level chip + reset-ball button (shown only in the training ground).
+         The chip shows the live bot level and opens the difficulty grid — changeable mid-game. -->
+    <div id="train-tag" class="train-tag hidden">🎯 אימון</div>
+    <button id="train-diff" class="train-diff hidden" title="רמת בוטים">🤖 שלב 5</button>
+    <button id="reset-ball-btn" class="reset-ball-btn hidden">↺ אפס כדור</button>
+
+    <!-- Control-layout editor overlay. Drag each puck to move, drag its corner handle to resize.
+         Saving LOCKS the controls to those spots (they stop floating). Training only. -->
+    <div id="controls-editor" class="controls-editor hidden">
+      <div class="ce-hint">גררו למיקום · פינה לשינוי גודל</div>
+      <!-- Pucks are GHOSTS OF THE REAL CONTROLS: same rounded-square silhouette as .stick /
+           .special-btn / .build-btn (all border-radius:10%), so what you place is what you play.
+           .ce-stick also draws the inner knob. (bomb/wall used to be forced round via .ce-round.) -->
+      <div class="ce-puck ce-stick" data-ctl="move"><span>נוע</span><i class="ce-resize"></i></div>
+      <div class="ce-puck ce-stick" data-ctl="aim"><span>כיוון</span><i class="ce-resize"></i></div>
+      <!-- Bomb + wall are PULL controls: you drag out from their centre to choose how far the bomb
+           lands / the wall builds. So each shows TWO nested squares — the inner one is the button you
+           press, the outer one is how far your thumb travels to reach max (the sensitivity). Drag the
+           outer square's handle to size the pull; drag the inner one to size the button. -->
+      <div class="ce-puck ce-pull" data-ctl="bomb"><i class="ce-sens"><i class="ce-sens-grip"></i></i><span>💣</span><i class="ce-resize"></i></div>
+      <div class="ce-puck ce-pull" data-ctl="wall"><i class="ce-sens"><i class="ce-sens-grip"></i></i><span>🧱</span><i class="ce-resize"></i></div>
+      <div class="ce-sliders">
+        <!-- INPUT FEEL ONLY. Anything that changes how FAR a bomb lands or a wall builds is a
+             GAME MECHANIC and lives in Settings → mechanics (training ground), not here. -->
+        <!-- Pull DISTANCE is no longer a slider — it's the outer square on each of the 💣/🧱 pucks
+             (drag its blue corner grip), and it's per-control. The response SHAPE across that
+             distance is no longer a slider either: the user pinned it at the precise end (2.2),
+             see AIM_CURVE in client.js. All that's left here is how visible the controls are. -->
+        <label class="ce-slider"><span>שקיפות בקרות <b id="v-ctlOpacity"></b></span><input type="range" id="s-ctlOpacity" min="0.2" max="1" step="0.05"></label>
+      </div>
+      <div class="ce-bar">
+        <button id="ce-reset" class="ce-btn ce-reset">איפוס</button>
+        <button id="ce-cancel" class="ce-btn ce-cancel">ביטול</button>
+        <button id="ce-save" class="ce-btn ce-save">שמירה ונעילה</button>
+      </div>
+    </div>
+
+    <div id="banner" class="banner hidden"></div>
+
+    <!-- TUTORIAL coach layer (the scripted first match — see
+         docs/superpowers/specs/2026-07-27-tutorial-onboarding-design.md). A SILENT coach: no
+         character, no dialogue, and it never pauses the game. Per step it dims everything except
+         the one live control, animates a hand doing the actual gesture over it, and prints 1-2
+         Hebrew words. Kids are the audience, so the bar is that a child who cannot read Hebrew
+         still finishes — the hand carries the lesson, the words only confirm it.
+         The world-space markers (ring / dummy ping / goal arrow) are drawn on #canvas with the
+         rest of the pitch, not here; only screen-space furniture lives in the DOM. -->
+    <div id="tutorial" class="tutorial hidden" dir="rtl" aria-live="polite">
+      <!-- Spotlight: a dimming veil with a hole punched over the live control (positioned by JS
+           from the control's real anchor, so it tracks a moved/resized stick). Present on every
+           step but only PAINTED on the ones that introduce a button the kid has never had, and it
+           goes on their first press — see .tutorial.veiled in style.css. -->
+      <div id="tu-veil" class="tu-veil"></div>
+      <div id="tu-hand" class="tu-hand" aria-hidden="true"></div>
+      <div class="tu-caption">
+        <b id="tu-cap"></b>
+        <small id="tu-nudge" class="hidden"></small>
+        <!-- Step pips: how far through the four steps we are. No numbers — dots read at a glance
+             and need no reading age. Stacked with the caption so the coach's furniture is one
+             object; along the bottom edge they sat on the build tag and between both thumbs. -->
+        <div id="tu-pips" class="tu-pips" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <!-- Tutorial finale: the one full-screen beat in the whole flow, and only after the level's
+         last step. Celebration ONLY — no XP, no trophies, no cards (c86fa82: practice pays
+         nothing). «המשך ל…» appears only while a next level exists and is unlocked, so a kid on a
+         roll never has to go and find a menu; the title becomes «אתה מוכן!» on the last one. -->
+    <div id="tu-done" class="tu-done hidden" dir="rtl">
+      <div class="tu-done-card">
+        <div class="tu-done-ic">🎉</div>
+        <b id="tu-done-title">כל הכבוד!</b>
+        <button id="tu-next-btn" class="tu-done-btn hidden">המשך ›</button>
+        <button id="tu-done-btn" class="tu-done-btn tu-done-alt">למשחק שלי ›</button>
+      </div>
+    </div>
+
+    <!-- On-screen joysticks (touch). Hidden until first touch. -->
+    <div id="stickL" class="stick hidden"><div class="knob"></div></div>
+    <div id="stickR" class="stick hidden"><div class="knob"></div></div>
+
+    <!-- Special-skill button (right side). Icon set per character. -->
+    <button id="special" class="special-btn">💣</button>
+
+    <!-- Build-wall button: tap to build ahead, or drag to aim (pull-to-build). -->
+    <button id="build" class="build-btn">
+      <span class="build-icon">🧱</span>
+      <span class="build-pips"><i></i><i></i></span>
+      <span class="build-cd"></span>
+    </button>
+
+    <!-- Stealth cue — lights up when you're hidden in a bush. -->
+    <div id="stealth-cue" class="stealth-cue">🌿 HIDDEN</div>
+
+    <!-- Power cue — lights up when your power meter is charged (full shot/kick ready). -->
+    <div id="power-cue" class="power-cue">⚡ עוצמה</div>
+
+    <!-- Crash banner (shows any runtime error so we can diagnose on-device) -->
+    <div id="fatal" class="fatal hidden"></div>
+
+    <!-- Pause / settings -->
+    <button id="pause-btn" class="pause-btn" title="הגדרות" aria-label="הגדרות">⚙</button>
+    <!-- Controls-layout editor — its OWN top-bar button BESIDE the gear (it used to be buried
+         inside the settings panel). Training ground only; client.js unhides it with the train tag. -->
+    <button id="edit-controls-btn" class="edit-controls-btn hidden" title="עריכת בקרות" aria-label="עריכת בקרות">🎛️</button>
+    <!-- IN-MATCH QUICK CHAT. Fourth slot of the top-right cluster, immediately beside 🎛️
+         (12 ⚙ · 60 ‹ לובי · 133 🎛️ · 181 here). It reuses .edit-controls-btn so it is visually
+         identical to its neighbour — .chat-btn only moves it along the row.
+         The sheet is left EMPTY on purpose: client.js renders it from shared/quick-chat.js, so the
+         word list exists in exactly one place (same rule as the MODES table). -->
+    <button id="chat-btn" class="edit-controls-btn chat-btn hidden" title="צ'אט מהיר" aria-label="צ'אט מהיר">
+      <span class="saltiz-icon si-chat" aria-hidden="true"></span>
+    </button>
+    <div id="chat-sheet" class="chat-sheet hidden" role="dialog" aria-label="צ'אט מהיר">
+      <div id="chat-words" class="chat-row chat-words"></div>
+      <div id="chat-emotes" class="chat-row chat-emotes"></div>
+    </div>
+    <!-- #17: always-available "back to lobby" — works in a match AND in the training ground -->
+    <button id="leave-lobby-btn" class="leave-lobby-btn" aria-label="חזרה ללובי" title="חזרה ללובי">‹ לובי</button>
+    <!-- #settings moved OUT of #game to top level (below) so the hub Settings icon can open
+         it from the home screen too (a display:none ancestor would otherwise hide it). -->
+  </div>
+
+  <!-- Settings / pause panel — TOP-LEVEL overlay (opened in-match via #pause-btn and from
+       the home hub via #hub-settings). All ids unchanged so existing wiring is intact. -->
+  <div id="settings" class="settings-panel hidden">
+    <div class="settings-card" dir="rtl">
+      <h2>הגדרות</h2>
+      <!-- #16: responsive grid so all controls fit on screen without a scrollbar -->
+      <div class="settings-grid">
+      <!-- AUDIO — always shown -->
+      <div class="setting"><div class="setting-row"><span>🔊 עוצמת אפקטים</span></div><input type="range" id="s-soundvol" min="0" max="1" step="0.05" /></div>
+      <div class="setting"><div class="setting-row"><span>🎵 עוצמת מוזיקה</span></div><input type="range" id="s-musicvol" min="0" max="1" step="0.05" /></div>
+      <!-- CONTROLS — training ground only -->
+      <div class="setting" id="setting-controls"><div class="setting-row"><span>🎛️ בקרות</span></div><button id="open-controls-btn" class="ghost-btn">עריכת מיקום הבקרות</button></div>
+      <!-- DIFFICULTY — training / friends / vs-bots only -->
+      <div class="setting setting-wide" id="setting-difficulty"><div class="setting-row"><span>רמת קושי (בוטים)</span></div><div id="difficulty" class="difficulty"></div></div>
+      <!-- GAME MECHANICS — training ground only -->
+      <div id="setting-mechanics" class="setting-mech">
+        <!-- REACH — how far a bomb LANDS / a wall BUILDS. These are game mechanics (they change what
+             happens on the pitch), so they live here with the other mechanics, NOT in the controls
+             editor, which is only about how your finger moves. The server hard-caps both
+             (BOMB_LOB_RANGE 250 / wall offset+BUILD_DIST_MAX 180); these can only shorten them. -->
+        <div class="setting"><div class="setting-row"><span>טווח פצצה</span><span id="v-bombMax"></span></div><input type="range" id="s-bombMax" min="80" max="250" step="10" /></div>
+        <div class="setting"><div class="setting-row"><span>טווח בניית קיר</span><span id="v-wallMax"></span></div><input type="range" id="s-wallMax" min="60" max="180" step="10" /></div>
+        <div class="setting"><div class="setting-row"><span>מהירות שחקן</span><span id="v-speedMul"></span></div><input type="range" id="s-speedMul" min="0.3" max="1.8" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>גודל שחקן</span><span id="v-sizeMul"></span></div><input type="range" id="s-sizeMul" min="0.5" max="2" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>מהירות עם הכדור</span><span id="v-carrySpeedMul"></span></div><input type="range" id="s-carrySpeedMul" min="0.2" max="1" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>גודל כדור</span><span id="v-ballSizeMul"></span></div><input type="range" id="s-ballSizeMul" min="0.5" max="2.5" step="0.05" /></div>
+        <div class="setting"><div class="setting-row"><span>עוצמת בעיטה</span><span id="v-shotPower"></span></div><input type="range" id="s-shotPower" min="300" max="2500" step="20" /></div>
+        <div class="setting"><div class="setting-row"><span>מהירות ירי</span><span id="v-bulletSpeed"></span></div><input type="range" id="s-bulletSpeed" min="120" max="1300" step="10" /></div>
+        <div class="setting"><div class="setting-row"><span>הדיפת ירי</span><span id="v-bulletKnockback"></span></div><input type="range" id="s-bulletKnockback" min="0" max="2500" step="10" /></div>
+        <div class="setting"><div class="setting-row"><span>הדיפת פצצה</span><span id="v-bombPower"></span></div><input type="range" id="s-bombPower" min="0" max="5000" step="20" /></div>
+        <div class="setting"><div class="setting-row"><span>מהירות טעינת פצצה</span><span id="v-bombReloadSpeed"></span></div><input type="range" id="s-bombReloadSpeed" min="0.25" max="4" step="0.25" /></div>
+        <div class="setting"><div class="setting-row"><span>מהירות טעינת קיר</span><span id="v-wallReloadSpeed"></span></div><input type="range" id="s-wallReloadSpeed" min="0.25" max="4" step="0.25" /></div>
+      </div>
+      </div><!-- /.settings-grid -->
+      <div class="settings-actions">
+        <button id="reset-settings" class="ghost-btn">איפוס</button>
+        <button id="resume" class="resume">המשך</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Training chooser: pick training ground (dummy+sentry) or a full game vs bots. Opened by
+       the hub "אימון" button (client.js). Difficulty is set in Settings (training/friends only). -->
+  <div id="train-choose" class="settings-panel hidden">
+    <div class="settings-card" dir="rtl">
+      <h2>אימון</h2>
+      <div class="train-choose-opts">
+        <!-- REPLAY of the scripted first match. Unconditional on purpose: localStorage's
+             fbTutorialDone gates only the AUTO-launch, never access, so this works whether the
+             flag is set, missing or corrupt. First entry in the list — it is the one a lost
+             player wants. -->
+        <button id="tc-howto" class="tc-opt tc-howto"><b>🎓 איך משחקים?</b><small>הסבר קצר · שחקו תוך כדי</small></button>
+        <button id="tc-ground" class="tc-opt"><b>🎯 מגרש אימון</b><small>תרגול מול דמה וצלף</small></button>
+        <button id="tc-bots" class="tc-opt"><b>🤖 משחק מול בוטים</b><small>משחק 2 נגד 2 מלא</small></button>
+      </div>
+      <div class="settings-actions"><button id="tc-cancel" class="ghost-btn">ביטול</button></div>
+    </div>
+  </div>
+
+  <!-- TUTORIAL LEVEL PICKER — opened by «🎓 איך משחקים?» in the אימון sheet. Rendered from
+       TU_LEVELS by renderTuLevels(), so adding level 3 needs no markup here. A level is ⭐ when
+       finished, ▶ when playable, 🔒 until the one before it is done. Every unlocked level is
+       replayable, in any order, forever. -->
+  <div id="tu-levels" class="settings-panel hidden">
+    <div class="settings-card" dir="rtl">
+      <h2>איך משחקים?</h2>
+      <div class="train-choose-opts tu-lv-list"></div>
+      <div class="settings-actions"><button id="tu-lv-cancel" class="ghost-btn">סגירה</button></div>
+    </div>
+  </div>
+
+  <!-- Wardrobe / character picker overlay — costumes carousel (top) · large hero (center) ·
+       hero-types carousel (bottom). All ids preserved so setupHeroPicker() wiring is intact. -->
+  <div id="hero-picker" class="picker hidden" dir="rtl">
+    <!-- full-screen per-hero pixel ambience (hero-fx.js) — frameless, translucent, behind the panel -->
+    <canvas id="wardrobe-fx" class="wr-fx" width="200" height="140" aria-hidden="true"></canvas>
+    <div class="picker-panel wardrobe">
+      <div class="wr-section wr-top">
+        <div class="wr-rail-label">חליפות</div>
+        <div id="pick-tiers" class="pick-tiers wr-carousel"></div>
+      </div>
+      <div class="wr-center">
+        <canvas id="pick-preview" class="pick-preview" width="240" height="240"></canvas>
+        <div id="pick-name" class="pick-name"></div>
+      </div>
+      <div class="wr-section wr-bottom">
+        <div class="wr-rail-label">דמויות</div>
+        <div id="pick-heroes" class="pick-heroes wr-carousel"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global toast: top-level, outside every .screen, so it's visible regardless of
+       which screen (home/lobby/game/friends) is active when it fires. -->
+  <div id="fp-toast" class="fp-toast hidden"></div>
+
+  <!-- Consistent «‹ חזרה» on every sub-page. MUST stay ABOVE the client.js module tag: modules are
+       deferred, so this classic script runs first and its buttons exist before client.js binds
+       [data-home-back]. Below it, the buttons would render and do nothing. -->
+  <script src="/back-nav.js"></script>
+  <script src="/icon-system.js"></script>
+  <script type="module" src="/client.js"></script>
+  <!-- DEV-ONLY visual layout editor (feat/lobby-redesign). Self-gating and purely
+       additive: it re-applies any saved lobby layout on every load (so the arrangement
+       shows in normal view and inside the iPhone iframe), and activates the drag/resize
+       editor UI ONLY when the URL has ?edit=1. No game logic is touched; a no-op when
+       nothing is saved and ?edit is absent. -->
+  <script defer src="/_layout-edit.js"></script>
+  <script type="module" src="/_hub-tour.js"></script>
+</body>
+</html>

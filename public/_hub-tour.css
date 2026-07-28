@@ -1,0 +1,101 @@
+/* HUB TOUR LAB — the only styling the shipped CSS does not already provide.
+   Design: docs/superpowers/specs/2026-07-28-hub-tour-lab-design.md
+
+   The coach itself is REUSED, not restyled: .tutorial / .tu-veil / .tu-hand / .tu-caption /
+   .hub-tu-gate / .tu-live / #tu-hub-skip all live in style.css, including
+   `.tutorial.nudging .tu-hand { scale: 1.28 }` — the hand already grows when the kid goes quiet.
+   Everything here is scoped under body.lab-tour so it can only ever affect this page. */
+
+/* WHY EVERYTHING IS NOT DIMMED BY THE SHIPPED GATE ALONE, measured rather than assumed:
+   `.hub-tu-gate .hub > *` dims every hub BOX (verified: .hub-pitch and #friends-btn both compute
+   `grayscale(.7) brightness(.55)`, and a lit box computes `none`) — but the bright stadium a player
+   actually sees is painted behind #home, which is not a child of .hub and therefore not touched.
+   The first screenshot showed a "dimmed" lesson on a fully bright lobby because of it.
+   A scrim INSIDE .hub at z-index 1 fixes it in the right place: .hub-pitch has no z-index (auto),
+   every interactive box is z-index 2..6, so the scrim lands above the scenery and below all of it.
+   Not a filter on .hub itself — a parent filter cannot be undone by a lit child. */
+body.lab-tour .lab-scrim {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: rgba(4, 7, 11, .52);
+}
+
+/* The caption sits at the TOP of the screen (style.css .tu-caption), and on this lesson the top is
+   where the CARDS are. At the bottom it lands on the play strip instead (measured: caption
+   y310-382, #play-strip y322-371) — which is FINE, because the strip is dimmed and inert for the
+   whole lesson and is not what any step is about. What is not fine is bold text over button labels,
+   so it gets a plate to sit on. (The level-4 tour's caption-over-the-trophy-bar fault was different:
+   there the bar was the subject of the step.) */
+body.lab-tour .tu-caption {
+  top: auto;
+  bottom: 0;
+  padding: 10px 0 max(7px, calc(env(safe-area-inset-bottom) + 5px));
+  background: linear-gradient(to top, rgba(4, 7, 11, .92) 0%, rgba(4, 7, 11, .78) 55%, rgba(4, 7, 11, 0) 100%);
+}
+/* Smaller than the pitch levels': there it owns an empty sky, here it shares a crowded landscape
+   hub with a play strip underneath it. */
+body.lab-tour .tu-caption b { font-size: clamp(17px, 3.4vw, 25px); }
+/* Pips ABOVE the text, not below it. They are the last child of .tu-caption, and with the caption
+   moved to the bottom edge that put them on the build tag — caught by screenshot: the lit pip was
+   sitting on top of «25JUL-v5». Reordered rather than nudged, so it holds at any caption height. */
+body.lab-tour .tu-pips { order: -1; margin: 0 0 3px; }
+
+/* The lit box is raised above its dimmed siblings by `.hub-tu-gate .hub .tu-live { z-index: 3 }`.
+   Three is right for the hub boxes that tour pointed at, and WRONG here: #power-slots is authored
+   at z-index 6 and the hero at 4, so lighting the slots would push them DOWN two layers, behind the
+   hero's (transparent, full-height) button box. Raised above both instead, which keeps every lit
+   target on top of everything the gate dimmed. Still z-index ONLY — never `position`, which is what
+   sent the last tour's ⚽ off-screen: every hub box is absolutely positioned already. */
+body.lab-tour.hub-tu-gate .hub .tu-live { z-index: 7; }
+
+/* WHERE THE CARD HAS TO LAND. The hand shows the path, but the path ends off the spotlight, and a
+   drop target with no mark on it is a guess. An outline (not a border, not a box-shadow inset) so
+   nothing about the target's size or position moves. */
+body.lab-tour .lab-drop {
+  outline: 3px dashed #ffd06a;
+  outline-offset: 3px;
+  border-radius: 8px;
+  animation: lab-drop-pulse 1.15s ease-in-out infinite;
+}
+@keyframes lab-drop-pulse {
+  0%, 100% { outline-color: rgba(255, 208, 106, .95); outline-offset: 3px; }
+  50%      { outline-color: rgba(255, 208, 106, .30); outline-offset: 7px; }
+}
+/* …EXCEPT the hero, which is not a small box. Its button is 234x246 (measured), so a dashed
+   rectangle around it is a huge frame drawn across the power slots and half the pitch — caught by
+   screenshot. The character's own silhouette is the target, so it glows instead.
+   Specificity is deliberate: `.hub-tu-gate .hub .tu-live` sets `filter: none` on every lit element,
+   and this has to outrank it. z-index/filter only — never `position`, which is what sent the last
+   tour's ⚽ off-screen. */
+body.lab-tour.hub-tu-gate .hub .lab-drop.hub-hero {
+  outline: none; animation: none;
+  filter: drop-shadow(0 0 7px rgba(255, 208, 106, .95)) drop-shadow(0 0 16px rgba(255, 176, 40, .55));
+}
+
+/* These cards are not the player's. Said once, quietly, and never in the way of the lesson. */
+body.lab-tour .lab-badge {
+  position: fixed; z-index: 41;
+  top: max(10px, env(safe-area-inset-top));
+  inset-inline-start: max(10px, env(safe-area-inset-left));
+  font: 700 11px/1 system-ui, sans-serif; color: #e8dfc4;
+  background: rgba(12, 16, 22, .72); border: 1px solid rgba(232, 223, 196, .28);
+  border-radius: 999px; padding: 6px 11px; pointer-events: none;
+}
+
+/* Finished. No reward and no score — this is a bench, and it says so by offering another go. */
+body.lab-tour .lab-done {
+  position: fixed; inset: 0; z-index: 42;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(6, 9, 13, .78); backdrop-filter: blur(2px);
+}
+body.lab-tour .lab-done.hidden { display: none; }
+body.lab-tour .lab-done b {
+  font: 800 clamp(22px, 5vw, 36px)/1.1 system-ui, sans-serif; color: #ffd06a;
+  text-shadow: 0 3px 0 #a56a16, 0 6px 0 #252a21;
+}
+body.lab-tour .lab-done small { font: 600 13px/1.4 system-ui, sans-serif; color: #cfd8e3; }
+body.lab-tour .lab-done button {
+  font: 800 14px/1 system-ui, sans-serif; color: #10161d; background: #ffd06a;
+  border: none; border-radius: 999px; padding: 11px 22px; cursor: pointer;
+  box-shadow: 0 4px 0 #a56a16;
+}
+body.lab-tour .lab-done button:active { transform: translateY(2px); box-shadow: 0 2px 0 #a56a16; }
