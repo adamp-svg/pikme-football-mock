@@ -371,9 +371,12 @@ let soundEnabled = true;   // SFX master on/off (kept true; volume drives loudne
 // 'pikme-musicvol' win, so an existing player's own setting is never rewritten to 50%.
 // Both sliders take their position from these variables, so the numbers here are what the settings
 // screen shows on a first run — index.html deliberately carries no `value` attribute.
-let soundVol = 0.5;        // SFX volume 0..1 (settings slider)
+let soundVol = 0.35;       // SFX volume 0..1 (settings slider) — shipped default, from the same export
 let musicEnabled = true;   // background music on/off — the 🎵 button
-let musicUserVol = 0.5;    // user music volume 0..1 (multiplies each track's own base level)
+// SHIPPED AT 0, from the same export: the game starts with the music silent, and a player who wants it
+// raises the slider. This is a product-wide default and the loudest thing in this batch of changes —
+// flagged as such when it went in, and it is one number to put back.
+let musicUserVol = 0;      // user music volume 0..1 (multiplies each track's own base level)
 const soundBuffers = new Map();
 let soundLoading = null;
 let soundEventsReady = false;
@@ -5076,8 +5079,10 @@ function loadAimNum(k, d) { try { const v = parseFloat(localStorage.getItem(k));
 // button, so it's a thing you see and size rather than an abstract slider number (Brawl Stars makes
 // stick size itself the sensitivity control for the same reason).
 const AIM_SENS_KEY = { bomb: 'fbSensBomb', wall: 'fbSensWall' };
-const aimSens = { bomb: loadAimNum('fbSensBomb', 90), wall: loadAimNum('fbSensWall', 90) };
-let aimSensPx = loadAimNum('fbAimSens', 90);                       // legacy global fallback (pre-per-control saves)
+// Pull-square defaults, from the same exported settings as CTL_SHIPPED_LAYOUT. Recovered from that
+// layout's own `sens` values, because ce-save writes the draft to BOTH places from one number.
+const aimSens = { bomb: loadAimNum('fbSensBomb', 71.5625), wall: loadAimNum('fbSensWall', 57.01173400878906) };
+let aimSensPx = loadAimNum('fbAimSens', 160);                      // legacy global fallback (pre-per-control saves)
 let bombMaxPx = loadAimNum('fbBombMax', BOMB_LOB_RANGE);           // bomb lob reach ceiling (server hard-caps at BOMB_LOB_RANGE)
 let wallMaxPx = loadAimNum('fbWallMax', BUILT_WALL.offset + 32);   // wall total reach; default 92 = old offset+thick (feel-preserving)
 // Cancel dead-zone (Brawl: drag back toward centre = cancel) — the state machine itself lives in
@@ -5585,8 +5590,35 @@ const IS_TOUCH = DEV_LOCAL || ('ontouchstart' in window) || navigator.maxTouchPo
 // Persisted per control: {cx,cy = CENTER as fraction of viewport, size = px, locked}.
 // A `locked` control renders at a FIXED anchor and no longer floats to the touch.
 const CTL_DEFAULTS = { move: { size: 120 }, aim: { size: 120 }, bomb: { size: 82 }, wall: { size: 58 } };
+// THE SHIPPED LAYOUT — the user's own, exported from his dev instance (2026-07-28) and adopted as the
+// default so a new player starts on a tuned pad instead of the computed fallback.
+//
+// `cx`/`cy` are FRACTIONS of the viewport, which is what makes this safe to ship: the pad lands in the
+// same relative place on any screen. `size` and `sens` are px and are NOT scaled — they are thumb-sized
+// quantities, and a thumb is the same size on every phone.
+//
+// `locked: true` on all four is part of the setting, not an accident: a locked control sits at its
+// anchor instead of floating to wherever the touch landed. That is how he plays.
+//
+// It applies ONLY to a player with nothing saved (see loadCtlLayout). Anyone who has been in the
+// controls editor keeps their own layout — a default is not a migration.
+const CTL_SHIPPED_LAYOUT = {
+  move: { cx: 0.12585812356979406, cy: 0.72636815920398,   size: 120,                locked: true },
+  aim:  { cx: 0.8730726309151596,  cy: 0.7168876775903686, size: 120,                locked: true },
+  bomb: { cx: 0.76893819405958,    cy: 0.7204075880942454, size: 74.5455322265625,  sens: 71.5625,          locked: true },
+  wall: { cx: 0.827914214293849,   cy: 0.5100672741377829, size: 54.89776611328125, sens: 57.01173400878906, locked: true },
+};
 let ctlLayout = loadCtlLayout();
-function loadCtlLayout() { try { return JSON.parse(localStorage.getItem('fbControls')) || {}; } catch { return {}; } }
+// A FRESH COPY every time, never the constant itself: the controls editor mutates ctlLayout in place
+// (ce-save writes `ctlLayout[c] = {...}`), so handing out the shared object would let one player's drag
+// edit the shipped default for the rest of the session.
+function loadCtlLayout() {
+  try {
+    const raw = localStorage.getItem('fbControls');
+    if (raw) return JSON.parse(raw) || {};
+  } catch { /* private mode, or corrupt JSON — fall through to the shipped layout */ }
+  return JSON.parse(JSON.stringify(CTL_SHIPPED_LAYOUT));
+}
 function saveCtlLayout() { try { localStorage.setItem('fbControls', JSON.stringify(ctlLayout)); } catch { /* private mode */ } }
 // Resolve a locked control to live screen px, or null if it's still floating/default.
 function ctlPx(c) {
