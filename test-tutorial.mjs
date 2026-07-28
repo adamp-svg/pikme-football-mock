@@ -18,7 +18,7 @@ import {
   tuLevel, stepsIn, stepAt, stageAt, doneStage, foeKeys,
   advance, isStepDone, showNudge, nudgeFor, captionFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel, fieldFor, subFor, markersFor, TU3_FIND, TU3_FLY, TU3_BUSH,
-  TU_HUB_LEVEL, tuIsHub, tuIsMockStep, introducesFor, TU_GOAL_HOLD,
+  TU_HUB_LEVEL, tuIsHub, tuIsMockStep, introducesFor, TU_GOAL_HOLD, tuOffered,
 } from './shared/tutorial.js';
 import { bootServer } from './boot-test-server.mjs';
 // Every match control a step could claim — a HUB step must claim none of them.
@@ -345,10 +345,26 @@ console.log('A10) unlocking: level 1 is always open, level 2 waits for it');
   check(nextLevel(none) === 0, 'nothing done -> offer level 1');
   check(nextLevel(one) === 1, 'level 1 done -> offer level 2');
   check(nextLevel(both) === 2, 'levels 1-2 done -> offer level 3');
-  // The pitch ladder is no longer the whole tutorial: with the hub tour added, finishing טריקים
-  // leaves מרכז to offer. Nothing is left only once all FOUR are done.
-  check(nextLevel(all) === TU_HUB_LEVEL, 'levels 1-3 done -> offer the hub tour');
-  check(nextLevel(new Set([...all, 'mercaz'])) === null, 'all four done -> nothing left to offer');
+  // The three TRAINING levels are the whole offered tutorial. The hub tour is built and parked
+  // (`offered: false`), so finishing טריקים leaves nothing — this is what makes the finale say
+  // «אתה מוכן!» and hide its «המשך ל…» button instead of pointing at מרכז.
+  check(nextLevel(all) === null, 'levels 1-3 done -> nothing left to offer');
+  check(nextLevel(new Set([...all, 'mercaz'])) === null, '...and marking the parked tour done changes nothing');
+}
+
+console.log('A10b) the hub tour is BUILT but not OFFERED — no auto-launch, no menu row, no «המשך»');
+{
+  check(tuOffered(0) && tuOffered(1) && tuOffered(2), 'the three training levels are offered');
+  check(tuOffered(TU_HUB_LEVEL) === false, 'the hub tour is not');
+  check(TU_LEVELS[TU_HUB_LEVEL].offered === false, 'and it says so on the level itself, not in a caller');
+  // Offered-ness is opt-OUT: a level added tomorrow is live without anyone remembering this flag.
+  check(TU_LEVELS.filter((L) => L.offered !== false).length === 3, 'exactly three levels opt in, by default');
+  // Parked, NOT deleted — everything about the tour still resolves, which is why A16/A17 below still
+  // run against it. Un-parking it is deleting one line in the table.
+  check(!!tuLevel(TU_HUB_LEVEL) && stepsIn(TU_HUB_LEVEL) === 6, 'the parked tour is still fully addressable');
+  // A parked level must be SKIPPED by the walk, never terminate it, or parking one in the middle of
+  // the list would hide every level after it.
+  check(nextLevel(new Set(['basics'])) === 1, 'the walk skips a parked level rather than stopping there');
 }
 
 console.log('A11) every level-2 distance sits inside a MEASURED range');
@@ -496,7 +512,9 @@ console.log('A16) level 4 completes on TAPS, and isStepDone needs no special-cas
   check([0, 1, 2, 3, 4].every((n) => /^mock/.test(stepAt(H, n).spotlight)), 'every teaching step points at a mock target');
 }
 
-console.log('A17) the hub tour is EXEMPT from the sequential chain (it auto-launches after level 1)');
+// The tour is PARKED (A10b), so nothing auto-launches it today — but its unlock rule is kept honest
+// and tested, because parking is one line and this is what it goes back to.
+console.log('A17) the hub tour is EXEMPT from the sequential chain (gated on level 1 alone)');
 {
   const H = TU_HUB_LEVEL;
   check(tuUnlocked(H, new Set()) === false, 'locked before level 1');

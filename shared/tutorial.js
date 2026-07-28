@@ -167,7 +167,7 @@ export const TU3_FLY = { me: { x: TU3_WALL.cx + TU3_WALL.ht + TU3_FLY_GAP, y: MI
 // the stage it reached, and a foe that opened fire on a spoofable message would be a foe that never
 // held its fire. Once the condition latches the foe stays armed for the rest of the step. The only
 // value is 'wallBuilt' = a wall of the kid's own team is standing.
-export const TU_LEVELS = [
+const TU_ALL_LEVELS = [
   {
     id: 'basics', name: 'יסודות', sub: 'לזוז · לירות · גול · סופר', ic: '⚽',
     steps: [
@@ -376,6 +376,17 @@ export const TU_LEVELS = [
   {
     id: 'mercaz', name: 'מרכז', sub: 'גביעים · קלפים · כוחות · גיבור', ic: '🏠',
     where: 'hub',
+    // NOT OFFERED. The user's call, after playing the training levels: "remove the continue to center
+    // (the lobby toturial) and leave just the training toturial there". The tutorial a kid is shown is
+    // the three TRAINING levels — this one is neither auto-launched, nor listed in «איך משחקים?», nor
+    // reachable from the «המשך ל…» button on a finale.
+    // It is switched OFF rather than deleted, and it stays in TU_LEVELS rather than being filtered out
+    // of it: this is a finished feature (its own design doc, a mock lobby, a real-⚽ finale, ~40 test
+    // assertions), and a product call about what a kid is SHOWN should not cost the ability to change
+    // our minds. Left in the array, every helper still addresses it by index and every one of those
+    // tests still runs; taken out, they would all have had to be rewritten or deleted. Delete this one
+    // line to put it back in the flow.
+    offered: false,
     // No `stages` and no `field`: there is no pitch to set up. stageAt/foeKeys/fieldFor all tolerate
     // a stageless level rather than each caller having to remember to check.
     //
@@ -420,6 +431,8 @@ export const TU_LEVELS = [
     ],
   },
 ];
+
+export const TU_LEVELS = TU_ALL_LEVELS;
 
 export const TU_LEVEL_COUNT = TU_LEVELS.length;
 export const tuLevel = (l) => TU_LEVELS[l] || null;
@@ -665,9 +678,18 @@ export function tuUnlocked(l, done) {
   for (let i = 0; i < l; i++) if (!done || !done.has(TU_LEVELS[i].id)) return false;
   return true;
 }
+// Is this level part of what a kid is shown? Everything is offered unless it says otherwise, so a new
+// level is live by default and only an explicit `offered: false` (the parked hub tour) opts out. The
+// ONE gate for all three ways a level can be reached — the auto-launch, the «איך משחקים?» picker and
+// the finale's «המשך ל…» button — so a level cannot be half-hidden.
+export const tuOffered = (l) => { const L = tuLevel(l); return !!L && L.offered !== false; };
+
 // The level to offer next: the first unlocked one that isn't finished, else null (all done).
+// A level that is not offered is skipped rather than stopping the walk — otherwise parking one in the
+// middle of the list would hide every level after it.
 export function nextLevel(done) {
   for (let i = 0; i < TU_LEVEL_COUNT; i++) {
+    if (!tuOffered(i)) continue;
     if (!done || !done.has(TU_LEVELS[i].id)) return tuUnlocked(i, done) ? i : null;
   }
   return null;

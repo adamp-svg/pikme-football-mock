@@ -12,7 +12,7 @@ import { PEN, TRAIN_ARENA } from '/shared/training.js';
 import {
   TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, TU2_WALL, tuLevel, stepsIn, stepAt, doneStage,
   advance, isStepDone, showNudge, nudgeFor, captionFor, subFor, tuHasControl, isTutorialOver,
-  bombHit, tuUnlocked, nextLevel, markersFor, tuIsHub, TU_HUB_LEVEL,
+  bombHit, tuUnlocked, nextLevel, tuOffered, markersFor, tuIsHub, TU_HUB_LEVEL,
   tuIsMockStep, introducesFor,
 } from '/shared/tutorial.js';
 import { drawModeArt } from '/mode-art.js';
@@ -8695,7 +8695,11 @@ function renderTuLevels() {
   const done = tuDoneSet();
   const list = tuLevelsEl.querySelector('.tu-lv-list');
   if (!list) return;
+  // Only OFFERED levels. Mapping over the whole table is what put the parked hub tour in this menu,
+  // and the index has to survive the filter — it IS the level id everywhere else — so the filter runs
+  // on entries, not on the array. Empty rows are dropped rather than rendered as a gap.
   list.innerHTML = TU_LEVELS.map((L, i) => {
+    if (!tuOffered(i)) return '';
     const open = tuUnlocked(i, done);
     const fin = done.has(L.id);
     const badge = fin ? '⭐' : open ? '▶' : '🔒';
@@ -8729,13 +8733,16 @@ function tuMaybeAutoStart() {
   const done = tuDoneSet();
   // LEVEL 1: the app opens into it, and there is no skip.
   if (!done.has(TU_LEVELS[0].id)) { startTutorial(0, false); return; }
+  // ...and that is the ONLY auto-launch now. The hub tour used to fire here on a kid's first arrival
+  // at the lobby; it is parked (`offered: false`, shared/tutorial.js), so the branch that started it
+  // is gated on tuOffered below rather than deleted — the tour still works, it is just not shown.
   // LEVEL 4 (the hub tour): the first time a kid actually REACHES the hub, which is the moment it
   // is about. The only other level that ever auto-runs, and unlike level 1 it is SKIPPABLE — a
   // brand-new player has nothing else to do yet, but a kid standing on the hub does. Passing
   // replay:true is what keeps the exit alive; tuReplay means "a way out exists", which is exactly
   // what is wanted here, so it is not a lie about provenance.
   const hub = TU_LEVELS[TU_HUB_LEVEL];
-  if (hub && !done.has(hub.id) && !tuHubWasSkipped() && tuUnlocked(TU_HUB_LEVEL, done)) startTutorial(TU_HUB_LEVEL, true);
+  if (hub && tuOffered(TU_HUB_LEVEL) && !done.has(hub.id) && !tuHubWasSkipped() && tuUnlocked(TU_HUB_LEVEL, done)) startTutorial(TU_HUB_LEVEL, true);
 }
 
 // ===================== FIELD BUILDER (self-contained DOM editor) =====================
