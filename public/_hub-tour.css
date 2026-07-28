@@ -81,6 +81,17 @@ body.lab-tour.hub-tu-gate .hub .lab-drop.hub-hero {
    or 👥 would open that screen and abandon the tour on step 1. */
 body.lab-tour.hub-tu-gate .hub > .lab-show { filter: none; z-index: 7; }
 body.lab-tour.hub-tu-gate .hub .lab-dim { filter: grayscale(.7) brightness(.5); }
+
+/* A READ STEP MAKES THE WHOLE HUB INERT, and it takes !important to do it.
+   The gate's `pointer-events: none` lands on the `.hub > *` box, and children inherit it — except
+   where a rule says otherwise, and `#power-slots .pslot-item { pointer-events: auto }`
+   (style.css:2298) is exactly that. Being an ID rule it outranks any class chain I can write, so a
+   "read-only" slot step was still tappable: a tap would have opened the cards room and walked the kid
+   off the tour. Found by assertion, not by eye.
+   Scoped to .lab-inert, which is set only while the current step is a read step, so the DO steps keep
+   their `.tu-live` pointer events untouched. The tap-catcher lives outside .hub and still gets taps. */
+body.lab-tour.lab-inert .hub,
+body.lab-tour.lab-inert .hub * { pointer-events: none !important; }
 /* WHICH one is being described. Softer than the card tour's dashed drop-ring: nothing has to land
    here, so it marks rather than instructs. */
 body.lab-tour .lab-pick {

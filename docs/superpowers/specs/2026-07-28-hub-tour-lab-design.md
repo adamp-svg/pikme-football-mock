@@ -87,15 +87,44 @@ on the CSS class, so the nudge growth still works.
 `document.elementFromPoint`, and that ignores anything with `pointer-events: none` — so a gate that
 lights only the carousel would let the kid lift a card and silently swallow every drop.
 
-| # | source | target | done when |
-|---|---|---|---|
-| 1 | the front carousel card | `.pslot[data-slot="0"]` | a real slot is no longer `.pslot-empty` |
-| 2 | the **rare** card | `#pick-hero-btn` | a blocked `pikme_cosmetic` write of `striker:gold` |
-| 3 | `#select-best-btn` (tap) | — | **all three** slots non-empty |
+## The order (user, 13:04)
 
-Lesson 3 is the shortcut, taught last on purpose: a kid who has already dragged one card in by hand
-understands what «הכי טוב» just did for them. Taught first it would fill every slot before they knew
-what a slot was, and lesson 1 would have had nothing empty to drop into.
+> "make the home tour first, then the cards pull, first pull a hero custom, then explain each slot,
+> then pull a card to slot, then show the select best"
+
+One run of **nineteen** steps, mixing two kinds — **READ** (lit, named, explained, inert, advanced by
+a tap anywhere) and **DO** (the real control, gated on the real outcome):
+
+| steps | what | kind |
+|---|---|---|
+| 1–13 | the home legend — every corner of the screen | READ |
+| 14 | the **rare** card → the **hero** (`base → gold`) | DO |
+| 15–17 | what each of the three power slots does | READ |
+| 18 | a card → a slot | DO |
+| 19 | «הכי טוב» → all three slots | DO |
+
+Read-then-do, twice: the legend names the furniture before anything is asked, and **the three slots
+are explained while they are still empty** — the only time each one shows its own ⚡/🏃/🛡️ glyph
+instead of a card. Explaining them after the drag would mean explaining a slot with a picture of a
+card sitting in it. «הכי טוב» is last for the same reason it always was: taught earlier it fills
+every slot before the kid knows what a slot is, and step 18 would have nothing empty to drop into.
+
+`?tour=home` and `?tour=cards` run either half alone, for working on one of them.
+
+| DO step | source | target | done when |
+|---|---|---|---|
+| 14 | the **rare** card | `#pick-hero-btn` | a blocked `pikme_cosmetic` write of `striker:gold` |
+| 18 | the front carousel card | `.pslot[data-slot="0"]` | a real slot is no longer `.pslot-empty` |
+| 19 | `#select-best-btn` (tap) | — | **all three** slots non-empty |
+
+**The tap-catcher is per STEP, not per tour.** One run now mixes read and do steps, and a catcher left
+up over a drag step eats the gesture.
+
+**A read step makes the whole hub inert, and that takes `!important`.** The gate's
+`pointer-events: none` lands on the `.hub > *` box and children inherit it — except
+`#power-slots .pslot-item { pointer-events: auto }` (`style.css:2298`), which being an ID rule
+outranks any class chain. So a "read-only" slot step was still tappable and a tap would have opened
+the cards room and walked the kid off the tour. Found by assertion, not by eye.
 
 The hand's mime is per-gesture: a **drag** step gets the directed pull-up-then-swipe path below; a
 **tap** step reuses the shipped `.gest-tap` press and sits just *outside* the target — the hand is

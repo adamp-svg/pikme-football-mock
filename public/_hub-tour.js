@@ -1,17 +1,21 @@
 // HUB TOUR LAB — the coach. Loaded LAST, after client.js has rendered the hub.
 // Design: docs/superpowers/specs/2026-07-28-hub-tour-lab-design.md
 //
-// TWO TOURS on the same cloned lobby, picked by ?tour= :
+// ONE RUN on the cloned lobby, in the order the user asked for — the screen explained first, then
+// the cards. Nineteen steps, mixing two kinds:
 //
-//   cards     (default)  DO IT lessons, on the real controls with the real drag handlers:
-//                        1. lift a card into a POWER SLOT
-//                        2. lift the RARE card onto the HERO  → base → gold
-//                        3. tap «הכי טוב» and watch all three slots fill at once
+//   READ  lit, named, explained, INERT, advanced by a tap anywhere. The thirteen home elements and
+//         the three power slots. Inert on purpose: a tap on ⚙ or 👥 would open that screen and take
+//         the tour with it.
+//   DO    the real control, with the real drag handlers, gated on the real outcome.
 //
-//   elements  ?tour=elements   A LEGEND, not a lesson: thirteen things on this screen, one at a
-//                        time, each lit while everything else stays dark, with its name and what it
-//                        does. Nothing here navigates — every lit element is left INERT on purpose,
-//                        because tapping ⚙ or 👥 would leave the hub and take the tour with it.
+//   1-13  the home legend            READ
+//   14    the RARE card → the HERO   DO    (base → gold)
+//   15-17 what each power slot does  READ
+//   18    a card → a slot            DO
+//   19    «הכי טוב» → all three      DO
+//
+// `?tour=home` and `?tour=cards` run either half alone, for working on one of them.
 //
 // Nothing reaches into client.js. Progress is read off the DOM the hub renders and off the writes
 // the sandbox blocks (setSlotCard → 'pikme-loadout', setHeroSkinByRarity → 'pikme_cosmetic'), so no
@@ -41,71 +45,102 @@ const NUDGE_AFTER = 9;
 const LIFT = 48;
 
 // ---------------------------------------------------------------------------------------------
-// TOUR 1 · cards — do it, on the real controls
+// THE ORDER (user, 2026-07-28 13:04): "make the home tour first, then the cards pull, first pull a
+// hero custom, then explain each slot, then pull a card to slot, then show the select best".
+//
+//   1-13  the HOME legend — what every corner of this screen is
+//   14    pull the RARE card onto the HERO          (do it)
+//   15-17 what each of the three POWER SLOTS does   (read)
+//   18    pull a card into a slot                   (do it)
+//   19    «הכי טוב» fills all three                 (do it)
+//
+// Read-then-do, twice over: the legend names the furniture before anything is asked of them, and the
+// three slots are explained while they are still EMPTY — which is the only time each one shows its own
+// ⚡/🏃/🛡️ glyph instead of a card. Explaining them after the drag would mean explaining a slot with a
+// picture of a card sitting in it.
+// ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// The card lessons — do it, on the real controls
 // ---------------------------------------------------------------------------------------------
 // `src` is where the finger STARTS (the hand's origin), `dst` where it has to end up (the ring).
 // Both are resolved fresh every frame: the hub is a scaled stage (fitHub) and the carousel re-lays
 // out, so a rect captured once is a rect that will be wrong.
 //
-// Lessons 1 and 2 both start at the FRONT card, `.cf-card.cf-center` — the biggest and frontmost of
-// the stack, the only one a seven-year-old can reliably grab. The rare holds the album's top worth,
-// so the carousel's own ranking puts it there. Equipping does not remove a card from the album
-// (renderCarousel reads myCards(), not the loadout), so it is still there for lesson 2.
-const CARD_STEPS = [
-  {
-    id: 'slot', gesture: 'drag',
-    cap: 'גרור לכאן',
-    sub: 'קלף במשבצת = כוח במשחק',
-    nudge: 'הרם את הקלף למעלה — ואז למשבצת',
-    src: () => $('#home-carousel .cf-card.cf-center') || $('#home-carousel .cf-card'),
-    dst: () => $('#power-slots .pslot[data-slot="0"]'),
-    // BOTH ENDS must be live. slotUnder() resolves the drop with document.elementFromPoint, and that
-    // skips anything with `pointer-events: none` — so a gate that lit only the carousel would let the
-    // kid lift a card and then swallow every drop.
-    live: ['.hub-cards', '#power-slots'],
-    // The real slot really filled. Read off the class renderPowerSlots writes: `.pslot-empty` is
-    // present exactly while a slot holds nothing.
-    done: () => !!$('#power-slots .pslot:not(.pslot-empty)'),
-  },
-  {
-    id: 'hero', gesture: 'drag',
-    cap: 'נדיר על הגיבור',
-    sub: 'קלף נדיר = מראה מיוחד',
-    nudge: 'גרור את הקלף הנדיר על הדמות',
-    src: () => $('#home-carousel .cf-card.rarity-rare') || $('#home-carousel .cf-card.cf-center'),
-    dst: () => $('#pick-hero-btn'),
-    live: ['.hub-cards', '#pick-hero-btn'],
-    // The hero really changed tier. setHeroSkinByRarity maps rarity → skin (common:'base',
-    // rare:'gold'), then saveCosmetic attempts the write the sandbox blocks and records. Asserting
-    // ':gold' rather than "a cosmetic write happened" is the difference between teaching this lesson
-    // and passing it by dropping a COMMON on the hero, which re-writes 'striker:base' and changes
-    // nothing on screen.
-    done: () => String(lab.lastWrite('pikme_cosmetic') || '').endsWith(':gold'),
-  },
-  {
-    // THE SHORTCUT, taught last on purpose: a kid who has already dragged one card in by hand
-    // understands what «הכי טוב» just did for them. Taught first it would fill every slot before
-    // they had any idea what a slot was, and lesson 1 would have nothing empty to drop into.
-    id: 'best', gesture: 'tap',
-    cap: 'הכי טוב',
-    sub: 'ממלא לבד את שלושת החזקים',
-    nudge: 'הקש על ✨ הכי טוב',
-    src: () => $('#select-best-btn'),
-    dst: () => $('#select-best-btn'),
-    live: ['#select-best-btn'],
-    // All three, not "some": the button's whole point is that it fills the lot in one tap.
-    done: () => $$('#power-slots .pslot:not(.pslot-empty)').length === 3,
-  },
+// Both drags start at the FRONT card, `.cf-card.cf-center` — the biggest and frontmost of the stack,
+// the only one a seven-year-old can reliably grab. The rare holds the album's top worth, so the
+// carousel's own ranking puts it there, and equipping never removes a card from the album
+// (renderCarousel reads myCards(), not the loadout) — so the same card is still there for the second
+// drag.
+//
+// FIRST of the card lessons, on the user's order: the hero. It is also the right one to open with —
+// it changes the biggest thing on the screen, and it costs the kid nothing to undo.
+const HERO_STEP = {
+  id: 'hero', gesture: 'drag',
+  cap: 'נדיר על הגיבור',
+  sub: 'קלף נדיר = מראה מיוחד',
+  nudge: 'גרור את הקלף הנדיר על הדמות',
+  src: () => $('#home-carousel .cf-card.rarity-rare') || $('#home-carousel .cf-card.cf-center'),
+  dst: () => $('#pick-hero-btn'),
+  // BOTH ENDS must be live. The drop is resolved with document.elementFromPoint, which skips
+  // anything at `pointer-events: none` — so lighting only the carousel would let the kid lift a card
+  // and then swallow every drop.
+  live: ['.hub-cards', '#pick-hero-btn'],
+  // The hero really changed tier. setHeroSkinByRarity maps rarity → skin (common:'base',
+  // rare:'gold'), then saveCosmetic attempts the write the sandbox blocks and records. Asserting
+  // ':gold' rather than "a cosmetic write happened" is the difference between teaching this lesson
+  // and passing it by dropping a COMMON on the hero, which re-writes 'striker:base' and changes
+  // nothing on screen.
+  done: () => String(lab.lastWrite('pikme_cosmetic') || '').endsWith(':gold'),
+};
+
+// WHAT EACH SLOT DOES — read, not done. Explained while all three are still EMPTY, which is when each
+// one is showing its own glyph rather than a card.
+// The wording is the GAME'S OWN, shortened for a seven-year-old: SLOT_META in client.js says slot 0
+// is ⚡בעיטה (charge faster), 1 is 🏃מהירות (run faster without the ball), 2 is 🛡️הגנה (shorter
+// cooldowns — the bomb and the wall come back sooner). Invented copy here would be a second, drifting
+// description of a real buff the server calculates.
+const SLOT_STEPS = [
+  { id: 'slot0', cap: '⚡ בעיטה',  sub: 'הבעיטה נטענת מהר יותר',      spot: '#power-slots .pslot[data-slot="0"]' },
+  { id: 'slot1', cap: '🏃 מהירות', sub: 'רצים מהר יותר בלי הכדור',     spot: '#power-slots .pslot[data-slot="1"]' },
+  { id: 'slot2', cap: '🛡️ הגנה',  sub: 'הפצצה והקיר חוזרים מהר',      spot: '#power-slots .pslot[data-slot="2"]' },
 ];
 
+const SLOT_DRAG = {
+  id: 'slot', gesture: 'drag',
+  cap: 'גרור לכאן',
+  sub: 'קלף במשבצת = כוח במשחק',
+  nudge: 'הרם את הקלף למעלה — ואז למשבצת',
+  src: () => $('#home-carousel .cf-card.cf-center') || $('#home-carousel .cf-card'),
+  dst: () => $('#power-slots .pslot[data-slot="0"]'),
+  live: ['.hub-cards', '#power-slots'],
+  // The real slot really filled. Read off the class renderPowerSlots writes: `.pslot-empty` is
+  // present exactly while a slot holds nothing.
+  done: () => !!$('#power-slots .pslot:not(.pslot-empty)'),
+};
+
+// THE SHORTCUT, last: a kid who has just dragged one card in by hand understands what «הכי טוב» did
+// for them. Taught earlier it would fill every slot before they knew what a slot was, and the drag
+// lesson would have had nothing empty to drop into.
+const BEST_STEP = {
+  id: 'best', gesture: 'tap',
+  cap: 'הכי טוב',
+  sub: 'ממלא לבד את שלושת החזקים',
+  nudge: 'הקש על ✨ הכי טוב',
+  src: () => $('#select-best-btn'),
+  dst: () => $('#select-best-btn'),
+  live: ['#select-best-btn'],
+  // All three, not "some": the button's whole point is that it fills the lot in one tap.
+  done: () => $$('#power-slots .pslot:not(.pslot-empty)').length === 3,
+};
+
 // ---------------------------------------------------------------------------------------------
-// TOUR 2 · elements — what everything on this screen is
+// THE HOME LEGEND — what everything on this screen is. Runs FIRST.
 // ---------------------------------------------------------------------------------------------
 // The order is the user's, verbatim. Each step lights ONE element, names it, and says what it does.
-// `read: true` marks the whole tour as read-only: the lit element is visible but NOT tappable, so a
-// tap on ⚙ or 👥 cannot navigate away and abandon the tour halfway down the list. Advancing is a tap
-// anywhere on the dark, or «הבא ›».
-const ELEMENT_STEPS = [
+// `read: true` = the lit element is visible but NOT tappable, so a tap on ⚙ or 👥 cannot navigate away
+// and abandon the tour halfway down the list. Advancing is a tap anywhere on the dark, or «הבא ›».
+const HOME_STEPS = [
   { id: 'settings', spot: '#hub-settings',              cap: 'הגדרות',      sub: 'צלילים, שליטה ושפה' },
   { id: 'online',   spot: '.hub-online',                cap: 'מחוברים',     sub: 'כמה שחקנים משחקים עכשיו' },
   { id: 'friends',  spot: '#friends-btn',               cap: 'חברים',       sub: 'הוסף חברים והזמן אותם למשחק' },
@@ -119,17 +154,28 @@ const ELEMENT_STEPS = [
   { id: 'training', spot: '#training-btn',              cap: 'אימון',       sub: 'שיעורים ותרגול בלי לחץ' },
   { id: 'builder',  spot: '#field-builder-btn',         cap: 'בונה מגרש',   sub: 'בנה מגרש משלך' },
   { id: 'profile',  spot: '#home-face',                 cap: 'הפרופיל שלי', sub: 'השם, התמונה והשיאים שלך' },
-].map((s) => ({
+];
+
+// A READ step: lit, explained, inert, advanced by a tap anywhere. Shared by the home legend and the
+// three slot explanations, so "something the kid only has to look at" is one behaviour, defined once.
+const asRead = (s) => ({
   ...s, gesture: 'tap', read: true,
   src: () => $(s.spot), dst: () => $(s.spot),
   nudge: 'הקש להמשך',
   done: () => advanceReq,
-}));
+});
 
-const TOURS = { cards: CARD_STEPS, elements: ELEMENT_STEPS };
+const HOME = HOME_STEPS.map(asRead);
+const CARDS = [HERO_STEP, ...SLOT_STEPS.map(asRead), SLOT_DRAG, BEST_STEP];
+
+// `full` is what a kid gets: the screen explained, then the cards. `home` and `cards` exist so either
+// half can be re-run on its own while working on it.
+const TOURS = { full: [...HOME, ...CARDS], home: HOME, cards: CARDS };
 const tourName = (() => {
-  try { return new URLSearchParams(location.search).get('tour') === 'elements' ? 'elements' : 'cards'; }
-  catch { return 'cards'; }
+  try {
+    const t = new URLSearchParams(location.search).get('tour');
+    return TOURS[t] ? t : 'full';
+  } catch { return 'full'; }
 })();
 
 let STEPS = [];
@@ -227,11 +273,24 @@ function markLive() {
   if (dst) dst.classList.add('lab-drop');
 }
 
+// Everything that changes when the step changes. The tap-catcher is PER STEP, not per tour: the flow
+// now mixes read steps and do steps in one run (the legend, then the hero drag, then the three slots,
+// then two more drags), and a catcher left up over a drag step would eat the gesture.
+function applyStep() {
+  const read = !!STEPS[step]?.read;
+  markLive();
+  nextCatcher(read);
+  // Read steps make the whole hub inert. Not just the lit element: `#power-slots .pslot-item` sets
+  // its own `pointer-events: auto` (style.css:2298), so inheritance from the gated box is not enough
+  // and a slot stayed tappable through a step that only asked to be read.
+  document.body.classList.toggle('lab-inert', read);
+}
+
 function badge() {
   if ($('.lab-badge')) return;
   const b = document.createElement('div');
   b.className = 'lab-badge';
-  b.textContent = tour === 'elements' ? 'סיור במסך · שיעור' : 'קלפים לדוגמה · שיעור';
+  b.textContent = tour === 'home' ? 'סיור במסך · שיעור' : 'שיעור לובי · קלפים לדוגמה';
   document.body.appendChild(b);
 }
 
@@ -372,14 +431,14 @@ function tick(now, token) {
   if (s && s.done()) {
     step += 1; stepT = 0; handKey = ''; advanceReq = false;
     if (step >= STEPS.length) { finish(false); return; }
-    markLive();
+    applyStep();
   }
   render();
 }
 
 function finish(skipped) {
   running = false;
-  document.body.classList.remove('hub-tu-gate');
+  document.body.classList.remove('hub-tu-gate', 'lab-inert');
   clearMarks();
   nextCatcher(false);
   $('.lab-scrim')?.remove();          // the lobby goes back to full brightness
@@ -390,20 +449,21 @@ function finish(skipped) {
 
   // No reward, no score, no payout — a bench. The card tour hands off to the screen tour, which is
   // the order they teach in: what the cards do first, then what the rest of the lobby is.
-  const next = tour === 'cards'
-    ? '<button id="lab-elements" type="button">סיור במסך ›</button>'
+  // The full run has nothing left to chain into. `home` on its own offers the cards half next.
+  const next = tour === 'home'
+    ? '<button id="lab-cards" type="button">עכשיו הקלפים ›</button>'
     : '';
   if (!doneEl) {
     doneEl = document.createElement('div');
     doneEl.className = 'lab-done';
     document.body.appendChild(doneEl);
   }
-  doneEl.innerHTML = (tour === 'cards'
-    ? '<b>יפה מאוד!</b><small>הכוח במשבצת · המראה על הגיבור · הכי טוב במגע אחד</small>'
-    : '<b>עכשיו אתה מכיר את המסך</b><small>שלוש עשרה פינות — כולן שלך</small>')
+  doneEl.innerHTML = (tour === 'home'
+    ? '<b>עכשיו אתה מכיר את המסך</b><small>שלוש עשרה פינות — כולן שלך</small>'
+    : '<b>יפה מאוד!</b><small>המראה על הגיבור · כוח בכל משבצת · הכי טוב במגע אחד</small>')
     + next + '<button id="lab-again" type="button">עוד פעם</button>';
   doneEl.querySelector('#lab-again').addEventListener('click', () => start(tour, true));
-  doneEl.querySelector('#lab-elements')?.addEventListener('click', () => start('elements', true));
+  doneEl.querySelector('#lab-cards')?.addEventListener('click', () => start('cards', true));
   doneEl.classList.remove('hidden');
 }
 
@@ -420,7 +480,9 @@ function start(which, restart) {
 
   doneEl?.classList.add('hidden');
   document.body.classList.add('lab-tour');
-  document.body.classList.toggle('lab-read', tour === 'elements');
+  // Tightens the pip row. Keyed on how MANY pips there are, not on which tour: the full run is
+  // nineteen of them on an 844px-wide landscape phone.
+  document.body.classList.toggle('lab-read', TOURS[tour].length > 6);
   coachToBody();
   if (restart) $('.lab-badge')?.remove();
   badge();
@@ -436,8 +498,7 @@ function start(which, restart) {
     pipsEl.innerHTML = STEPS.map(() => '<i></i>').join('');
   }
   step = 0; stepT = 0; handKey = ''; advanceReq = false;
-  nextCatcher(tour === 'elements');
-  markLive();
+  applyStep();
   render();
   running = true; prevT = performance.now();
   const token = ++runToken;

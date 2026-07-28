@@ -171,142 +171,21 @@ check(await vis('#pick-hero-btn') === 'shown', 'the hero is on screen');
 const albumIsOurs = await evalJs('JSON.stringify((window.__lab&&window.__lab.cards||[]).map(c=>c.r))');
 check(albumIsOurs === '["rare","common","common","common","common","common","common"]', `the album is the lab's own deck (${albumIsOurs})`);
 
+
 // ---------------------------------------------------------------------------------------------
-console.log('\n▶ the coach is actually visible, and the rest of the hub is inert');
+console.log('\n▶ the coach is up, everything else is dark and inert');
 check(await vis('#tutorial') === 'shown', '#tutorial is SHOWN (not rendering into #game\'s hidden subtree)');
 check(await evalJs("document.getElementById('tutorial').parentElement === document.body"), 'the coach was re-homed onto <body>');
 check(await vis('#tu-hand') === 'shown', 'the pointing hand is on screen');
-check(await text('#tu-cap') === 'גרור לכאן', `caption reads «גרור לכאן» (got «${await text('#tu-cap')}»)`);
-check(await count('#tu-pips i') === 3, `three pips — three card lessons (got ${await count('#tu-pips i')})`);
 check(await evalJs("document.body.classList.contains('hub-tu-gate')"), 'the gate is up');
-check(await evalJs("document.querySelector('.hub-cards').classList.contains('tu-live')"), 'the carousel is lit');
-check(await evalJs("document.querySelector('#power-slots').classList.contains('tu-live')"), 'the SLOTS are lit too — elementFromPoint ignores pointer-events:none, so an unlit target eats every drop');
-check(await evalJs("getComputedStyle(document.querySelector('#quick-match-btn')).pointerEvents === 'none'"), '⚽ (not part of this lesson) is untappable');
-check(await evalJs("getComputedStyle(document.querySelector('#quick-match-btn')).filter !== 'none'"), '…and visibly dimmed rather than removed');
-check(await vis('#tu-hub-skip') === 'shown', 'there is a way out (דלג ✕)');
-// THE SCENERY IS DIMMED TOO. The gate only reaches `.hub > *`; the stadium is painted behind #home,
-// so on the first run the lesson ran on a fully bright lobby with every per-element check passing.
 check(await vis('.lab-scrim') === 'shown', 'the backdrop scrim is up — "everything dims" includes the scenery the gate cannot reach');
 check(await evalJs("getComputedStyle(document.querySelector('.hub-pitch')).filter !== 'none'"), 'the pitch art itself is dimmed');
-// THE CAPTION MUST NOT COVER WHAT THE LESSON POINTS AT. Generalised from a fault found by
-// screenshot on the level-4 tour, and asserted for BOTH ends of the drag on every step, because the
-// caption is fixed and the targets move with fitHub.
-const capClear = (sel) => evalJs(`(()=>{
-  const c=document.querySelector('.tu-caption').getBoundingClientRect();
-  const t=document.querySelector(${JSON.stringify(sel)});
-  if(!t) return null;
-  const r=t.getBoundingClientRect();
-  const hit = !(c.right<r.left||c.left>r.right||c.bottom<r.top||c.top>r.bottom);
-  return { clear: !hit, cap:{y:Math.round(c.y),h:Math.round(c.height)}, tgt:{y:Math.round(r.y),h:Math.round(r.height)} };
-})()`);
-const capVsCard = await capClear('#home-carousel .cf-card.cf-center');
-check(!!capVsCard && capVsCard.clear, `the caption does not cover the card being pointed at (${JSON.stringify(capVsCard)})`);
-const capVsSlot = await capClear('#power-slots .pslot[data-slot="0"]');
-check(!!capVsSlot && capVsSlot.clear, `…nor the slot it has to land in (${JSON.stringify(capVsSlot)})`);
-check(await evalJs("document.querySelector('#power-slots .pslot[data-slot=\"0\"]').classList.contains('lab-drop')"), 'slot 0 is ringed as the drop target');
-// The hand must be ON the card it points at, not merely inside the viewport.
-const spot = await evalJs(`(()=>{
-  const t=document.getElementById('tutorial'), s=document.querySelector('#home-carousel .cf-card.cf-center');
-  if(!t||!s) return null;
-  const cs=getComputedStyle(t), x=parseFloat(cs.getPropertyValue('--tu-x')), y=parseFloat(cs.getPropertyValue('--tu-y'));
-  const r=s.getBoundingClientRect();
-  return { inside: x>=r.x&&x<=r.right&&y>=r.y&&y<=r.bottom, x, y, r:{x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height)} };
-})()`);
-check(!!spot && spot.inside, `the hand starts ON the front card (${JSON.stringify(spot)})`);
+check(await vis('#tu-hub-skip') === 'shown', 'there is a way out (דלג ✕)');
 check((await state()).carouselFrozen === true, 'the carousel auto-rotate is frozen — otherwise the card under the hand drifts away');
 
-// THE GESTURE IS PULL-UP-THEN-SWIPE, IN THAT ORDER. Asserted by sampling the hand's own animation
-// at fixed points rather than by eye: a diagonal sweep looks similar in a still frame but is the
-// gesture the carousel reads as a SWIPE, so a kid copying it would spin the deck instead of picking
-// a card up. Read straight off the WAAPI timeline — the shape of the mime, not a screenshot of it.
-// Read off the AUTHORED KEYFRAMES, not off rendered style: setting currentTime on a paused
-// animation and reading getComputedStyle in the same task returns a value that lags a frame, which
-// made an earlier version of this check report the hand 11px up at a keyframe that says 34.
-// The keyframe list is the gesture — the shape, in order, with no sampling to get wrong.
-const gesture = await evalJs(`(()=>{
-  const h=document.getElementById('tu-hand'), a=h.getAnimations()[0];
-  if(!a || !a.effect) return null;
-  const num = (s) => String(s||'0px 0px').split(' ').map(v=>Math.round(parseFloat(v)||0));
-  const ks = a.effect.getKeyframes().map(k => { const t=num(k.translate); return { o:+(k.computedOffset ?? k.offset ?? 0).toFixed(2), x:t[0]||0, y:t[1]||0, op:k.opacity }; });
-  const at = (o) => ks.find(k => Math.abs(k.o - o) < 0.005) || null;
-  return { playing: a.playState === 'running', n: ks.length, ks,
-           up: at(0.16), hold: at(0.32), across: at(0.56), down: at(0.74) };
-})()`);
-check(!!gesture && gesture.playing, 'the hand is actually animating (playState running)');
-check(!!gesture?.up && gesture.up.y <= -16 && Math.abs(gesture.up.x) === 0,
-  `beat 1 is a STRAIGHT PULL UP, no sideways travel yet — ${JSON.stringify(gesture?.up)}. The real handler needs dy < -16 and mostly vertical, else it reads as a carousel swipe`);
-check(!!gesture?.hold && Math.abs(gesture.hold.x) === 0 && gesture.hold.y === gesture.up.y,
-  `…and the hand HOLDS up there, so the pull reads as its own action — ${JSON.stringify(gesture?.hold)}`);
-check(!!gesture?.across && Math.abs(gesture.across.x) > 20 && gesture.across.y === gesture.hold.y,
-  `beat 2 swipes ACROSS at the lifted height — ${JSON.stringify(gesture?.across)}`);
-check(!!gesture?.down && gesture.down.y > gesture.across.y && Math.abs(gesture.down.x) > Math.abs(gesture.across.x),
-  `…and only then sets the card down on the target — ${JSON.stringify(gesture?.down)}`);
-
-// ---------------------------------------------------------------------------------------------
-console.log('\n▶ LESSON 1 — lift a card into a power slot');
-await liftTo('#home-carousel .cf-card.cf-center', '#power-slots .pslot[data-slot="0"]');
-const filled = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) > 0, 6000);
-check(!!filled, 'a REAL slot really filled');
-const st1 = await waitFor(async () => { const s = await state(); return s && s.stepId === 'hero' ? s : null; }, 6000);
-check(!!st1, `the machine advanced to lesson 2 (stepId=${(await state())?.stepId})`);
-check(await text('#tu-cap') === 'נדיר על הגיבור', `caption swapped to «נדיר על הגיבור» (got «${await text('#tu-cap')}»)`);
-check(await evalJs("document.querySelector('#pick-hero-btn').classList.contains('lab-drop')"), 'the HERO is now the ringed target');
-check(await evalJs("document.querySelector('#pick-hero-btn').classList.contains('tu-live')"), 'the hero is lit, so the drop can land on it');
-await shot('lab-02-slot-filled');
-
-// ---------------------------------------------------------------------------------------------
-console.log('\n▶ LESSON 2 — the rare on the hero');
-await liftTo('#home-carousel .cf-card.rarity-rare', '#pick-hero-btn');
-const gold = await waitFor(async () => {
-  const s = await state();
-  return s && s.writes.some((w) => w.k === 'pikme_cosmetic' && String(w.v).endsWith(':gold'));
-}, 6000);
-check(!!gold, 'the hero really went RARE → gold (setHeroSkinByRarity ran with the rare card)');
-// The cosmetic ALSO went out on the wire — a second, independent code path (sendMsg) saying the same
-// thing as the blocked localStorage write, and the one the sandbox has to intercept so a dummy album
-// is never described to the server as this player's look.
-const goldSend = (await state()).sends.some((m) => m.type === 'setCosmetic' && m.cosmetic === 'striker:gold');
-check(goldSend, `setCosmetic('striker:gold') was produced and intercepted (${JSON.stringify((await state()).sends)})`);
-// THE PAYOFF, PHOTOGRAPHED, while the hub is still uncovered — lesson 3's caption is up by now but
-// the hero is in full view. A pixel assertion is not available: the hero DANCES, so its pixels differ
-// frame to frame whatever the skin is. This screenshot is for reading, and it gets read.
-await shot('lab-03-hero-gold');
-
-// ---------------------------------------------------------------------------------------------
-// ---------------------------------------------------------------------------------------------
-console.log('\n▶ LESSON 3 — «הכי טוב» fills all three slots in one tap');
-const st2 = await waitFor(async () => { const s = await state(); return s && s.stepId === 'best' ? s : null; }, 6000);
-check(!!st2, `the machine advanced to lesson 3 (stepId=${(await state())?.stepId})`);
-check(await text('#tu-cap') === 'הכי טוב', `caption reads «הכי טוב» (got «${await text('#tu-cap')}»)`);
-check(await evalJs("document.querySelector('#select-best-btn').classList.contains('tu-live')"), '✨ הכי טוב is the lit, tappable target');
-// A TAP mime, not the drag one: nothing is being carried anywhere, so the hand reuses the shipped
-// `.gest-tap` press rather than the pull-up-then-swipe path.
-check(await evalJs("document.getElementById('tu-hand').classList.contains('gest-tap')"), 'the hand switched to the TAP mime for a button step');
-const beforeBest = await count('#power-slots .pslot:not(.pslot-empty)');
-await tap('#select-best-btn');
-const allThree = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) === 3, 6000);
-check(!!allThree, `all three real slots filled at once (was ${beforeBest} before the tap)`);
-const fin = await waitFor(async () => (await vis('.lab-done')) === 'shown', 6000);
-check(!!fin, 'the card tour finished and offered the screen tour + another go');
-check(await evalJs("!document.body.classList.contains('hub-tu-gate')"), 'the gate came down — the hub is tappable again');
-check(await vis('.lab-scrim') !== 'shown', 'the scrim came down with it — the lobby is at full brightness again');
-await shot('lab-04-best-equipped');
-
-console.log('\n▶ the lesson wrote NOTHING and sent NOTHING');
-// saveLoadout / saveCosmetic both reach postPrefs(), which the app persists under the player's
-// PHONE NUMBER. A leak here is a leak into a real account, so this is asserted, never assumed.
-check(await evalJs("localStorage.getItem('pikme_cosmetic') === null"), 'no hero was persisted to localStorage');
-check(await evalJs("localStorage.getItem('pikme-loadout') === null"), 'no loadout was persisted to localStorage');
-const sends = (await state()).sends || [];
-check(sends.every((m) => m.type === 'setLoadout' || m.type === 'setCosmetic'), 'only loadout/cosmetic messages were intercepted');
-check(await evalJs("!!window.__lab && window.__lab.writes.length > 0"), `the writes were attempted and BLOCKED (${(await state()).writes.length} recorded) — proof the real code path ran`);
-check(await evalJs("!window.ReactNativeWebView"), 'no app bridge on this surface, so postPrefs() had nowhere to go either');
-
-// ---------------------------------------------------------------------------------------------
-// TOUR 2 · the 13 elements
-// ---------------------------------------------------------------------------------------------
-console.log('\n▶ THE ELEMENT TOUR — 13 things on this screen, in the user\'s order');
-const ORDER = [
+// THE ORDER IS THE WHOLE POINT OF THIS ROUND: the home legend first, then the hero, then the three
+// slots explained, then the drag, then «הכי טוב». Asserted as one list so a re-order cannot pass.
+const HOME_ORDER = [
   ['settings', 'הגדרות', '#hub-settings'],
   ['online',   'מחוברים', '.hub-online'],
   ['friends',  'חברים', '#friends-btn'],
@@ -321,73 +200,212 @@ const ORDER = [
   ['builder',  'בונה מגרש', '#field-builder-btn'],
   ['profile',  'הפרופיל שלי', '#home-face'],
 ];
-await evalJs("window.__labStart('elements')");
-const el0 = await waitFor(async () => { const s = await state(); return s && s.running && s.tour === 'elements' ? s : null; }, 8000);
-check(!!el0, 'the element tour started');
-check(!!el0 && el0.stepIds.length === 13, `all 13 steps have a target on this screen — none dropped (${el0?.stepIds.length})`);
-check(JSON.stringify(el0?.stepIds) === JSON.stringify(ORDER.map((o) => o[0])),
-  `and they are in the order given: ${JSON.stringify(el0?.stepIds)}`);
-check(await count('#tu-pips i') === 13, '13 pips');
-// THE GATE MUST COME BACK UP for the second tour. finish() tore it down at the end of the card tour,
-// so the hand-off has to rebuild it — and the first screenshot of this tour showed a fully bright
-// lobby, which is what an un-asserted teardown/rebuild looks like.
-check(await evalJs("document.body.classList.contains('hub-tu-gate')"), 'the gate is up again for the second tour');
-check(await vis('.lab-scrim') === 'shown', 'the scrim is back too');
-check(await evalJs("getComputedStyle(document.querySelector('#friends-btn')).filter !== 'none'"), 'a NON-described element is dimmed (👥 while ⚙ is being described)');
-check(await evalJs("getComputedStyle(document.querySelector('#play-strip')).filter !== 'none'"), '…and so is the whole play strip');
-// One loop, not two. finish() runs inside a tick that has already queued its successor, so the
-// hand-off used to leave the previous tour's frame alive: two loops, double stepT, and a real risk of
-// both taking the same step and skipping one.
-const t0 = (await state()).stepT; await sleep(1000);
-const dT = (await state()).stepT - t0;
-check(dT > 0.6 && dT < 1.5, `exactly one machine is ticking — 1.0s of wall clock advanced stepT by ${dT.toFixed(2)}s (two loops would roughly double it)`);
-check(await vis('.lab-catch') === 'shown', 'tapping anywhere advances (the catcher is up)');
-check(await vis('#lab-next') === 'shown', '…and there is a «הבא ›» button for anyone who wants one');
+// The Hebrew word only. The captions carry a leading ⚡/🏃/🛡️, and icon-system.js REPLACES emoji in
+// the DOM with pixel sprites — so textContent comes back without them. The sprite is wanted (it is the
+// game's own look), so the check is `includes`, not equality.
+const SLOT_ORDER = [
+  ['slot0', 'בעיטה',  '#power-slots .pslot[data-slot="0"]'],
+  ['slot1', 'מהירות', '#power-slots .pslot[data-slot="1"]'],
+  ['slot2', 'הגנה',   '#power-slots .pslot[data-slot="2"]'],
+];
+const FULL_ORDER = [...HOME_ORDER.map((o) => o[0]), 'hero', ...SLOT_ORDER.map((o) => o[0]), 'slot', 'best'];
+const st = await state();
+check(st.tour === 'full', `the default run is the full tour (got '${st.tour}')`);
+check(JSON.stringify(st.stepIds) === JSON.stringify(FULL_ORDER),
+  `19 steps, home first then the cards: ${JSON.stringify(st.stepIds)}`);
+check(st.stepId === 'settings', `it OPENS on the home legend, not on a card (step 1 = '${st.stepId}')`);
+check(await count('#tu-pips i') === 19, `19 pips (got ${await count('#tu-pips i')})`);
 
-let tourFaults = 0;
-for (let i = 0; i < ORDER.length; i++) {
-  const [id, name, sel] = ORDER[i];
-  const st = await state();
-  if (st.stepId !== id) { console.log(`  ❌ step ${i + 1} should be '${id}', machine says '${st.stepId}'`); failures++; tourFaults++; break; }
-  // The named element is LIT, and its own box is un-dimmed so it is genuinely visible…
+// A READ step: lit, named, explained, INERT, and the hand clear of the thing it points at.
+// The hand is 54px and most of these targets are smaller, so a hand centred on ⚙ hides the very
+// element being described — which is what the first screenshot of the legend showed.
+async function readStep(i, id, name, sel, label) {
+  const s = await state();
+  if (s.stepId !== id) { console.log(`  ❌ ${label} should be '${id}', machine says '${s.stepId}'`); failures++; return false; }
   const lit = await evalJs(`(()=>{
     const e=document.querySelector(${JSON.stringify(sel)}); if(!e) return null;
     const box=e.closest('.hub > *')||e;
-    return { pick: e.classList.contains('lab-pick'), boxShown: box.classList.contains('lab-show'),
-             filter: getComputedStyle(box).filter,
-             // …and NOT tappable: this tour must never be able to navigate away from the hub.
-             pe: getComputedStyle(e).pointerEvents };
-  })()`);
-  const capNow = await text('#tu-cap');
-  const subNow = await text('#tu-nudge');
-  // AND THE HAND MUST NOT COVER IT. The hand is 54px and most of these targets are smaller, so a
-  // hand centred on ⚙ hides the very thing being described — which is what the first screenshot of
-  // this tour showed. Asserted as "the hand's box does not contain the target's centre".
-  const clear = await evalJs(`(()=>{
     const h=document.getElementById('tu-hand').getBoundingClientRect();
-    const t=document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect();
-    const cx=t.x+t.width/2, cy=t.y+t.height/2;
-    return { covers: cx>=h.left&&cx<=h.right&&cy>=h.top&&cy<=h.bottom,
-             hand:{y:Math.round(h.y)}, tgt:{y:Math.round(cy)} };
+    const r=e.getBoundingClientRect(), cx=r.x+r.width/2, cy=r.y+r.height/2;
+    return { pick: e.classList.contains('lab-pick'), boxShown: box.classList.contains('lab-show'),
+             filter: getComputedStyle(box).filter, pe: getComputedStyle(e).pointerEvents,
+             handCovers: cx>=h.left&&cx<=h.right&&cy>=h.top&&cy<=h.bottom };
   })()`);
+  const cap = await text('#tu-cap'), sub = await text('#tu-nudge');
   const ok = lit && lit.pick && lit.boxShown && lit.filter === 'none' && lit.pe === 'none'
-    && capNow === name && subNow.length > 3 && clear && !clear.covers;
-  if (!ok) { console.log(`  ❌ ${i + 1}. ${id}: ${JSON.stringify({ lit, capNow, subNow, clear })}`); failures++; tourFaults++; }
-  else console.log(`  ✅ ${i + 1}. «${name}» lit, inert, explained, hand clear of it — «${subNow}»`);
-  if (i === 0) await shot('lab-06-elements-first');
-  if (i === 7) await shot('lab-07-elements-quickplay');
-  if (i === 12) await shot('lab-08-elements-last');
-  // Advance the way a kid does: a tap on the dark.
+    && !lit.handCovers && cap.includes(name) && sub.length > 3;
+  if (!ok) { console.log(`  ❌ ${label} ${id}: ${JSON.stringify({ lit, cap, sub })}`); failures++; return false; }
+  console.log(`  ✅ ${label} «${name}» lit, inert, explained, hand clear — «${sub}»`);
+  return true;
+}
+// Advance a read step the way a kid does: a tap on the dark.
+async function tapDark() {
   await touch('touchStart', 60, 200); await sleep(30); await touch('touchEnd', 60, 200);
   await sleep(260);
 }
-check(tourFaults === 0, `all 13 element steps lit the right thing, left it inert, and explained it (${tourFaults} faults)`);
-// Nothing navigated. The whole reason the elements are inert is that a tap on ⚙ or 👥 would open that
-// screen and abandon the tour — so this is the assertion that keeps the design honest.
-check(await vis('#home') === 'shown', 'we are still on the hub — no step navigated away');
-const finEl = await waitFor(async () => (await vis('.lab-done')) === 'shown', 6000);
-check(!!finEl, 'the element tour finished');
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ STEPS 1-13 · THE HOME LEGEND');
+check(await vis('.lab-catch') === 'shown', 'a read step puts the tap-catcher up');
+check(await vis('#lab-next') === 'shown', '…and a «הבא ›» button for anyone who wants one');
+let legendFaults = 0;
+for (let i = 0; i < HOME_ORDER.length; i++) {
+  const [id, name, sel] = HOME_ORDER[i];
+  if (!await readStep(i, id, name, sel, `${i + 1}.`)) { legendFaults++; break; }
+  if (i === 0) await shot('lab-01-home-settings');
+  if (i === 7) await shot('lab-02-home-quickplay');
+  if (i === 12) await shot('lab-03-home-profile');
+  await tapDark();
+}
+check(legendFaults === 0, `all 13 home elements lit the right thing, left it inert, and explained it`);
+check(await vis('#home') === 'shown', 'we are still on the hub — no legend step navigated away');
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ STEP 14 · THE HERO — the rare card, dragged onto him');
+const atHero = await waitFor(async () => { const s = await state(); return s && s.stepId === 'hero' ? s : null; }, 6000);
+check(!!atHero, `the legend handed over to the hero lesson (stepId=${(await state())?.stepId})`);
+check(await text('#tu-cap') === 'נדיר על הגיבור', `caption reads «נדיר על הגיבור» (got «${await text('#tu-cap')}»)`);
+check(await evalJs("!document.querySelector('.lab-catch')"), 'the tap-catcher is GONE for a drag step — left up it would eat the gesture');
+check(await evalJs("document.querySelector('.hub-cards').classList.contains('tu-live')"), 'the carousel is live again');
+check(await evalJs("document.querySelector('#pick-hero-btn').classList.contains('tu-live')"), 'the hero is live, so the drop can land on it');
+check(await evalJs("getComputedStyle(document.querySelector('#quick-match-btn')).pointerEvents === 'none'"), '⚽ (not part of this lesson) is untappable');
+// THE CAPTION MUST NOT COVER WHAT THE LESSON POINTS AT — generalised from a fault found by screenshot
+// on the level-4 tour, and checked on both ends because the caption is fixed while the targets move
+// with fitHub.
+// "Clear" means the caption does not sit ON the target: it must miss the target's CENTRE and cover no
+// more than a quarter of its height. A strict any-overlap test fails on a graze that hides nothing —
+// the hero's button box is 246px tall and its bottom edge laps 9px into the caption while the
+// character itself, a 210px canvas centred in it, is nowhere near. The fault worth catching is a
+// caption covering the thing being pointed at, not two rectangles touching.
+const capClear = (sel) => evalJs(`(()=>{
+  const c=document.querySelector('.tu-caption').getBoundingClientRect();
+  const t=document.querySelector(${JSON.stringify(sel)});
+  if(!t) return null;
+  const r=t.getBoundingClientRect();
+  const cx=r.x+r.width/2, cy=r.y+r.height/2;
+  const onCentre = cx>=c.left&&cx<=c.right&&cy>=c.top&&cy<=c.bottom;
+  const overlapY = Math.max(0, Math.min(c.bottom,r.bottom)-Math.max(c.top,r.top));
+  const frac = overlapY/r.height;
+  return { clear: !onCentre && frac <= 0.25, onCentre, frac:+frac.toFixed(2),
+           cap:{y:Math.round(c.y),h:Math.round(c.height)}, tgt:{y:Math.round(r.y),h:Math.round(r.height)} };
+})()`);
+const capVsCard = await capClear('#home-carousel .cf-card.rarity-rare');
+check(!!capVsCard && capVsCard.clear, `the caption does not cover the card (${JSON.stringify(capVsCard)})`);
+const capVsHero = await capClear('#pick-hero-btn');
+check(!!capVsHero && capVsHero.clear, `…nor the hero it has to land on (${JSON.stringify(capVsHero)})`);
+// The hand must be ON the card it points at, not merely inside the viewport.
+const spot = await evalJs(`(()=>{
+  const t=document.getElementById('tutorial'), s=document.querySelector('#home-carousel .cf-card.rarity-rare');
+  if(!t||!s) return null;
+  const cs=getComputedStyle(t), x=parseFloat(cs.getPropertyValue('--tu-x')), y=parseFloat(cs.getPropertyValue('--tu-y'));
+  const r=s.getBoundingClientRect();
+  return { inside: x>=r.x&&x<=r.right&&y>=r.y&&y<=r.bottom, x, y };
+})()`);
+check(!!spot && spot.inside, `the hand starts ON the rare card (${JSON.stringify(spot)})`);
+
+// THE GESTURE IS PULL-UP-THEN-SWIPE, IN THAT ORDER. Read off the AUTHORED KEYFRAMES, not off rendered
+// style: setting currentTime on a paused animation and reading getComputedStyle in the same task
+// returns a value that lags a frame, which had an earlier version of this check reporting the hand
+// 11px up at a keyframe that says 48. The keyframe list IS the gesture.
+const gesture = await evalJs(`(()=>{
+  const h=document.getElementById('tu-hand'), a=h.getAnimations()[0];
+  if(!a || !a.effect) return null;
+  const num = (s) => String(s||'0px 0px').split(' ').map(v=>Math.round(parseFloat(v)||0));
+  const ks = a.effect.getKeyframes().map(k => { const t=num(k.translate); return { o:+(k.computedOffset ?? k.offset ?? 0).toFixed(2), x:t[0]||0, y:t[1]||0 }; });
+  const at = (o) => ks.find(k => Math.abs(k.o - o) < 0.005) || null;
+  return { playing: a.playState === 'running', up: at(0.16), hold: at(0.32), across: at(0.56), down: at(0.74) };
+})()`);
+check(!!gesture && gesture.playing, 'the hand is animating (playState running)');
+check(!!gesture?.up && gesture.up.y <= -40 && Math.abs(gesture.up.x) === 0,
+  `beat 1 is a STRAIGHT PULL UP and it is HIGH — ${JSON.stringify(gesture?.up)} (raised to 48 on request; the real handler needs dy < -16 and mostly vertical or it reads as a carousel swipe)`);
+check(!!gesture?.hold && Math.abs(gesture.hold.x) === 0 && gesture.hold.y === gesture.up.y,
+  `…and the hand HOLDS up there, so the pull reads as its own action — ${JSON.stringify(gesture?.hold)}`);
+check(!!gesture?.across && Math.abs(gesture.across.x) > 20 && gesture.across.y === gesture.hold.y,
+  `beat 2 swipes ACROSS at the lifted height — ${JSON.stringify(gesture?.across)}`);
+check(!!gesture?.down && gesture.down.y > gesture.across.y,
+  `…and only then sets the card down on the target — ${JSON.stringify(gesture?.down)}`);
+
+await liftTo('#home-carousel .cf-card.rarity-rare', '#pick-hero-btn');
+const gold = await waitFor(async () => {
+  const s = await state();
+  return s && s.writes.some((w) => w.k === 'pikme_cosmetic' && String(w.v).endsWith(':gold'));
+}, 6000);
+check(!!gold, 'the hero really went RARE → gold (setHeroSkinByRarity ran with the rare card)');
+const goldSend = (await state()).sends.some((m) => m.type === 'setCosmetic' && m.cosmetic === 'striker:gold');
+check(goldSend, `setCosmetic('striker:gold') was produced and intercepted (${JSON.stringify((await state()).sends)})`);
+await shot('lab-04-hero-gold');
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ STEPS 15-17 · WHAT EACH SLOT DOES — explained while they are still empty');
+const atSlots = await waitFor(async () => { const s = await state(); return s && s.stepId === 'slot0' ? s : null; }, 6000);
+check(!!atSlots, `the hero lesson handed over to the slot legend (stepId=${(await state())?.stepId})`);
+// The reason this comes BEFORE the drag: an empty slot is the only time each one shows its own
+// ⚡/🏃/🛡️ glyph instead of a card, so the thing being explained is actually on screen.
+check(await count('#power-slots .pslot.pslot-empty') === 3, `all 3 slots are still EMPTY while being explained (got ${await count('#power-slots .pslot.pslot-empty')})`);
+check(await vis('.lab-catch') === 'shown', 'the tap-catcher came back for these read steps');
+let slotFaults = 0;
+for (let i = 0; i < SLOT_ORDER.length; i++) {
+  const [id, name, sel] = SLOT_ORDER[i];
+  if (!await readStep(i, id, name, sel, `${15 + i}.`)) { slotFaults++; break; }
+  if (i === 0) await shot('lab-05-slot-explained');
+  await tapDark();
+}
+check(slotFaults === 0, 'all three slots were named and explained, each inert');
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ STEP 18 · A CARD INTO A SLOT');
+const atDrag = await waitFor(async () => { const s = await state(); return s && s.stepId === 'slot' ? s : null; }, 6000);
+check(!!atDrag, `the slot legend handed over to the drag (stepId=${(await state())?.stepId})`);
+check(await text('#tu-cap') === 'גרור לכאן', `caption reads «גרור לכאן» (got «${await text('#tu-cap')}»)`);
+check(await evalJs("!document.querySelector('.lab-catch')"), 'the catcher is down again for the drag');
+check(await evalJs("document.querySelector('#power-slots').classList.contains('tu-live')"), 'the SLOTS are lit — elementFromPoint ignores pointer-events:none, so an unlit target eats every drop');
+check(await evalJs("document.querySelector('#power-slots .pslot[data-slot=\"0\"]').classList.contains('lab-drop')"), 'slot 0 is ringed as the drop target');
+await liftTo('#home-carousel .cf-card.cf-center', '#power-slots .pslot[data-slot="0"]');
+const filled = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) > 0, 6000);
+check(!!filled, 'a REAL slot really filled');
+await shot('lab-06-slot-filled');
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ STEP 19 · «הכי טוב» fills all three in one tap');
+const atBest = await waitFor(async () => { const s = await state(); return s && s.stepId === 'best' ? s : null; }, 6000);
+check(!!atBest, `the machine reached the last step (stepId=${(await state())?.stepId})`);
+check(await text('#tu-cap') === 'הכי טוב', `caption reads «הכי טוב» (got «${await text('#tu-cap')}»)`);
+check(await evalJs("document.getElementById('tu-hand').classList.contains('gest-tap')"), 'the hand switched to the TAP mime for a button step');
+check(await evalJs("document.querySelector('#select-best-btn').classList.contains('tu-live')"), '✨ הכי טוב is the lit, tappable target');
+const beforeBest = await count('#power-slots .pslot:not(.pslot-empty)');
+await tap('#select-best-btn');
+const allThree = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) === 3, 6000);
+check(!!allThree, `all three real slots filled at once (was ${beforeBest} before the tap)`);
+const fin = await waitFor(async () => (await vis('.lab-done')) === 'shown', 6000);
+check(!!fin, 'the tour finished');
+check(await evalJs("!document.body.classList.contains('hub-tu-gate')"), 'the gate came down — the hub is tappable again');
+check(await vis('.lab-scrim') !== 'shown', 'the scrim came down with it — the lobby is at full brightness again');
 check(await evalJs("!document.querySelector('.lab-catch')"), 'the tap-catcher was removed on the way out');
+await shot('lab-07-best-equipped');
+// The payoff, photographed with the panel lifted for one frame: three equipped slots and a gold hero.
+// A pixel assertion is not available — the hero DANCES, so its pixels differ frame to frame whatever
+// the skin is. This screenshot is for reading, and it gets read.
+await evalJs("document.querySelector('.lab-done').classList.add('hidden')");
+await sleep(400);
+await shot('lab-08-final-uncovered');
+
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ ONE loop, and the lesson wrote NOTHING and sent NOTHING');
+// finish() runs inside a tick that has already queued its successor, so a hand-off used to leave the
+// previous run's loop alive: two loops, double stepT, and both able to consume one done() and skip a
+// step between them.
+await evalJs("window.__labStart('cards')");
+await sleep(500);
+const t0 = (await state()).stepT; await sleep(1000);
+const dT = (await state()).stepT - t0;
+check(dT > 0.6 && dT < 1.5, `exactly one machine ticks after a restart — 1.0s of wall clock moved stepT by ${dT.toFixed(2)}s (two loops would roughly double it)`);
+// saveLoadout / saveCosmetic both reach postPrefs(), which the app persists under the player's PHONE
+// NUMBER. A leak here is a leak into a real account, so this is asserted, never assumed.
+check(await evalJs("localStorage.getItem('pikme_cosmetic') === null"), 'no hero was persisted to localStorage');
+check(await evalJs("localStorage.getItem('pikme-loadout') === null"), 'no loadout was persisted to localStorage');
+check((await state()).sends.every((m) => m.type === 'setLoadout' || m.type === 'setCosmetic'), 'only loadout/cosmetic messages were intercepted');
+check(await evalJs("window.__lab.writes.length > 0"), `the writes were attempted and BLOCKED (${(await state()).writes.length} recorded) — proof the real code path ran`);
+check(await evalJs("!window.ReactNativeWebView"), 'no app bridge on this surface, so postPrefs() had nowhere to go either');
 
 console.log('\n▶ console');
 check(jsErrors.length === 0, `no uncaught JS errors${jsErrors.length ? `\n     ${jsErrors.slice(0, 4).join('\n     ')}` : ''}`);
