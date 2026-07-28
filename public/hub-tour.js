@@ -358,7 +358,7 @@ function applyStep() {
 function badge() {
   if (!LAB || $('.ht-badge')) return;
   const b = document.createElement('div');
-  b.className = 'ht-badge';
+  b.className = 'ht-badge ht-badge-lab';
   b.textContent = tour === 'home' ? 'סיור במסך · שיעור' : 'שיעור לובי · קלפים לדוגמה';
   document.body.appendChild(b);
 }
@@ -525,7 +525,12 @@ function finish(skipped) {
   // Skipping is not finishing. Both stop the auto-launch coming back tomorrow, but only one of them
   // means the kid was actually shown the screen.
   mark(skipped ? SKIP_KEY : DONE_KEY);
-  document.body.classList.remove('hub-tu-gate', 'ht-inert');
+  // EVERY class comes off, not just the gate. `ht-tour` carries this tour's own restyling of the
+  // shipped coach — the caption moved to the bottom on a plate, smaller text, pips reordered above it —
+  // and leaving it on the body meant the PITCH tutorial that follows inherited all of it: its caption,
+  // which is authored at the TOP of the screen, was drawn at the bottom over the build tag for the rest
+  // of the session. Caught in a screenshot of the hand-off, not by any assertion.
+  document.body.classList.remove('hub-tu-gate', 'ht-inert', 'ht-tour', 'ht-read', 'ht-lab');
   clearMarks();
   nextCatcher(false);
   $('.ht-scrim')?.remove();          // the lobby goes back to full brightness
@@ -535,26 +540,43 @@ function finish(skipped) {
   // Hand the floor back: client.js resumes its own auto-start, which is where the pitch tutorial
   // begins. A skip gets the same call — a kid who waved the lobby away still gets taught to play.
   const resume = resumeAfter; resumeAfter = null;
-  if (resume) setTimeout(resume, skipped ? 0 : 900);   // a beat to read «יפה מאוד!» first
-  if (skipped) return;
+  if (skipped) { resume?.(); return; }
 
-  // No reward, no score, no payout — a bench. The card tour hands off to the screen tour, which is
-  // the order they teach in: what the cards do first, then what the rest of the lobby is.
-  // The full run has nothing left to chain into. `home` on its own offers the cards half next.
-  const next = tour === 'home'
-    ? '<button id="ht-cards" type="button">עכשיו הקלפים ›</button>'
-    : '';
   if (!doneEl) {
     doneEl = document.createElement('div');
     doneEl.className = 'ht-done';
     document.body.appendChild(doneEl);
   }
+
+  // ---- FIRST RUN: celebrate for a beat, then GET OUT OF THE WAY so the pitch tutorial pops ------
+  // This panel is fixed/inset:0 at z-index 42. Before this it was shown and left up while `resume`
+  // started level 1 underneath, so the kid landed in the pitch tutorial with a full-screen
+  // «יפה מאוד! / עוד פעם» over it — the lesson had started and could not be seen or reached.
+  // Photographed, not theorised: _tu-shots/probe-after-finish.png.
+  // So: no buttons here (there is nothing to choose), a line that says what happens next, and the
+  // panel is HIDDEN BEFORE the hand-off rather than at the same time as it.
+  if (resume) {
+    doneEl.innerHTML = '<b>יפה מאוד!</b><small>עכשיו נלמד לשחק</small>';
+    doneEl.classList.remove('hidden');
+    setTimeout(() => { doneEl.classList.add('hidden'); resume(); }, 1800);
+    return;
+  }
+
+  // ---- A REPLAY (the ? in settings): the panel stays until it is dismissed -----------------------
+  // It needs its own way out. «עוד פעם» restarts the tour, so without «סגירה» this full-screen panel
+  // is a trap on the lobby — the same mistake as a lesson with no skip.
+  const next = tour === 'home'
+    ? '<button id="ht-cards" type="button">עכשיו הקלפים ›</button>'
+    : '';
   doneEl.innerHTML = (tour === 'home'
     ? '<b>עכשיו אתה מכיר את המסך</b><small>שלוש עשרה פינות — כולן שלך</small>'
     : '<b>יפה מאוד!</b><small>המראה על הגיבור · כוח בכל משבצת · הכי טוב במגע אחד</small>')
-    + next + '<button id="ht-again" type="button">עוד פעם</button>';
+    + next
+    + '<button id="ht-again" type="button">עוד פעם</button>'
+    + '<button id="ht-close" type="button" class="ht-ghost">סגירה</button>';
   doneEl.querySelector('#ht-again').addEventListener('click', () => start(tour, true));
   doneEl.querySelector('#ht-cards')?.addEventListener('click', () => start('cards', true));
+  doneEl.querySelector('#ht-close').addEventListener('click', () => doneEl.classList.add('hidden'));
   doneEl.classList.remove('hidden');
 }
 

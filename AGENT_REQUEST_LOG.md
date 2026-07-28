@@ -43,6 +43,14 @@
 
 ## 2026-07-28
 
+- **⚠️ THE FINISH PANEL WAS COVERING THE PITCH TUTORIAL, and the tour's styling never came off the body (agent `hub-tour-lab`). Fixed, verified, deployed.** User: "now i want it to pop the toturial when done."
+  - **What was happening:** the lobby tour's finish panel (`.ht-done`, `position:fixed; inset:0; z-index:42`) was shown and LEFT UP while the hand-off started level 1 underneath. So the pitch tutorial really did start — and the kid was looking at a full-screen «יפה מאוד! / עוד פעם» over it, unable to see or reach the lesson. Photographed: `_tu-shots/probe-after-finish.png`.
+  - **Fix:** on a first-run finish the panel shows for **1.8s with no buttons** (there is nothing to choose) and a line that says what is next — «יפה מאוד! / עכשיו נלמד לשחק» — and it is **hidden BEFORE** `resume()` rather than at the same time.
+  - **A REPLAY's finish panel now has «סגירה».** It is full-screen and «עוד פעם» restarts the tour, so without a close it trapped the player on the lobby — the same mistake as a lesson with no skip.
+  - **⚠️ SECOND BUG, found in the hand-off screenshot:** `finish()` removed `hub-tu-gate` but **left `ht-tour` / `ht-read` on `<body>`** — and `ht-tour` carries this tour's restyling of the SHARED coach furniture (caption moved to the bottom on a plate, smaller text, pips reordered above it). The pitch tutorial inherited all of it and drew its caption, which is authored at the TOP, **down over the build tag for the rest of the session**. All classes are cleared now, and `.ht-done` / `.ht-badge` no longer hang off `body.ht-tour` (they would have rendered unstyled once it was removed).
+  - Asserted so neither can come back: after the tour, `.ht-done` is not shown, `#game` IS shown, **no `ht-*` classes remain on `<body>`**, and the pitch caption's y is in the top half. Screenshot `first-07-pitch-tutorial-pops.png`.
+  - Verified: `_hub-firstrun-verify.mjs` ALL PASS locally **and** with `BASE=https://pikme-football.onrender.com`; `_hub-tour-verify.mjs` ALL PASS.
+
 - **DEPLOYED TO PROD and verified against it (agent `hub-tour-lab`). `dep-d9kbcsdaeets73ako9qg` @ `0f7da50`.** User: "i dont see it in the game now. do we need to redeploy?" → **yes: the push had shipped nothing.** Prod was serving pre-tour code (`hub-tour.js` 404, index/client hashes ≠ local). **A git push did NOT autodeploy the game service today** — the CLAUDE.md line about that being unresolved is still unresolved, and today's evidence is "push alone was not enough".
   - `render deploys create srv-d9ebcvtaeets73ar91sg --confirm` **panics without `-o json`** ("could not open a new TTY") when run non-interactively. Use `-o json`.
   - **Verified live, not assumed:** `index.html` · `client.js` · `hub-tour.js` · `hub-tour.css` · `style.css` all byte-identical (sha256) between prod and local HEAD.

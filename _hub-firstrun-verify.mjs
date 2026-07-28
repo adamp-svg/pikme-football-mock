@@ -262,6 +262,22 @@ try {
   // lesson running underneath it would point a hand at a hub nobody can see or touch.
   check(await b1.vis('#settings') !== 'shown', 'the settings panel closed itself first — the lesson is not running under a modal');
   await b1.shot('first-06-question-mark-replay');
+  // ---- A REPLAY'S FINISH PANEL MUST HAVE A WAY OUT ------------------------------------------
+  // It is full-screen at z-index 42 and «עוד פעם» restarts the tour, so without «סגירה» finishing a
+  // replay traps the player on the lobby.
+  await b1.tapAt('#tu-hub-skip');            // end the replay the quick way
+  await sleep(600);
+  const replayPanel = await b1.vis('.ht-done');
+  if (replayPanel === 'shown') {
+    check(await b1.vis('#ht-close') === 'shown', 'the replay panel offers «סגירה»');
+    await b1.tapAt('#ht-close');
+    check(await b1.waitFor(async () => (await b1.vis('.ht-done')) !== 'shown', 4000) !== null, 'and it closes, leaving the player on the lobby');
+  } else {
+    // A SKIP does not show the panel at all, which is also a valid way out — say which path ran
+    // rather than passing silently on a check that never happened.
+    console.log('     (skipped a replay → no finish panel, so nothing to dismiss)');
+    check(await b1.vis('#home') === 'shown', 'skipping a replay leaves the player on the lobby');
+  }
   check(b1.errors.length === 0, `no uncaught JS errors${b1.errors.length ? `\n     ${b1.errors.slice(0, 3).join('\n     ')}` : ''}`);
 } finally { b1.close(); }
 
@@ -361,9 +377,28 @@ try {
   const after = await b2.ev("JSON.stringify({ l: localStorage.getItem('pikme-loadout'), c: localStorage.getItem('pikme_cosmetic') })");
   check(after === before, `the lesson wrote NOTHING to the player's real prefs\n     before ${before}\n     after  ${after}`);
   check(await b2.ev("localStorage.getItem('fbHubTourDone') === '1'"), 'fbHubTourDone = 1, so it will not fire again');
-  // And the pitch tutorial follows a FINISH as well as a skip.
+  // ---- THE PITCH TUTORIAL MUST ACTUALLY BE VISIBLE WHEN IT POPS ----------------------------
+  // The finish panel is fixed/inset:0 at z-index 42. It used to be left up while level 1 started
+  // underneath, so the kid landed in the pitch tutorial with a full-screen «יפה מאוד! / עוד פעם» over
+  // it — the lesson had begun and could neither be seen nor reached (photographed:
+  // _tu-shots/probe-after-finish.png). This is the guard for that.
   const level1b = await b2.waitFor(async () => (await b2.vis('#home')) !== 'shown', 12000);
   check(!!level1b, 'the pitch tutorial took over after the lobby tour finished');
+  check(await b2.vis('.ht-done') !== 'shown', 'and the finish panel got OUT OF THE WAY — the tutorial is not behind a modal');
+  check(await b2.vis('#game') === 'shown', 'the match screen is the one on top');
+  // AND THE LOBBY TOUR'S STYLING IS OFF THE BODY. `ht-tour` carries this tour's restyling of the shared
+  // coach (caption at the bottom on a plate, smaller text, pips above it). Left on, the PITCH tutorial
+  // inherited it and drew its caption — authored at the TOP — down over the build tag. Caught in a
+  // screenshot of the hand-off; asserted here so it cannot come back.
+  const endState = await b2.ev(`JSON.stringify({
+    body: document.body.className,
+    capTop: Math.round(document.querySelector('.tu-caption').getBoundingClientRect().top),
+    vh: window.innerHeight
+  })`);
+  const a = JSON.parse(endState);
+  check(!/ht-tour|ht-read|ht-inert|hub-tu-gate/.test(a.body), `no lobby-tour classes left on <body> («${a.body}»)`);
+  check(a.capTop < a.vh / 2, `the pitch tutorial's caption is back at the TOP where it is authored (y=${a.capTop} of ${a.vh})`);
+  await b2.shot('first-07-pitch-tutorial-pops');
   check(b2.errors.length === 0, `no uncaught JS errors${b2.errors.length ? `\n     ${b2.errors.slice(0, 3).join('\n     ')}` : ''}`);
 } finally { b2.close(); }
 }
