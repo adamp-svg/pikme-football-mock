@@ -283,6 +283,7 @@ try {
   // AND THE PANEL IS GONE. #settings is a fixed overlay at z-index 20 with a blurred backdrop; a
   // lesson running underneath it would point a hand at a hub nobody can see or touch.
   check(await b1.vis('#settings') !== 'shown', 'the settings panel closed itself first — the lesson is not running under a modal');
+
   await b1.shot('first-06-question-mark-replay');
   // ---- A REPLAY'S FINISH PANEL MUST HAVE A WAY OUT ------------------------------------------
   // It is full-screen at z-index 42 and «עוד פעם» restarts the tour, so without «סגירה» finishing a
@@ -300,6 +301,36 @@ try {
     console.log('     (skipped a replay → no finish panel, so nothing to dismiss)');
     check(await b1.vis('#home') === 'shown', 'skipping a replay leaves the player on the lobby');
   }
+
+  // ---- 🎛️ BESIDE THE ? : lobby → training ground with the controls editor open ---------------
+  // The editor drags the LIVE sticks, so it only means anything inside a match — from the hub there was
+  // no way to reach it at all. This is the whole chain, end to end, from a cold lobby.
+  // Runs LAST in this scenario: it deliberately leaves the lobby, so anything that needs the hub has
+  // to have happened already. (An earlier ordering put it first and the later lobby check then failed
+  // while looking at the training ground.)
+  await b1.waitFor(async () => (await b1.vis('#home')) === 'shown', 8000);
+  let opened2 = null;
+  for (let attempt = 1; attempt <= 3 && !opened2; attempt++) {
+    await b1.tapAt('#hub-settings');
+    opened2 = await b1.waitFor(async () => (await b1.vis('#hub-controls')) === 'shown', 4000);
+  }
+  check(!!opened2, 'the 🎛️ is in the settings card too');
+  const pair = await b1.ev(`(()=>{
+    const q=document.querySelector('#hub-howto').getBoundingClientRect();
+    const c=document.querySelector('#hub-controls').getBoundingClientRect();
+    return JSON.stringify({ sameRow: Math.abs(q.top-c.top) < 2, beside: c.left > q.left && (c.left-q.right) < 20,
+                            sameSize: Math.abs(q.width-c.width) < 2, q:Math.round(q.left), c:Math.round(c.left) });
+  })()`);
+  const pr = JSON.parse(pair);
+  check(pr.sameRow && pr.beside && pr.sameSize, `it sits NEXT TO the ?, same row and size (${pair})`);
+  await b1.shot('first-08-settings-two-icons');
+  await b1.tapAt('#hub-controls');
+  // It has to leave the lobby, land in the training ground, and have the editor already up.
+  const inTraining = await b1.waitFor(async () => (await b1.vis('#game')) === 'shown', 15000);
+  check(!!inTraining, 'it takes you out of the lobby and into a room');
+  const editorUp = await b1.waitFor(async () => (await b1.vis('#controls-editor')) === 'shown', 12000);
+  check(!!editorUp, 'and the CONTROLS EDITOR is already open when you get there');
+  await b1.shot('first-09-controls-editor-from-lobby');
   check(b1.errors.length === 0, `no uncaught JS errors${b1.errors.length ? `\n     ${b1.errors.slice(0, 3).join('\n     ')}` : ''}`);
 } finally { b1.close(); }
 

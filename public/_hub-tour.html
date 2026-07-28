@@ -882,6 +882,10 @@
            volume row (hub-tour.css); public/hub-tour.js binds it and closes this panel first, via the
            app's own «המשך» path, so the lesson does not run underneath a modal. -->
       <button id="hub-howto" class="hub-icobtn" title="איך משחקים?" aria-label="איך משחקים?">?</button>
+      <!-- 🎛️ — from the LOBBY this opens the training ground with the controls editor already up. The
+           existing #open-controls-btn below only works inside a match (the editor drags the live
+           sticks), so from the hub there was no way to reach it at all. client.js binds it. -->
+      <button id="hub-controls" class="hub-icobtn" title="עריכת בקרות" aria-label="עריכת בקרות">🎛️</button>
       <h2>הגדרות</h2>
       <!-- #16: responsive grid so all controls fit on screen without a scrollbar -->
       <div class="settings-grid">

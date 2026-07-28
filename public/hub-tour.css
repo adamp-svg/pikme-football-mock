@@ -180,11 +180,14 @@ body.ht-tour #tu-hub-skip {
    overriding `position` is what once threw the tutorial's ⚽ off-screen — those are absolutely
    positioned in a baked layout.) */
 #settings .settings-card { position: relative; }
-#settings #hub-howto {
-  position: absolute; left: 10px; top: 10px;
+#settings #hub-howto,
+#settings #hub-controls {
+  position: absolute; top: 10px;
   width: 26px; height: 26px; font-size: 13px; border-width: 2px;
   z-index: 2;   /* above the card's own padding/scroll content */
 }
+#settings #hub-howto   { left: 10px; }
+#settings #hub-controls { left: 42px; }   /* beside the ?, same corner, same size */
 
 /* «סגירה» on the replay panel: present, not inviting. «עוד פעם» is the offer; this is the way out. */
 .ht-done button.ht-ghost {

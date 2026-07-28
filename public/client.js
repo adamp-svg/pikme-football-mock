@@ -239,6 +239,10 @@ let myLoadout = loadLoadout();            // null => auto-fill top-3; else a sav
 // three", a different state from an explicit [null,null,null], and flattening the two would silently
 // change what a player with no saved loadout sees afterwards.
 let _hubSnap = null;
+// The lobby's 🎛️ shortcut (index.html, inside the settings card). The controls editor drags the LIVE
+// sticks, so it only means anything inside a match — which left no way to reach it from the hub at all.
+// This flag is set when the shortcut starts a training room and consumed when that room opens.
+let pendingControlsEditor = false;
 window.__hubPrefs = {
   begin() {
     if (_hubSnap) return;
@@ -4451,6 +4455,9 @@ function enterMatch(msg) {
   // able to fix a badly-placed thumb button in the match where you noticed it beats remembering to
   // go back to training. It lives inside #game, so leaving the pitch hides it with the screen.
   document.getElementById('edit-controls-btn')?.classList.remove('hidden');
+  // The lobby's 🎛️ started this training room for exactly one reason. A beat first, so the editor opens
+  // onto a laid-out pitch rather than mid-transition.
+  if (pendingControlsEditor) { pendingControlsEditor = false; setTimeout(openControlsEditor, 350); }
   // Quick chat rides with it: same cluster, same lifetime. Inside #game, so leaving the pitch hides it.
   document.getElementById('chat-btn')?.classList.remove('hidden');
   document.getElementById('chat-sheet')?.classList.add('hidden');
@@ -5374,6 +5381,16 @@ if (soundVolSlider) {
   });
 }
 document.getElementById('open-controls-btn')?.addEventListener('click', () => { if (typeof openControlsEditor === 'function') openControlsEditor(); });
+// FROM THE LOBBY: 🎛️ in the settings card. The editor needs live sticks to drag, so this takes the
+// player to the training ground and opens it there — the same room «אימון» → «מגרש אימונים» opens, and
+// the same editor #edit-controls-btn opens once inside. Not a synthetic click chain: the room is
+// requested directly and the editor is opened by enterMatch when the room actually arrives.
+document.getElementById('hub-controls')?.addEventListener('click', () => {
+  unlockAudio();
+  closeSettings();
+  pendingControlsEditor = true;
+  sendMsg({ type: 'training', diffLevel });
+});
 updateMusicButton();
 
 // Local cooldown shading for the button (approximate; server is authoritative).
