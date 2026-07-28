@@ -157,27 +157,41 @@ function skipBtn() {
 // ---------------------------------------------------------------------------------------------
 const centre = (el) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; };
 
-// One directed mime: lift, travel, hold on the target, fade back. Rebuilt only when the geometry
-// or the escalation actually changes — re-creating a WAAPI animation every frame restarts it, and a
-// hand that restarts 60 times a second does not move.
+// How far straight UP the mime pulls the card before it goes anywhere. Over the 16px the real
+// handler demands, with room to spare, and far enough that the lift reads as its own movement rather
+// than a wobble.
+const LIFT = 34;
+
+// TWO BEATS, in this order: PULL THE CARD STRAIGHT UP, hold it there, THEN swipe across to the
+// target. Not one diagonal sweep — that is the same gesture the carousel reads as a SWIPE, and a
+// kid copying it would spin the deck instead of picking a card up.
+//
+// The order is the mechanic, not a stylistic choice: the real handler only latches a grab when the
+// pointer has travelled UP by more than 16px and mostly vertically (client.js ~1596). Everything
+// else is a carousel swipe. So the mime pulls up, pauses long enough for the lift to register as a
+// separate action, then carries the card sideways at that height and sets it down on the target.
+//
+// Rebuilt only when the geometry or the escalation actually changes — re-creating a WAAPI animation
+// every frame restarts it, and a hand that restarts 60 times a second never moves.
 function aimHand(from, to, nudging) {
   const dx = Math.round(to.x - from.x), dy = Math.round(to.y - from.y);
   const key = `${dx},${dy},${nudging ? 1 : 0}`;
   if (key === handKey) return;
   handKey = key;
   handAnim?.cancel();
-  // The LIFT is not decoration: the real carousel handler only counts a grab as a drag when the
-  // pointer goes UP by more than 16px and mostly vertically (client.js ~1596) — a flat sideways
-  // pull is read as a carousel swipe instead. A kid copying this mime does the gesture that works.
   handAnim = handEl.animate([
-    { translate: '0px 0px', opacity: 1, offset: 0 },
-    { translate: '0px -22px', opacity: 1, offset: 0.18 },
-    { translate: `${dx}px ${dy}px`, opacity: 1, offset: 0.62 },
-    { translate: `${dx}px ${dy}px`, opacity: 1, offset: 0.80 },
-    { translate: `${dx}px ${dy}px`, opacity: 0, offset: 0.90 },
-    { translate: '0px 0px', opacity: 0, offset: 0.96 },
+    { translate: '0px 0px', opacity: 1, offset: 0 },                          // on the card
+    { translate: `0px ${-LIFT}px`, opacity: 1, offset: 0.16 },                 // 1. PULL UP
+    { translate: `0px ${-LIFT}px`, opacity: 1, offset: 0.32 },                 //    …and hold, so it reads
+    // 2. SWIPE — carried ACROSS at the lifted height first (still above the target), so the
+    //    sideways move is unmistakably a second, separate motion…
+    { translate: `${Math.round(dx * 0.62)}px ${-LIFT}px`, opacity: 1, offset: 0.56 },
+    { translate: `${dx}px ${dy}px`, opacity: 1, offset: 0.74 },                //    …then set down on it
+    { translate: `${dx}px ${dy}px`, opacity: 1, offset: 0.86 },                //    the release, held
+    { translate: `${dx}px ${dy}px`, opacity: 0, offset: 0.93 },
+    { translate: '0px 0px', opacity: 0, offset: 0.98 },
     { translate: '0px 0px', opacity: 1, offset: 1 },
-  ], { duration: nudging ? 1600 : 2500, iterations: Infinity, easing: 'ease-in-out' });
+  ], { duration: nudging ? 1900 : 2900, iterations: Infinity, easing: 'ease-in-out' });
 }
 
 function render() {

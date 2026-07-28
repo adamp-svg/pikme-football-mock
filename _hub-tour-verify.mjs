@@ -207,6 +207,33 @@ const spot = await evalJs(`(()=>{
 check(!!spot && spot.inside, `the hand starts ON the front card (${JSON.stringify(spot)})`);
 check((await state()).carouselFrozen === true, 'the carousel auto-rotate is frozen — otherwise the card under the hand drifts away');
 
+// THE GESTURE IS PULL-UP-THEN-SWIPE, IN THAT ORDER. Asserted by sampling the hand's own animation
+// at fixed points rather than by eye: a diagonal sweep looks similar in a still frame but is the
+// gesture the carousel reads as a SWIPE, so a kid copying it would spin the deck instead of picking
+// a card up. Read straight off the WAAPI timeline — the shape of the mime, not a screenshot of it.
+// Read off the AUTHORED KEYFRAMES, not off rendered style: setting currentTime on a paused
+// animation and reading getComputedStyle in the same task returns a value that lags a frame, which
+// made an earlier version of this check report the hand 11px up at a keyframe that says 34.
+// The keyframe list is the gesture — the shape, in order, with no sampling to get wrong.
+const gesture = await evalJs(`(()=>{
+  const h=document.getElementById('tu-hand'), a=h.getAnimations()[0];
+  if(!a || !a.effect) return null;
+  const num = (s) => String(s||'0px 0px').split(' ').map(v=>Math.round(parseFloat(v)||0));
+  const ks = a.effect.getKeyframes().map(k => { const t=num(k.translate); return { o:+(k.computedOffset ?? k.offset ?? 0).toFixed(2), x:t[0]||0, y:t[1]||0, op:k.opacity }; });
+  const at = (o) => ks.find(k => Math.abs(k.o - o) < 0.005) || null;
+  return { playing: a.playState === 'running', n: ks.length, ks,
+           up: at(0.16), hold: at(0.32), across: at(0.56), down: at(0.74) };
+})()`);
+check(!!gesture && gesture.playing, 'the hand is actually animating (playState running)');
+check(!!gesture?.up && gesture.up.y <= -16 && Math.abs(gesture.up.x) === 0,
+  `beat 1 is a STRAIGHT PULL UP, no sideways travel yet — ${JSON.stringify(gesture?.up)}. The real handler needs dy < -16 and mostly vertical, else it reads as a carousel swipe`);
+check(!!gesture?.hold && Math.abs(gesture.hold.x) === 0 && gesture.hold.y === gesture.up.y,
+  `…and the hand HOLDS up there, so the pull reads as its own action — ${JSON.stringify(gesture?.hold)}`);
+check(!!gesture?.across && Math.abs(gesture.across.x) > 20 && gesture.across.y === gesture.hold.y,
+  `beat 2 swipes ACROSS at the lifted height — ${JSON.stringify(gesture?.across)}`);
+check(!!gesture?.down && gesture.down.y > gesture.across.y && Math.abs(gesture.down.x) > Math.abs(gesture.across.x),
+  `…and only then sets the card down on the target — ${JSON.stringify(gesture?.down)}`);
+
 // ---------------------------------------------------------------------------------------------
 console.log('\n▶ LESSON 1 — lift a card into a power slot');
 await liftTo('#home-carousel .cf-card.cf-center', '#power-slots .pslot[data-slot="0"]');
