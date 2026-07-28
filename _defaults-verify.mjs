@@ -95,10 +95,27 @@ async function browser(cdpPort, label) {
     await api.ev("localStorage.setItem('fbHubTourSkipped','1');localStorage.setItem('fbTuDone','basics,combat,tricks');localStorage.setItem('fbTutorialDone','1')");
     await api.go(`${BASE}/`);
     await api.waitFor(async () => (await api.vis('#home')) === 'shown');
-    await api.tapAt('#training-btn');
-    await api.waitFor(async () => (await api.vis('#train-choose')) === 'shown', 6000);
-    await api.tapAt('#tc-ground');
-    return api.waitFor(async () => (await api.vis('#stickL')) === 'shown' && (await api.vis('#stickR')) === 'shown', 20000);
+    // Wait for the stylesheets: until style.css lands there is no `.hidden { display: none }`, so every
+    // screen reports itself visible and every rect is unscaled. Invisible on a dev server, long enough
+    // to matter against a deployed origin.
+    await api.waitFor(async () => (await api.ev("getComputedStyle(document.querySelector('#settings')).display === 'none'")) === true, 20000);
+    // Retried, and each tap re-measured: the hub is a scaled stage that keeps re-laying out as art
+    // arrives, so a tap can land where a button no longer is. On prod the first attempt missed and the
+    // run then reported four bogus stick positions instead of "we never got there".
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if ((await api.vis('#train-choose')) !== 'shown') await api.tapAt('#training-btn');
+      if (await api.waitFor(async () => (await api.vis('#train-choose')) === 'shown', 4000)) {
+        await api.tapAt('#tc-ground');
+        const up = await api.waitFor(async () => (await api.vis('#stickL')) === 'shown' && (await api.vis('#stickR')) === 'shown', 15000);
+        if (up) return up;
+      }
+      console.log(`     (training-ground entry attempt ${attempt} did not land — retrying)`);
+      await sleep(800);
+    }
+    // Say WHERE we actually are, so a failure here is never mistaken for a layout fault.
+    const where = await api.ev("JSON.stringify({home:getComputedStyle(document.querySelector('#home')).display, game:getComputedStyle(document.querySelector('#game')).display, chooser:getComputedStyle(document.querySelector('#train-choose')).display})");
+    console.log(`     ✖ never reached the training ground — ${where}`);
+    return null;
   };
   return api;
 }
@@ -123,8 +140,9 @@ const fresh = await browser(9511, 'fresh');
 try {
   const ready = await fresh.toTraining();
   check(!!ready, 'the sticks are on screen in the training ground');
-  const got = JSON.parse(await layoutOf(fresh));
-  for (const c of ['move', 'aim', 'bomb', 'wall']) {
+  if (!ready) { console.log('     (skipping the layout checks — nothing to measure)'); failures++; }
+  const got = ready ? JSON.parse(await layoutOf(fresh)) : null;
+  for (const c of ready ? ['move', 'aim', 'bomb', 'wall'] : []) {
     const want = SHIPPED[c], have = got[c];
     // 6px of slack on position (the buttons carry borders/shadows the setting does not) and 2px on size.
     const dx = have ? Math.abs(have.cx - want.cx) * 844 : 999;
