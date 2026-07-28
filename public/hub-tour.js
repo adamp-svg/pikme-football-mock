@@ -653,8 +653,14 @@ window.HubTour = { pending, begin, start: (which) => start(which, true), state }
 // that file is one more line three agents have to merge.
 document.getElementById('hub-howto')?.addEventListener('click', (e) => {
   e.stopPropagation();
-  if (running) return;                  // already in it; the gate makes this unreachable anyway
-  start('full', true);
+  if (running) return;                  // already in it
+  // CLOSE THE SETTINGS PANEL FIRST. The ? lives inside that modal, and #settings is a fixed overlay at
+  // z-index 20 with a blurred backdrop — a lesson started underneath it would point a hand at a hub
+  // nobody can see or touch. «המשך» is the app's own close path (playSound + closeMatchInfo), so it is
+  // clicked rather than reimplemented; closeSettings() itself is module-private to client.js.
+  document.getElementById('resume')?.click();
+  // A beat for the panel to go, so the first step measures the hub and not a covered one.
+  setTimeout(() => { if (!running) start('full', true); }, 120);
 });
 // The lab's verifier drives it through these.
 window.__labState = state;

@@ -188,45 +188,51 @@ try {
   // As a RETURNING player: the pitch levels done too, so nothing auto-starts and the kid is simply
   // standing on the lobby. Without this the previous step's level 1 owns the screen and every hub rect
   // is zero — which an earlier version of these checks passed vacuously (0 < 90 is true).
-  console.log('\n▶ the ? in the lobby corner replays it, forever');
+  console.log('\n▶ the ? inside SETTINGS replays it, forever');
   await b1.ev("localStorage.setItem('fbTuDone','basics,combat,tricks'); localStorage.setItem('fbTutorialDone','1')");
   await b1.go(`http://${LAN}:${PORT}/`);
-  const onHub = await b1.waitFor(async () => (await b1.vis('#home')) === 'shown' && (await b1.vis('#hub-howto')) === 'shown', 20000);
-  check(!!onHub, 'a returning player stands on the lobby, nothing auto-starts, and the ? is there');
+  const onHub = await b1.waitFor(async () => (await b1.vis('#home')) === 'shown', 20000);
+  check(!!onHub, 'a returning player stands on the lobby and nothing auto-starts');
+  // It lives INSIDE the settings panel now, so it must NOT be on the lobby itself.
+  check(await b1.vis('#hub-howto') !== 'shown', 'the ? is not loose on the hub — it is in the settings box');
+  // Reached the way a player reaches it: ⚙ on the lobby.
+  await b1.tapAt('#hub-settings');
+  const opened = await b1.waitFor(async () => (await b1.vis('#settings')) === 'shown' && (await b1.vis('#hub-howto')) === 'shown', 8000);
+  check(!!opened, 'main lobby → ⚙ → the ? is there');
   await b1.settled('#hub-howto');
-  await b1.shot('first-05-lobby-with-question-mark');   // the ? at rest, before anything is tapped
+  await b1.shot('first-05-question-mark-in-settings');
   const where = await b1.ev(`(()=>{
     const h=document.querySelector('#hub-howto').getBoundingClientRect();
-    const g=document.querySelector('#hub-settings').getBoundingClientRect();
-    const pfp=document.querySelector('#home-face').getBoundingClientRect();
+    const card=document.querySelector('#settings .settings-card').getBoundingClientRect();
+    const vol=document.querySelector('#s-soundvol').getBoundingClientRect();
+    const title=document.querySelector('#settings h2').getBoundingClientRect();
     return JSON.stringify({
-      // Every one of these requires a REAL rect: an element that is not on screen reports zeros, and
-      // zero-is-less-than-ninety is true — which is how the first version of this check passed while
+      // Every one of these needs a REAL rect: an off-screen element reports zeros, and
+      // zero-is-less-than-ninety is true — which is how an earlier version of this check passed while
       // the hub was not even the visible screen.
-      corner: h.width > 8 && h.left < 90 && h.top < 60,   // the stage's TOP-LEFT, the only free corner
-      clearOfPfp: h.width > 8 && h.right <= pfp.left + 1, // .hub-pfp starts at x=95 in stage px
-      smallerThanGear: h.width > 8 && h.width < g.width,
+      inCard: h.width > 8 && h.left >= card.left - 1 && h.top >= card.top - 1 && h.right <= card.right + 1,
+      topLeftOfCard: h.width > 8 && (h.left - card.left) < 40 && (h.top - card.top) < 40,
+      overTheVolume: h.width > 8 && h.bottom <= vol.top,     // "just over the sound volume"
+      small: h.width > 8 && h.width <= 30,
       h: {x:Math.round(h.x), y:Math.round(h.y), w:Math.round(h.width)},
-      pfpX: Math.round(pfp.left), gearX: Math.round(g.x)
+      card: {x:Math.round(card.x), y:Math.round(card.y)},
+      volY: Math.round(vol.top), titleY: Math.round(title.top)
     });
   })()`);
   const w = JSON.parse(where);
-  check(w.corner, `it sits in the TOP-LEFT corner (${where})`);
-  check(w.clearOfPfp, 'and does not overlap the profile box beside it');
-  check(w.smallerThanGear, 'it is smaller than ⚙ — a help affordance, not a control');
+  check(w.inCard, `it is inside the settings card (${where})`);
+  check(w.topLeftOfCard, 'in its TOP-LEFT corner');
+  check(w.overTheVolume, 'and above the 🔊 sound-volume row, as asked');
+  check(w.small, 'small (≤30px)');
   // The tour is already skipped on this profile, so this proves the ? ignores the first-run flags.
   await b1.tapAt('#hub-howto');
   const replay = await b1.waitFor(async () => { const s = await b1.state(); return s && s.running ? s : null; }, 12000);
   check(!!replay, 'tapping it starts the tour again, even though this player already waved it away');
   check(!!replay && replay.tour === 'home', `same album rules apply on a replay (tour='${replay?.tour}')`);
+  // AND THE PANEL IS GONE. #settings is a fixed overlay at z-index 20 with a blurred backdrop; a
+  // lesson running underneath it would point a hand at a hub nobody can see or touch.
+  check(await b1.vis('#settings') !== 'shown', 'the settings panel closed itself first — the lesson is not running under a modal');
   await b1.shot('first-06-question-mark-replay');
-  // And the exit is not sitting on top of the ? — the same corner collision that hit ⚙ on step 1.
-  const noClash = await b1.ev(`(()=>{
-    const s=document.querySelector('#tu-hub-skip').getBoundingClientRect();
-    const h=document.querySelector('#hub-howto').getBoundingClientRect();
-    return !(s.right<h.left||s.left>h.right||s.bottom<h.top||s.top>h.bottom);
-  })()`);
-  check(noClash === false, 'and «דלג ✕» stepped down out of the ?\'s way');
   check(b1.errors.length === 0, `no uncaught JS errors${b1.errors.length ? `\n     ${b1.errors.slice(0, 3).join('\n     ')}` : ''}`);
 } finally { b1.close(); }
 

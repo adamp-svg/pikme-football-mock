@@ -40,11 +40,6 @@
       <!-- top-left controls (each its own box) -->
       <!-- Exit (✕) removed: the phone/app shell provides its own back/close affordance. -->
       <button id="hub-settings" class="hub-icobtn" title="הגדרות" aria-label="הגדרות">⚙</button>
-      <!-- ? — replays the lobby tour (public/hub-tour.js binds it). Declared here with the settings
-           control because it belongs to the same "how do I work this screen" cluster; it is POSITIONED
-           in the stage's top-left corner (hub-tour.css), which is the only empty corner up there —
-           .hub-pfp starts at x=95. -->
-      <button id="hub-howto" class="hub-icobtn" title="איך משחקים?" aria-label="איך משחקים?">?</button>
       <span class="hub-season">עונה 1</span>
       <span class="hub-online"><i></i><span id="home-online">0</span> מחוברים</span>
 
@@ -873,6 +868,10 @@
        the home hub via #hub-settings). All ids unchanged so existing wiring is intact. -->
   <div id="settings" class="settings-panel hidden">
     <div class="settings-card" dir="rtl">
+      <!-- ? — replays the LOBBY TOUR. Positioned in the card's top-left corner, just above the sound
+           volume row (hub-tour.css); public/hub-tour.js binds it and closes this panel first, via the
+           app's own «המשך» path, so the lesson does not run underneath a modal. -->
+      <button id="hub-howto" class="hub-icobtn" title="איך משחקים?" aria-label="איך משחקים?">?</button>
       <h2>הגדרות</h2>
       <!-- #16: responsive grid so all controls fit on screen without a scrollbar -->
       <div class="settings-grid">
