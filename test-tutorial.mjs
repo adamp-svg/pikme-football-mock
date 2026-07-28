@@ -11,14 +11,14 @@
 // Run: node test-tutorial.mjs
 import { WebSocket } from 'ws';
 import { decodeSnapshot } from './shared/wire.js';
-import { FIELD, BOMB, BOMB_LOB_RANGE, VISION_RANGE, PROJECTILE, BUSH_REVEAL_DIST, BOMB_WALL_DIST } from './shared/constants.js';
+import { FIELD, BOMB, BOMB_LOB_RANGE, VISION_RANGE, PROJECTILE, BUSH_REVEAL_DIST, BOMB_WALL_DIST, GOAL_RESET } from './shared/constants.js';
 import {
-  TU_LEVELS, TU_LEVEL_COUNT, TU_RING, TU_BALL_PARK, TU_SPAWN, TU_SHOT_SPOT,
+  TU_LEVELS, TU_LEVEL_COUNT, TU_RING, TU_BALL_PARK, TU_SPAWN, TU_SHOT_SPOT, TU_DUMMY,
   TU2_SHOOT, TU2_BOMB, TU2_WALL, TU2_STRIP,
   tuLevel, stepsIn, stepAt, stageAt, doneStage, foeKeys,
   advance, isStepDone, showNudge, nudgeFor, captionFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel, fieldFor, subFor, markersFor, TU3_FIND, TU3_FLY, TU3_BUSH,
-  TU_HUB_LEVEL, tuIsHub, tuIsMockStep,
+  TU_HUB_LEVEL, tuIsHub, tuIsMockStep, introducesFor, TU_GOAL_HOLD,
 } from './shared/tutorial.js';
 import { bootServer } from './boot-test-server.mjs';
 // Every match control a step could claim — a HUB step must claim none of them.
@@ -35,7 +35,10 @@ console.log('A1) three levels, in the taught order');
 {
   check(TU_LEVEL_COUNT === 4, `four levels (${TU_LEVEL_COUNT})`);
   check(TU_LEVELS.map((L) => L.id).join(',') === 'basics,combat,tricks,mercaz', `ids: ${TU_LEVELS.map((L) => L.id).join(', ')}`);
-  check(TU_LEVELS[L1].steps.map((s) => s.id).join(',') === 'move,shoot,charge,goal,super',
+  // FULL SHOT (`charge`) BEFORE the three quick taps (`shoot`) — the user's order, after playing it
+  // on a phone. The ids kept their meaning (each is still named for the gesture it teaches), only
+  // their places changed.
+  check(TU_LEVELS[L1].steps.map((s) => s.id).join(',') === 'move,charge,shoot,goal,super',
     `level 1: ${TU_LEVELS[L1].steps.map((s) => s.id).join(' -> ')}`);
   check(TU_LEVELS[L2].steps.map((s) => s.id).join(',') === 'ballshot,bomb,wall,strip',
     `level 2: ${TU_LEVELS[L2].steps.map((s) => s.id).join(' -> ')}`);
@@ -66,11 +69,72 @@ console.log('A2) 💣 and 🧱 are absent from level 1 and arrive one at a time 
   }
 }
 
+console.log('A2b) introducesFor(): exactly four steps in the whole tutorial introduce a new button');
+{
+  // This is what the coach's DIMMING VEIL hangs off, and the reason it exists is a phone report: the
+  // veil used to be up on every step of every level, so a kid who already knew how to walk played
+  // half the tutorial through a dark screen. The rule is FIRST APPEARANCE ACROSS THE CURRICULUM, so
+  // the assertions below are about the whole table at once, not about one level.
+  const CTLS = ['move', 'aim', 'bomb', 'wall'];
+  const introducers = [];
+  for (const [l, L] of TU_LEVELS.entries()) {
+    for (const [n, s] of L.steps.entries()) {
+      const got = introducesFor(l, n);
+      check(got.every((c) => CTLS.includes(c) && s.controls.includes(c)),
+        `${L.id}/${s.id}: only ever names match controls the step actually enables`);
+      if (got.length) introducers.push(`${L.id}/${s.id}:${got.join('+')}`);
+    }
+  }
+  // Level 1 teaches the two sticks, level 2 the two buttons. Written as a full expected LIST rather
+  // than four separate lookups: the point of the rule is that nothing ELSE dims the screen, and only
+  // the whole list can say that.
+  const firstAim = TU_LEVELS[L1].steps.findIndex((s) => s.controls.includes('aim'));
+  const bombStep = TU_LEVELS[L2].steps.findIndex((s) => s.controls.includes('bomb'));
+  const wallStep = TU_LEVELS[L2].steps.findIndex((s) => s.controls.includes('wall'));
+  const want = [
+    `basics/${TU_LEVELS[L1].steps[0].id}:move`,
+    `basics/${TU_LEVELS[L1].steps[firstAim].id}:aim`,
+    `combat/${TU_LEVELS[L2].steps[bombStep].id}:bomb`,
+    `combat/${TU_LEVELS[L2].steps[wallStep].id}:wall`,
+  ];
+  check(introducers.join(' | ') === want.join(' | '), `the four veiled steps: ${introducers.join(' | ')}`);
+  check(introducesFor(L1, 0).join(',') === 'move', 'level 1 step 1 introduces the move stick');
+  check(introducesFor(L1, firstAim).join(',') === 'aim', "level 1's first shooting step introduces the aim stick");
+  // The case the veil bug WAS: level 2 opens with move+aim listed, both taught a whole level earlier.
+  check(introducesFor(L2, 0).length === 0, 'level 2 step 1 introduces NOTHING (move/aim came a level ago)');
+  // Same argument, one level further on: level 3's fly step lists 💣, taught in level 2. This is why
+  // the rule is first-appearance-across-the-curriculum and not a diff against the previous step.
+  check(TU_LEVELS.every((L, l) => l < L2 + 1 || L.steps.every((_, n) => introducesFor(l, n).length === 0)),
+    'no step after level 2 introduces anything — every button is old by then');
+  // A HUB level points at DOM furniture and enables no match control at all, so it can never veil.
+  check(TU_LEVELS[TU_HUB_LEVEL].steps.every((_, n) => introducesFor(TU_HUB_LEVEL, n).length === 0),
+    'the hub level introduces nothing on any step');
+  check(introducesFor(L1, 99).length === 0 && introducesFor(99, 0).length === 0, 'out of range introduces nothing');
+}
+
+console.log('A2c) a tutorial goal holds for ONE BEAT, not the match\'s five seconds');
+{
+  // The kid used to be frozen for the full GOAL_RESET after scoring, with the coach sitting the whole
+  // of it out — five dead seconds. The room clamps it to TU_GOAL_HOLD (updateTutorial in server.js).
+  // It must stay ABOVE ZERO: the client's `scored` latch is the resetTimer 0 -> positive edge, so a
+  // cancelled freeze would delete the event that completes the goal steps. B6 proves the live timing.
+  check(TU_GOAL_HOLD > 0, `the freeze still happens, so the goal still registers (${TU_GOAL_HOLD}s)`);
+  check(TU_GOAL_HOLD <= 1.5 && TU_GOAL_HOLD < GOAL_RESET, `and it is one beat, not GOAL_RESET (${TU_GOAL_HOLD}s vs ${GOAL_RESET}s)`);
+}
+
 console.log('A3) captions stay tiny and every step has a stuck-nudge');
 {
   const all = TU_LEVELS.flatMap((L) => L.steps);
   const longest = Math.max(...all.map((s) => s.cap.length));
   check(longest <= 14, `longest caption ${longest} chars`);
+  // The tap step's caption carries its own progress counter («הקש! {k}/{t}»), so the raw template is
+  // no longer what a kid reads. Check what actually reaches the screen, at every point in the count.
+  const rendered = [0, 1, 2, 3, 99].flatMap((k) => TU_LEVELS.flatMap((L, l) => L.steps.map((_, n) => captionFor(l, n, { quickShots: k }))));
+  const longestRendered = Math.max(...rendered.map((c) => c.length));
+  check(longestRendered <= 14, `longest RENDERED caption ${longestRendered} chars`);
+  check(!rendered.some((c) => /[{}]/.test(c)), 'no caption ever reaches the screen with an unfilled {token}');
+  const tokened = all.filter((s) => /\{[kt]\}/.test(s.cap) || /\{[kt]\}/.test(s.sub || '') || /\{[kt]\}/.test(s.cap2 || ''));
+  check(tokened.every((s) => s.needs > 1), 'only a COUNT step writes a {k}/{t} token — nothing else could fill one in');
   check(all.every((s) => s.nudge && s.nudgeAfter >= 5), 'every step nudges, none earlier than 5s');
   check(all.every((s) => s.spotlight && s.gesture), 'every step points a hand at something');
 }
@@ -86,17 +150,29 @@ console.log('A4) level 1 step 1 completes by standing in the ring, and only ther
 
 console.log('A5) every other step completes on its OWN event and nothing else');
 {
-  const flags = ['hitEnemy', 'quickHit', 'overHeld', 'chargedShot', 'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'foundFoe', 'flew'];
+  const flags = ['hitEnemy', 'quickHit', 'quickShots', 'overHeld', 'underHeld', 'chargedShot', 'chargedHit',
+    'scored', 'bombHitFoe', 'wallBuilt', 'stripped', 'foundFoe', 'flew'];
   const cases = [
-    [L1, 1, 'quickHit'], [L1, 2, 'chargedShot'], [L1, 3, 'scored'], [L1, 4, 'scored'],
+    [L1, 1, 'chargedHit'], [L1, 2, 'quickShots'], [L1, 3, 'scored'], [L1, 4, 'scored'],
     [L2, 0, 'scored'], [L2, 1, 'bombHitFoe'], [L2, 2, 'wallBuilt'], [L2, 3, 'stripped'],
     [L3, 0, 'foundFoe'], [L3, 1, 'flew'],
   ];
   // ...but a minDwell step will not ADVANCE on its flag alone, so give the predicate check the
   // dwell it needs (isStepDone is the flag; advance() is the flag plus the dwell — see A12).
+  // A COUNT step cannot be probed with `true`: its predicate compares a TALLY against `needs`, and
+  // `{ quickShots: true }` is one tap's worth of nothing. So each step is probed with the value it
+  // actually asks for — `needs` for a count step, `true` for the boolean latches — and the rule
+  // being asserted is unchanged: exactly one name in the list completes the step.
   for (const [l, n, flag] of cases) {
-    const only = flags.every((f) => isStepDone(l, n, { [f]: true }) === (f === flag));
+    const want = stepAt(l, n).needs || true;
+    const only = flags.every((f) => isStepDone(l, n, { [f]: want }) === (f === flag));
     check(only, `${TU_LEVELS[l].id}/${stepAt(l, n).id} completes on ${flag} alone`);
+  }
+  // And a count step is not satisfied by a PARTIAL count, which is the one way this shape could go
+  // wrong quietly (a truthiness test would pass on tap one).
+  for (const [l, n] of cases) {
+    const s = stepAt(l, n);
+    if (s.needs) check(!isStepDone(l, n, { [s.done]: s.needs - 1 }), `${s.id}: ${s.needs - 1} of ${s.needs} is not done`);
   }
   check(TU_LEVELS.every((L, l) => L.steps.every((_, n) => !isStepDone(l, n, {}))), 'an empty context completes nothing');
 }
@@ -107,7 +183,9 @@ console.log('A6) advance() walks each level to its end and then stops');
     let n = 0;
     // Every completion flag in the game, true at once — the walker asserts a level CAN be finished,
     // not how. The second line is level 4's, latched on the tutorial's own mock lobby.
-    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, quickHit: true, chargedShot: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99,
+    // `quickShots: 9` rather than `true`: level 1's tap step wants a COUNT, and a walker that fed it
+    // a boolean would report a level that cannot be finished.
+    const ctx = { px: TU_RING.x, py: TU_RING.y, hitEnemy: true, quickHit: true, quickShots: 9, chargedShot: true, chargedHit: true, scored: true, bombHitFoe: true, wallBuilt: true, stripped: true, foundFoe: true, flew: true, sinceDone: 99,
       sawTrophies: true, deckMoved: true, slotFilled: true, heroTapped: true, friendsTapped: true, played: true };
     for (let i = 0; i < L.steps.length; i++) n = advance(l, n, ctx);
     check(n === doneStage(l) && isTutorialOver(l, n), `${L.id}: 0 -> DONE (${n} of ${L.steps.length})`);
@@ -140,44 +218,89 @@ console.log('A8) knocking the ball loose IS the strip lesson — no goal tacked 
 console.log('A8b) the gesture mimes match the gestures being taught');
 {
   const g = (l, n) => stepAt(l, n).gesture;
-  check(g(L1, 1) === 'tap', 'the aim-and-TAP step mimes a tap');
-  check(g(L1, 2) === 'hold', 'the aim-and-HOLD step mimes a hold');
+  check(g(L1, 1) === 'hold', 'the FULL-shot step (taught first) mimes a hold');
+  check(g(L1, 2) === 'tap', 'the three-quick-taps step (second) mimes a tap');
   check(g(L1, 3) === 'hold', 'the hold-and-release kick mimes a hold');
   check(g(L2, 0) === 'hold', 'so does shooting the ball');
   check(g(L2, 1) === 'lob' && g(L2, 2) === 'lob', '💣 and 🧱 mime the slow carry-it-outward lob');
   check(stepAt(L1, 1).minDwell === 1 && stepAt(L1, 2).minDwell === 1, 'both new L1 steps hold a beat before moving on');
 }
 
-console.log('A8c) the TAP step insists on a tap, and corrects a kid who holds');
+console.log('A8c) the FULL shot comes first and must LAND; the three quick taps need no hit at all');
 {
-  // The two gestures only stay distinct if «כוון והקש!» refuses a charged shot. It used to accept
-  // any hit, so holding finished the tap step and the next step then asked for what they just did.
-  const s = stepAt(L1, 1);
-  check(s.done === 'quickHit', `it completes on quickHit, not on any old hit (${s.done})`);
-  check(isStepDone(L1, 1, { quickHit: true }), 'a QUICK shot that HITS finishes it');
-  check(!isStepDone(L1, 1, { hitEnemy: true }), '...a hit on its own does not — that is what holding gets you');
-  check(!isStepDone(L1, 1, { hitEnemy: true, chargedShot: true }), '...and a fully-charged hit certainly does not');
-  check(!isStepDone(L1, 1, { overHeld: true }), 'over-holding does not complete it either');
+  // Both halves of this are the user's, reported after playing it on his phone: "in train 1, make
+  // the first do a full shoot, which must hits the enemy. then the quick shoot which dosnt need to
+  // hit the enemy (just 3 taps on the shoot)".
+  const full = stepAt(L1, 1), tap = stepAt(L1, 2);
+  check(full.id === 'charge' && tap.id === 'shoot', `full shot first (${full.id}), taps second (${tap.id})`);
+
+  // --- THE FULL SHOT: the hold AND the hit -------------------------------------------------
+  // `chargedShot` — a release at full charge — was the old predicate and it never asked where the
+  // bullet went, so «ירייה חזקה!» could congratulate a shot that sailed into the touchline.
+  check(full.done === 'chargedHit', `it completes on chargedHit, not on the release alone (${full.done})`);
+  check(isStepDone(L1, 1, { chargedHit: true }), 'a full-charge shot that LANDS finishes it');
+  check(!isStepDone(L1, 1, { chargedShot: true }), '...a full release that hit nothing does not');
+  check(!isStepDone(L1, 1, { hitEnemy: true }), '...nor a hit that was not a full shot');
+  check(!isStepDone(L1, 1, { quickHit: true }), '...including a tap that landed — this step is the hold');
+  check(captionFor(L1, 1, { chargedShot: true }) === full.cap, 'the payoff caption waits for the hit...');
+  check(captionFor(L1, 1, { chargedHit: true }) === 'ירייה חזקה!', '...and then names what they just did');
+  // Its correction is the MIRROR of the tap step's: here the mistake is letting go too early, and it
+  // is answered on the release rather than after nudgeAfter seconds of a kid who thinks they did it.
+  check(full.fixWhen === 'underHeld', `its correction watches underHeld (${full.fixWhen})`);
+  check(nudgeFor(L1, 1, {}) === full.nudge, 'no mistake yet -> the escalated line is the ordinary stuck-hint');
+  check(nudgeFor(L1, 1, { underHeld: true }) === full.fix, `let go early -> «${full.fix}»`);
+  check(nudgeFor(L1, 1, { underHeld: true, stepElapsed: 600 }) === full.fix, '...and the correction still wins once the stuck-hint is also due');
+  check(showNudge(L1, 1, { stepElapsed: 1, underHeld: true }), 'answered AT ONCE, not after nudgeAfter seconds');
+  check(!showNudge(L1, 1, { stepElapsed: 1, underHeld: true, chargedHit: true }), '...and gone the moment the full shot lands');
   // NO WAY TO GET STUCK: the mistake flag is inert everywhere except the line it prints.
-  check(advance(L1, 1, { overHeld: true, stepElapsed: 600, sinceDone: 99 }) === 1, 'over-holding for ten minutes neither passes nor fails the step');
-  check(advance(L1, 1, { overHeld: true, quickHit: true, sinceDone: 2 }) === 2, '...and the kid still passes the instant they tap, mistake and all');
-  // The correction rides the nudge slot — one escalated line, never two.
-  check(s.fix === 'הקש קצר — בלי להחזיק', `the correction reads «${s.fix}»`);
-  check(nudgeFor(L1, 1, {}) === s.nudge, 'no mistake yet -> the escalated line is the ordinary stuck-hint');
-  check(nudgeFor(L1, 1, { overHeld: true }) === s.fix, 'held too long -> it becomes the correction');
-  check(nudgeFor(L1, 1, { overHeld: true, stepElapsed: 600 }) === s.fix, '...and the correction still wins once the stuck-hint is also due');
-  check(!showNudge(L1, 1, { stepElapsed: 1 }), 'a kid one second in is told nothing extra');
-  check(showNudge(L1, 1, { stepElapsed: 1, overHeld: true }), '...but an over-hold is answered AT ONCE, not after nudgeAfter seconds');
-  check(!showNudge(L1, 1, { stepElapsed: 1, overHeld: true, quickHit: true }), '...and the correction goes away the moment the tap lands');
-  check(captionFor(L1, 1, { hitEnemy: true }) === s.cap, '«פגעת!» does not fire on a hit the step is not accepting...');
-  check(captionFor(L1, 1, { quickHit: true }) === 'פגעת!', '...only on the quick one it is');
-  // The correction belongs to THIS step only: the charge step's whole lesson is the hold.
-  const ch = stepAt(L1, 2);
-  check(!ch.fix && !ch.fixWhen, 'the charge step has no over-hold correction — holding is the point of it');
-  check(nudgeFor(L1, 2, { overHeld: true }) === ch.nudge, '...so the flag cannot change its line');
-  check(!showNudge(L1, 2, { stepElapsed: 1, overHeld: true }), '...nor make it shout at a kid who is doing it right');
+  check(advance(L1, 1, { underHeld: true, stepElapsed: 600, sinceDone: 99 }) === 1, 'ten minutes of short shots neither passes nor fails the step');
+  check(advance(L1, 1, { underHeld: true, chargedHit: true, sinceDone: 2 }) === 2, '...and the kid passes the instant one full shot lands, mistake and all');
+
+  // --- THE THREE TAPS: a COUNT, and nothing about a hit ------------------------------------
+  check(tap.done === 'quickShots' && tap.needs === 3, `it counts to ${tap.needs} quick releases (${tap.done})`);
+  check(!isStepDone(L1, 2, { quickShots: 1 }), 'one tap is not three');
+  check(!isStepDone(L1, 2, { quickShots: 2 }), 'two taps is not three');
+  check(isStepDone(L1, 2, { quickShots: 3 }), 'three taps finishes it');
+  check(isStepDone(L1, 2, { quickShots: 9 }), '...and so does nine — a count is a floor, not an exact score');
+  // THE POINT OF THE STEP: three taps into empty grass is a PASS. The aim was taught by the step
+  // before it; what this one teaches is the gesture and the rate.
+  check(isStepDone(L1, 2, { quickShots: 3, hitEnemy: false, quickHit: false }), 'three taps that hit NOTHING is a pass, by design');
+  check(!isStepDone(L1, 2, { quickHit: true, hitEnemy: true, chargedHit: true }), 'and landing shots is not what it asks for');
+  // Visible progress, carried by the caption that is already on screen — no new overlay element.
+  check(captionFor(L1, 2, {}) === 'הקש! 0/3', `it opens on «${captionFor(L1, 2, {})}»`);
+  check(captionFor(L1, 2, { quickShots: 2 }) === 'הקש! 2/3', 'a kid who has tapped twice can see that they have');
+  check(captionFor(L1, 2, { quickShots: 3 }) === '3 מהירות!', 'the third tap swaps in the payoff');
+  check(captionFor(L1, 2, { quickShots: 1 }) !== tap.cap2, '...which does NOT fire on tap one: the COUNT latches it, not truthiness');
+  check(captionFor(L1, 2, { quickShots: 9 }) === '3 מהירות!', 'and an over-eager kid never sees «הקש! 9/3»');
+  check(subFor(L1, 2, { quickShots: 1 }) === tap.sub, 'the second line keeps explaining the gesture while they work');
+  // The over-hold correction STAYED with this step — it is still the one that wants a short tap, and
+  // a hold adds nothing to the tally, so without the line a kid who holds watches a counter refuse
+  // to move.
+  check(tap.fix === 'הקש קצר — בלי להחזיק' && tap.fixWhen === 'overHeld', `the tap step keeps the over-hold correction: «${tap.fix}»`);
+  check(nudgeFor(L1, 2, { overHeld: true }) === tap.fix, 'held too long -> it becomes the correction');
+  check(showNudge(L1, 2, { stepElapsed: 1, overHeld: true }), '...answered at once');
+  check(!showNudge(L1, 2, { stepElapsed: 1, overHeld: true, quickShots: 3 }), '...and gone once the three taps are in');
+  check(showNudge(L1, 2, { stepElapsed: 1, overHeld: true, quickShots: 2 }), '...but still up at two of three: a part-count is not a finished step');
+  check(advance(L1, 2, { overHeld: true, quickShots: 3, sinceDone: 2 }) === 3, 'and a kid who held once still passes on their three taps, mistake and all');
+
+  // Neither correction can leak into the other step.
+  check(nudgeFor(L1, 1, { overHeld: true }) === full.nudge, 'over-holding cannot re-word the step whose whole lesson IS the hold');
+  check(!showNudge(L1, 1, { stepElapsed: 1, overHeld: true }), '...nor make it shout at a kid doing it right');
+  check(nudgeFor(L1, 2, { underHeld: true }) === tap.nudge, 'and letting go early cannot re-word the step that WANTS a short release');
+  check(!showNudge(L1, 2, { stepElapsed: 1, underHeld: true }), '...same both ways round');
   check(TU_LEVELS.flatMap((L) => L.steps).every((st) => !st.fix === !st.fixWhen), 'every correction names the flag that triggers it, and vice versa');
   check(TU_LEVELS.flatMap((L) => L.steps).every((st) => st.fixWhen !== st.done), 'and no step is ever corrected for the thing that completes it');
+
+  // --- GEOMETRY: why the swap is safe on this pitch ----------------------------------------
+  // Neither shooting stage pins `me`, so the kid shoots from wherever inside TU_RING (r 80) the walk
+  // step left them. MEASURED bullet ranges: ~936px fully charged, ~410px on a tap.
+  const fullRange = 720 * PROJECTILE.ttl, quickRange = 720 * 0.4375 * PROJECTILE.ttl;
+  const far = Math.hypot(TU_DUMMY.x - (TU_RING.x - TU_RING.r), TU_DUMMY.y - TU_RING.y);
+  const near = Math.hypot(TU_DUMMY.x - (TU_RING.x + TU_RING.r), TU_DUMMY.y - TU_RING.y);
+  check(far < fullRange, `worst case in the ring is ${Math.round(far)}px from the dummy < full-charge ${Math.round(fullRange)}px — the full shot always reaches`);
+  check(far > quickRange, `...and ${Math.round(far)}px is BEYOND a tap's ${Math.round(quickRange)}px, which is exactly why the tap step must not require a hit`);
+  check(near < fullRange, `best case ${Math.round(near)}px, also in range`);
+  check(!stageAt(L1, 1).me && !stageAt(L1, 2).me, 'and neither shooting stage teleports the kid: the ring is where they shoot from');
 }
 
 console.log('A8d) the ball-shot step points at BOTH the ball and the goal');
@@ -499,7 +622,7 @@ console.log('B4) an out-of-sequence stage is refused');
 
 console.log('B5) level 1\'s goal step puts the kid on the shooting spot with the ball');
 {
-  c.send({ type: 'tuStage', n: 2 });   // charge step (same pitch as the shoot step)
+  c.send({ type: 'tuStage', n: 2 });   // the three-taps step (same pitch as the full-shot step)
   await sleep(200);
   c.send({ type: 'tuStage', n: 3 });   // goal step
   const s = await c.until((x) => x.ball.owner === myId, 'ball at my feet');
@@ -520,6 +643,14 @@ console.log('B6) scoring does not hand the ball to the enemy');
   const scored = await c.until((x) => x.score.A >= 1, 'goal', 6000);
   check(!!scored, 'scored at the goal step');
   if (scored) {
+    // ...and the freeze that follows is ONE BEAT, not the match's GOAL_RESET. The room clamps it to
+    // TU_GOAL_HOLD, and the coach cannot advance until the sim thaws (tuTick waits for resetTimer to
+    // reach 0), so this number IS how long the kid waits between scoring and the next lesson. It was
+    // five seconds of a frozen body and a frozen coach; the budget below would fail on that.
+    const t0 = Date.now();
+    const thawed = await c.until((x) => x.resetTimer === 0, 'freeze over', 4000);
+    const held = Date.now() - t0;
+    check(!!thawed && held < 2500, `the post-goal freeze is one beat, not GOAL_RESET (${held}ms)`);
     const back = await c.until((x) => x.resetTimer === 0 && x.ball.owner === myId, 'reclaimed', 9000);
     check(!!back, 'after the kickoff the ball is MINE again, not team B\'s');
   }

@@ -8,7 +8,7 @@
 // The client DRIVES the step machine (it owns the coach overlay and already has the snapshot);
 // the server only applies each stage's pitch setup, which it reads from the same table.
 //
-//   LEVEL 1 · יסודות — move -> shoot -> goal -> super
+//   LEVEL 1 · יסודות — move -> full shot (must land) -> 3 quick taps -> goal -> super
 //   LEVEL 2 · קרב    — shoot the ball -> bomb -> wall -> strip the carrier
 //
 // Level 1 hides 💣 and 🧱 entirely; level 2 is where they arrive. No level has a clock, a fail
@@ -31,6 +31,13 @@ export const fieldFor = (l) => (tuLevel(l) && tuLevel(l).field) || TU_FIELD;
 export const TU_BALL_PARK = { x: 120, y: 140 };
 export const TU_GOAL = { x: FIELD.W, y: FIELD.H / 2, w: GOAL.width };  // the goal every level attacks
 const MID = FIELD.H / 2;
+
+// How long the post-goal freeze lasts IN A TUTORIAL, in seconds. A match holds GOAL_RESET (5s) so
+// both sides watch the replay and take a kickoff; a tutorial has neither, so those five seconds are
+// the kid frozen in place watching nothing while the coach waits them out. One second is the badge
+// and then the next lesson. Read by the room (updateTutorial in server.js), which clamps the sim's
+// own timer rather than cancelling it — see the long note there for why the edge must survive.
+export const TU_GOAL_HOLD = 1.0;
 
 // --- LEVEL 1 geometry ------------------------------------------------------------------
 export const TU_SPAWN = { x: 420, y: MID };
@@ -133,7 +140,9 @@ export const TU3_FLY = { me: { x: TU3_WALL.cx + TU3_WALL.ht + TU3_FLY_GAP, y: MI
 //   cap       — 1-2 Hebrew words. Epic's rule taken literally: a kid who cannot read still finishes.
 //   sub       — the standing second line: what the control DOES. Always visible, calm.
 //   cap2/when — an optional SECOND caption, swapped in once `when` (a ctx flag) latches. Used by
-//               the strip step, which is one continuous action with two halves.
+//               the strip step, which is one continuous action with two halves. On a COUNT step
+//               (see `needs`) whose `when` is its own tally, it swaps on the FULL count — see
+//               whenLatched, without which «3 מהירות!» would appear on tap one.
 //   sub2      — the same swap for the second line (see subFor). The find step's payoff lives here.
 //   nudge     — the escalated line, shown only after `nudgeAfter` idle seconds. Replaces `sub`.
 //   fix/fixWhen — a CORRECTION: `fix` is the line to print the moment the ctx flag `fixWhen`
@@ -143,6 +152,10 @@ export const TU3_FLY = { me: { x: TU3_WALL.cx + TU3_WALL.ht + TU3_FLY_GAP, y: MI
 //               is how a seven-year-old decides the game is broken. A correction never fails the
 //               step and never resets anything — it just says what to do instead.
 //   done      — the ctx flag (or predicate) that completes the step.
+//   needs     — HOW MANY of `done` the step wants, when `done` names a TALLY rather than a boolean
+//               latch (level 1's tap step: three quick releases). Absent = the ordinary one-way
+//               boolean, which is what every other step is. A caption or second line may print the
+//               progress with `{k}` (landed so far) and `{t}` (the target) — see captionFor.
 //
 // Each stage (one per step, same index) is the PITCH SETUP the server applies:
 //   me/ball/foes/super — declarative, so the server interprets one table instead of hand-writing
@@ -160,33 +173,58 @@ export const TU_LEVELS = [
     steps: [
       { id: 'move', controls: ['move'], spotlight: 'move', gesture: 'circle',
         marker: 'ring', cap: 'זוז!', nudge: 'הזז את העיגול', nudgeAfter: 8, done: 'inRing' },
-      // TAP first, HOLD second — two separate steps for two separate gestures, each with its own
+      // HOLD first, TAP second — two separate steps for two separate gestures, each with its own
       // hand mime, and each holding a beat after it lands so the kid connects what they did to
       // what happened.
-      // Which is only true if the TAP step insists on a tap. It used to complete on `hitEnemy` —
-      // ANY hit — so a kid who held finished «כוון והקש!» without ever tapping, and the very next
-      // step then asked them to do the thing they had just done. `quickHit` is the honest
-      // predicate: a shot RELEASED below QUICK_CHARGE that also LANDS. It needs the hit as well as
-      // the tap because a tap alone would tick the step over while the kid fires into empty grass,
-      // and «פגעת!» would be a lie.
-      // `fix` is the other half: hold too long and you are told at once, in the nudge slot, to tap
-      // short instead. Nothing is failed, nothing resets — the charge just wasn't the gesture, and
-      // they can try again the same second. The HOLD they were reaching for is the next step
-      // anyway, so the correction is a "not yet", never a "no".
-      { id: 'shoot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'tap',
-        marker: 'foe', markerKey: 'dummy', cap: 'כוון והקש!', sub: 'הקשה קצרה = ירייה מהירה',
-        cap2: 'פגעת!', when: 'quickHit', minDwell: 1,
-        fix: 'הקש קצר — בלי להחזיק', fixWhen: 'overHeld',
-        nudge: 'משוך לכיוון שלו ותשחרר', nudgeAfter: 8, done: 'quickHit' },
-      // CHARGE gets a step of its own. It used to be a footnote — the shoot step completed on any
-      // hit, so a kid could finish the whole tutorial having only ever tapped, and the one line
-      // that mentioned holding only appeared if they got stuck. Hold-to-power is the single most
-      // important thing in this game's combat (MECHANICS §1: 2s to full, and it scales the ball
-      // kick, the bullet, the knockback and the strip), so it is taught deliberately, not hinted.
+      //
+      // That order is the user's, after playing it on a phone: "make the first do a full shoot,
+      // which must hits the enemy. then the quick shoot which dosnt need to hit the enemy (just 3
+      // taps on the shoot)". It was tap-then-hold before. The hold going first is also the honest
+      // teaching order: hold-to-power is the single most important thing in this game's combat
+      // (MECHANICS §1: 2s to full, and the charge scales the ball kick, the bullet, the knockback
+      // and the strip), and it is the step that carries the AIMING lesson — so the tap step after
+      // it can ask for the gesture alone without ever having taught aiming.
+      //
+      // `chargedHit`, not `chargedShot`: the old predicate was the RELEASE at full charge and it
+      // ignored where the bullet went, so «ירייה חזקה!» could fire over a shot that sailed into
+      // the touchline, and the kid would be congratulated for missing. The hit has to be part of
+      // it. Assembled from two moments in the client, exactly like `quickHit` was: releaseShot
+      // stamps the full release, the projectile impact latches the pair.
       { id: 'charge', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
-        marker: 'foe', markerKey: 'dummy', cap: 'כוון והחזק!', sub: 'כמה שיותר זמן — יותר חזק',
-        cap2: 'זו ירייה חזקה!', when: 'chargedShot', minDwell: 1,
-        nudge: 'אל תשחרר — עד שהטבעת מלאה', nudgeAfter: 8, done: 'chargedShot' },
+        marker: 'foe', markerKey: 'dummy', cap: 'כוון והחזק!', sub: 'החזק עד שמתמלא — ופגע בו',
+        cap2: 'ירייה חזקה!', when: 'chargedHit', minDwell: 1,
+        // The MIRROR of the tap step's correction below. Here the mistake is letting go too early:
+        // a short shot may even hit, and a kid who saw the dummy get shoved has every reason to
+        // think they did it. So it is answered on the release, not after nudgeAfter seconds of
+        // confusion. Nothing is failed and nothing resets — the ring just wasn't full yet.
+        fix: 'החזק יותר — עד שהטבעת מלאה', fixWhen: 'underHeld',
+        nudge: 'כוון אליו, החזק, ואז שחרר', nudgeAfter: 8, done: 'chargedHit' },
+      // THEN the quick tap — and this one asks for THREE of them and NOTHING else. No hit: a kid
+      // who fires three taps into empty grass finishes it, by design. What is being taught here is
+      // the gesture and the RATE (a tap is a whole shot on its own, and they come back to back),
+      // and the aim was just taught by the step before it — so requiring a hit as well would
+      // re-test the previous lesson and add the one way this step could strand a seven-year-old.
+      //
+      // Which is why the predicate is a COUNT, not a latch: `needs: 3` against the `quickShots`
+      // TALLY the client bumps on every release under QUICK_CHARGE (see isStepDone).
+      // The reasoning that put `quickHit` here originally still holds for the step it was written
+      // for — back when this was FIRST, a bare tap would have ticked the step over while the kid
+      // fired into the grass and its «פגעת!» would have been a lie. Nothing here claims a hit any
+      // more, so nothing here needs one.
+      //
+      // `{k}/{t}` in the caption is the whole progress display: a kid who has tapped twice can see
+      // «הקש! 2/3» in the biggest text on screen (captionFor fills it in), so three taps cost no
+      // new overlay element. The caption is also reassigned on each tap, which re-runs its pop —
+      // one small beat per tap, for free.
+      //
+      // The over-hold correction STAYS with this step, because this is still the step that wants a
+      // short tap: a hold adds nothing to the tally, so without the line a kid who holds just
+      // watches a counter refuse to move.
+      { id: 'shoot', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'tap',
+        marker: 'foe', markerKey: 'dummy', cap: 'הקש! {k}/{t}', sub: 'הקשה קצרה = ירייה מהירה',
+        cap2: '3 מהירות!', when: 'quickShots', needs: 3, minDwell: 1,
+        fix: 'הקש קצר — בלי להחזיק', fixWhen: 'overHeld',
+        nudge: 'שלוש הקשות קצרות — שחרר מיד', nudgeAfter: 8, done: 'quickShots' },
       { id: 'goal', controls: ['move', 'aim'], spotlight: 'aim', gesture: 'hold',
         marker: 'goal', cap: 'החזק ושחרר!', sub: 'ככה בועטים רחוק — לשער',
         nudge: 'כוון לשער והחזק', nudgeAfter: 10, done: 'scored' },
@@ -199,6 +237,19 @@ export const TU_LEVELS = [
     ],
     stages: [
       { me: TU_SPAWN, ball: 'park', foes: [{ key: 'dummy', role: 'still', ...TU_DUMMY }, { key: 'keeper', role: 'still', ...TU_KEEPER_IDLE }] },
+      // The two shooting stages are IDENTICAL — same parked ball, same dummy, same loitering keeper,
+      // and neither pins `me` — so swapping the steps above needed no swap here. Written down rather
+      // than left to be rediscovered: the stage list is index-matched to the steps, so if these two
+      // ever stop being identical they have to move together with them.
+      // Neither pins `me` on purpose: the kid stays where the ring step left them, i.e. inside
+      // TU_RING (r 80), which is 383-515px from TU_DUMMY depending on which side of the ring they
+      // stopped. That range is the reason the FULL shot can go first — a fully-charged bullet
+      // carries ~936px (720px/s x PROJECTILE.ttl 1.3s), so the dummy is comfortably reachable from
+      // anywhere in the ring. A quick tap only carries ~410px, which is why the tap step must NOT
+      // require a hit from here: from the far side of the ring it could not land one without walking
+      // first, and walking is not what that step is teaching. Teleporting the kid to a closer spot
+      // was the alternative and it is worse — a body that jumps the instant the ring is reached
+      // reads as a bug.
       { ball: 'park', foes: [{ key: 'dummy', role: 'still', ...TU_DUMMY }, { key: 'keeper', role: 'still', ...TU_KEEPER_IDLE }] },
       { ball: 'park', foes: [{ key: 'dummy', role: 'still', ...TU_DUMMY }, { key: 'keeper', role: 'still', ...TU_KEEPER_IDLE }] },
       { me: TU_SHOT_SPOT, ball: 'toMe', foes: [{ key: 'dummy', role: 'still', ...TU_DUMMY }, { key: 'keeper', role: 'still', ...TU_KEEPER_IDLE }] },
@@ -420,18 +471,70 @@ export function tuHasControl(l, n, ctl) {
 }
 
 // ---------------------------------------------------------------------------
+// Which controls a step INTRODUCES — the one fact the coach's dimming veil hangs off
+// ---------------------------------------------------------------------------
+// Reported from a phone: the veil (the dark screen with a soft hole over the live control) was up on
+// EVERY step of EVERY level, so a kid who already knows how to walk plays half the tutorial through
+// a dimmed screen. The user's rule is one line — "dark screen should only be when introducing new
+// buttons, like walk, shoot, bomb, wall" — and "new button" is a fact about this table, so it is
+// derived here rather than guessed at in the client.
+//
+// A step introduces a control if it is the FIRST step IN THE WHOLE CURRICULUM to enable it. Which
+// yields exactly the user's four: level 1's move step (move), level 1's first shooting step (aim),
+// level 2's bomb step (bomb), level 2's wall step (wall). Four veils in the entire tutorial.
+//
+// FIRST APPEARANCE ACROSS the levels, deliberately — NOT "new since the previous step in this
+// level". The within-a-level diff is the obvious reading and it re-creates the reported bug in two
+// places: level 2 step 1 lists move+aim, taught a whole level earlier, and level 3's fly step lists
+// bomb, taught in level 2 — dimming the screen to introduce a button the kid has already been using
+// for a level is the exact complaint. Levels only unlock in order (tuUnlocked), so "an earlier level
+// taught it" is a fact here and not an assumption. The cost of the global rule is that it depends on
+// TU_LEVELS' order; the order is the curriculum, so that dependency is honest.
+//
+// A HUB level introduces nothing, ever: its steps enable no match controls at all (`controls: []`)
+// and its spotlight points at DOM furniture, so there is no button for a hole to be punched over.
+// Guarded explicitly anyway, so a future hub step that listed a control could not dim the lobby.
+const TU_FIRST_TAUGHT = (() => {
+  const at = new Map();   // control -> `${l}:${n}` of the step that first enables it
+  for (let l = 0; l < TU_LEVELS.length; l++) {
+    if (tuIsHub(l)) continue;
+    const steps = (TU_LEVELS[l].steps || []);
+    for (let n = 0; n < steps.length; n++) {
+      for (const c of (steps[n].controls || [])) if (!at.has(c)) at.set(c, `${l}:${n}`);
+    }
+  }
+  return at;
+})();
+// The controls this step is the first to hand over, in the order the step lists them. Empty for
+// every step that only re-uses what the kid already has — i.e. for most of the tutorial.
+export function introducesFor(l, n) {
+  const s = stepAt(l, n);
+  if (!s || tuIsHub(l)) return [];
+  return (s.controls || []).filter((c) => TU_FIRST_TAUGHT.get(c) === `${l}:${n}`);
+}
+
+// ---------------------------------------------------------------------------
 // Completion
 // ---------------------------------------------------------------------------
 // ctx is built from the snapshot the client already receives:
 //   { px, py }   my position
 //   hitEnemy     a bullet of mine hit an enemy since this step began
-//   quickHit     ...and the shot that landed was released BELOW QUICK_CHARGE — the tap lesson.
-//                Strictly stronger than hitEnemy: the client stamps the quick RELEASE and only
-//                latches this if an enemy impact follows, because the tap and the hit are two
-//                different moments and only the pair of them is «כוון והקש!».
+//   quickHit     ...and the shot that landed was released BELOW QUICK_CHARGE. No step completes on
+//                it any more — the tap step counts taps instead (quickShots) and asks for no hit —
+//                but it is still the honest name for "a tap that landed" and the client still
+//                latches it, because the pair-of-moments assembly is what chargedHit copies.
+//   quickShots   HOW MANY shots I have released below QUICK_CHARGE this step. A TALLY, not a latch:
+//                the tap step wants three of them and does not care where they went, so `needs: 3`
+//                compares against this number (isStepDone).
 //   overHeld     I held past QUICK_CHARGE on a step that asked for a tap — the mistake behind the
 //                `fix` line. A correction flag, not a completion one: nothing reads it as `done`.
-//   chargedShot  I released a shot at FULL charge — the hold-to-power lesson
+//   underHeld    the mirror: I let go BELOW FULL_CHARGE on a step that asked for a full shot. Also
+//                a correction only. Sampled at the release, where the client knows its own charge.
+//   chargedShot  I released a shot at FULL charge. Like quickHit, no longer any step's `done` —
+//                releasing at full says nothing about whether the bullet found anything.
+//   chargedHit   ...and that full-charge shot LANDED on an enemy — the hold-and-aim lesson. Same
+//                two-moments assembly as quickHit: the client stamps the full RELEASE and only
+//                latches this if an enemy impact follows inside the bullet's lifetime.
 //   scored       my side's score went up since this step began
 //   bombHitFoe   one of my blasts went off on top of the marked foe
 //   wallBuilt    a wall of mine appeared
@@ -443,7 +546,9 @@ export function tuHasControl(l, n, ctl) {
 //
 // Every flag is a ONE-WAY LATCH on an event the client has already observed, so a dropped frame
 // costs nothing: the flag stays set until the step advances. `inRing` is the one positional
-// predicate, evaluated here rather than latched.
+// predicate, evaluated here rather than latched. A step with `needs` is the one other shape: its
+// `done` names a MONOTONIC TALLY instead of a boolean, and a tally is just as dropped-frame-proof —
+// it only ever goes up, and it is reset with the rest of the flags when the step advances.
 export function isStepDone(l, n, ctx = {}) {
   const s = stepAt(l, n);
   if (!s) return false;
@@ -451,7 +556,31 @@ export function isStepDone(l, n, ctx = {}) {
     const dx = (ctx.px ?? 0) - TU_RING.x, dy = (ctx.py ?? 0) - TU_RING.y;
     return Math.hypot(dx, dy) <= TU_RING.r;
   }
+  // A COUNT step: three quick taps, not one flag. `|| 0` so a context that has never heard of the
+  // tally behaves exactly like a context whose tally is zero — the eight boolean flags below are
+  // untouched by this branch, since a step without `needs` never enters it.
+  if (s.needs) return (ctx[s.done] || 0) >= s.needs;
   return !!ctx[s.done];
+}
+
+// Has a step's `when` fired? Truthiness, for the boolean latches — EXCEPT on a count step whose
+// `when` is its own tally, where the answer is the full count. Without that exception «3 מהירות!»
+// would replace the «הקש! {k}/{t}» counter on tap one, i.e. the payoff line would arrive two taps
+// before the payoff.
+export function whenLatched(s, ctx = {}) {
+  if (!s || !s.when) return false;
+  if (s.needs && s.when === s.done) return (ctx[s.when] || 0) >= s.needs;
+  return !!ctx[s.when];
+}
+
+// `{k}` (how many have landed) and `{t}` (how many are wanted) in a caption or second line, for a
+// COUNT step. This is the whole of "three taps deserve visible progress": the counter rides text
+// that is already on screen and styled, instead of a fourth element in the coach overlay that only
+// one step in the game would ever use. A step without `needs` gets its line back untouched.
+function fillCount(line, s, ctx) {
+  if (!line || !s || !s.needs) return line || '';
+  const k = Math.min(s.needs, ctx[s.done] || 0);
+  return line.replace(/\{k\}/g, String(k)).replace(/\{t\}/g, String(s.needs));
 }
 
 // Which caption to show. A step with `cap2` swaps to it once its `when` flag latches — the strip
@@ -459,7 +588,7 @@ export function isStepDone(l, n, ctx = {}) {
 export function captionFor(l, n, ctx = {}) {
   const s = stepAt(l, n);
   if (!s) return '';
-  return (s.cap2 && s.when && ctx[s.when]) ? s.cap2 : s.cap;
+  return fillCount((s.cap2 && whenLatched(s, ctx)) ? s.cap2 : s.cap, s, ctx);
 }
 
 // The second line, with the same swap rule as the caption above: `sub` explains the control while
@@ -469,7 +598,7 @@ export function captionFor(l, n, ctx = {}) {
 export function subFor(l, n, ctx = {}) {
   const s = stepAt(l, n);
   if (!s) return '';
-  return (s.sub2 && s.when && ctx[s.when]) ? s.sub2 : (s.sub || '');
+  return fillCount((s.sub2 && whenLatched(s, ctx)) ? s.sub2 : (s.sub || ''), s, ctx);
 }
 
 // Is the escalated second line up? Two different things raise it, and they are on purpose the

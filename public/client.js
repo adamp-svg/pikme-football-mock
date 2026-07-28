@@ -13,7 +13,7 @@ import {
   TU_LEVELS, TU_RING, TU_GOAL, TU3_BUSH, TU2_WALL, tuLevel, stepsIn, stepAt, doneStage,
   advance, isStepDone, showNudge, nudgeFor, captionFor, subFor, tuHasControl, isTutorialOver,
   bombHit, tuUnlocked, nextLevel, markersFor, tuIsHub, TU_HUB_LEVEL,
-  tuIsMockStep,
+  tuIsMockStep, introducesFor,
 } from '/shared/tutorial.js';
 import { drawModeArt } from '/mode-art.js';
 import { newDragCancel, updateDragCancel, releaseCancels } from '/shared/drag-cancel.js';
@@ -649,17 +649,21 @@ function processSnapshotSounds(snap) {
       if (tutorial && ourGoal) tuEv.scored = true;   // latch: completes the goal + super steps
       playSound(ourGoal ? 'goalHappy' : 'goalConceded', ourGoal ? 1 : 0.82);
       haptic(ourGoal ? 'goal' : 'concede'); // melodic buzz when we score
-      // A goal in a tutorial is a LESSON STEP, not a match event, so it doesn't get the match's
-      // celebration: the comic word covers the middle of the screen — exactly where the coach's
-      // caption for the next step is about to appear — and between the word's hold and the confetti
-      // the kid is watching an animation instead of being told what to do next. Short feedback is
-      // still right for a child, so the jingle, the buzz and the crowd's own pulse behind the pitch
-      // all stay; none of them sit on top of the caption. (tuFinish()'s confetti is the reward for
-      // finishing a whole level and is deliberately untouched.)
-      if (!tutorial) {
-        confettiBurst(ourGoal ? 90 : 45);      // the stands erupt on a goal
-        triggerCelebration(ourGoal ? 'goal-us' : 'goal-them'); // comic Hebrew word overlay
-      }
+      // A TUTORIAL GOAL GETS THE BADGE TOO. It used to be withheld here, and the reason recorded was
+      // real: the comic word sits at H*0.40 with a starburst reaching S*0.30 above it, and the coach's
+      // caption sits at top:64px — on a landscape phone those overlap, so the word lands on the next
+      // lesson's instruction. But withholding it left a kid who had just scored with a jingle and an
+      // empty screen, which is not the trade anybody wanted (user, having played it on his phone:
+      // "when player make a goal in this training put the goal badge").
+      // So the collision is answered instead of avoided, in two ways that cost nothing:
+      //   * the CAPTION steps aside while the word is up (`.tutorial.celebrating`, toggled in tuTick)
+      //     — during the goal beat the standing instruction is one the kid has just obeyed, so there
+      //     is nothing to cover up;
+      //   * the word is cut to ONE beat instead of the match's 2.3s, because the next step now lands
+      //     ~1s after the goal (TU_GOAL_HOLD) and its instruction must not wait on an animation.
+      // (tuFinish()'s confetti is the reward for finishing a whole level and is untouched.)
+      confettiBurst(ourGoal ? 90 : 45);        // the stands erupt on a goal
+      triggerCelebration(ourGoal ? 'goal-us' : 'goal-them', tutorial ? { dur: TU_CELEB_SEC } : null);
       crowdHypeT = performance.now();          // crowd leaps up, then settles over ~2.5s
     }
     // TUTORIAL: the ball came LOOSE off an enemy carrier — that is the strip step's whole lesson,
@@ -746,15 +750,19 @@ function processSnapshotSounds(snap) {
       // TUTORIAL: landing a shot on ANY enemy is a hit. Nothing shoots back in there, so a
       // player-impact IS the kid hitting something. Latched, not sampled: a dropped frame must not
       // lose the hit that finishes the lesson.
-      // quickHit is that same hit ATTRIBUTED to a quick tap, and it has to be assembled here
-      // because the two halves arrive at different times: the release is local and instant
-      // (releaseShot stamps tuQuickShotAt when the charge was under QUICK_CHARGE), the impact
-      // comes back off the wire a bullet-flight plus an RTT later. Anything inside the window is
-      // that tap's bullet — a quick shot only lives PROJECTILE.ttl (1.3s) anyway, and releaseShot
-      // clears the stamp on any harder release, so a charged shot can never inherit it.
+      // quickHit and chargedHit are that same hit ATTRIBUTED to the gesture that fired it, and both
+      // have to be assembled here because the two halves arrive at different times: the release is
+      // local and instant (releaseShot stamps tuQuickShotAt under QUICK_CHARGE and tuFullShotAt at
+      // FULL_CHARGE), the impact comes back off the wire a bullet-flight plus an RTT later.
+      // Anything inside the window is that release's bullet — a bullet only lives PROJECTILE.ttl
+      // (1.3s) whatever its charge, and releaseShot clears each stamp on a release of the other
+      // kind, so neither gesture can ever inherit the other's hit.
+      // chargedHit is the FULL-shot step's whole predicate: the hold, plus proof it was aimed.
       if (tutorial && pl && pl.team !== me.team) {
         tuEv.hitEnemy = true;
-        if (tuQuickShotAt && performance.now() - tuQuickShotAt <= TU_QUICK_HIT_MS) tuEv.quickHit = true;
+        const now = performance.now();
+        if (tuQuickShotAt && now - tuQuickShotAt <= TU_SHOT_HIT_MS) tuEv.quickHit = true;
+        if (tuFullShotAt && now - tuFullShotAt <= TU_SHOT_HIT_MS) tuEv.chargedHit = true;
       }
     }
     for (const b of snap.bombs || []) if (!knownBombs.has(b.id)) {            // planted a bomb
@@ -5081,18 +5089,31 @@ function releaseShot(aim) {
     if (predVel) { predVel.x -= ax * 60; predVel.y -= ay * 60; }
   }
   const c = currentCharge();
-  // TUTORIAL: the charge step completes on RELEASING at full power — the client knows its own
-  // charge exactly, here, at the moment of release. Deliberately not "a full shot that also
-  // hits": the lesson is the HOLD, and making a seven-year-old land it as well turns one idea
-  // into two and adds a way to get stuck. Counts a kick as well as a bullet — holding longer
-  // makes both stronger, which is the whole point.
+  // TUTORIAL: everything the coach can know about a shot from the RELEASE alone is decided here,
+  // where the client knows its own charge exactly. Two of the three facts are only halves, though,
+  // because the tutorial's two shooting steps ask about the LANDING as well:
+  //   * chargedShot — released at full power. Kept because it is true and cheap, but no step
+  //     completes on it any more: the full-shot step now insists on a hit (`chargedHit`), since a
+  //     full release that sailed into the touchline was still congratulated by the old predicate.
+  //   * tuFullShotAt — the stamp that turns it into `chargedHit` when an enemy impact follows.
+  //   * tuQuickShotAt — the same stamp for a tap, which the impact handler upgrades to `quickHit`.
+  // Both stamps are CLEARED by a release of the other kind rather than left to rot, so a kid who
+  // taps, misses, then holds and hits can never be credited with the tap they didn't land (or the
+  // other way round). Counts a kick as well as a bullet — holding longer makes both stronger.
   if (tutorial && c >= FULL_CHARGE) tuEv.chargedShot = true;
-  // ...and the QUICK counterpart, for the TAP step. This one cannot be decided here: a tap into
-  // empty grass is not the lesson, so all we record is that the shot now in flight was a quick
-  // one, and the impact handler upgrades it to tuEv.quickHit if it lands on an enemy. Any release
-  // at or above QUICK_CHARGE CLEARS the stamp instead of leaving it to rot — otherwise a kid who
-  // taps, misses, then holds and hits would be credited with a tap they didn't land.
-  if (tutorial) tuQuickShotAt = c < QUICK_CHARGE ? performance.now() : 0;
+  if (tutorial) {
+    tuQuickShotAt = c < QUICK_CHARGE ? performance.now() : 0;
+    tuFullShotAt = c >= FULL_CHARGE ? performance.now() : 0;
+    // The TAP step's completion is a COUNT of quick releases and nothing else — no hit, by design
+    // (see shared/tutorial.js). A tally, so it survives the kid tapping faster than a frame.
+    if (c < QUICK_CHARGE) tuEv.quickShots = (tuEv.quickShots || 0) + 1;
+    // The under-hold CORRECTION, mirror of the over-hold one sampled in tuTick. It belongs at the
+    // release: an over-hold is a thumb still down and has to be answered mid-charge, but letting go
+    // early is only knowable once you have let go. Only a step that ASKS for it watches (fixWhen),
+    // so the tap step — where a short release is the whole lesson — can never trip it.
+    const stNow = stepAt(tuLvl, tuStage);
+    if (stNow && stNow.fixWhen === 'underHeld' && c < FULL_CHARGE) tuEv.underHeld = true;
+  }
   if (holdingBall) playSound('kick', 0.85, 0.92 + c * 0.16);        // kicking the held ball
   else if (c >= FULL_CHARGE) playSound('powerShot', 0.7);           // fully-charged bullet — the "power shoot" cue
   else playSound('shot', 0.38, 0.92 + c * 0.16);                    // a normal bullet (gun blop / shoot)
@@ -6667,7 +6688,10 @@ const CELEB_FONT = '"Arial Black","Arial Hebrew","Helvetica Neue",system-ui,sans
 const celBack = (x) => { const c1 = 2.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
 const celCubic = (x) => 1 - Math.pow(1 - x, 3);
 const celElastic = (x) => { if (x <= 0 || x >= 1) return clamp(x, 0, 1); const c4 = (2 * Math.PI) / 3; return Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1; };
-function triggerCelebration(kind) {
+// `over` lets a caller bend one of the presets for its own context without inventing a second entry
+// in the table — the tutorial shortens the goal word's hold (see processSnapshotSounds) and nothing
+// else about it. Applied over the preset, so a caller can only override fields the preset defines.
+function triggerCelebration(kind, over = null) {
   const P = {
     'goal-us':   { text: 'גול!',   c1: '#ffe14a', c2: '#ff8f1f', ease: 'back',    speed: true,  dur: 2.3 },
     'goal-them': { text: 'ספגנו',  c1: '#c3d2ea', c2: '#8fa6c8', ease: 'cubic',   speed: false, dur: 1.7, muted: true },
@@ -6676,7 +6700,7 @@ function triggerCelebration(kind) {
     'draw':      { text: 'תיקו',   c1: '#ffe14a', c2: '#ff8f1f', ease: 'back',    speed: true,  dur: 0 },
   }[kind];
   if (!P) return;
-  celeb = { ...P, kind, start: performance.now() };
+  celeb = { ...P, ...(over || {}), kind, start: performance.now() };
   shake(P.muted ? 5 : 11, P.muted ? 260 : 360);
   if (kind === 'win') confettiBurst(150);
 }
@@ -7885,21 +7909,39 @@ let tuStepT = 0;         // seconds inside the current step (drives the stuck-nu
 let tuFinishAt = 0;      // performance.now() at which the finale card shows (0 = not pending)
 let tuPrevT = 0;         // previous frame stamp, for the step machine's dt
 let tuDoneAt = 0;        // when the current step first completed (0 = not yet) — drives minDwell
+// Has the kid PRESSED the control this step is introducing? One-way per step, reset on every step
+// change like every other per-step latch. It is the whole of the veil's off-switch: the screen dims
+// only while a brand-new button is unused, and un-dims on the first press (not on the step being
+// completed — see tuGate and tuRenderOverlay).
+let tuIntroUsed = false;
+// A stick this far off centre counts as "they moved". Not `> 0`: a resting thumb on a floating stick
+// reads a pixel or two of drift, and un-dimming the screen before the kid has done anything would
+// teach them nothing at all.
+const TU_STICK_DEAD = 0.15;
+// How long a tutorial goal's comic word stays up before it fades (seconds). Short on purpose: the
+// coach advances ~TU_GOAL_HOLD (1s) after the goal, and the caption is suppressed while the word is
+// on screen, so a match-length 2.3s hold would gag the NEXT lesson's instruction for over a second.
+const TU_CELEB_SEC = 0.8;
 // A blast that went off on top of ME, and where I was standing at the time. The fly step watches
 // the pair: a blast under your feet followed by real distance covered IS a rocket jump, and it
 // needs no new wire field to detect.
 let tuSelfBlastAt = 0, tuSelfBlastPos = null;
-// The pending QUICK shot: performance.now() of a release under QUICK_CHARGE, 0 for none. Half of
-// the shoot step's `quickHit` — see releaseShot (the stamp) and the impact handler (the payoff).
-let tuQuickShotAt = 0;
-// How long that stamp stays good. A quick bullet is bulletSpeed 720 x chargeMul for
-// PROJECTILE.ttl (1.3s) and then expires, so 2s covers the whole flight plus a bad phone's RTT
-// and still cannot reach a shot from a later, separate press.
-const TU_QUICK_HIT_MS = 2000;
+// The pending shot, by gesture: performance.now() of a release under QUICK_CHARGE / at FULL_CHARGE,
+// 0 for none. Each is half of one step's predicate — `quickHit` and the full-shot step's
+// `chargedHit`. See releaseShot (the stamps) and the impact handler (the payoffs).
+let tuQuickShotAt = 0, tuFullShotAt = 0;
+// How long a stamp stays good. A bullet is bulletSpeed 720 x chargeMul for PROJECTILE.ttl (1.3s)
+// and then expires — the TTL is the same whatever the charge, only the distance differs (~410px on
+// a tap, ~936px fully charged), so ONE window serves both stamps. 2s covers the whole flight plus a
+// bad phone's RTT and still cannot reach a shot from a later, separate press.
+const TU_SHOT_HIT_MS = 2000;
 let tuReplay = false;    // replay from אימון => a way out exists. A first run has none.
 // One-way latches for events seen in the snapshot stream. Latched rather than sampled so a
 // dropped frame cannot lose the goal (or the strip, or the blast) that completes a step.
-const tuBlankEv = () => ({ hitEnemy: false, quickHit: false, overHeld: false, chargedShot: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false, foundFoe: false, flew: false });
+// `quickShots` is the odd one out and is a TALLY, not a flag: level 1's tap step wants three quick
+// releases and does not care where they land (shared/tutorial.js `needs`). It still resets with the
+// rest of them on every step change, so a count can never leak into the next lesson.
+const tuBlankEv = () => ({ hitEnemy: false, quickHit: false, quickShots: 0, overHeld: false, underHeld: false, chargedShot: false, chargedHit: false, scored: false, bombHitFoe: false, wallBuilt: false, stripped: false, foundFoe: false, flew: false });
 let tuEv = tuBlankEv();
 
 const tuEl = document.getElementById('tutorial');
@@ -8168,6 +8210,8 @@ function tuHubEnter(level, replay) {
   tuStage = 0; tuStepT = 0; tuDoneAt = 0; tuFinishAt = 0;
   tuHub = true; tuReplay = !!replay;
   tuHubEv = tuHubBlankEv();
+  tuEl?.classList.remove('celebrating');   // belt and braces: a goal word never happens on the hub,
+                                           // and its class must never arrive here still set (tuExit)
   tuMockShow();                                    // the lesson happens on our OWN lobby
   tuCoachToBody();                                 // ...and the coach has to be able to draw on it
   document.body.classList.add('hub-tu-gate');
@@ -8281,11 +8325,11 @@ window.__tuHubState = () => ({ on: tuHub, stage: tuStage, finishAt: tuFinishAt, 
 // Called from enterMatch when the room is a tutorial room.
 function tuEnter(level) {
   tuLvl = Number.isInteger(level) && tuLevel(level) ? level : 0;
-  tuStage = 0; tuStepT = 0; tuFinishAt = 0; tuDoneAt = 0;
-  tuSelfBlastAt = 0; tuSelfBlastPos = null; tuQuickShotAt = 0;
+  tuStage = 0; tuStepT = 0; tuFinishAt = 0; tuDoneAt = 0; tuIntroUsed = false;
+  tuSelfBlastAt = 0; tuSelfBlastPos = null; tuQuickShotAt = 0; tuFullShotAt = 0;
   tuEv = tuBlankEv();
   tuDoneEl?.classList.add('hidden');
-  tuEl?.classList.remove('hidden');
+  tuEl?.classList.remove('hidden', 'celebrating');
   const pips = stepsIn(tuLvl);
   if (tuPipsEl && tuPipsEl.childElementCount !== pips) {
     tuPipsEl.innerHTML = Array.from({ length: pips }, () => '<i></i>').join('');
@@ -8299,6 +8343,11 @@ function tuEnter(level) {
 
 function tuExit() {
   tuEl?.classList.add('hidden');
+  // `celebrating` (the caption stepping aside for a goal word) is toggled by tuTick, and tuTick stops
+  // running the moment the level is over — so a level whose LAST step is a goal, which is level 1 and
+  // level 3's shape, would leave it set. It has to come off here: the hub tour re-uses this very
+  // element, and a stale class would hide its caption for the whole of level 4.
+  tuEl?.classList.remove('celebrating', 'veiled');
   tuDoneEl?.classList.add('hidden');
   for (const id of ['special', 'build', 'stickR', 'leave-lobby-btn', 'hud', 'edit-controls-btn', 'chat-btn', 'pause-btn', 'banner']) {
     document.getElementById(id)?.classList.remove('tu-off');
@@ -8321,6 +8370,22 @@ function tuGate(inp) {
   if (!tuHasControl(tuLvl, tuStage, 'aim')) { inp.hold = false; inp.fire = false; inp.aimed = false; }
   if (!tuHasControl(tuLvl, tuStage, 'bomb')) { inp.special = false; inp.sax = 0; inp.say = 0; }
   if (!tuHasControl(tuLvl, tuStage, 'wall')) { inp.build = false; inp.buildHold = false; inp.buildDist = 0; }
+  // ...and while we have the kid's actual gesture in hand: did they just USE the control this step is
+  // introducing? That is the veil's off-switch, and this is the only place in the client where the
+  // real input lives, so it is latched here rather than reconstructed from a snapshot.
+  // Read AFTER the gate above, deliberately: a stray tap on a button this step never taught has just
+  // been zeroed, so it can never be the thing that clears the veil.
+  // On the FIRST PRESS, not on the step completing — «when a player click the new button dark screen
+  // disapears». For 🧱 the hold counts (buildHold is live for the whole drag); 💣 has no held state in
+  // this client, so its edge (`special`, queued on release) is the earliest honest signal there is.
+  if (!tuIntroUsed) {
+    for (const c of introducesFor(tuLvl, tuStage)) {
+      if (c === 'move' && Math.hypot(inp.moveX, inp.moveY) > TU_STICK_DEAD) tuIntroUsed = true;
+      else if (c === 'aim' && (inp.hold || inp.fire || inp.aimed)) tuIntroUsed = true;
+      else if (c === 'bomb' && inp.special) tuIntroUsed = true;
+      else if (c === 'wall' && (inp.build || inp.buildHold)) tuIntroUsed = true;
+    }
+  }
   return inp;
 }
 
@@ -8350,15 +8415,25 @@ function tuTick(dt) {
   if (tuFinishAt) { if (performance.now() >= tuFinishAt) { tuFinishAt = 0; tuFinish(); } return; }
   if (isTutorialOver(tuLvl, tuStage)) return;
 
-  // The FINAL step of a level ends it. Don't sit out the full 5s kickoff reset first — let the
+  // The goal word owns the middle of the screen for its beat, and the caption sits in the same
+  // place — so the caption steps aside for it (styled in style.css) rather than being drawn under a
+  // starburst. Toggled up here, ABOVE the freeze return below, because the whole of the word's beat
+  // happens inside that freeze; anywhere lower and the class would never go on.
+  tuEl?.classList.toggle('celebrating', !!celeb);
+
+  // The FINAL step of a level ends it. Don't sit out the kickoff reset first — let the
   // celebration play for a beat, then the finale card.
   if (tuStage === stepsIn(tuLvl) - 1 && isStepDone(tuLvl, tuStage, tuCtx())) {
     tuStage = doneStage(tuLvl); tuFinishAt = performance.now() + 1600;
     tuRenderOverlay();
     return;
   }
-  // Mid-level goal reset: freeze the coach so the celebration has the screen to itself, and so
-  // the step timer doesn't bank 5 idle seconds and fire a stuck-nudge the moment play resumes.
+  // Mid-level goal reset: freeze the coach so the goal badge has the screen to itself, and so the
+  // step timer doesn't bank idle seconds and fire a stuck-nudge the moment play resumes. The room
+  // clamps that freeze to TU_GOAL_HOLD (1s) for a tutorial, so this is now a one-second beat and no
+  // longer the five dead seconds it used to sit out — see updateTutorial in server.js. The coach
+  // still waits for the freeze to END rather than racing it: the next stage's setup would otherwise
+  // land on a body the sim is still holding still.
   if (latest && latest.resetTimer > 0) return;
 
   tuStepT += dt;
@@ -8390,8 +8465,8 @@ function tuTick(dt) {
   if (!tuDoneAt && isStepDone(tuLvl, tuStage, tuCtx())) tuDoneAt = performance.now();
   const next = advance(tuLvl, tuStage, tuCtx());
   if (next !== tuStage) {
-    tuStage = next; tuStepT = 0; tuDoneAt = 0;
-    tuSelfBlastAt = 0; tuSelfBlastPos = null; tuQuickShotAt = 0;
+    tuStage = next; tuStepT = 0; tuDoneAt = 0; tuIntroUsed = false;
+    tuSelfBlastAt = 0; tuSelfBlastPos = null; tuQuickShotAt = 0; tuFullShotAt = 0;
     tuEv = tuBlankEv();
     sendMsg({ type: 'tuStage', n: tuStage });   // server sets the pitch up for the new step
     tuSyncControls();
@@ -8410,7 +8485,24 @@ function tuRenderOverlay() {
   // The spotlight tracks the control's REAL position, so a stick the player moved or resized in
   // the controls editor keeps its hand pointing at the right place.
   const a = s.spotlight ? tuSpotRect(s.spotlight) : null;
-  tuEl.classList.toggle('no-spot', !a);
+  // THE VEIL — the dark screen — and the whole rule for it, reported from a phone: it appears ONLY on
+  // a step that hands the kid a control they have never had (introducesFor: move, aim, bomb, wall —
+  // four steps in the entire tutorial), and it goes the instant they press that control, for the rest
+  // of the step. Before this it was up on every step of every level, which dimmed half the tutorial
+  // for a kid who already knew how to walk, and kept dimming it after they had found the right button.
+  // Everything else the coach does is untouched and still runs on every step: the pointing hand, the
+  // caption, the second line, the pips. Only the DIMMING is conditional now.
+  // `no-spot`'s even dim went with it. That was the dim used by the steps pointing at the GRASS
+  // rather than at a button, and under the new rule those steps introduce nothing — no veil means no
+  // veil, so the class stopped having anything to say. (The rect is still what the HAND is positioned
+  // from, below; only the veil stopped caring.)
+  // A HUB step (level 4) keeps the veil it has always had, and is the one exemption. That level's
+  // whole subject is the furniture it points at — a trophy bar, a deck, three power slots — so every
+  // one of its steps IS introducing something the kid has never seen, and the dim is the second half
+  // of a look its own gate already starts (.hub-tu-gate greys the lobby). Nothing about the hub was
+  // reported; leaving it alone is deliberate, not an oversight.
+  const introducing = !tuIntroUsed && introducesFor(tuLvl, tuStage).length > 0;
+  tuEl.classList.toggle('veiled', !!a && (tuIsHub(tuLvl) || introducing));
   if (a) {
     tuEl.style.setProperty('--tu-x', `${Math.round(a.x)}px`);
     tuEl.style.setProperty('--tu-y', `${Math.round(a.y)}px`);

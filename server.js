@@ -38,7 +38,7 @@ import { planMatches, bandOf } from './shared/matchmaker.js';
 import { isChatId, chatById, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from './shared/quick-chat.js';
 import { SALTIZ_BOT_BY_ID, botLevelOf, saltizBotLoadout, pickBotIdentities } from './shared/saltiz-bots.js';
 import { TRAIN_ARENA, TRAIN_ENEMIES, TRAIN_HOME_LEASH, createSentryMem, armSentryFiring, trainingSentryInput, trainingStillInput, trainingKeeperInput, leashSentry, keeperClamp } from './shared/training.js';
-import { TU_BALL_PARK, TU_LEVEL_COUNT, foeKeys, stageAt, stepsIn, fieldFor } from './shared/tutorial.js';
+import { TU_BALL_PARK, TU_GOAL_HOLD, TU_LEVEL_COUNT, foeKeys, stageAt, stepsIn, fieldFor } from './shared/tutorial.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3010;
@@ -853,20 +853,42 @@ function updateTutorial(room) {
   // ball-shot step and on level 1's two goal steps alike. A tutorial has no clock, no opponent
   // taking a restart and no way to lose, so there is nothing for a kickoff to restart — the kid
   // stays where they are and the coach moves on.
-  // Only the RESTART is cancelled, never the freeze: `resetTimer` and `lastGoal` are left exactly as
-  // the sim set them, because the client reads that very edge to know a goal happened at all — the
-  // `scored` latch that completes the step, plus the jingle and the buzz, are all hung off
-  // `resetTimer` going 0 -> positive with `lastGoal` set (processSnapshotSounds).
+  // The RESTART is cancelled outright and the FREEZE is only SHORTENED, never cancelled: `lastGoal`
+  // is left exactly as the sim set it and `resetTimer` is clamped rather than zeroed, because the
+  // client reads that very edge to know a goal happened at all — the `scored` latch that completes
+  // the step, plus the jingle and the buzz, are all hung off `resetTimer` going 0 -> positive with
+  // `lastGoal` set (processSnapshotSounds). (It used to be left at the full GOAL_RESET; the clamp
+  // came later, from the same phone session — see the note in the branch below.)
   // THE BALL HAS TO BE KILLED IN THE SAME BREATH. `pendingReset` also drives rollBallIntoNet, which
   // is the only thing that ever brings a scoring ball to rest, and repositionKickoff was the only
   // thing that ever brought it back onto the pitch. Cancel the restart and leave the velocity alone
   // and the ball sits a pixel past the line still travelling at +x for the whole freeze — then play
   // resumes, ballPhysics sees `vx > 0 && x > FIELD.W` with lastTouch A, and scores again, and again:
-  // an endless goal every 5 seconds. Stopped dead it cannot re-cross anything (the sim's goal test
-  // needs a ball that is MOVING), it reads as "it went in", and the next stage places it properly.
+  // an endless goal every time the freeze ends. Stopped dead it cannot re-cross anything (the sim's
+  // goal test needs a ball that is MOVING), it reads as "it went in", and the next stage places it
+  // properly.
   if (st.pendingReset) {
     st.pendingReset = false; st.pendingBallTeam = null;
     st.ball.vx = 0; st.ball.vy = 0;
+    // ...AND THE FREEZE ITSELF IS CUT TO ONE BEAT. This is the other half of the same complaint, from
+    // the same phone session: «when player make a goal in this training put the goal badge, but dont
+    // wait for the player dance to end, wait 1 second and move to the next stage». GOAL_RESET is 5s,
+    // and in a tutorial all five are dead — step()'s reset branch is holding every body still, the
+    // coach deliberately sits the whole thing out (tuTick), and with the kickoff cancelled above there
+    // is nothing for the freeze to be waiting FOR. TU_GOAL_HOLD (1s) is the badge and then the next
+    // lesson.
+    // CLAMPED, NOT CANCELLED, and that distinction is load-bearing. The client's `scored` latch — the
+    // only thing that completes a goal step at all — hangs off `resetTimer` going 0 -> POSITIVE with
+    // `lastGoal` set (processSnapshotSounds), so a zero here would delete the event that ends the
+    // step and strand the kid on a goal they had already scored. The edge is in the snapshot for the
+    // tick the goal happened, which is the tick BEFORE this one (updateTutorial runs before step()),
+    // so it has already gone out; shortening the window that follows it cannot erase it, and at
+    // SNAPSHOT_RATE the kid's client sees ~60 more frames of `resetTimer > 0` besides.
+    // The UN-FREEZE is step()'s own business and is untouched: at resetTimer <= 0 it clears lastGoal
+    // and drops back into live play. The coach only advances once it sees resetTimer at 0 (tuTick
+    // returns early above it), so the next stage's setup always lands on a body that can move —
+    // applying it mid-freeze would put the kid on the new spot and leave them paralysed there.
+    st.resetTimer = Math.min(st.resetTimer, TU_GOAL_HOLD);
   }
   tuArmFoes(room);
   for (const e of room.trainEnemies || []) {

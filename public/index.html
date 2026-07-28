@@ -787,7 +787,9 @@
          rest of the pitch, not here; only screen-space furniture lives in the DOM. -->
     <div id="tutorial" class="tutorial hidden" dir="rtl" aria-live="polite">
       <!-- Spotlight: a dimming veil with a hole punched over the live control (positioned by JS
-           from the control's real anchor, so it tracks a moved/resized stick). -->
+           from the control's real anchor, so it tracks a moved/resized stick). Present on every
+           step but only PAINTED on the ones that introduce a button the kid has never had, and it
+           goes on their first press — see .tutorial.veiled in style.css. -->
       <div id="tu-veil" class="tu-veil"></div>
       <div id="tu-hand" class="tu-hand" aria-hidden="true"></div>
       <div class="tu-caption">

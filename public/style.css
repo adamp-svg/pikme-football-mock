@@ -3044,16 +3044,37 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 
 /* The veil dims the whole screen EXCEPT a soft hole over the live control. One radial gradient
    rather than four clipped panels: the hole can then be moved/resized every frame from the
-   control's real anchor (a moved or resized stick keeps its spotlight) with no reflow. */
+   control's real anchor (a moved or resized stick keeps its spotlight) with no reflow.
+
+   IT IS OFF BY DEFAULT NOW, and only `.tutorial.veiled` turns it on. The class is set in JS
+   (tuRenderOverlay) under one rule, reported from a phone: dim ONLY on a step that hands the kid a
+   button they have never had — walk, aim, 💣, 🧱, four steps in the whole tutorial — and stop the
+   instant they press it. It used to be up for every step of every level, so a kid who already knew
+   how to walk played half the tutorial through a dimmed screen. The hand and the caption are NOT
+   part of this and still run on every step; only the dimming is conditional.
+
+   `.tutorial.no-spot .tu-veil` — the flat even dim for the steps that point at the GRASS instead of
+   a button — is GONE with the same change: those steps introduce nothing, and no veil means no veil.
+   Opacity, not a background swap, is what fades it: the off-switch is a press, so the fade has to be
+   quick enough to read as a response to that press (.14s) while still not being a hard cut. */
 .tu-veil {
-  position: absolute; inset: 0;
+  position: absolute; inset: 0; opacity: 0;
   background: radial-gradient(circle var(--tu-r, 120px) at var(--tu-x, 50%) var(--tu-y, 50%),
               rgba(0,0,0,0) 0%, rgba(0,0,0,0) 62%, rgba(0,0,0,.52) 100%);
-  transition: background .25s ease;
+  transition: background .25s ease, opacity .14s ease;
 }
-/* No live control this step (the goal steps point at the pitch, not at a button): dim evenly and
-   softly, so nothing reads as "press here". */
-.tutorial.no-spot .tu-veil { background: rgba(0,0,0,.28); }
+.tutorial.veiled .tu-veil { opacity: 1; }
+
+/* A GOAL in the tutorial now plays the same comic «גול!» the rest of the game plays, and that word
+   lands mid-screen — right where the caption above sits. So the coach's words step aside for the
+   beat the word is up (`celebrating`, toggled in tuTick) instead of being drawn under a starburst.
+   Nothing is lost: at that moment the standing caption is an instruction the kid has just obeyed,
+   and the NEXT step's caption pops in as the word fades. `visibility` as well as `opacity`, so the
+   pips underneath fade with it rather than hanging in mid-air over the word.
+   (Declared here, in the veil block, rather than beside the .tu-caption rules — those are being
+   reworked for a layout fix in the same hour this was written and this rule has no business in the
+   middle of that.) */
+.tutorial.celebrating .tu-caption { opacity: 0; visibility: hidden; transition: opacity .12s ease; }
 
 /* The pointing hand. Parked over the live control by JS (--tu-x/--tu-y) and animated per gesture:
    `circle` walks it around the stick (move), `pull` shows hold -> drag -> release (aim/shoot). */
@@ -3147,15 +3168,28 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   60%, 100% { translate: 0 0; scale: 1; }      /* beat, so the two presses stay countable */
 }
 
-/* 1-2 Hebrew words, in the pitch's comic voice. Sits high-centre: clear of both thumbs in
-   landscape, and clear of the score/clock cluster above it. */
+/* 1-2 Hebrew words, in the pitch's comic voice. Sits high-centre, clear of both thumbs.
+   TWO NUMBERS HERE WERE WRONG ON A PHONE, both for the same reason — they were reasoned about on a
+   desktop window, where a viewport is wide AND tall. A landscape phone is 844x390.
+   * `top` was `max(64px, safe-area + 58px)`, reserving room for the score/clock cluster. In a
+     TUTORIAL that cluster does not exist: enterMatch puts `tu-off` on #hud (client.js) precisely so
+     a first-timer is not watching a countdown to nothing. So 64px was a hole held open for nothing,
+     on a viewport only 390px tall — one sixth of the screen, and the reason the user reported the
+     heading sitting too low. It now sits just under the safe area.
+   * the font was sized in `vw`, and on a landscape phone vw is the LONG axis: 7.5vw of 844 = 63px,
+     clamped to the 58px ceiling — a 58px cap line plus the pill plus the pips ran to ~90px of the
+     390 available. Sized off `vh` now, with a vw term kept as a second ceiling so a short wide
+     window cannot blow it up either: min() takes whichever axis is the tighter one.
+   The scale ends up ~31px on a 390-tall phone and ~42px on a tablet, against 58px before. */
 .tu-caption {
-  position: absolute; left: 0; right: 0; top: max(64px, calc(env(safe-area-inset-top) + 58px));
-  display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center;
+  position: absolute; left: 0; right: 0; top: max(10px, calc(env(safe-area-inset-top) + 8px));
+  display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center;
 }
 .tu-caption b {
-  font: 900 clamp(30px, 7.5vw, 58px)/1 "Arial Black", Impact, sans-serif; color: #fff4ca;
-  text-shadow: 0 5px 0 #a56a16, 0 9px 0 #252a21, 0 12px 26px rgba(0,0,0,.55);
+  font: 900 clamp(20px, min(8vh, 7vw), 42px)/1 "Arial Black", Impact, sans-serif; color: #fff4ca;
+  /* The drop-shadow steps scale with the type. At 5px/9px they were tuned for a 58px cap line; left
+     alone under a 31px one they read as a smudge under the letters rather than a comic outline. */
+  text-shadow: 0 3px 0 #a56a16, 0 5px 0 #252a21, 0 8px 18px rgba(0,0,0,.55);
   animation: tu-pop .32s cubic-bezier(.2,1.5,.4,1);
 }
 /* The second line is now TWO different messages through one element: a step's standing `sub` (how
@@ -3165,7 +3199,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    three clauses where the old nudges were four words, and unconstrained it walks off both screen
    edges in landscape on a phone. */
 .tu-caption small {
-  font: 700 clamp(13px, 3.2vw, 19px)/1.2 system-ui, sans-serif; color: #fff;
+  /* Same vh-first sizing as the cap line above, and for the same reason: 3.2vw was 27px on a phone
+     in landscape, i.e. only clamped down by the 19px ceiling, which made the "quiet" line nearly as
+     loud as the heading it hangs under. ~14px on a 390-tall screen. */
+  font: 700 clamp(11px, min(3.6vh, 3.2vw), 17px)/1.2 system-ui, sans-serif; color: #fff;
   background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 999px;
   max-width: min(86vw, 560px); text-wrap: balance;
   animation: tu-pop .3s cubic-bezier(.2,1.5,.4,1);
@@ -3185,9 +3222,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    Grouped UNDER THE CAPTION rather than along the bottom edge: down there they landed on the
    build tag and between both thumbs (caught in a screenshot). Up here all the coach's furniture
    is one thing in one place. */
-.tu-pips { display: flex; justify-content: center; gap: 7px; margin-top: 2px; }
+.tu-pips { display: flex; justify-content: center; gap: clamp(5px, 1.4vh, 7px); margin-top: 2px; }
 .tu-pips i {
-  width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.28);
+  /* Scaled off the short axis with the rest of the cluster — fixed 9px dots under a heading that is
+     now ~31px instead of 58px were the biggest thing left in the stack proportionally. */
+  width: clamp(6px, 1.9vh, 9px); aspect-ratio: 1; border-radius: 50%; background: rgba(255,255,255,.28);
   box-shadow: 0 1px 3px rgba(0,0,0,.5); transition: background .2s ease, scale .2s ease;
 }
 .tu-pips i.on { background: #ffd06a; scale: 1.25; }
