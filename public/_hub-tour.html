@@ -19,7 +19,9 @@
   <link rel="stylesheet" href="/rank.css" />
   <!-- Loaded last so the sprite pack also replaces legacy CSS pseudo-element emoji. -->
   <link rel="stylesheet" href="/icon-system.css" />
-  <link rel="stylesheet" href="/_hub-tour.css" />
+  <!-- The lobby tour's own styling: the per-element spotlight the shipped gate cannot express, and
+       the read-step furniture. Reuses .tutorial / .tu-hand / .hub-tu-gate from style.css. -->
+  <link rel="stylesheet" href="/hub-tour.css" />
 </head>
 <body>
   <script src="/_hub-tour-sandbox.js"></script>
@@ -974,12 +976,14 @@
   <script src="/back-nav.js"></script>
   <script src="/icon-system.js"></script>
   <script type="module" src="/client.js"></script>
+  <!-- The lobby tour a brand-new player gets on their first visit to the hub. Self-contained; it is
+       handed the floor by tuMaybeAutoStart() in client.js and hands it back when it is done. -->
+  <script src="/hub-tour.js"></script>
   <!-- DEV-ONLY visual layout editor (feat/lobby-redesign). Self-gating and purely
        additive: it re-applies any saved lobby layout on every load (so the arrangement
        shows in normal view and inside the iPhone iframe), and activates the drag/resize
        editor UI ONLY when the URL has ?edit=1. No game logic is touched; a no-op when
        nothing is saved and ?edit is absent. -->
   <script defer src="/_layout-edit.js"></script>
-  <script type="module" src="/_hub-tour.js"></script>
 </body>
 </html>

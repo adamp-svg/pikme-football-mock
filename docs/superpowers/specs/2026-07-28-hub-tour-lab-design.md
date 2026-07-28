@@ -1,6 +1,10 @@
-# Hub tour LAB — two drag lessons on an exact clone of the lobby
+# The lobby tour — a kid's first ninety seconds on the hub
 
-Date: 2026-07-28 · Status: approved, building · Scope: **localhost lab only, nothing shipped**
+Date: 2026-07-28 · Status: **SHIPPED** (auto-launches on first run) · Lab retained as the bench
+
+> Started as a localhost lab (`_hub-tour.html`). It is now the shipped `public/hub-tour.js`, and the
+> lab loads that same file rather than a copy of it — the only way the two cannot drift. Everything
+> below about the lobby, the gestures and the faults still holds; the integration is at the end.
 
 ## What the user asked for
 
@@ -196,3 +200,59 @@ assertions pass while the screen is blank.
 [client.js:1620]: ../../../public/client.js
 [client.js:1629]: ../../../public/client.js
 [client.js:7967]: ../../../public/client.js
+
+---
+
+## Shipping it: first run (user, 13:30)
+
+> "now lets make this appear when user enter game first time"
+
+**Order — the lobby first, the pitch second.** `tuMaybeAutoStart()` asks `HubTour.pending()` before
+anything else and hands over; the tour calls back when it finishes *or* is skipped, and level 1
+יסודות starts then. Before this, a brand-new player was taken straight onto a pitch on the server's
+`welcome` and never saw the lobby at all.
+
+**Nothing it does is saved.** `window.__hubPrefs` (in client.js, because `myLoadout` / `myCosmetic` /
+`tuHub` are module-private there) gives the tour three things: `begin()` raises the existing `tuHub`
+sandbox flag and snapshots the loadout + hero; `end()` puts both back, lowers the flag and re-tells
+the server the truth; `cosmetic()` reads the live hero, which is how the hero step knows the rare
+landed. `saveLoadout` gained the `tuHub` guard `saveCosmetic` already had — without it one tap of
+«הכי טוב» would have written the lesson's loadout to localStorage *and* `postPrefs()`-ed it to the
+app, which persists under the player's **phone number**.
+
+**`emptySlots()`, and why the tour cannot work without it.** `myLoadout` is `null` for anyone who has
+never arranged their powers, and `effectiveLoadout()` reads that as "auto-fill the album's top three".
+Measured on the real page: all three slots arrive full, "drag a card into a slot" is already satisfied,
+«הכי טוב» has nothing to do, and the card half ran itself out in about a second. The tour clears the
+slots in memory for its duration (restored by `end()`), which is also what makes the three slot
+explanations legible — an empty slot is the only time each shows its own ⚡/🏃/🛡️ glyph.
+
+**An empty album gets the legend only.** With no cards there is nothing to drag, and the wardrobe is
+card-gated (7 distinct cards per hero), so the card half would be a hand pointing at things that
+cannot happen. Counted off the DOM: the carousel renders one `.cf-card` per owned card.
+
+**Two first-run keys.** `fbHubTourDone` and `fbHubTourSkipped` — both stop the auto-launch coming
+back, but only one means the kid was actually shown the screen. Level 4 «מרכז» stays parked
+(`offered: false`, another agent's `19fb0f0`); this tour does not go through the level table at all.
+
+### Faults found only on the real page
+
+* **`hubReady()` waited for a `.cf-card`** — so for the empty-album newcomer the tour exists for, it
+  silently never started. The lab always injects seven cards, so the lab could not see it. It now
+  waits for hub furniture, plus a bounded 2s grace for the carousel so a slow render cannot quietly
+  downgrade a player who *has* cards to the legend-only tour.
+* **«דלג ✕» sat on top of the ⚙ it was pointing at** (both want the top-inline-end corner, and ⚙ is
+  step 1). Moved to the opposite corner, which is clear.
+* **A weak assertion of my own**: `.hub-tu-gate .hub > *` has `transition: filter .18s`, so measuring
+  the instant the tour starts catches `grayscale(0) brightness(1)` — a no-op filter that is not the
+  string `'none'`, so a `!== 'none'` check PASSED on an undimmed lobby. Dimming is now asserted
+  numerically, after the transition.
+
+### Verification
+
+`_hub-firstrun-verify.mjs` — the acceptance test, on `/` with a **fresh Chrome profile** and no
+sandbox. Two hosts because they are two surfaces: the LAN IP (`DEV_LOCAL` false → genuinely empty
+album → 13-step legend) and localhost (`DEV_SAMPLE_CARDS` → the full 19). It asserts the auto-launch,
+that level 1 is held back, that skipping *and* finishing both hand the floor to the pitch tutorial,
+that a second load does not ask again, that the real `localStorage` prefs are **byte-identical before
+and after**, and that the loadout and hero are restored.

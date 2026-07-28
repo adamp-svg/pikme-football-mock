@@ -4,7 +4,7 @@
    The coach itself is REUSED, not restyled: .tutorial / .tu-veil / .tu-hand / .tu-caption /
    .hub-tu-gate / .tu-live / #tu-hub-skip all live in style.css, including
    `.tutorial.nudging .tu-hand { scale: 1.28 }` — the hand already grows when the kid goes quiet.
-   Everything here is scoped under body.lab-tour so it can only ever affect this page. */
+   Everything here is scoped under body.ht-tour so it can only ever affect this page. */
 
 /* WHY EVERYTHING IS NOT DIMMED BY THE SHIPPED GATE ALONE, measured rather than assumed:
    `.hub-tu-gate .hub > *` dims every hub BOX (verified: .hub-pitch and #friends-btn both compute
@@ -14,7 +14,7 @@
    A scrim INSIDE .hub at z-index 1 fixes it in the right place: .hub-pitch has no z-index (auto),
    every interactive box is z-index 2..6, so the scrim lands above the scenery and below all of it.
    Not a filter on .hub itself — a parent filter cannot be undone by a lit child. */
-body.lab-tour .lab-scrim {
+body.ht-tour .ht-scrim {
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
   background: rgba(4, 7, 11, .52);
 }
@@ -25,7 +25,7 @@ body.lab-tour .lab-scrim {
    whole lesson and is not what any step is about. What is not fine is bold text over button labels,
    so it gets a plate to sit on. (The level-4 tour's caption-over-the-trophy-bar fault was different:
    there the bar was the subject of the step.) */
-body.lab-tour .tu-caption {
+body.ht-tour .tu-caption {
   top: auto;
   bottom: 0;
   padding: 10px 0 max(7px, calc(env(safe-area-inset-bottom) + 5px));
@@ -33,11 +33,11 @@ body.lab-tour .tu-caption {
 }
 /* Smaller than the pitch levels': there it owns an empty sky, here it shares a crowded landscape
    hub with a play strip underneath it. */
-body.lab-tour .tu-caption b { font-size: clamp(17px, 3.4vw, 25px); }
+body.ht-tour .tu-caption b { font-size: clamp(17px, 3.4vw, 25px); }
 /* Pips ABOVE the text, not below it. They are the last child of .tu-caption, and with the caption
    moved to the bottom edge that put them on the build tag — caught by screenshot: the lit pip was
    sitting on top of «25JUL-v5». Reordered rather than nudged, so it holds at any caption height. */
-body.lab-tour .tu-pips { order: -1; margin: 0 0 3px; }
+body.ht-tour .tu-pips { order: -1; margin: 0 0 3px; }
 
 /* The lit box is raised above its dimmed siblings by `.hub-tu-gate .hub .tu-live { z-index: 3 }`.
    Three is right for the hub boxes that tour pointed at, and WRONG here: #power-slots is authored
@@ -45,18 +45,18 @@ body.lab-tour .tu-pips { order: -1; margin: 0 0 3px; }
    hero's (transparent, full-height) button box. Raised above both instead, which keeps every lit
    target on top of everything the gate dimmed. Still z-index ONLY — never `position`, which is what
    sent the last tour's ⚽ off-screen: every hub box is absolutely positioned already. */
-body.lab-tour.hub-tu-gate .hub .tu-live { z-index: 7; }
+body.ht-tour.hub-tu-gate .hub .tu-live { z-index: 7; }
 
 /* WHERE THE CARD HAS TO LAND. The hand shows the path, but the path ends off the spotlight, and a
    drop target with no mark on it is a guess. An outline (not a border, not a box-shadow inset) so
    nothing about the target's size or position moves. */
-body.lab-tour .lab-drop {
+body.ht-tour .ht-drop {
   outline: 3px dashed #ffd06a;
   outline-offset: 3px;
   border-radius: 8px;
-  animation: lab-drop-pulse 1.15s ease-in-out infinite;
+  animation: ht-drop-pulse 1.15s ease-in-out infinite;
 }
-@keyframes lab-drop-pulse {
+@keyframes ht-drop-pulse {
   0%, 100% { outline-color: rgba(255, 208, 106, .95); outline-offset: 3px; }
   50%      { outline-color: rgba(255, 208, 106, .30); outline-offset: 7px; }
 }
@@ -66,7 +66,7 @@ body.lab-tour .lab-drop {
    Specificity is deliberate: `.hub-tu-gate .hub .tu-live` sets `filter: none` on every lit element,
    and this has to outrank it. z-index/filter only — never `position`, which is what sent the last
    tour's ⚽ off-screen. */
-body.lab-tour.hub-tu-gate .hub .lab-drop.hub-hero {
+body.ht-tour.hub-tu-gate .hub .ht-drop.hub-hero {
   outline: none; animation: none;
   filter: drop-shadow(0 0 7px rgba(255, 208, 106, .95)) drop-shadow(0 0 16px rgba(255, 176, 40, .55));
 }
@@ -79,8 +79,8 @@ body.lab-tour.hub-tu-gate .hub .lab-drop.hub-hero {
    `.hub-tu-gate .hub > *`.
    Note what is NOT here: pointer-events. The element tour leaves every element INERT — a tap on ⚙
    or 👥 would open that screen and abandon the tour on step 1. */
-body.lab-tour.hub-tu-gate .hub > .lab-show { filter: none; z-index: 7; }
-body.lab-tour.hub-tu-gate .hub .lab-dim { filter: grayscale(.7) brightness(.5); }
+body.ht-tour.hub-tu-gate .hub > .ht-show { filter: none; z-index: 7; }
+body.ht-tour.hub-tu-gate .hub .ht-dim { filter: grayscale(.7) brightness(.5); }
 
 /* A READ STEP MAKES THE WHOLE HUB INERT, and it takes !important to do it.
    The gate's `pointer-events: none` lands on the `.hub > *` box, and children inherit it — except
@@ -88,19 +88,19 @@ body.lab-tour.hub-tu-gate .hub .lab-dim { filter: grayscale(.7) brightness(.5); 
    (style.css:2298) is exactly that. Being an ID rule it outranks any class chain I can write, so a
    "read-only" slot step was still tappable: a tap would have opened the cards room and walked the kid
    off the tour. Found by assertion, not by eye.
-   Scoped to .lab-inert, which is set only while the current step is a read step, so the DO steps keep
+   Scoped to .ht-inert, which is set only while the current step is a read step, so the DO steps keep
    their `.tu-live` pointer events untouched. The tap-catcher lives outside .hub and still gets taps. */
-body.lab-tour.lab-inert .hub,
-body.lab-tour.lab-inert .hub * { pointer-events: none !important; }
+body.ht-tour.ht-inert .hub,
+body.ht-tour.ht-inert .hub * { pointer-events: none !important; }
 /* WHICH one is being described. Softer than the card tour's dashed drop-ring: nothing has to land
    here, so it marks rather than instructs. */
-body.lab-tour .lab-pick {
+body.ht-tour .ht-pick {
   outline: 2px solid rgba(255, 208, 106, .9);
   outline-offset: 3px; border-radius: 8px;
   box-shadow: 0 0 0 5px rgba(255, 208, 106, .16), 0 0 18px rgba(255, 176, 40, .5);
-  animation: lab-pick-pulse 1.4s ease-in-out infinite;
+  animation: ht-pick-pulse 1.4s ease-in-out infinite;
 }
-@keyframes lab-pick-pulse {
+@keyframes ht-pick-pulse {
   0%, 100% { box-shadow: 0 0 0 5px rgba(255, 208, 106, .16), 0 0 18px rgba(255, 176, 40, .5); }
   50%      { box-shadow: 0 0 0 8px rgba(255, 208, 106, .07), 0 0 26px rgba(255, 176, 40, .28); }
 }
@@ -108,8 +108,8 @@ body.lab-tour .lab-pick {
 /* Advance the read-only tour by tapping anywhere. z-index 39: under #tutorial (40) and #tu-hub-skip
    (41), over the whole dimmed hub — so the caption and the exit keep working and every other tap
    just means "next". */
-body.lab-tour .lab-catch { position: fixed; inset: 0; z-index: 39; }
-body.lab-tour #lab-next {
+body.ht-tour .ht-catch { position: fixed; inset: 0; z-index: 39; }
+body.ht-tour #ht-next {
   position: fixed; z-index: 41;
   bottom: max(10px, calc(env(safe-area-inset-bottom) + 6px));
   inset-inline-start: max(10px, env(safe-area-inset-left));
@@ -117,14 +117,14 @@ body.lab-tour #lab-next {
   border: none; border-radius: 999px; padding: 9px 16px; cursor: pointer;
   box-shadow: 0 3px 0 #a56a16;
 }
-body.lab-tour #lab-next:active { transform: translateY(2px); box-shadow: 0 1px 0 #a56a16; }
+body.ht-tour #ht-next:active { transform: translateY(2px); box-shadow: 0 1px 0 #a56a16; }
 /* Thirteen pips in a row on a 390px-tall landscape phone: tighten them so the strip cannot outgrow
    the caption it belongs to. */
-body.lab-read .tu-pips { gap: 4px; }
-body.lab-read .tu-pips i { width: clamp(5px, 1.5vh, 7px); }
+body.ht-read .tu-pips { gap: 4px; }
+body.ht-read .tu-pips i { width: clamp(5px, 1.5vh, 7px); }
 
 /* These cards are not the player's. Said once, quietly, and never in the way of the lesson. */
-body.lab-tour .lab-badge {
+body.ht-tour .ht-badge {
   position: fixed; z-index: 41;
   top: max(10px, env(safe-area-inset-top));
   inset-inline-start: max(10px, env(safe-area-inset-left));
@@ -134,20 +134,31 @@ body.lab-tour .lab-badge {
 }
 
 /* Finished. No reward and no score — this is a bench, and it says so by offering another go. */
-body.lab-tour .lab-done {
+body.ht-tour .ht-done {
   position: fixed; inset: 0; z-index: 42;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   background: rgba(6, 9, 13, .78); backdrop-filter: blur(2px);
 }
-body.lab-tour .lab-done.hidden { display: none; }
-body.lab-tour .lab-done b {
+body.ht-tour .ht-done.hidden { display: none; }
+body.ht-tour .ht-done b {
   font: 800 clamp(22px, 5vw, 36px)/1.1 system-ui, sans-serif; color: #ffd06a;
   text-shadow: 0 3px 0 #a56a16, 0 6px 0 #252a21;
 }
-body.lab-tour .lab-done small { font: 600 13px/1.4 system-ui, sans-serif; color: #cfd8e3; }
-body.lab-tour .lab-done button {
+body.ht-tour .ht-done small { font: 600 13px/1.4 system-ui, sans-serif; color: #cfd8e3; }
+body.ht-tour .ht-done button {
   font: 800 14px/1 system-ui, sans-serif; color: #10161d; background: #ffd06a;
   border: none; border-radius: 999px; padding: 11px 22px; cursor: pointer;
   box-shadow: 0 4px 0 #a56a16;
 }
-body.lab-tour .lab-done button:active { transform: translateY(2px); box-shadow: 0 2px 0 #a56a16; }
+body.ht-tour .ht-done button:active { transform: translateY(2px); box-shadow: 0 2px 0 #a56a16; }
+
+/* THE EXIT MOVES TO THE OTHER CORNER for this tour. #tu-hub-skip's shipped home is the top-INLINE-END
+   corner, which on this hub is exactly where ⚙ lives — and ⚙ is step 1, so the very first thing a kid
+   is shown was half-covered by the button offering to end the lesson. Caught by screenshot on the real
+   page. The opposite corner is clear: the profile box (step 13's target) starts ~90px in. */
+body.ht-tour #tu-hub-skip {
+  inset-inline-end: auto;
+  inset-inline-start: max(10px, env(safe-area-inset-left));
+}
+/* …and in the LAB the badge already owns that corner, so it steps down out of the way. Dev-only. */
+body.ht-tour.ht-lab .ht-badge { top: calc(max(10px, env(safe-area-inset-top)) + 34px); }

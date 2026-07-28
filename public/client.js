@@ -219,8 +219,58 @@ function loadLoadout() {
     const s = localStorage.getItem('pikme-loadout'); const a = s && JSON.parse(s); return Array.isArray(a) ? a : null;
   } catch { return null; }
 }
-function saveLoadout(a) { try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } postPrefs(); }
+// `tuHub` guard, matching saveCosmetic above: while a hub lesson is running NOTHING is persisted.
+// setSlotCard and swapSlots already return before reaching here, but #select-best-btn's handler calls
+// saveLoadout directly — so without this, one tap of «הכי טוב» during the lobby tour would write the
+// lesson's loadout to localStorage AND postPrefs() it to the app, which saves under the player's
+// PHONE NUMBER. The invariant is "the tutorial cannot write", so it is enforced at the write.
+function saveLoadout(a) { if (tuHub) return; try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } postPrefs(); }
 let myLoadout = loadLoadout();            // null => auto-fill top-3; else a saved [{r,n}|null] x3
+
+// ---- THE LOBBY TOUR'S SEAM (public/hub-tour.js) ----------------------------------------------
+// The tour runs on the real hub with the real handlers, and nothing it does may survive it. Three
+// things it cannot do from outside this module, because myLoadout / myCosmetic / tuHub are private:
+//   begin()    raise the sandbox flag and snapshot what the player had;
+//   end()      put both back, lower the flag, and re-tell the server the truth;
+//   cosmetic() read the LIVE hero, which is how the tour knows the rare landed (base → gold). Read
+//              through here rather than off a localStorage write, because during the tour there
+//              aren't any.
+// Restoring `myLoadout` by reference keeps `null` meaning null — that is "auto-fill the album's top
+// three", a different state from an explicit [null,null,null], and flattening the two would silently
+// change what a player with no saved loadout sees afterwards.
+let _hubSnap = null;
+window.__hubPrefs = {
+  begin() {
+    if (_hubSnap) return;
+    _hubSnap = { loadout: myLoadout, cosmetic: myCosmetic };
+    tuHub = true;
+  },
+  end() {
+    if (!_hubSnap) return;
+    myLoadout = _hubSnap.loadout;
+    myCosmetic = _hubSnap.cosmetic;
+    _hubSnap = null;
+    tuHub = false;                      // lowered BEFORE the re-sends, or they would be swallowed too
+    renderPowerSlots();                 // the hero canvas reads myCosmetic live (drawDancer), so it follows
+    syncLoadout();
+    sendMsg({ type: 'setCosmetic', cosmetic: myCosmetic });
+  },
+  // CLEAR THE SLOTS FOR THE LESSON, in memory only.
+  // Without this the card half of the tour is vacuous: `myLoadout` is null for anyone who has never
+  // arranged their powers, and effectiveLoadout() reads that as "auto-fill the album's top three" —
+  // so every slot is already full when the tour arrives, "drag a card into a slot" is complete before
+  // the kid touches anything, and «הכי טוב» has nothing to do either. Measured on the real page: both
+  // steps self-completed and the tour ran its card half in about a second.
+  // An explicit [null,null,null] is NOT the same value as null — it means "three empty slots" rather
+  // than "fill them for me" — which is exactly what the lesson needs, and why end() restores the
+  // snapshot by reference instead of rebuilding it.
+  emptySlots() {
+    if (!_hubSnap) return;              // only inside a tour; never a way to wipe a real loadout
+    myLoadout = [null, null, null];
+    renderPowerSlots();
+  },
+  cosmetic: () => myCosmetic,
+};
 // MID-SESSION prefs push from the app (it can call this any time after load — e.g. the player's prefs
 // changed on another device). Hero + loadout apply LIVE; the extras bag lands in localStorage and takes
 // effect where it's read (audio/difficulty immediately-ish, controls/builder on their next open).
@@ -8730,6 +8780,13 @@ document.getElementById('tc-howto')?.addEventListener('click', () => {
 function tuMaybeAutoStart() {
   if (tutorial || tuHubRunning()) return;
   if (!homeEl || homeEl.classList.contains('hidden')) return; // only from a cold start on the hub
+  // THE LOBBY TOUR COMES FIRST (public/hub-tour.js). A brand-new player's first screen IS the hub, so
+  // the screen gets explained before they are dropped onto a pitch. It hands the floor straight back
+  // when it finishes OR is skipped — this same function, which then starts level 1 — so the pitch
+  // tutorial follows the lobby tour rather than racing it.
+  // Its own two localStorage keys decide whether it is pending; nothing about the level table or the
+  // 🎓 picker is involved, and level 4 «מרכז» stays parked (`offered: false`) as it was.
+  if (window.HubTour?.pending() && window.HubTour.begin(tuMaybeAutoStart)) return;
   const done = tuDoneSet();
   // LEVEL 1: the app opens into it, and there is no skip.
   if (!done.has(TU_LEVELS[0].id)) { startTutorial(0, false); return; }

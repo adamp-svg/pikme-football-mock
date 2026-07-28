@@ -35,8 +35,7 @@ const need = (needle, why) => {
   }
 };
 need('<body>', 'the sandbox has to be the FIRST script in the body, before the client.js module');
-need('</head>', 'the lab stylesheet goes in the head, after the real ones');
-need('</body>', 'the coach is the LAST script, so it runs after client.js has bound the hub');
+need('/hub-tour.js', 'index.html must already load the SHIPPED tour — the lab does not carry its own copy');
 need('id="home"', 'no hub in this file means nothing to teach on');
 need('id="home-carousel"', 'lesson 1 and 2 both start on the carousel');
 need('id="power-slots"', 'lesson 1 drops here');
@@ -57,15 +56,15 @@ let out = src
   // The sandbox must beat the client.js module to the window: it sets SALTIZ_CARDS / _LOADOUT /
   // _COSMETIC, which client.js reads at module-evaluation time and never re-reads.
   .replace('<body>', '<body>\n  <script src="/_hub-tour-sandbox.js"></script>')
-  .replace('</head>', '  <link rel="stylesheet" href="/_hub-tour.css" />\n</head>')
-  // Last, so the hub is already rendered and #power-slots / .cf-card exist to point a hand at.
-  .replace('</body>', '  <script type="module" src="/_hub-tour.js"></script>\n</body>')
+  // NOTHING ELSE IS INJECTED. index.html already loads the real /hub-tour.js and /hub-tour.css — the
+  // lab runs the SHIPPED tour, not a copy of it, which is the only way the two cannot drift. All the
+  // lab adds is the sandbox above: a dummy album, blocked writes, a frozen carousel.
   .replace('<title>סולטיז כדורגל בלוקים</title>', '<title>שיעור לובי — קלפים וכוחות</title>');
 
 out = BANNER + out;
 
 // Belt and braces: a replace that silently matched nothing would ship a page with no lesson on it.
-for (const marker of ['_hub-tour-sandbox.js', '_hub-tour.css', '_hub-tour.js']) {
+for (const marker of ['_hub-tour-sandbox.js', '/hub-tour.js']) {
   if (!out.includes(marker)) { console.error(`✖ make-hub-tour: injection failed for ${marker}`); process.exit(1); }
 }
 

@@ -149,6 +149,12 @@ await cdp('Page.navigate', { url: PAGE });
 console.log('▶ the lobby, cloned');
 const st0 = await waitFor(async () => { const s = await state(); return s && s.running ? s : null; }, 15000);
 check(!!st0, 'the lesson started (window.__labState reports running)');
+// WHERE THE WRITE INVARIANT STARTS. client.js validates the injected loadout against the album at
+// BOOT (loadout entries for cards you do not own are dropped, and that re-saves) — those writes are
+// its own housekeeping and happen before the tour exists. The invariant is about what the TOUR does,
+// so it is measured from here, not from page load.
+const writes0 = (await state()).writes.length;
+console.log(`     (${writes0} pre-tour write(s) by client.js's own boot: ${JSON.stringify((await state()).writes.map((w) => w.k))})`);
 // Card art comes from a remote bucket. The first screenshot of this lab caught seven blank cards —
 // which was the shot racing the network, not a bug, but a blank-carded screenshot cannot be read as
 // evidence that the lobby looks like the lobby. Wait for the art, then shoot.
@@ -178,7 +184,7 @@ check(await vis('#tutorial') === 'shown', '#tutorial is SHOWN (not rendering int
 check(await evalJs("document.getElementById('tutorial').parentElement === document.body"), 'the coach was re-homed onto <body>');
 check(await vis('#tu-hand') === 'shown', 'the pointing hand is on screen');
 check(await evalJs("document.body.classList.contains('hub-tu-gate')"), 'the gate is up');
-check(await vis('.lab-scrim') === 'shown', 'the backdrop scrim is up — "everything dims" includes the scenery the gate cannot reach');
+check(await vis('.ht-scrim') === 'shown', 'the backdrop scrim is up — "everything dims" includes the scenery the gate cannot reach');
 check(await evalJs("getComputedStyle(document.querySelector('.hub-pitch')).filter !== 'none'"), 'the pitch art itself is dimmed');
 check(await vis('#tu-hub-skip') === 'shown', 'there is a way out (דלג ✕)');
 check((await state()).carouselFrozen === true, 'the carousel auto-rotate is frozen — otherwise the card under the hand drifts away');
@@ -227,7 +233,7 @@ async function readStep(i, id, name, sel, label) {
     const box=e.closest('.hub > *')||e;
     const h=document.getElementById('tu-hand').getBoundingClientRect();
     const r=e.getBoundingClientRect(), cx=r.x+r.width/2, cy=r.y+r.height/2;
-    return { pick: e.classList.contains('lab-pick'), boxShown: box.classList.contains('lab-show'),
+    return { pick: e.classList.contains('ht-pick'), boxShown: box.classList.contains('ht-show'),
              filter: getComputedStyle(box).filter, pe: getComputedStyle(e).pointerEvents,
              handCovers: cx>=h.left&&cx<=h.right&&cy>=h.top&&cy<=h.bottom };
   })()`);
@@ -246,8 +252,8 @@ async function tapDark() {
 
 // ---------------------------------------------------------------------------------------------
 console.log('\n▶ STEPS 1-13 · THE HOME LEGEND');
-check(await vis('.lab-catch') === 'shown', 'a read step puts the tap-catcher up');
-check(await vis('#lab-next') === 'shown', '…and a «הבא ›» button for anyone who wants one');
+check(await vis('.ht-catch') === 'shown', 'a read step puts the tap-catcher up');
+check(await vis('#ht-next') === 'shown', '…and a «הבא ›» button for anyone who wants one');
 let legendFaults = 0;
 for (let i = 0; i < HOME_ORDER.length; i++) {
   const [id, name, sel] = HOME_ORDER[i];
@@ -265,7 +271,7 @@ console.log('\n▶ STEP 14 · THE HERO — the rare card, dragged onto him');
 const atHero = await waitFor(async () => { const s = await state(); return s && s.stepId === 'hero' ? s : null; }, 6000);
 check(!!atHero, `the legend handed over to the hero lesson (stepId=${(await state())?.stepId})`);
 check(await text('#tu-cap') === 'נדיר על הגיבור', `caption reads «נדיר על הגיבור» (got «${await text('#tu-cap')}»)`);
-check(await evalJs("!document.querySelector('.lab-catch')"), 'the tap-catcher is GONE for a drag step — left up it would eat the gesture');
+check(await evalJs("!document.querySelector('.ht-catch')"), 'the tap-catcher is GONE for a drag step — left up it would eat the gesture');
 check(await evalJs("document.querySelector('.hub-cards').classList.contains('tu-live')"), 'the carousel is live again');
 check(await evalJs("document.querySelector('#pick-hero-btn').classList.contains('tu-live')"), 'the hero is live, so the drop can land on it');
 check(await evalJs("getComputedStyle(document.querySelector('#quick-match-btn')).pointerEvents === 'none'"), '⚽ (not part of this lesson) is untappable');
@@ -326,11 +332,13 @@ check(!!gesture?.down && gesture.down.y > gesture.across.y,
   `…and only then sets the card down on the target — ${JSON.stringify(gesture?.down)}`);
 
 await liftTo('#home-carousel .cf-card.rarity-rare', '#pick-hero-btn');
+// Read through client.js's own seam (window.__hubPrefs.cosmetic), because during the tour NOTHING is
+// written — the sandbox flag stops saveCosmetic before localStorage. The live myCosmetic is the truth.
 const gold = await waitFor(async () => {
   const s = await state();
-  return s && s.writes.some((w) => w.k === 'pikme_cosmetic' && String(w.v).endsWith(':gold'));
+  return s && s.cosmetic === 'striker:gold';
 }, 6000);
-check(!!gold, 'the hero really went RARE → gold (setHeroSkinByRarity ran with the rare card)');
+check(!!gold, `the hero really went RARE → gold (myCosmetic = ${(await state()).cosmetic})`);
 const goldSend = (await state()).sends.some((m) => m.type === 'setCosmetic' && m.cosmetic === 'striker:gold');
 check(goldSend, `setCosmetic('striker:gold') was produced and intercepted (${JSON.stringify((await state()).sends)})`);
 await shot('lab-04-hero-gold');
@@ -342,7 +350,7 @@ check(!!atSlots, `the hero lesson handed over to the slot legend (stepId=${(awai
 // The reason this comes BEFORE the drag: an empty slot is the only time each one shows its own
 // ⚡/🏃/🛡️ glyph instead of a card, so the thing being explained is actually on screen.
 check(await count('#power-slots .pslot.pslot-empty') === 3, `all 3 slots are still EMPTY while being explained (got ${await count('#power-slots .pslot.pslot-empty')})`);
-check(await vis('.lab-catch') === 'shown', 'the tap-catcher came back for these read steps');
+check(await vis('.ht-catch') === 'shown', 'the tap-catcher came back for these read steps');
 let slotFaults = 0;
 for (let i = 0; i < SLOT_ORDER.length; i++) {
   const [id, name, sel] = SLOT_ORDER[i];
@@ -357,9 +365,9 @@ console.log('\n▶ STEP 18 · A CARD INTO A SLOT');
 const atDrag = await waitFor(async () => { const s = await state(); return s && s.stepId === 'slot' ? s : null; }, 6000);
 check(!!atDrag, `the slot legend handed over to the drag (stepId=${(await state())?.stepId})`);
 check(await text('#tu-cap') === 'גרור לכאן', `caption reads «גרור לכאן» (got «${await text('#tu-cap')}»)`);
-check(await evalJs("!document.querySelector('.lab-catch')"), 'the catcher is down again for the drag');
+check(await evalJs("!document.querySelector('.ht-catch')"), 'the catcher is down again for the drag');
 check(await evalJs("document.querySelector('#power-slots').classList.contains('tu-live')"), 'the SLOTS are lit — elementFromPoint ignores pointer-events:none, so an unlit target eats every drop');
-check(await evalJs("document.querySelector('#power-slots .pslot[data-slot=\"0\"]').classList.contains('lab-drop')"), 'slot 0 is ringed as the drop target');
+check(await evalJs("document.querySelector('#power-slots .pslot[data-slot=\"0\"]').classList.contains('ht-drop')"), 'slot 0 is ringed as the drop target');
 await liftTo('#home-carousel .cf-card.cf-center', '#power-slots .pslot[data-slot="0"]');
 const filled = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) > 0, 6000);
 check(!!filled, 'a REAL slot really filled');
@@ -374,18 +382,31 @@ check(await evalJs("document.getElementById('tu-hand').classList.contains('gest-
 check(await evalJs("document.querySelector('#select-best-btn').classList.contains('tu-live')"), '✨ הכי טוב is the lit, tappable target');
 const beforeBest = await count('#power-slots .pslot:not(.pslot-empty)');
 await tap('#select-best-btn');
-const allThree = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) === 3, 6000);
-check(!!allThree, `all three real slots filled at once (was ${beforeBest} before the tap)`);
-const fin = await waitFor(async () => (await vis('.lab-done')) === 'shown', 6000);
+// NOT asserted by counting filled slots afterwards: this is the last step, so the tour finishes and
+// RESTORES the player's loadout within the same beat — an earlier version of this check raced that and
+// read the reverted state. The deterministic evidence is the message «הכי טוב» produces: setLoadout
+// with three cards in it, intercepted on its way to the socket.
+const fin = await waitFor(async () => (await vis('.ht-done')) === 'shown', 8000);
 check(!!fin, 'the tour finished');
+const bestSend = (await state()).sends.find((m) => m.type === 'setLoadout'
+  && Array.isArray(m.loadout) && m.loadout.filter(Boolean).length === 3);
+check(!!bestSend, `«הכי טוב» equipped all three at once, in one tap (was ${beforeBest} before it): ${JSON.stringify(bestSend?.loadout)}`);
 check(await evalJs("!document.body.classList.contains('hub-tu-gate')"), 'the gate came down — the hub is tappable again');
-check(await vis('.lab-scrim') !== 'shown', 'the scrim came down with it — the lobby is at full brightness again');
-check(await evalJs("!document.querySelector('.lab-catch')"), 'the tap-catcher was removed on the way out');
+check(await vis('.ht-scrim') !== 'shown', 'the scrim came down with it — the lobby is at full brightness again');
+check(await evalJs("!document.querySelector('.ht-catch')"), 'the tap-catcher was removed on the way out');
+
+// ---- THE REVERT — "nothing the lesson does is saved" ----------------------------------------
+// The kid equipped a card, re-skinned the hero, then filled all three slots. None of it may survive
+// the lesson. The lab starts from SALTIZ_LOADOUT=[null,null,null] and 'striker:base', so "back as it
+// was" is checkable exactly.
+const restored = await waitFor(async () => (await count('#power-slots .pslot.pslot-empty')) === 3, 5000);
+check(!!restored, `every slot is EMPTY again — the lesson's loadout did not survive it (${await count('#power-slots .pslot.pslot-empty')}/3 empty)`);
+check((await state()).cosmetic === 'striker:base', `and the hero is back in his own skin (myCosmetic = ${(await state()).cosmetic})`);
 await shot('lab-07-best-equipped');
 // The payoff, photographed with the panel lifted for one frame: three equipped slots and a gold hero.
 // A pixel assertion is not available — the hero DANCES, so its pixels differ frame to frame whatever
 // the skin is. This screenshot is for reading, and it gets read.
-await evalJs("document.querySelector('.lab-done').classList.add('hidden')");
+await evalJs("document.querySelector('.ht-done').classList.add('hidden')");
 await sleep(400);
 await shot('lab-08-final-uncovered');
 
@@ -404,7 +425,18 @@ check(dT > 0.6 && dT < 1.5, `exactly one machine ticks after a restart — 1.0s 
 check(await evalJs("localStorage.getItem('pikme_cosmetic') === null"), 'no hero was persisted to localStorage');
 check(await evalJs("localStorage.getItem('pikme-loadout') === null"), 'no loadout was persisted to localStorage');
 check((await state()).sends.every((m) => m.type === 'setLoadout' || m.type === 'setCosmetic'), 'only loadout/cosmetic messages were intercepted');
-check(await evalJs("window.__lab.writes.length > 0"), `the writes were attempted and BLOCKED (${(await state()).writes.length} recorded) — proof the real code path ran`);
+// ZERO, not "blocked at the last moment": with the sandbox flag raised, setSlotCard / swapSlots /
+// saveLoadout / saveCosmetic all return before they reach localStorage at all. The proof that the real
+// code path ran is elsewhere — a real slot filled, and setCosmetic went out on the wire.
+// The invariant is about the PLAYER'S PREFS, not about every key on the page: the tour legitimately
+// records its own first-run flag (fbHubTourDone), and that one MUST persist in the real game or a kid
+// gets the lesson again on every launch. What must never be touched is the loadout and the hero —
+// saveLoadout/saveCosmetic reach postPrefs(), which the app writes under the player's PHONE NUMBER.
+const during = (await state()).writes.slice(writes0);
+const prefWrites = during.filter((w) => w.k === 'pikme-loadout' || w.k === 'pikme_cosmetic');
+check(prefWrites.length === 0, `the TOUR attempted no write to the loadout or the hero (its writes: ${JSON.stringify(during.map((w) => w.k))})`);
+check(during.some((w) => w.k === 'fbHubTourDone'), 'the tour DID record its own first-run flag — that is what stops it firing again tomorrow');
+check((await state()).sends.some((m) => m.type === 'setCosmetic'), 'the real setHeroSkinByRarity path ran (setCosmetic on the wire)');
 check(await evalJs("!window.ReactNativeWebView"), 'no app bridge on this surface, so postPrefs() had nowhere to go either');
 
 console.log('\n▶ console');

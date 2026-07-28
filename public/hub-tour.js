@@ -1,5 +1,18 @@
-// HUB TOUR LAB — the coach. Loaded LAST, after client.js has rendered the hub.
+// THE LOBBY TOUR — a kid's first ninety seconds on the hub. SHIPPED, not a lab page.
 // Design: docs/superpowers/specs/2026-07-28-hub-tour-lab-design.md
+//
+// It runs on the REAL hub: real markup, real CSS, real drag handlers, the player's own album. There
+// is no mock lobby and nothing is redrawn — a lesson that does not look like the thing it teaches was
+// the reason the previous attempt was thrown away.
+//
+// AUTO-LAUNCH: the first time a player reaches the hub, before the pitch tutorial. client.js's
+// tuMaybeAutoStart() asks HubTour.pending() first and hands over; when this finishes or is skipped it
+// calls back, and level 1 יסודות starts then. Skippable — a kid who just wants to play is not trapped.
+//
+// NOTHING IT DOES IS SAVED. client.js's `tuHub` sandbox flag is raised for the duration (via
+// window.__hubPrefs), so setSlotCard/swapSlots/saveLoadout/saveCosmetic all stop short of
+// localStorage and of postPrefs() — which the app persists under the player's PHONE NUMBER. The
+// loadout and the hero are snapshotted on the way in and put back on the way out.
 //
 // ONE RUN on the cloned lobby, in the order the user asked for — the screen explained first, then
 // the cards. Nineteen steps, mixing two kinds:
@@ -25,7 +38,21 @@
 // #tu-pips, body.hub-tu-gate, .tu-live, #tu-hub-skip — including `.tutorial.nudging .tu-hand`,
 // which is the hand growing when the kid goes quiet. Only the hand's directed PATH is new.
 
-const lab = window.__lab || { writes: [], lastWrite: () => null, carouselFrozen: false, sends: [] };
+// client.js's seam: myLoadout / myCosmetic are module-private there, so the snapshot, the restore and
+// the "what is the hero wearing right now" read all have to come from inside it.
+const prefs = () => window.__hubPrefs || null;
+// The lab page (_hub-tour.html) sets this: dummy album, blocked writes, frozen carousel. Absent in
+// the shipped game.
+const LAB = window.__lab || null;
+
+// ---- first run ------------------------------------------------------------------------------
+// Two keys, deliberately separate: FINISHED is not the same as "we offered and they said no". A kid
+// who skips is not asked again on the next launch, but the tour still reads as unfinished if anything
+// ever wants to offer it properly.
+const DONE_KEY = 'fbHubTourDone';
+const SKIP_KEY = 'fbHubTourSkipped';
+const seen = (k) => { try { return localStorage.getItem(k) === '1'; } catch { return false; } };
+const mark = (k) => { try { localStorage.setItem(k, '1'); } catch { /* private mode */ } };
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -86,12 +113,12 @@ const HERO_STEP = {
   // anything at `pointer-events: none` — so lighting only the carousel would let the kid lift a card
   // and then swallow every drop.
   live: ['.hub-cards', '#pick-hero-btn'],
-  // The hero really changed tier. setHeroSkinByRarity maps rarity → skin (common:'base',
-  // rare:'gold'), then saveCosmetic attempts the write the sandbox blocks and records. Asserting
-  // ':gold' rather than "a cosmetic write happened" is the difference between teaching this lesson
-  // and passing it by dropping a COMMON on the hero, which re-writes 'striker:base' and changes
-  // nothing on screen.
-  done: () => String(lab.lastWrite('pikme_cosmetic') || '').endsWith(':gold'),
+  // The hero really changed tier, read off client.js's live myCosmetic. setHeroSkinByRarity maps
+  // rarity → skin (common:'base', rare:'gold'), so asserting ':gold' rather than "the cosmetic
+  // changed at all" is the difference between teaching this lesson and passing it by dropping a
+  // COMMON on the hero — which re-writes 'striker:base' and changes nothing on screen.
+  // NOT read off a localStorage write: during the tour nothing is written at all.
+  done: () => String(prefs()?.cosmetic() || '').endsWith(':gold'),
 };
 
 // WHAT EACH SLOT DOES — read, not done. Explained while all three are still EMPTY, which is when each
@@ -195,18 +222,29 @@ let catchEl = null;
 // Two loops double stepT, and if both see the same `done()` in one frame they take a step each and
 // skip one. A token, checked at the top of every tick, retires the old loop on the spot.
 let runToken = 0;
+// What client.js should do once the tour is out of the way — its own tuMaybeAutoStart(), so the pitch
+// tutorial follows the lobby tour instead of racing it.
+let resumeAfter = null;
 
 // ---------------------------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------------------------
 // The hub renders asynchronously (card art preloads, fitHub runs on load), so the lesson waits for
 // the things it points at to exist rather than for a guessed delay.
+// The furniture EVERY step needs, and deliberately not a card: a player with an empty album has no
+// `.cf-card` at all, and requiring one meant the tour silently never started for exactly the newcomer
+// it exists for. (Found on the real page, not in the lab, because the lab always injects seven cards.)
 function hubReady() {
   return !!($('#home') && !$('#home').classList.contains('hidden')
-    && $('#home-carousel .cf-card')
+    && $('#hub-settings')
     && $('#power-slots .pslot[data-slot="0"]')
     && $('#pick-hero-btn'));
 }
+// …but the card half must not be dropped just because the carousel is a few frames behind. Once the
+// furniture is up, the album gets a bounded grace period to render a card before "no cards" is taken
+// as the truth: without it, a slow render would quietly downgrade a player who HAS cards to the
+// legend-only tour, which is the same class of silent-wrong-path bug as the line above.
+const CARD_GRACE_TICKS = 40;   // × 50ms = 2s
 
 // #tutorial lives inside #game, which is display:none on the hub — so the hand, caption and pips
 // would render into a hidden subtree and the kid would see a lobby with no instructions at all.
@@ -221,17 +259,17 @@ function coachToBody() {
 // runs on a fully lit lobby. Injected INSIDE .hub at z-index 1: .hub-pitch is z-index auto and every
 // interactive box is 2..6, so it lands above the scenery and below everything the kid looks at.
 function scrim() {
-  if ($('.lab-scrim')) return;
+  if ($('.ht-scrim')) return;
   const hub = $('.hub');
   if (!hub) return;
   const el = document.createElement('div');
-  el.className = 'lab-scrim';
+  el.className = 'ht-scrim';
   hub.appendChild(el);
 }
 
 function clearMarks() {
-  $$('.tu-live, .lab-drop, .lab-show, .lab-dim, .lab-pick')
-    .forEach((el) => el.classList.remove('tu-live', 'lab-drop', 'lab-show', 'lab-dim', 'lab-pick'));
+  $$('.tu-live, .ht-drop, .ht-show, .ht-dim, .ht-pick')
+    .forEach((el) => el.classList.remove('tu-live', 'ht-drop', 'ht-show', 'ht-dim', 'ht-pick'));
 }
 
 // Light exactly ONE element while everything else stays dark, WITHOUT making it tappable.
@@ -242,11 +280,11 @@ function clearMarks() {
 // filter-based gate.
 function showOnly(el) {
   const box = el.closest('.hub > *') || el;
-  box.classList.add('lab-show');
+  box.classList.add('ht-show');
   if (box !== el) {
-    for (const kid of box.children) if (kid !== el && !kid.contains(el)) kid.classList.add('lab-dim');
+    for (const kid of box.children) if (kid !== el && !kid.contains(el)) kid.classList.add('ht-dim');
   }
-  el.classList.add('lab-pick');
+  el.classList.add('ht-pick');
 }
 
 function markLive() {
@@ -257,12 +295,12 @@ function markLive() {
     // READ-ONLY: visible, never tappable. `.tu-live` would hand the element its pointer events back
     // and one tap would leave the hub.
     const el = s.src();
-    if (el) showOnly(el); else console.warn('[lab] element step lost its target:', s.spot);
+    if (el) showOnly(el); else console.warn('[hub-tour] element step lost its target:', s.spot);
     return;
   }
   for (const sel of s.live) {
     const el = $(sel);
-    if (!el) { console.warn('[lab] live target missing:', sel); continue; }
+    if (!el) { console.warn('[hub-tour] live target missing:', sel); continue; }
     el.classList.add('tu-live');
     // The gate dims and disables per direct child of .hub, so the ANCESTOR box has to be lit too or
     // it swallows the tap on its own child.
@@ -270,7 +308,7 @@ function markLive() {
     if (box) box.classList.add('tu-live');
   }
   const dst = s.dst();
-  if (dst) dst.classList.add('lab-drop');
+  if (dst) dst.classList.add('ht-drop');
 }
 
 // Everything that changes when the step changes. The tap-catcher is PER STEP, not per tour: the flow
@@ -283,13 +321,15 @@ function applyStep() {
   // Read steps make the whole hub inert. Not just the lit element: `#power-slots .pslot-item` sets
   // its own `pointer-events: auto` (style.css:2298), so inheritance from the gated box is not enough
   // and a slot stayed tappable through a step that only asked to be read.
-  document.body.classList.toggle('lab-inert', read);
+  document.body.classList.toggle('ht-inert', read);
 }
 
+// The lab says whose cards these are. The shipped tour has no badge: the album IS the player's, so
+// there is nothing to disclaim, and a chip in the corner of a lesson is one more thing on screen.
 function badge() {
-  if ($('.lab-badge')) return;
+  if (!LAB || $('.ht-badge')) return;
   const b = document.createElement('div');
-  b.className = 'lab-badge';
+  b.className = 'ht-badge';
   b.textContent = tour === 'home' ? 'סיור במסך · שיעור' : 'שיעור לובי · קלפים לדוגמה';
   document.body.appendChild(b);
 }
@@ -311,14 +351,14 @@ function skipBtn() {
 // The catcher sits at z-index 39 — under #tutorial (40) and #tu-hub-skip (41), over the hub — so the
 // caption and the exit still work and every other tap just means "next".
 function nextCatcher(on) {
-  if (!on) { catchEl?.remove(); catchEl = null; $('#lab-next')?.remove(); return; }
+  if (!on) { catchEl?.remove(); catchEl = null; $('#ht-next')?.remove(); return; }
   if (catchEl) return;
   catchEl = document.createElement('div');
-  catchEl.className = 'lab-catch';
+  catchEl.className = 'ht-catch';
   catchEl.addEventListener('pointerdown', () => { advanceReq = true; });
   document.body.appendChild(catchEl);
   const b = document.createElement('button');
-  b.id = 'lab-next'; b.type = 'button'; b.textContent = 'הבא ›';
+  b.id = 'ht-next'; b.type = 'button'; b.textContent = 'הבא ›';
   b.addEventListener('click', (e) => { e.stopPropagation(); advanceReq = true; });
   document.body.appendChild(b);
 }
@@ -387,7 +427,7 @@ function render() {
   const s = STEPS[step];
   if (!s) return;
   const srcEl = s.src(), dstEl = s.dst();
-  if (!srcEl || !dstEl) { console.warn('[lab] step', s.id, 'lost its target'); return; }
+  if (!srcEl || !dstEl) { console.warn('[hub-tour] step', s.id, 'lost its target'); return; }
   const from = centre(srcEl), to = centre(dstEl);
 
   // WHERE THE HAND SITS.
@@ -438,53 +478,88 @@ function tick(now, token) {
 
 function finish(skipped) {
   running = false;
-  document.body.classList.remove('hub-tu-gate', 'lab-inert');
+  // Put the loadout and the hero back exactly as they were, and lower the sandbox flag. Done FIRST,
+  // before any of the visual teardown, so a throw further down cannot leave the player sandboxed with
+  // a lesson's loadout in memory.
+  prefs()?.end();
+  // Skipping is not finishing. Both stop the auto-launch coming back tomorrow, but only one of them
+  // means the kid was actually shown the screen.
+  mark(skipped ? SKIP_KEY : DONE_KEY);
+  document.body.classList.remove('hub-tu-gate', 'ht-inert');
   clearMarks();
   nextCatcher(false);
-  $('.lab-scrim')?.remove();          // the lobby goes back to full brightness
+  $('.ht-scrim')?.remove();          // the lobby goes back to full brightness
   handAnim?.cancel(); handAnim = null;
   tuEl.classList.add('hidden');
   $('#tu-hub-skip')?.classList.add('hidden');
+  // Hand the floor back: client.js resumes its own auto-start, which is where the pitch tutorial
+  // begins. A skip gets the same call — a kid who waved the lobby away still gets taught to play.
+  const resume = resumeAfter; resumeAfter = null;
+  if (resume) setTimeout(resume, skipped ? 0 : 900);   // a beat to read «יפה מאוד!» first
   if (skipped) return;
 
   // No reward, no score, no payout — a bench. The card tour hands off to the screen tour, which is
   // the order they teach in: what the cards do first, then what the rest of the lobby is.
   // The full run has nothing left to chain into. `home` on its own offers the cards half next.
   const next = tour === 'home'
-    ? '<button id="lab-cards" type="button">עכשיו הקלפים ›</button>'
+    ? '<button id="ht-cards" type="button">עכשיו הקלפים ›</button>'
     : '';
   if (!doneEl) {
     doneEl = document.createElement('div');
-    doneEl.className = 'lab-done';
+    doneEl.className = 'ht-done';
     document.body.appendChild(doneEl);
   }
   doneEl.innerHTML = (tour === 'home'
     ? '<b>עכשיו אתה מכיר את המסך</b><small>שלוש עשרה פינות — כולן שלך</small>'
     : '<b>יפה מאוד!</b><small>המראה על הגיבור · כוח בכל משבצת · הכי טוב במגע אחד</small>')
-    + next + '<button id="lab-again" type="button">עוד פעם</button>';
-  doneEl.querySelector('#lab-again').addEventListener('click', () => start(tour, true));
-  doneEl.querySelector('#lab-cards')?.addEventListener('click', () => start('cards', true));
+    + next + '<button id="ht-again" type="button">עוד פעם</button>';
+  doneEl.querySelector('#ht-again').addEventListener('click', () => start(tour, true));
+  doneEl.querySelector('#ht-cards')?.addEventListener('click', () => start('cards', true));
   doneEl.classList.remove('hidden');
 }
 
 function start(which, restart) {
-  tour = TOURS[which] ? which : 'cards';
+  tour = TOURS[which] ? which : 'full';
+  // NOTHING IS SAVED. This raises client.js's `tuHub` sandbox flag and snapshots the loadout + hero, so
+  // setSlotCard / swapSlots / saveLoadout / saveCosmetic all stop short of localStorage and of
+  // postPrefs() — which the app persists under the player's PHONE NUMBER. finish() puts both back.
+  // MUST come before the first step is applied: the guard only helps for writes made after it.
+  prefs()?.begin();
+  // AN EMPTY ALBUM CANNOT BE TAUGHT THE CARDS. With no cards there is nothing to drag, and the hero
+  // wardrobe is card-gated too (every 7 distinct cards unlocks one), so the whole card half would be
+  // a hand pointing at things that cannot happen. Those steps are dropped and the kid gets the screen
+  // legend, which is the part that still means something. Counted off the DOM — the carousel renders
+  // one .cf-card per owned card and hides itself at zero — so no client.js internal is needed.
+  const owned = $$('#home-carousel .cf-card').length;
+  if (owned < 1 && tour === 'full') {
+    tour = 'home';
+    console.info('[hub-tour] empty album — running the screen legend only, the card lessons need cards');
+  }
   // A step whose element is gone is dropped rather than allowed to stall the tour: this hub is
   // edited daily by other agents, and the console line names exactly what went missing.
   STEPS = TOURS[tour].filter((s) => {
     const ok = !!s.src();
-    if (!ok) console.warn(`[lab] dropping step '${s.id}' — no element for ${s.spot || '(dynamic)'}`);
+    if (!ok) console.warn(`[hub-tour] dropping step '${s.id}' — no element for ${s.spot || '(dynamic)'}`);
     return ok;
   });
-  if (!STEPS.length) { console.error('[lab] no steps have targets on this screen'); return; }
+  if (!STEPS.length) { console.error('[hub-tour] no steps have targets on this screen'); return; }
+  // THE CARD HALF NEEDS AN EMPTY SLOT TO EXIST. A player who has never arranged their powers has
+  // `myLoadout === null`, which effectiveLoadout() reads as "auto-fill the album's top three" — so all
+  // three slots arrive full, "drag a card into a slot" is already satisfied, and «הכי טוב» has nothing
+  // left to do. Cleared in memory for the duration and restored by finish(), and only when this run
+  // actually teaches the cards (?tour=home leaves the player's slots alone).
+  // It is also what makes the three slot explanations legible: an empty slot is the only time each one
+  // shows its own ⚡/🏃/🛡️ glyph instead of a card.
+  if (STEPS.some((s) => s.id === 'slot' || s.id === 'best')) prefs()?.emptySlots();
 
   doneEl?.classList.add('hidden');
-  document.body.classList.add('lab-tour');
+  document.body.classList.add('ht-tour');
+  document.body.classList.toggle('ht-lab', !!LAB);   // only the lab wears the «דוגמה» badge
   // Tightens the pip row. Keyed on how MANY pips there are, not on which tour: the full run is
   // nineteen of them on an 844px-wide landscape phone.
-  document.body.classList.toggle('lab-read', TOURS[tour].length > 6);
+  document.body.classList.toggle('ht-read', TOURS[tour].length > 6);
   coachToBody();
-  if (restart) $('.lab-badge')?.remove();
+  if (restart) $('.ht-badge')?.remove();
   badge();
   skipBtn().classList.remove('hidden');
   tuEl.classList.remove('hidden');
@@ -504,8 +579,8 @@ function start(which, restart) {
   const token = ++runToken;
   requestAnimationFrame((t) => tick(t, token));
 
-  if (!lab.carouselFrozen) {
-    console.warn('[lab] the carousel auto-rotate was NOT frozen — the 2600ms interval in '
+  if (LAB && !LAB.carouselFrozen) {
+    console.warn('[hub-tour] the carousel auto-rotate was NOT frozen — the 2600ms interval in '
       + 'startCarouselAuto() has changed. The card under the hand will drift. '
       + 'Fix CAROUSEL_MS in _hub-tour-sandbox.js.');
   }
@@ -513,21 +588,66 @@ function start(which, restart) {
 
 // A test seam: the whole tour is module-local, so a browser check can otherwise only infer progress
 // from side effects — which is how a stuck machine reads as a passing test.
-window.__labState = () => ({
-  running, tour, step, stepT: Math.round(stepT * 10) / 10,
+// ---------------------------------------------------------------------------------------------
+// The public face
+// ---------------------------------------------------------------------------------------------
+// A brand-new player, on the hub, who has neither finished nor waved this away. The lab page forces
+// it on regardless, because that is the whole point of the lab.
+function pending() {
+  if (LAB) return true;
+  return !seen(DONE_KEY) && !seen(SKIP_KEY);
+}
+
+// client.js hands over here and gets called back when the tour is out of the way, so the pitch
+// tutorial follows it rather than racing it.
+function begin(onDone) {
+  if (running) return false;
+  resumeAfter = typeof onDone === 'function' ? onDone : null;
+  waitForHub(0);
+  return true;
+}
+
+let waiting = false;
+let readyAt = 0;        // tick the furniture first appeared, so the card grace is measured from there
+function waitForHub(tries) {
+  if (hubReady()) {
+    if (!readyAt) readyAt = tries;
+    // Wait a little longer for the carousel, but only a little — see CARD_GRACE_TICKS.
+    if (!$('#home-carousel .cf-card') && (tries - readyAt) < CARD_GRACE_TICKS) {
+      waiting = true;
+      setTimeout(() => waitForHub(tries + 1), 50);
+      return;
+    }
+    waiting = false; start(tourName, false); return;
+  }
+  if (tries > 200) {
+    waiting = false;
+    console.error('[hub-tour] hub never rendered — nothing to teach on');
+    const resume = resumeAfter; resumeAfter = null; resume?.();
+    return;
+  }
+  waiting = true;
+  setTimeout(() => waitForHub(tries + 1), 50);
+}
+
+const state = () => ({
+  running, waiting, tour, step, stepT: Math.round(stepT * 10) / 10,
   stepId: STEPS[step] ? STEPS[step].id : 'done',
   stepIds: STEPS.map((s) => s.id),
   cap: capEl.textContent, sub: nudgeEl.textContent,
+  cosmetic: prefs()?.cosmetic() || null,
   done: STEPS.map((s) => { try { return !!s.done(); } catch { return false; } }),
-  carouselFrozen: !!lab.carouselFrozen,
-  writes: lab.writes.slice(),
-  sends: (lab.sends || []).slice(),
+  finished: seen(DONE_KEY), skipped: seen(SKIP_KEY),
+  carouselFrozen: LAB ? !!LAB.carouselFrozen : null,
+  writes: LAB ? LAB.writes.slice() : [],
+  sends: LAB && LAB.sends ? LAB.sends.slice() : [],
 });
-// So the verifier can run the second tour without a reload.
+
+window.HubTour = { pending, begin, start: (which) => start(which, true), state };
+// The lab's verifier drives it through these.
+window.__labState = state;
 window.__labStart = (which) => start(which, true);
 
-(function waitForHub(tries = 0) {
-  if (hubReady()) { start(tourName, false); return; }
-  if (tries > 200) { console.error('[lab] hub never rendered — nothing to teach on'); return; }
-  setTimeout(() => waitForHub(tries + 1), 50);
-})();
+// The LAB page starts itself — there is no client.js hand-off there to wait for. In the game,
+// client.js calls HubTour.begin() from tuMaybeAutoStart().
+if (LAB) begin(null);
