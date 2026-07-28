@@ -128,6 +128,14 @@ async function liftTo(fromSel, toSel) {
   await touch('touchEnd', b.x, b.y);
   await sleep(450);
 }
+async function tap(sel) {
+  const r = await rectOf(sel);
+  if (!r) throw new Error(`no element ${sel}`);
+  await touch('touchStart', r.x, r.y);
+  await sleep(40);
+  await touch('touchEnd', r.x, r.y);
+  await sleep(350);
+}
 async function waitFor(fn, ms = 10000, every = 150) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(every); }
@@ -169,7 +177,7 @@ check(await vis('#tutorial') === 'shown', '#tutorial is SHOWN (not rendering int
 check(await evalJs("document.getElementById('tutorial').parentElement === document.body"), 'the coach was re-homed onto <body>');
 check(await vis('#tu-hand') === 'shown', 'the pointing hand is on screen');
 check(await text('#tu-cap') === 'גרור לכאן', `caption reads «גרור לכאן» (got «${await text('#tu-cap')}»)`);
-check(await count('#tu-pips i') === 2, 'two pips — two lessons');
+check(await count('#tu-pips i') === 3, `three pips — three card lessons (got ${await count('#tu-pips i')})`);
 check(await evalJs("document.body.classList.contains('hub-tu-gate')"), 'the gate is up');
 check(await evalJs("document.querySelector('.hub-cards').classList.contains('tu-live')"), 'the carousel is lit');
 check(await evalJs("document.querySelector('#power-slots').classList.contains('tu-live')"), 'the SLOTS are lit too — elementFromPoint ignores pointer-events:none, so an unlit target eats every drop');
@@ -254,26 +262,36 @@ const gold = await waitFor(async () => {
   return s && s.writes.some((w) => w.k === 'pikme_cosmetic' && String(w.v).endsWith(':gold'));
 }, 6000);
 check(!!gold, 'the hero really went RARE → gold (setHeroSkinByRarity ran with the rare card)');
-const fin = await waitFor(async () => (await vis('.lab-done')) === 'shown', 6000);
 // The cosmetic ALSO went out on the wire — a second, independent code path (sendMsg) saying the same
 // thing as the blocked localStorage write, and the one the sandbox has to intercept so a dummy album
 // is never described to the server as this player's look.
 const goldSend = (await state()).sends.some((m) => m.type === 'setCosmetic' && m.cosmetic === 'striker:gold');
 check(goldSend, `setCosmetic('striker:gold') was produced and intercepted (${JSON.stringify((await state()).sends)})`);
-check(!!fin, 'the lesson finished and offered another go');
-check(await evalJs("!document.body.classList.contains('hub-tu-gate')"), 'the gate came down — the hub is tappable again');
-check(await vis('.lab-scrim') !== 'shown', 'the scrim came down with it — the lobby is at full brightness again');
+// THE PAYOFF, PHOTOGRAPHED, while the hub is still uncovered — lesson 3's caption is up by now but
+// the hero is in full view. A pixel assertion is not available: the hero DANCES, so its pixels differ
+// frame to frame whatever the skin is. This screenshot is for reading, and it gets read.
 await shot('lab-03-hero-gold');
-// THE PAYOFF, PHOTOGRAPHED. The finale panel covers the hero it just changed, and «base → gold» is
-// the entire point of lesson 2 — so the panel is lifted for one frame to shoot the hero itself.
-// A pixel assertion is not available here: the hero DANCES, so its pixels differ frame to frame
-// whatever the skin is. This screenshot is for reading, and it gets read.
-await evalJs("document.querySelector('.lab-done').classList.add('hidden')");
-await sleep(400);
-await shot('lab-04-hero-gold-uncovered');
-await evalJs("document.querySelector('.lab-done').classList.remove('hidden')");
 
 // ---------------------------------------------------------------------------------------------
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ LESSON 3 — «הכי טוב» fills all three slots in one tap');
+const st2 = await waitFor(async () => { const s = await state(); return s && s.stepId === 'best' ? s : null; }, 6000);
+check(!!st2, `the machine advanced to lesson 3 (stepId=${(await state())?.stepId})`);
+check(await text('#tu-cap') === 'הכי טוב', `caption reads «הכי טוב» (got «${await text('#tu-cap')}»)`);
+check(await evalJs("document.querySelector('#select-best-btn').classList.contains('tu-live')"), '✨ הכי טוב is the lit, tappable target');
+// A TAP mime, not the drag one: nothing is being carried anywhere, so the hand reuses the shipped
+// `.gest-tap` press rather than the pull-up-then-swipe path.
+check(await evalJs("document.getElementById('tu-hand').classList.contains('gest-tap')"), 'the hand switched to the TAP mime for a button step');
+const beforeBest = await count('#power-slots .pslot:not(.pslot-empty)');
+await tap('#select-best-btn');
+const allThree = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) === 3, 6000);
+check(!!allThree, `all three real slots filled at once (was ${beforeBest} before the tap)`);
+const fin = await waitFor(async () => (await vis('.lab-done')) === 'shown', 6000);
+check(!!fin, 'the card tour finished and offered the screen tour + another go');
+check(await evalJs("!document.body.classList.contains('hub-tu-gate')"), 'the gate came down — the hub is tappable again');
+check(await vis('.lab-scrim') !== 'shown', 'the scrim came down with it — the lobby is at full brightness again');
+await shot('lab-04-best-equipped');
+
 console.log('\n▶ the lesson wrote NOTHING and sent NOTHING');
 // saveLoadout / saveCosmetic both reach postPrefs(), which the app persists under the player's
 // PHONE NUMBER. A leak here is a leak into a real account, so this is asserted, never assumed.
@@ -283,6 +301,93 @@ const sends = (await state()).sends || [];
 check(sends.every((m) => m.type === 'setLoadout' || m.type === 'setCosmetic'), 'only loadout/cosmetic messages were intercepted');
 check(await evalJs("!!window.__lab && window.__lab.writes.length > 0"), `the writes were attempted and BLOCKED (${(await state()).writes.length} recorded) — proof the real code path ran`);
 check(await evalJs("!window.ReactNativeWebView"), 'no app bridge on this surface, so postPrefs() had nowhere to go either');
+
+// ---------------------------------------------------------------------------------------------
+// TOUR 2 · the 13 elements
+// ---------------------------------------------------------------------------------------------
+console.log('\n▶ THE ELEMENT TOUR — 13 things on this screen, in the user\'s order');
+const ORDER = [
+  ['settings', 'הגדרות', '#hub-settings'],
+  ['online',   'מחוברים', '.hub-online'],
+  ['friends',  'חברים', '#friends-btn'],
+  ['clubs',    'מועדונים', '[data-open-screen="clubs"]'],
+  ['store',    'חנות', '[data-open-screen="shop"]'],
+  ['news',     'חדשות', '[data-open-screen="news"]'],
+  ['rank',     'דירוג', '#rank-btn'],
+  ['quick',    'משחק מהיר', '#quick-match-btn'],
+  ['choose',   'בחר משחק', '[data-open-screen="arena"]'],
+  ['withfr',   'שחק עם חברים', '#play-friends-btn'],
+  ['training', 'אימון', '#training-btn'],
+  ['builder',  'בונה מגרש', '#field-builder-btn'],
+  ['profile',  'הפרופיל שלי', '#home-face'],
+];
+await evalJs("window.__labStart('elements')");
+const el0 = await waitFor(async () => { const s = await state(); return s && s.running && s.tour === 'elements' ? s : null; }, 8000);
+check(!!el0, 'the element tour started');
+check(!!el0 && el0.stepIds.length === 13, `all 13 steps have a target on this screen — none dropped (${el0?.stepIds.length})`);
+check(JSON.stringify(el0?.stepIds) === JSON.stringify(ORDER.map((o) => o[0])),
+  `and they are in the order given: ${JSON.stringify(el0?.stepIds)}`);
+check(await count('#tu-pips i') === 13, '13 pips');
+// THE GATE MUST COME BACK UP for the second tour. finish() tore it down at the end of the card tour,
+// so the hand-off has to rebuild it — and the first screenshot of this tour showed a fully bright
+// lobby, which is what an un-asserted teardown/rebuild looks like.
+check(await evalJs("document.body.classList.contains('hub-tu-gate')"), 'the gate is up again for the second tour');
+check(await vis('.lab-scrim') === 'shown', 'the scrim is back too');
+check(await evalJs("getComputedStyle(document.querySelector('#friends-btn')).filter !== 'none'"), 'a NON-described element is dimmed (👥 while ⚙ is being described)');
+check(await evalJs("getComputedStyle(document.querySelector('#play-strip')).filter !== 'none'"), '…and so is the whole play strip');
+// One loop, not two. finish() runs inside a tick that has already queued its successor, so the
+// hand-off used to leave the previous tour's frame alive: two loops, double stepT, and a real risk of
+// both taking the same step and skipping one.
+const t0 = (await state()).stepT; await sleep(1000);
+const dT = (await state()).stepT - t0;
+check(dT > 0.6 && dT < 1.5, `exactly one machine is ticking — 1.0s of wall clock advanced stepT by ${dT.toFixed(2)}s (two loops would roughly double it)`);
+check(await vis('.lab-catch') === 'shown', 'tapping anywhere advances (the catcher is up)');
+check(await vis('#lab-next') === 'shown', '…and there is a «הבא ›» button for anyone who wants one');
+
+let tourFaults = 0;
+for (let i = 0; i < ORDER.length; i++) {
+  const [id, name, sel] = ORDER[i];
+  const st = await state();
+  if (st.stepId !== id) { console.log(`  ❌ step ${i + 1} should be '${id}', machine says '${st.stepId}'`); failures++; tourFaults++; break; }
+  // The named element is LIT, and its own box is un-dimmed so it is genuinely visible…
+  const lit = await evalJs(`(()=>{
+    const e=document.querySelector(${JSON.stringify(sel)}); if(!e) return null;
+    const box=e.closest('.hub > *')||e;
+    return { pick: e.classList.contains('lab-pick'), boxShown: box.classList.contains('lab-show'),
+             filter: getComputedStyle(box).filter,
+             // …and NOT tappable: this tour must never be able to navigate away from the hub.
+             pe: getComputedStyle(e).pointerEvents };
+  })()`);
+  const capNow = await text('#tu-cap');
+  const subNow = await text('#tu-nudge');
+  // AND THE HAND MUST NOT COVER IT. The hand is 54px and most of these targets are smaller, so a
+  // hand centred on ⚙ hides the very thing being described — which is what the first screenshot of
+  // this tour showed. Asserted as "the hand's box does not contain the target's centre".
+  const clear = await evalJs(`(()=>{
+    const h=document.getElementById('tu-hand').getBoundingClientRect();
+    const t=document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect();
+    const cx=t.x+t.width/2, cy=t.y+t.height/2;
+    return { covers: cx>=h.left&&cx<=h.right&&cy>=h.top&&cy<=h.bottom,
+             hand:{y:Math.round(h.y)}, tgt:{y:Math.round(cy)} };
+  })()`);
+  const ok = lit && lit.pick && lit.boxShown && lit.filter === 'none' && lit.pe === 'none'
+    && capNow === name && subNow.length > 3 && clear && !clear.covers;
+  if (!ok) { console.log(`  ❌ ${i + 1}. ${id}: ${JSON.stringify({ lit, capNow, subNow, clear })}`); failures++; tourFaults++; }
+  else console.log(`  ✅ ${i + 1}. «${name}» lit, inert, explained, hand clear of it — «${subNow}»`);
+  if (i === 0) await shot('lab-06-elements-first');
+  if (i === 7) await shot('lab-07-elements-quickplay');
+  if (i === 12) await shot('lab-08-elements-last');
+  // Advance the way a kid does: a tap on the dark.
+  await touch('touchStart', 60, 200); await sleep(30); await touch('touchEnd', 60, 200);
+  await sleep(260);
+}
+check(tourFaults === 0, `all 13 element steps lit the right thing, left it inert, and explained it (${tourFaults} faults)`);
+// Nothing navigated. The whole reason the elements are inert is that a tap on ⚙ or 👥 would open that
+// screen and abandon the tour — so this is the assertion that keeps the design honest.
+check(await vis('#home') === 'shown', 'we are still on the hub — no step navigated away');
+const finEl = await waitFor(async () => (await vis('.lab-done')) === 'shown', 6000);
+check(!!finEl, 'the element tour finished');
+check(await evalJs("!document.querySelector('.lab-catch')"), 'the tap-catcher was removed on the way out');
 
 console.log('\n▶ console');
 check(jsErrors.length === 0, `no uncaught JS errors${jsErrors.length ? `\n     ${jsErrors.slice(0, 4).join('\n     ')}` : ''}`);

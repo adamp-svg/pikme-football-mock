@@ -91,9 +91,49 @@ lights only the carousel would let the kid lift a card and silently swallow ever
 |---|---|---|---|
 | 1 | the front carousel card | `.pslot[data-slot="0"]` | a real slot is no longer `.pslot-empty` |
 | 2 | the **rare** card | `#pick-hero-btn` | a blocked `pikme_cosmetic` write of `striker:gold` |
+| 3 | `#select-best-btn` (tap) | — | **all three** slots non-empty |
+
+Lesson 3 is the shortcut, taught last on purpose: a kid who has already dragged one card in by hand
+understands what «הכי טוב» just did for them. Taught first it would fill every slot before they knew
+what a slot was, and lesson 1 would have had nothing empty to drop into.
+
+The hand's mime is per-gesture: a **drag** step gets the directed pull-up-then-swipe path below; a
+**tap** step reuses the shipped `.gest-tap` press and sits just *outside* the target — the hand is
+54px and most targets are smaller, so centring it hides the thing being pointed at.
 
 Idle ~9s → `.nudging`: hand grows, second short line. No clock, no fail state, no reward. A «דוגמה»
 chip marks the album as examples. `דלג ✕` exits.
+
+## Tour 2 — the element legend (`?tour=elements`)
+
+Thirteen things on this screen, in the user's order, one at a time: each lit while everything else
+stays dark, with its name and one line saying what it does. Reached with `?tour=elements`, or from
+the «סיור במסך ›» button on the card tour's finale.
+
+`settings · connected · friends · clubs · store · news · rank · quick play · choose game · play with
+friends · training · arena builder · profile`
+
+**Nothing here navigates.** Every lit element is left **inert** — a tap on ⚙ or 👥 would open that
+screen and abandon the tour on step one. Advancing is a tap anywhere (a transparent catcher at
+z-index 39, under `#tutorial` and the exit) or the «הבא ›» button. That inertness is the one design
+rule this tour has, so the verifier asserts `pointer-events: none` on all thirteen and re-checks that
+`#home` is still the visible screen at the end.
+
+**Lighting one element out of a filter-based gate takes two classes, not one.** A CSS filter on a
+parent cannot be undone by a child, and the shipped gate dims per `.hub > *` box — so lighting
+`#training-btn`, which lives inside `#play-strip`, means un-dimming the strip (`.lab-show`) and then
+dimming its other children individually (`.lab-dim`).
+
+The second line on this tour is never replaced by the idle nudge: "what this button does" *is* the
+step, and swapping it for «הקש להמשך» after nine seconds would delete the lesson from the screen of
+anyone who reads slowly.
+
+**The hand-off needs a run token.** `finish()` is called from inside a tick that has already queued
+its successor, so starting the second tour immediately left the first tour's loop alive — two loops
+on the same globals, double `stepT`, and a real chance of both taking the same step and skipping one.
+Every tick now carries the token it was started with and retires itself when a new tour begins. The
+first screenshot of the second tour showed a fully bright lobby; the verifier now asserts the gate,
+the scrim, a dimmed non-target, and that 1.0s of wall clock advances `stepT` by ~1.0s.
 
 ## Files
 

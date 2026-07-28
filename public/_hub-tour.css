@@ -71,6 +71,47 @@ body.lab-tour.hub-tu-gate .hub .lab-drop.hub-hero {
   filter: drop-shadow(0 0 7px rgba(255, 208, 106, .95)) drop-shadow(0 0 16px rgba(255, 176, 40, .55));
 }
 
+/* ---- THE ELEMENT TOUR (?tour=elements): one thing lit, everything else dark, nothing tappable ----
+   A CSS filter on a parent cannot be undone by a child, and the shipped gate dims per `.hub > *`
+   box — so lighting a button that lives INSIDE a box (every play-strip button does) means
+   un-dimming the box and then dimming its other children one by one. That is what these two
+   classes are, and why they come in a pair. Specificity is deliberate: both have to outrank
+   `.hub-tu-gate .hub > *`.
+   Note what is NOT here: pointer-events. The element tour leaves every element INERT — a tap on ⚙
+   or 👥 would open that screen and abandon the tour on step 1. */
+body.lab-tour.hub-tu-gate .hub > .lab-show { filter: none; z-index: 7; }
+body.lab-tour.hub-tu-gate .hub .lab-dim { filter: grayscale(.7) brightness(.5); }
+/* WHICH one is being described. Softer than the card tour's dashed drop-ring: nothing has to land
+   here, so it marks rather than instructs. */
+body.lab-tour .lab-pick {
+  outline: 2px solid rgba(255, 208, 106, .9);
+  outline-offset: 3px; border-radius: 8px;
+  box-shadow: 0 0 0 5px rgba(255, 208, 106, .16), 0 0 18px rgba(255, 176, 40, .5);
+  animation: lab-pick-pulse 1.4s ease-in-out infinite;
+}
+@keyframes lab-pick-pulse {
+  0%, 100% { box-shadow: 0 0 0 5px rgba(255, 208, 106, .16), 0 0 18px rgba(255, 176, 40, .5); }
+  50%      { box-shadow: 0 0 0 8px rgba(255, 208, 106, .07), 0 0 26px rgba(255, 176, 40, .28); }
+}
+
+/* Advance the read-only tour by tapping anywhere. z-index 39: under #tutorial (40) and #tu-hub-skip
+   (41), over the whole dimmed hub — so the caption and the exit keep working and every other tap
+   just means "next". */
+body.lab-tour .lab-catch { position: fixed; inset: 0; z-index: 39; }
+body.lab-tour #lab-next {
+  position: fixed; z-index: 41;
+  bottom: max(10px, calc(env(safe-area-inset-bottom) + 6px));
+  inset-inline-start: max(10px, env(safe-area-inset-left));
+  font: 800 13px/1 system-ui, sans-serif; color: #10161d; background: #ffd06a;
+  border: none; border-radius: 999px; padding: 9px 16px; cursor: pointer;
+  box-shadow: 0 3px 0 #a56a16;
+}
+body.lab-tour #lab-next:active { transform: translateY(2px); box-shadow: 0 1px 0 #a56a16; }
+/* Thirteen pips in a row on a 390px-tall landscape phone: tighten them so the strip cannot outgrow
+   the caption it belongs to. */
+body.lab-read .tu-pips { gap: 4px; }
+body.lab-read .tu-pips i { width: clamp(5px, 1.5vh, 7px); }
+
 /* These cards are not the player's. Said once, quietly, and never in the way of the lesson. */
 body.lab-tour .lab-badge {
   position: fixed; z-index: 41;
