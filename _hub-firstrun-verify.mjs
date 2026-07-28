@@ -93,7 +93,21 @@ async function browser(cdpPort, label) {
   api.rect = (sel) => api.ev(`(()=>{const e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
   api.waitFor = async (fn, ms = 12000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(200); } return null; };
   api.tapDark = async () => { await api.touch('touchStart', 60, 200); await sleep(30); await api.touch('touchEnd', 60, 200); await sleep(240); };
-  api.tapAt = async (sel) => { const r = await api.rect(sel); if (!r) throw new Error(`no ${sel}`); await api.touch('touchStart', r.x, r.y); await sleep(40); await api.touch('touchEnd', r.x, r.y); await sleep(350); };
+  // WAIT FOR THE LAYOUT TO STOP MOVING before trusting a rect. The hub is a scaled stage: fitHub()
+  // runs at load and again as fonts/art settle, so a rect read the instant a page appears can be from
+  // a different scale than the one that exists a frame later. Measured: the ? button reported
+  // (18,7,30) mid-reflow and (43,18,28) once settled — so a tap aimed at the first reading missed,
+  // which is exactly how "tapping the ? does nothing" looked in this test while the button was fine.
+  api.settled = async (sel, tries = 40) => {
+    let last = null;
+    for (let i = 0; i < tries; i++) {
+      const r = await api.rect(sel);
+      if (r && last && Math.abs(r.x - last.x) < 0.5 && Math.abs(r.y - last.y) < 0.5) return r;
+      last = r; await sleep(120);
+    }
+    return last;
+  };
+  api.tapAt = async (sel) => { const r = await api.settled(sel); if (!r) throw new Error(`no ${sel}`); await api.touch('touchStart', r.x, r.y); await sleep(40); await api.touch('touchEnd', r.x, r.y); await sleep(350); };
   // A real card grab: UP first (dy < -16, mostly vertical) or the carousel reads it as a swipe.
   api.liftTo = async (fromSel, toSel) => {
     const a = await api.rect(fromSel), b = await api.rect(toSel);
@@ -169,6 +183,50 @@ try {
   check(!!s2 && !s2.running && !s2.waiting, 'the lobby tour does NOT come back');
   check(!!s2 && s2.skipped === true, 'the first-run flag really persisted to localStorage');
   check(await b1.ev("localStorage.getItem('fbHubTourSkipped') === '1'"), 'fbHubTourSkipped = 1');
+
+  // ---- THE ? BUTTON — the lobby's own way back in ---------------------------------------------
+  // As a RETURNING player: the pitch levels done too, so nothing auto-starts and the kid is simply
+  // standing on the lobby. Without this the previous step's level 1 owns the screen and every hub rect
+  // is zero — which an earlier version of these checks passed vacuously (0 < 90 is true).
+  console.log('\n▶ the ? in the lobby corner replays it, forever');
+  await b1.ev("localStorage.setItem('fbTuDone','basics,combat,tricks'); localStorage.setItem('fbTutorialDone','1')");
+  await b1.go(`http://${LAN}:${PORT}/`);
+  const onHub = await b1.waitFor(async () => (await b1.vis('#home')) === 'shown' && (await b1.vis('#hub-howto')) === 'shown', 20000);
+  check(!!onHub, 'a returning player stands on the lobby, nothing auto-starts, and the ? is there');
+  await b1.settled('#hub-howto');
+  await b1.shot('first-05-lobby-with-question-mark');   // the ? at rest, before anything is tapped
+  const where = await b1.ev(`(()=>{
+    const h=document.querySelector('#hub-howto').getBoundingClientRect();
+    const g=document.querySelector('#hub-settings').getBoundingClientRect();
+    const pfp=document.querySelector('#home-face').getBoundingClientRect();
+    return JSON.stringify({
+      // Every one of these requires a REAL rect: an element that is not on screen reports zeros, and
+      // zero-is-less-than-ninety is true — which is how the first version of this check passed while
+      // the hub was not even the visible screen.
+      corner: h.width > 8 && h.left < 90 && h.top < 60,   // the stage's TOP-LEFT, the only free corner
+      clearOfPfp: h.width > 8 && h.right <= pfp.left + 1, // .hub-pfp starts at x=95 in stage px
+      smallerThanGear: h.width > 8 && h.width < g.width,
+      h: {x:Math.round(h.x), y:Math.round(h.y), w:Math.round(h.width)},
+      pfpX: Math.round(pfp.left), gearX: Math.round(g.x)
+    });
+  })()`);
+  const w = JSON.parse(where);
+  check(w.corner, `it sits in the TOP-LEFT corner (${where})`);
+  check(w.clearOfPfp, 'and does not overlap the profile box beside it');
+  check(w.smallerThanGear, 'it is smaller than ⚙ — a help affordance, not a control');
+  // The tour is already skipped on this profile, so this proves the ? ignores the first-run flags.
+  await b1.tapAt('#hub-howto');
+  const replay = await b1.waitFor(async () => { const s = await b1.state(); return s && s.running ? s : null; }, 12000);
+  check(!!replay, 'tapping it starts the tour again, even though this player already waved it away');
+  check(!!replay && replay.tour === 'home', `same album rules apply on a replay (tour='${replay?.tour}')`);
+  await b1.shot('first-06-question-mark-replay');
+  // And the exit is not sitting on top of the ? — the same corner collision that hit ⚙ on step 1.
+  const noClash = await b1.ev(`(()=>{
+    const s=document.querySelector('#tu-hub-skip').getBoundingClientRect();
+    const h=document.querySelector('#hub-howto').getBoundingClientRect();
+    return !(s.right<h.left||s.left>h.right||s.bottom<h.top||s.top>h.bottom);
+  })()`);
+  check(noClash === false, 'and «דלג ✕» stepped down out of the ?\'s way');
   check(b1.errors.length === 0, `no uncaught JS errors${b1.errors.length ? `\n     ${b1.errors.slice(0, 3).join('\n     ')}` : ''}`);
 } finally { b1.close(); }
 

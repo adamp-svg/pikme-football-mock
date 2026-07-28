@@ -644,6 +644,18 @@ const state = () => ({
 });
 
 window.HubTour = { pending, begin, start: (which) => start(which, true), state };
+
+// ---- the lobby's ? button --------------------------------------------------------------------
+// Replayable forever, and it does NOT hand the floor back to the pitch tutorial the way the first-run
+// launch does: a player who asked for the lesson wants to end up back on the lobby, not dropped into
+// level 1. `resumeAfter` is only ever set by begin(), so simply not going through it is the whole
+// difference. Bound here rather than in client.js — this button is the tour's, and one more line in
+// that file is one more line three agents have to merge.
+document.getElementById('hub-howto')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (running) return;                  // already in it; the gate makes this unreachable anyway
+  start('full', true);
+});
 // The lab's verifier drives it through these.
 window.__labState = state;
 window.__labStart = (which) => start(which, true);

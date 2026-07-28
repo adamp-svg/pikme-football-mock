@@ -162,3 +162,18 @@ body.ht-tour #tu-hub-skip {
 }
 /* …and in the LAB the badge already owns that corner, so it steps down out of the way. Dev-only. */
 body.ht-tour.ht-lab .ht-badge { top: calc(max(10px, env(safe-area-inset-top)) + 34px); }
+
+/* ---- THE ? BUTTON — the lobby's own way back into this tour ---------------------------------
+   Lives in the markup beside ⚙ (same "how does this screen work" cluster) and is POSITIONED in the
+   stage's top-left corner, which is the only free one up there: .hub-pfp starts at x=95 and ⚙ owns
+   x=809. Stage coordinates, like every other hub box — the whole lobby is authored at 900x415 and
+   scaled as one unit by fitHub, so a viewport-relative position would drift against its neighbours.
+   Deliberately SMALLER than ⚙ (30 vs 38): it is a help affordance, not a control a player needs. */
+.hub > #hub-howto {
+  left: 46px; top: 19px; width: 30px; height: 30px; z-index: 6;
+  font-size: 15px; border-width: 2px;
+}
+/* The tour's exit steps down out of its way. #tu-hub-skip is fixed-positioned in VIEWPORT px while
+   the ? is a stage box scaled by fitHub, so this clears it with margin rather than by exact maths —
+   the scale changes with the phone. Verified by screenshot, which is how the ⚙ collision was found. */
+body.ht-tour #tu-hub-skip { top: 58px; }
