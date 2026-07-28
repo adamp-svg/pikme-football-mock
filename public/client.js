@@ -5386,6 +5386,9 @@ document.getElementById('open-controls-btn')?.addEventListener('click', () => { 
 // the same editor #edit-controls-btn opens once inside. Not a synthetic click chain: the room is
 // requested directly and the editor is opened by enterMatch when the room actually arrives.
 document.getElementById('hub-controls')?.addEventListener('click', () => {
+  // Hidden off the hub (see openSettings), and refused as well as hidden: a shortcut that requests a
+  // new room is not something to leave one stray class away from firing mid-match.
+  if (!homeEl || homeEl.classList.contains('hidden')) return;
   unlockAudio();
   closeSettings();
   pendingControlsEditor = true;
@@ -5505,6 +5508,13 @@ function openSettings() {
   const trainingGround = inGame && training;
   // vs-bots + quick-match derive difficulty from XP (no manual picker); training/private/builder keep it.
   const diffAllowed = inGame && (training || roomMode === 'botgame' || roomMode === 'private' || roomMode === 'builder');
+  // THE LOBBY-ONLY SHORTCUTS, hidden everywhere else. ⚙ is reachable mid-match, and neither of these
+  // means anything there: the ? would run a lesson ABOUT THE HUB on top of a live match, and the 🎛️
+  // would ask for a brand-new training room while the player is already in one. In a match the editor
+  // is reachable properly anyway — that is what #setting-controls below is for.
+  const onHub = !inGame && !!homeEl && !homeEl.classList.contains('hidden');
+  document.getElementById('hub-howto')?.classList.toggle('hidden', !onHub);
+  document.getElementById('hub-controls')?.classList.toggle('hidden', !onHub);
   document.getElementById('setting-controls')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-mechanics')?.classList.toggle('hidden', !trainingGround);
   document.getElementById('setting-difficulty')?.classList.toggle('hidden', !diffAllowed);

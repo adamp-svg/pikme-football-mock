@@ -186,6 +186,10 @@ body.ht-tour #tu-hub-skip {
   width: 26px; height: 26px; font-size: 13px; border-width: 2px;
   z-index: 2;   /* above the card's own padding/scroll content */
 }
+/* No `.hidden` override needed here: style.css declares `.hidden { display: none !important }`, which
+   beats .hub-icobtn's `display: grid` regardless of order — so client.js toggling .hidden on these two
+   really does hide them off the hub. Checked rather than assumed, because a same-specificity clash
+   would otherwise have left them visible mid-match. */
 #settings #hub-howto   { left: 10px; }
 #settings #hub-controls { left: 42px; }   /* beside the ?, same corner, same size */
 

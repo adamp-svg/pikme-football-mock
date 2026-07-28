@@ -331,6 +331,32 @@ try {
   const editorUp = await b1.waitFor(async () => (await b1.vis('#controls-editor')) === 'shown', 12000);
   check(!!editorUp, 'and the CONTROLS EDITOR is already open when you get there');
   await b1.shot('first-09-controls-editor-from-lobby');
+
+  // ---- BOTH SHORTCUTS ARE LOBBY-ONLY -------------------------------------------------------
+  // ⚙ is reachable mid-match, and neither shortcut means anything there: the ? would run a lesson about
+  // the HUB on top of a live match, and the 🎛️ would ask for a brand-new room while the player is in
+  // one. We are in the training ground right now, which is the place to prove it.
+  const cancel = await b1.ev("!!document.querySelector('#controls-editor button.ce-cancel, #ce-cancel')");
+  await b1.ev(`(()=>{const b=[...document.querySelectorAll('#controls-editor button')].find(x=>/ביטול/.test(x.textContent));if(b)b.click();})()`);
+  await sleep(500);
+  let inMatchSettings = null;
+  for (let attempt = 1; attempt <= 3 && !inMatchSettings; attempt++) {
+    await b1.tapAt('#pause-btn');
+    inMatchSettings = await b1.waitFor(async () => (await b1.vis('#settings')) === 'shown', 4000);
+  }
+  check(!!inMatchSettings, `the in-match ⚙ opens settings (editor cancel found: ${cancel})`);
+  check(await b1.vis('#hub-howto') !== 'shown', 'the ? is NOT there in a match');
+  check(await b1.vis('#hub-controls') !== 'shown', 'and neither is the 🎛️');
+  // The in-match route to the editor is still there — this is not a removal, just a relocation.
+  check(await b1.vis('#setting-controls') === 'shown', '…while the match\'s own «עריכת מיקום הבקרות» still is');
+  await b1.shot('first-10-settings-in-match-no-shortcuts');
+  // And refused as well as hidden: one stray class should not be able to fire either of them.
+  const refused = await b1.ev(`(()=>{
+    const before = window.HubTour.state().running;
+    document.querySelector('#hub-howto').click();
+    return JSON.stringify({ before, after: window.HubTour.state().running });
+  })()`);
+  check(JSON.parse(refused).after === false, `and clicking the ? anyway does nothing off the hub (${refused})`);
   check(b1.errors.length === 0, `no uncaught JS errors${b1.errors.length ? `\n     ${b1.errors.slice(0, 3).join('\n     ')}` : ''}`);
 } finally { b1.close(); }
 

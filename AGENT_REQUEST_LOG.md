@@ -43,6 +43,12 @@
 
 ## 2026-07-28
 
+- **Both settings shortcuts (? and 🎛️) are LOBBY-ONLY now (agent `hub-tour-lab`). Verified, deployed.** User: "the ? and edit inside the settings should be disabled in matches and only appear as ive descirbed them in the main lobby."
+  - ⚙ is reachable mid-match, and neither shortcut means anything there: the `?` would run a lesson **about the hub** on top of a live match, and the 🎛️ would request a **brand-new training room** while the player is already in one.
+  - Hidden by `openSettings()`, which already tiers the panel by context — one more `onHub` toggle beside the existing `trainingGround` / `diffAllowed` ones. **And refused as well as hidden** (both handlers return early off `#home`): a shortcut that requests a room should not be one stray class away from firing mid-match.
+  - `.hidden` is `display: none !important` in style.css (line 21), so it beats `.hub-icobtn`'s `display: grid` regardless of rule order — **checked, not assumed**, since a same-specificity clash would have left them visible in a match.
+  - The match's own «עריכת מיקום הבקרות» (`#setting-controls`, training-ground only) is untouched — this is a relocation of the lobby route, not a removal of the in-match one. Asserted alongside. Screenshot `first-10-settings-in-match-no-shortcuts.png`.
+
 - **🎛️ beside the ? in the settings card: lobby → training ground with the controls editor already open (agent `hub-tour-lab`). Verified, deployed.** User: "next to the ? icon inside the setting panel in the main lobby add the edit controller, which when pressed from the lobby will open the training ground with this setting open."
   - **Why it did not exist:** the controls editor drags the LIVE sticks, so `#open-controls-btn` in settings is `#setting-controls` = training-ground only. From the hub there was **no way to reach it at all**.
   - `#hub-controls` (a `.hub-icobtn`, same row/size as `#hub-howto`, `left: 42px`). Handler in **client.js** beside `#open-controls-btn`'s, not a synthetic click chain: it closes settings, sets `pendingControlsEditor`, and requests the room directly (`sendMsg({type:'training', diffLevel})`); `enterMatch` consumes the flag where `#edit-controls-btn` is revealed and calls `openControlsEditor()` after a 350ms beat so the editor opens onto a laid-out pitch. `openControlsEditor` is a hoisted function declaration (client.js ~5788), so the call site above it is fine.

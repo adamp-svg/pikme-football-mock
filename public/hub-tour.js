@@ -780,6 +780,11 @@ document.addEventListener('pointerup', (e) => {
 document.getElementById('hub-howto')?.addEventListener('click', (e) => {
   e.stopPropagation();
   if (running) return;                  // already in it
+  // Lobby only. The button is hidden off the hub (openSettings in client.js), and refused here too —
+  // a lesson about the lobby, started on top of a live match, would point a hand at a screen that is
+  // not there.
+  const home = document.getElementById('home');
+  if (!home || home.classList.contains('hidden')) return;
   // CLOSE THE SETTINGS PANEL FIRST. The ? lives inside that modal, and #settings is a fixed overlay at
   // z-index 20 with a blurred backdrop — a lesson started underneath it would point a hand at a hub
   // nobody can see or touch. «המשך» is the app's own close path (playSound + closeMatchInfo), so it is
