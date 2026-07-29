@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>מעבדת פס השמיים — Saltiz</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      color-scheme: dark;
+      --ink: #101512;
+      --paper: #fff0c2;
+      --gold: #ffcb43;
+      --blue: #2e70df;
+      --turf: #2f7d45;
+    }
+    html, body { margin: 0; min-height: 100%; background: #0b110e; color: var(--paper); }
+    body {
+      font: 700 14px/1.45 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      padding: 20px;
+    }
+    header {
+      max-width: 1480px; margin: 0 auto 16px; padding: 14px 16px;
+      border: 3px solid #274235; background: #111b16; box-shadow: 5px 5px 0 #060907;
+    }
+    h1 { margin: 0 0 4px; color: var(--gold); font-size: 22px; }
+    p { margin: 0; color: #a9b8ac; font-size: 12px; }
+    .controls {
+      max-width: 1480px; margin: 0 auto 18px; padding: 12px;
+      display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 10px;
+      background: #142019; border: 2px solid #31483a;
+    }
+    label { display: grid; gap: 5px; color: #c7d3c9; }
+    label b { color: var(--paper); }
+    input[type="range"] { width: 100%; accent-color: var(--gold); }
+    input[type="text"] {
+      width: 100%; min-height: 34px; padding: 7px 9px; direction: rtl;
+      color: var(--paper); background: #0c1510; border: 2px solid #365043;
+      font: inherit; user-select: text;
+    }
+    button {
+      min-height: 38px; align-self: end; cursor: pointer;
+      border: 2px solid #ffe184; background: #c99527; color: #201707;
+      box-shadow: inset 0 -4px #845b15, 3px 3px 0 #060907;
+      font: 900 14px ui-monospace, monospace;
+    }
+    button:active { transform: translate(2px, 2px); box-shadow: inset 0 -2px #845b15, 1px 1px 0 #060907; }
+    .readout { color: var(--gold); font-variant-numeric: tabular-nums; }
+    .grid {
+      max-width: 1480px; margin: 0 auto;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;
+    }
+    figure {
+      min-width: 0; margin: 0; padding: 10px;
+      background: #111b16; border: 2px solid #2a4033; box-shadow: 5px 5px 0 #060907;
+    }
+    figcaption {
+      display: flex; justify-content: space-between; gap: 10px; margin: 0 0 8px;
+      color: #b9c7bb; font-size: 12px; direction: ltr;
+    }
+    figcaption strong { color: var(--gold); }
+    canvas {
+      display: block; width: 100%; height: auto; background: #142b49;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      border: 1px solid #050805;
+    }
+    .note {
+      max-width: 1480px; margin: 18px auto 0; padding: 10px 12px;
+      border-inline-start: 4px solid var(--blue); background: #101914;
+      color: #9db0a1; font-size: 11px;
+    }
+    @media (max-width: 900px) {
+      body { padding: 10px; }
+      .controls, .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>מעבדת פס השמיים</h1>
+    <p>שמיים קבועים למסך מעל ומתחת למגרש הצף · כל התצוגות מצוירות בפיקסלים של ART</p>
+  </header>
+
+  <section class="controls" aria-label="בקרות מעבדה">
+    <label>
+      <span>עומק חופשי <b id="depth-out">143</b></span>
+      <input id="depth" type="range" min="0" max="200" value="143" step="1" />
+    </label>
+    <label>
+      <span>פרלקסה camX <b id="cam-out">0</b></span>
+      <input id="cam-x" type="range" min="-1200" max="1200" value="0" step="10" />
+    </label>
+    <label>
+      <span>טקסט קצר על השלט</span>
+      <input id="banner" type="text" value="שחקו יחד" maxlength="12" aria-label="טקסט לשלט" />
+    </label>
+    <button id="motion" type="button" aria-pressed="false">השהה תנועה</button>
+  </section>
+
+  <main id="grid" class="grid"></main>
+
+  <aside class="note">
+    הפס הסמוך לקו המגרש נשאר שקט בכוונה. האי הירוק באמצע הוא דוגמת קצה המגרש בלבד;
+    האמנות הזאת אינה מחוברת ל־camY ולעולם אינה נכנסת לחלון המשחק.
+    <span class="readout" id="perf">מודד עלות ציור…</span>
+  </aside>
+
+  <script src="/sky-band.js"></script>
+  <script>
+  (() => {
+    'use strict';
+    const WIDTH = 700;
+    const PITCH = 82;
+    const PRESETS = [
+      { label: 'טלפון', depth: 0 },
+      { label: 'Galaxy Tab S9', depth: 99 },
+      { label: 'iPad mini', depth: 118 },
+      { label: 'iPad Pro 11″', depth: 143 },
+      { label: 'iPad Pro 13″', depth: 174 },
+      { label: 'קצה תכנון', depth: 200 },
+    ];
+    const grid = document.getElementById('grid');
+    const depthEl = document.getElementById('depth');
+    const camEl = document.getElementById('cam-x');
+    const bannerEl = document.getElementById('banner');
+    const motionEl = document.getElementById('motion');
+    const depthOut = document.getElementById('depth-out');
+    const camOut = document.getElementById('cam-out');
+    const perfEl = document.getElementById('perf');
+    let playing = true;
+    let elapsed = 0;
+    let last = performance.now();
+
+    function makeCard(item, free = false) {
+      const fig = document.createElement('figure');
+      const cap = document.createElement('figcaption');
+      const name = document.createElement('span');
+      const value = document.createElement('strong');
+      name.textContent = free ? 'עומק חופשי' : item.label;
+      value.textContent = `${item.depth} יח׳ לכל צד`;
+      cap.append(name, value);
+      const canvas = document.createElement('canvas');
+      canvas.width = WIDTH;
+      canvas.height = item.depth * 2 + PITCH;
+      canvas.dataset.depth = item.depth;
+      canvas.dataset.free = free ? '1' : '0';
+      fig.append(cap, canvas);
+      grid.append(fig);
+      return { fig, canvas, value, item, free };
+    }
+
+    const cards = [makeCard({ label: 'עומק חופשי', depth: Number(depthEl.value) }, true)]
+      .concat(PRESETS.map((p) => makeCard(p)));
+
+    function drawPitch(g, y) {
+      g.fillStyle = '#101512';
+      g.fillRect(0, y, WIDTH, PITCH);
+      g.fillStyle = '#245f36';
+      g.fillRect(0, y + 3, WIDTH, PITCH - 6);
+      g.fillStyle = '#2f7d45';
+      g.fillRect(0, y + 10, WIDTH, PITCH - 20);
+      // Broad stripes only: enough context to read as pitch, not enough detail to compete.
+      g.fillStyle = '#347f49';
+      for (let x = 0; x < WIDTH; x += 140) g.fillRect(x, y + 10, 70, PITCH - 20);
+      g.fillStyle = '#fff0c2';
+      g.fillRect(0, y + 8, WIDTH, 3);
+      g.fillRect(0, y + PITCH - 11, WIDTH, 3);
+      g.fillStyle = '#153c24';
+      g.fillRect(0, y, WIDTH, 3);
+      g.fillRect(0, y + PITCH - 3, WIDTH, 3);
+      g.fillStyle = '#ffcb43';
+      g.fillRect(WIDTH / 2 - 22, y + PITCH / 2 - 2, 44, 4);
+    }
+
+    function renderCard(card) {
+      if (card.free) card.item.depth = Number(depthEl.value);
+      const d = card.item.depth;
+      const cv = card.canvas;
+      const wantedH = d * 2 + PITCH;
+      if (cv.height !== wantedH) cv.height = wantedH;
+      cv.dataset.depth = d;
+      card.value.textContent = `${d} יח׳ לכל צד`;
+      const g = cv.getContext('2d');
+      g.imageSmoothingEnabled = false;
+      g.clearRect(0, 0, cv.width, cv.height);
+      const options = {
+        camX: Number(camEl.value),
+        camY: 987654, // sentinel: changing it must have no visual effect
+        t: elapsed,
+        bannerText: bannerEl.value,
+      };
+      SkyBand.draw(g, { x: 0, y: 0, w: WIDTH, h: d }, { ...options, side: 'top' });
+      drawPitch(g, d);
+      SkyBand.draw(g, { x: 0, y: d + PITCH, w: WIDTH, h: d }, { ...options, side: 'bottom' });
+    }
+
+    function renderAll() {
+      depthOut.textContent = depthEl.value;
+      camOut.textContent = camEl.value;
+      for (const card of cards) renderCard(card);
+    }
+
+    function tick(now) {
+      if (playing) elapsed += Math.min(0.05, (now - last) / 1000);
+      last = now;
+      renderAll();
+      requestAnimationFrame(tick);
+    }
+
+    depthEl.addEventListener('input', renderAll);
+    camEl.addEventListener('input', renderAll);
+    bannerEl.addEventListener('input', renderAll);
+    motionEl.addEventListener('click', () => {
+      playing = !playing;
+      motionEl.textContent = playing ? 'השהה תנועה' : 'המשך תנועה';
+      motionEl.setAttribute('aria-pressed', String(!playing));
+    });
+
+    function benchmark() {
+      const cv = document.createElement('canvas');
+      cv.width = WIDTH;
+      cv.height = 200;
+      const g = cv.getContext('2d');
+      // Warm caches, including the default banner.
+      for (let i = 0; i < 80; i++) {
+        SkyBand.draw(g, { x: 0, y: 0, w: WIDTH, h: 174 },
+          { camX: i, camY: i * 999, t: i / 60, side: 'top', bannerText: bannerEl.value });
+      }
+      const runs = 4000;
+      const start = performance.now();
+      for (let i = 0; i < runs; i++) {
+        SkyBand.draw(g, { x: 0, y: 0, w: WIDTH, h: 174 },
+          { camX: i * 0.5, camY: i * 999, t: i / 120, side: 'top', bannerText: bannerEl.value });
+      }
+      const perFrame = (performance.now() - start) / runs;
+      const phoneStart = performance.now();
+      for (let i = 0; i < runs * 5; i++) {
+        SkyBand.draw(g, { x: 0, y: 0, w: WIDTH, h: 0 },
+          { camX: i, camY: i, t: i, side: 'top' });
+      }
+      const phoneFrame = (performance.now() - phoneStart) / (runs * 5);
+      const metrics = {
+        perFrameMs: perFrame,
+        zeroBandMs: phoneFrame,
+        runs,
+        reducedMotion: SkyBand.reducedMotion(),
+      };
+      window.__skyLabMetrics = metrics;
+      perfEl.textContent = ` · 174 יח׳: ${perFrame.toFixed(4)}ms לציור · טלפון/0: ${phoneFrame.toFixed(5)}ms`;
+      return metrics;
+    }
+
+    window.__skyLab = {
+      renderAll,
+      cards,
+      benchmark,
+      setTime(value) { elapsed = Math.max(0, Number(value) || 0); renderAll(); },
+      setPlaying(value) { playing = Boolean(value); },
+    };
+    renderAll();
+    requestAnimationFrame(tick);
+    setTimeout(benchmark, 250);
+  })();
+  </script>
+</body>
+</html>
