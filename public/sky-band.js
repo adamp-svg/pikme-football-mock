@@ -5,11 +5,15 @@
 //
 // Public API:
 //   SkyBand.draw(ctx, { x, y, w, h }, {
-//     camX, t, side, bannerText, edgeApproach
+//     camX, t, side, bannerText, edgeApproach, lift, bandDepth
 //   })
 //
 // `edgeApproach` is 0 at midfield and 1 at the stadium edge represented by `side`. Top and bottom
 // use one composition mirrored vertically, so both touchlines reveal the same scenery.
+//
+// `lift` (0..1, optional) rides the whole composition upward, scaled by `bandDepth` and shared out per
+// layer so the depth order holds. The caller owns its meaning; today drawViewBands ramps it as the seat
+// rows arrive in the window and parks it once they run out. Omit both and nothing moves — additive.
 (() => {
   'use strict';
 
@@ -257,6 +261,10 @@
         ? (side === 'top' ? options.topApproach : 0)
         : options.edgeApproach
     ) || 0, 0, 1);
+    // LIFT: 0..1 from the caller, how far the sky has ridden up as the seat rows arrive. Scaled by the
+    // band's own depth so the travel is proportional to the space available, and applied per layer so the
+    // depth order survives — nearest lifts most. Absent/0 for every existing caller, so this is additive.
+    const lift = clamp(Number(options.lift) || 0, 0, 1) * (Number(options.bandDepth) || h);
     const bankDepth = clamp(Math.round(h * 0.32), 18, 42);
     const cloudPush = Math.round(edgeApproach * bankDepth * 0.55);
     const pushDirection = side === 'top' ? 1 : -1;
@@ -316,7 +324,7 @@
         const cx = x - cloud.width - 30 + mod(i * 177 + t * speed - camX * 0.008, span);
         const seed = 0.18 + hash(i + sideSeed, 5) * 0.34;
         const cy = y + bandY(side, h, cloud.height, seed, quiet)
-          + pushDirection * cloudPush * 0.38;
+          + pushDirection * cloudPush * 0.38 - lift * 0.30;
         ctx.globalAlpha = 0.68 + (i % 2) * 0.08;
         ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
       }
@@ -332,7 +340,7 @@
         const cx = x - cloud.width + mod(21 + i * cadence + t * speed - camX * 0.018, span);
         const seed = 0.79 + hash(i + sideSeed, 13) * 0.17;
         const cy = y + bandY(side, h, cloud.height, seed, Math.min(quiet, 8))
-          + pushDirection * cloudPush;
+          + pushDirection * cloudPush - lift * 0.55;
         ctx.globalAlpha = 0.88 + (i % 3) * 0.04;
         ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
       }
@@ -346,7 +354,7 @@
         const span = w + 140;
         const bx = x - 70 + mod(88 + i * 241 + t * (0.45 + i * 0.16) * MOTION - camX * 0.005, span);
         const seed = 0.05 + hash(i + 31, sideSeed + 9) * 0.22;
-        const by = y + bandY(side, h, balloon.height, seed, quiet);
+        const by = y + bandY(side, h, balloon.height, seed, quiet) - lift * 0.18;
         ctx.globalAlpha = 0.82;
         ctx.drawImage(balloon, Math.round(bx), Math.round(by));
       }
@@ -359,7 +367,7 @@
       const span = w + airAd.width + 110;
       // Phase it on-screen at t=0 so a static lab/screenshot shows the hero asset immediately.
       const bx = x - airAd.width - 55 + mod(260 + t * 4.2 * MOTION - camX * 0.003, span);
-      const by = y + bandY(side, h, airAd.height, 0.06, Math.min(quiet, 12));
+      const by = y + bandY(side, h, airAd.height, 0.06, Math.min(quiet, 12)) - lift * 0.12;
       ctx.globalAlpha = 0.90;
       ctx.drawImage(airAd, Math.round(bx), Math.round(by));
       ctx.globalAlpha = 1;
@@ -389,6 +397,8 @@
       farCloudParallax: 0.008,
       nearCloudParallax: 0.018,
       topApproachPush: 0.55,
+      // per-layer share of the caller's `lift` (see drawViewBands): nearest moves most
+      liftNearCloud: 0.55, liftFarCloud: 0.30, liftBalloon: 0.18, liftAirAd: 0.12,
       smallBalloonParallax: 0.005,
       airAdParallax: 0.003,
     }),

@@ -6336,6 +6336,13 @@ const BACK = ROWS * ROW_X + LANE;     // behind-goal terrace = 3 rows + lane, me
 // Camera limit: reveal the wall/net plus up to HALF of the third (back) row, then stop.
 const CAM_BAND = 2.5 * ROW_Y + LANE;
 const CAM_BACK = 2.5 * ROW_X + LANE;
+// How the headroom sky's LIFT is paced (drawViewBands). Rows sit at `-BAND + LANE + r*ROW_Y` and are
+// `ROW_Y - 8` deep, so row three's lip shows in the window once the camera looks ROW_LIP units above the
+// touchline — that is when the lift starts. It finishes at ROW_STACK, the OUTER edge of row three, and
+// then parks. Not BAND: the last LANE units are the stand's outer wall, and the sky belongs above the
+// CHAIRS, so overshooting to BAND would keep the sky moving after the rows have run out.
+const ROW_LIP = 8;
+const ROW_STACK = ROWS * ROW_Y;
 
 // Pick the integer hardware-px-per-art-px for a backing store of bw x bh. Every candidate is integer by
 // construction, so this is not choosing WHETHER to honour the invariant — it is choosing which of the
@@ -6391,19 +6398,30 @@ function resize() {
   // So this is back to what shipped before the fair window existed: scale comes from WIDTH alone, the
   // picture fills the screen on every device, and there are no bands anywhere.
   //
-  // KNOWN AND ACCEPTED COST — do not "fix" this without asking. Visible WIDTH stays a device-independent
-  // 1212 world units, but visible HEIGHT now follows the aspect ratio: about 557 on the reference iPhone
-  // against about 835 on an iPad Pro 11, so a tablet sees roughly 50% more pitch vertically. That is the
-  // competitive asymmetry the fair-window work was built to remove, traded away deliberately for a
-  // consistent picture. `bandX`/`bandY` stay zero, so drawViewBands is inert and the window offsets are
-  // zero — which also makes screenToWorld trivially the inverse of wx/wy again.
+  // WIDTH IS UNCHANGED — and deliberately so. `scale` still comes from width alone, the picture still
+  // fills the screen horizontally, and `bandX` stays zero, so there are no side bands and no letterbox
+  // on any device. The four rejected attempts all put a band beside or below the pitch; this one does
+  // neither.
+  //
+  // HEIGHT IS CAPPED AND THE PITCH SITS ON THE FLOOR. The remaining asymmetry was vertical: visible
+  // height followed the aspect ratio, so an iPad Pro 11 saw ~835 world units against the reference
+  // phone's ~557 — half a pitch more, free. Capping the window at PLAY_H and giving ALL of the surplus
+  // to the TOP fixes both halves of that at once: every device sees the same 1212x560 of pitch, and the
+  // pitch is anchored to the bottom of the screen instead of floating in the middle of a taller one.
+  //
+  // The phone is untouched by this. At 874x402@3 the buffer is already shorter than PLAY_H*scale, so
+  // `playH` collapses to `wbH` and `bandY` comes out 0 — same pixels as before the change. Only screens
+  // squarer than the reference gain headroom, and what goes up there is sky (see drawViewBands).
+  //
+  // Re-introducing `viewOffY` is safe for input: f18281a made screenToWorld subtract viewOffX/viewOffY,
+  // so it is a true inverse of wx/wy at any offset. Do not "simplify" it back.
   scale = wbW / PLAY_W;               // == CAM_ZOOM * wbW / FIELD.W, the pre-fair-window rule
   playW = wbW;
-  playH = wbH;
+  playH = Math.min(wbH, PLAY_H * scale);
   bandX = 0;
-  bandY = 0;
+  bandY = Math.round(wbH - playH);    // headroom, ALL of it above the pitch
   viewOffX = 0;
-  viewOffY = 0;
+  viewOffY = bandY;                   // ...which is what puts the pitch on the floor
   bgCanvas.width = Math.ceil((FIELD.W + 2 * BACK) * scale);
   bgCanvas.height = Math.ceil((FIELD.H + 2 * BAND) * scale);
   bgCtx.imageSmoothingEnabled = false;
@@ -6602,21 +6620,31 @@ function drawViewBands() {
   const SKY_BANNER = 'סולטיז';
   const flat = (window.SkyBand && window.SkyBand.palette && window.SkyBand.palette.sky1) || '#18385f';
 
-  // TOP AND BOTTOM: sky. `edgeApproach` is 0 at midfield and 1 once the touchline is reached, measured as
-  // how far the pitch edge has come INTO the band, so the cloud bank pushes in step with the stands
-  // scrolling into the window.
-  if (bandY > 0 && window.SkyBand) {
-    const pitchTopArt = -camY + viewOffY;
-    const pitchBotArt = FIELD.H * scale - camY + viewOffY;
-    const approach = (intrusionArt) => clamp(intrusionArt / Math.max(1, bandY), 0, 1);
-    const paint = (rect, side, edgeApproach) => {
-      if (rect.h <= 0) return;
-      if (rect.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(rect.x, rect.y, rect.w, rect.h); return; }
-      SkyBand.draw(wbCtx, rect, { camX, t, bannerText: SKY_BANNER, side, edgeApproach });
-    };
-    paint({ x: 0, y: 0, w: wbW, h: bandY }, 'top', approach(pitchTopArt));
-    paint({ x: 0, y: bandY + playH, w: wbW, h: wbH - (bandY + playH) }, 'bottom',
-      approach(pitchBotArt - (wbH - bandY)));
+  // HEADROOM: SKY, ALWAYS, AT FULL HEIGHT. There is no bottom band any more — the pitch is on the floor
+  // (resize sets viewOffY = bandY), so all the surplus is up here and only the top needs painting.
+  //
+  // The chairs are deliberately NOT drawn in this band. As the camera climbs, the stand descends INTO
+  // the window, which is where renderBackground already draws it; painting it up here as well is a
+  // second copy at a different offset, and two misaligned sets of rows is exactly what got the earlier
+  // attempt rejected. What this band does instead is LIFT: the sky's layers ride up while the rows
+  // arrive, and park once row three's outer edge reaches the top of the window.
+  //
+  // The band never changes height, so it cannot pop and cannot run out — a squarer screen is simply
+  // more sky. `rise` ramps from row three's lip (ROW_LIP world units above the touchline) to its outer
+  // edge (ROW_STACK) and then saturates: fast, finite, parked.
+  if (bandY > 0) {
+    const rect = { x: 0, y: 0, w: wbW, h: bandY };
+    if (bandY < SLIVER || !window.SkyBand) {
+      wbCtx.fillStyle = flat;
+      wbCtx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    } else {
+      const winTopWorld = camY / scale;          // world y at the window's top edge
+      const rise = clamp((-winTopWorld - ROW_LIP) / (ROW_STACK - ROW_LIP), 0, 1);
+      SkyBand.draw(wbCtx, rect, {
+        camX, t, bannerText: SKY_BANNER, side: 'top',
+        edgeApproach: 0, lift: rise, bandDepth: bandY,
+      });
+    }
   }
 
   // LEFT AND RIGHT: STADIUM, not sky. A long screen's surplus sits beyond the GOAL LINES, where the world
