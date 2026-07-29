@@ -1,15 +1,15 @@
 // Saltiz ambient sky band.
 //
 // Screen-fixed scenery for the spare strip above/below the fixed-height play window on tablets.
-// Intentionally knows nothing about the match, world Y, camera Y, or client.js internals.
+// Intentionally knows nothing about match/world units; callers pass a normalized top-edge approach.
 //
 // Public API:
 //   SkyBand.draw(ctx, { x, y, w, h }, {
-//     camX, camY, t, side, bannerText
+//     camX, t, side, bannerText, topApproach
 //   })
 //
-// `camY` is accepted only as part of the shared call shape and is NEVER read. Horizontal camera
-// movement produces restrained depth parallax; vertical movement must never slide the band.
+// `topApproach` is 0 at midfield and 1 at the upper stadium edge. The cloud bank moves toward the
+// field edge as the stadium camera reveals upward, intentionally reversing the previous direction.
 (() => {
   'use strict';
 
@@ -18,9 +18,9 @@
     sky0: '#142b49', // value/saturation shifts of team blue — no added hue
     sky1: '#18385f',
     sky2: '#1d4779',
-    cloud0: '#1b3f6b',
-    cloud1: '#24558e',
-    cloud2: '#2b62a2',
+    cloud0: '#9fb5c8',
+    cloud1: '#dbe8f2',
+    cloud2: '#f7fbff',
     blue: '#2e70df',
     blueD: '#2052a8',
     blueL: '#4a83df',
@@ -56,8 +56,8 @@
     return c;
   };
 
-  // Block-cloud silhouettes are deliberately blue, never white/cream: no cloud can be confused
-  // with the 26-unit cream ball, and the whole band stays below the pitch's contrast.
+  // Large, unmistakably cloud-shaped white pixel masses. Their long irregular silhouettes and
+  // overlapping bank keep them visually distinct from the small cream gameplay ball.
   const CLOUD_FORMS = [
     [[.05,.56,.90,.25],[.18,.36,.34,.35],[.43,.18,.27,.51],[.67,.43,.20,.29]],
     [[.04,.59,.92,.22],[.16,.43,.25,.27],[.36,.27,.25,.43],[.58,.38,.29,.32]],
@@ -74,7 +74,7 @@
       w: Math.round(w * rw),
       h: Math.round(h * rh),
     }));
-    // Restrained two-pixel extrusion.
+    // Blue-grey extrusion, white body, and cold-white top pixels.
     for (const r of rows) pxi(g, r.x + 2, r.y + 2, r.w, r.h, C.sky0);
     for (const r of rows) pxi(g, r.x, r.y, r.w, r.h, C.cloud0);
     for (const r of rows) pxi(g, r.x + 2, r.y + 2, r.w - 4, r.h - 4, C.cloud1);
@@ -244,7 +244,9 @@
 
     const side = options.side === 'bottom' ? 'bottom' : 'top';
     const camX = Number(options.camX) || 0;
-    // DO NOT read the vertical camera option. Vertical camera coupling is forbidden by design.
+    const topApproach = side === 'top' ? clamp(Number(options.topApproach) || 0, 0, 1) : 0;
+    const bankDepth = clamp(Math.round(h * 0.32), 18, 42);
+    const cloudPush = Math.round(topApproach * bankDepth * 0.55);
     const t = reduced ? 0 : Math.max(0, Number(options.t) || 0);
     const s = ensureSprites();
     const oldSmooth = ctx.imageSmoothingEnabled;
@@ -271,42 +273,63 @@
     const quiet = Math.min(18, Math.max(4, Math.floor(h * 0.16)));
     const sideSeed = side === 'top' ? 0 : 17;
 
-    // Sparse far lane: three low-contrast shapes with the slowest parallax.
+    // Opaque cloud shelf: the complete first row touching the field is cloud, never blue sky.
+    // It moves in the newly requested (reversed) vertical direction but always leaves a solid cloud
+    // lip against the field edge.
     if (h >= 18) {
-      for (let i = 0; i < 3; i++) {
+      if (side === 'top') {
+        const bankY = y + h - bankDepth + cloudPush;
+        pxi(ctx, x, bankY, w, y + h - bankY, C.cloud1);
+        pxi(ctx, x, bankY, w, 4, C.cloud0);
+        for (let bx = x - 24; bx < x + w + 24; bx += 48) {
+          pxi(ctx, bx + mod(Math.round(camX * 0.018), 24), bankY + 4, 30, 4, C.cloud2);
+        }
+      } else {
+        pxi(ctx, x, y, w, bankDepth, C.cloud1);
+        pxi(ctx, x, y + bankDepth - 4, w, 4, C.cloud0);
+        for (let bx = x - 24; bx < x + w + 24; bx += 48) {
+          pxi(ctx, bx + mod(Math.round(camX * 0.018), 24), y + bankDepth - 8, 30, 4, C.cloud2);
+        }
+      }
+    }
+
+    // A loose far row. It follows the reversed motion less than the foreground bank.
+    if (h >= 18) {
+      for (let i = 0; i < 5; i++) {
         const cloud = s.clouds[(i * 2 + sideSeed) % s.clouds.length];
         const speed = 0.65 + i * 0.22;
         const span = w + cloud.width + 90;
-        const cx = x - cloud.width - 30 + mod(i * 263 + t * speed - camX * 0.008, span);
-        const seed = 0.06 + hash(i + sideSeed, 5) * 0.30;
-        const cy = y + bandY(side, h, cloud.height, seed, quiet);
-        ctx.globalAlpha = 0.48 + (i % 2) * 0.08;
+        const cx = x - cloud.width - 30 + mod(i * 177 + t * speed - camX * 0.008, span);
+        const seed = 0.18 + hash(i + sideSeed, 5) * 0.34;
+        const cy = y + bandY(side, h, cloud.height, seed, quiet) + cloudPush * 0.38;
+        ctx.globalAlpha = 0.68 + (i % 2) * 0.08;
         ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
       }
 
-      // Dense near-pitch lane: every approved cloud silhouette appears here. Top bands cluster
-      // toward their bottom edge; bottom bands mirror that cluster toward their top edge.
-      for (let i = 0; i < s.clouds.length; i++) {
-        const cloud = s.clouds[i];
-        const speed = 0.9 + i * 0.16;
-        const span = w + cloud.width + 36;
-        const cx = x - cloud.width - 18 + mod(37 + i * 127 + t * speed - camX * 0.016, span);
-        const seed = 0.68 + hash(i + sideSeed, 13) * 0.25;
-        const cy = y + bandY(side, h, cloud.height, seed, Math.min(quiet, 10));
-        ctx.globalAlpha = 0.74 + (i % 3) * 0.06;
+      // White foreground bank: fourteen clouds on a tight pitch-side cadence, deliberately
+      // overlapping. As topApproach rises they push toward the field faster than the far row.
+      const nearCount = Math.max(14, Math.ceil(w / 54));
+      const cadence = Math.max(42, Math.floor(w / nearCount));
+      for (let i = 0; i < nearCount; i++) {
+        const cloud = s.clouds[(i * 5 + sideSeed) % s.clouds.length];
+        const speed = 0.88 + (i % 6) * 0.15;
+        const span = w + cloud.width + cadence;
+        const cx = x - cloud.width + mod(21 + i * cadence + t * speed - camX * 0.018, span);
+        const seed = 0.79 + hash(i + sideSeed, 13) * 0.17;
+        const cy = y + bandY(side, h, cloud.height, seed, Math.min(quiet, 8)) + cloudPush;
+        ctx.globalAlpha = 0.88 + (i % 3) * 0.04;
         ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
       }
       ctx.globalAlpha = 1;
     }
 
-    // Small floating balloons: clearly teardrop-shaped, saturated, and stringed. Their 18x34
-    // silhouette is unlike the cream 26-unit ball. Kept out of very shallow bands.
+    // Balloons live ONLY in the distant outer sky. The entire pitch-side bank is clouds alone.
     if (h >= 46) {
       for (let i = 0; i < 3; i++) {
         const balloon = s.balloons[(i + (side === 'bottom' ? 1 : 0)) % s.balloons.length];
         const span = w + 140;
         const bx = x - 70 + mod(88 + i * 241 + t * (0.45 + i * 0.16) - camX * 0.026, span);
-        const seed = 0.12 + hash(i + 31, sideSeed + 9) * 0.50;
+        const seed = 0.05 + hash(i + 31, sideSeed + 9) * 0.22;
         const by = y + bandY(side, h, balloon.height, seed, quiet);
         ctx.globalAlpha = 0.82;
         ctx.drawImage(balloon, Math.round(bx), Math.round(by));
@@ -320,7 +343,7 @@
       const span = w + airAd.width + 110;
       // Phase it on-screen at t=0 so a static lab/screenshot shows the hero asset immediately.
       const bx = x - airAd.width - 55 + mod(260 + t * 4.2 - camX * 0.045, span);
-      const by = y + bandY(side, h, airAd.height, 0.14, Math.min(quiet, 12));
+      const by = y + bandY(side, h, airAd.height, 0.06, Math.min(quiet, 12));
       ctx.globalAlpha = 0.90;
       ctx.drawImage(airAd, Math.round(bx), Math.round(by));
       ctx.globalAlpha = 1;
@@ -339,7 +362,8 @@
       smallBalloonDrift: '0.45–0.77 art px/s',
       airAdDrift: '4.2 art px/s',
       farCloudParallax: 0.008,
-      nearCloudParallax: 0.016,
+      nearCloudParallax: 0.018,
+      topApproachPush: 0.55,
       smallBalloonParallax: 0.026,
       airAdParallax: 0.045,
     }),

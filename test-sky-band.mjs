@@ -1,10 +1,11 @@
 // Structural/runtime checks for public/sky-band.js without needing a browser canvas.
 // Visual review lives in public/_sky-band.html; these checks pin the API, caching, integer-pixel
-// discipline, approved sprite variety, camY independence, reduced motion, and the zero-height fast path.
+// discipline, approved sprite variety, vertical reveal parallax, reduced motion, and the zero-height fast path.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('./public/sky-band.js', import.meta.url), 'utf8');
+const labSource = readFileSync(new URL('./public/_sky-band.html', import.meta.url), 'utf8');
 let failures = 0;
 const check = (cond, msg) => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`);
@@ -87,13 +88,39 @@ function loadSky({ reduce = false } = {}) {
     'all six approved cloud silhouettes are drawn');
   check(['18x34','24x42','28x48','174x70'].every((size) => drawnSizes.has(size)),
     'all four approved hot-air balloon silhouettes are drawn');
+  const pitchSideBalloons = top.ops.filter((o) =>
+    o[0] === 'drawImage'
+    && ['18x34','24x42','28x48','174x70'].includes(`${o[1]}x${o[2]}`)
+    && o[4] > 5 + 174 * 0.55);
+  check(pitchSideBalloons.length === 0,
+    'the field-facing half contains clouds only; every balloon stays in the distant sky');
 
   const again = new h.FakeContext();
   h.SkyBand.draw(again, { x: 3, y: 5, w: 700, h: 174 },
-    { camX: 120, camY: 6000, t: 18, side: 'top', bannerText: 'שחקו יחד' });
+    { camX: 120, topApproach: 0, t: 18, side: 'top', bannerText: 'שחקו יחד' });
   check(h.allocations() === afterFirst, 'same banner and sprites are reused without rebuilding');
   check(JSON.stringify(top.ops) === JSON.stringify(again.ops),
-    'camY changes do not affect a single drawing operation');
+    'same parallax inputs reproduce the same drawing operations');
+
+  const edge = new h.FakeContext();
+  h.SkyBand.draw(edge, { x: 3, y: 5, w: 700, h: 174 },
+    { camX: 120, topApproach: 1, t: 18, side: 'top', bannerText: 'שחקו יחד' });
+  const cloudYs = (ops) => ops
+    .filter((o) => o[0] === 'drawImage' && o[1] <= 136 && o[2] <= 44)
+    .map((o) => o[4]);
+  const centerYs = cloudYs(top.ops);
+  const edgeYs = cloudYs(edge.ops);
+  check(edgeYs.length === centerYs.length
+    && edgeYs.reduce((sum, value, i) => sum + (value - centerYs[i]), 0) > edgeYs.length * 8,
+  'approaching the top stadium edge moves clouds in the corrected inverted direction');
+
+  const nearClouds = top.ops.filter((o) =>
+    o[0] === 'drawImage' && o[1] <= 136 && o[2] <= 44 && o[o.length - 1] >= 0.88);
+  check(nearClouds.length >= 14, 'pitch-side white bank contains at least fourteen overlapping clouds');
+  check(top.ops.some((o) => o[0] === 'fillRect'
+    && o[1] === 3 && o[3] === 700 && o[5] === '#dbe8f2'
+    && o[2] <= 5 + 173 && o[2] + o[4] > 5 + 173),
+  'the complete field-facing row is opaque white cloud with no blue gaps');
 
   const numericArgs = top.ops.flatMap((o) => {
     if (o[0] === 'fillRect' || o[0] === 'rect') return o.slice(1, 5);
@@ -127,8 +154,11 @@ function loadSky({ reduce = false } = {}) {
 }
 
 check(!source.includes('fillText('), 'Hebrew banner uses bitmap glyphs, not antialiased canvas text');
-check(!source.includes('options.camY'), 'source never reads options.camY');
-check(!/#[fF]{3,6}\\b/.test(source), 'no pure-white high-contrast sprite colour was added');
+check(source.includes("cloud2: '#f7fbff'"), 'cloud highlights use the requested near-white palette');
+check(labSource.includes("{ canvas: document.getElementById('iphone'), band: 0 }"),
+  'artifact gives iPhone a zero-height cloud band');
+check(labSource.includes("{ canvas: document.getElementById('ipad'), band: 101 }"),
+  'artifact gives iPad visible upper and lower cloud bands');
 
 console.log(`\n${failures ? `❌ ${failures} FAILED` : '✅ ALL PASS'}`);
 process.exit(failures ? 1 : 0);

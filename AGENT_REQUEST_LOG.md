@@ -45,6 +45,34 @@
 
 ## 2026-07-29
 
+- **SKY EDGE CORRECTION — solid cloud-only first row, inverted motion, iPad-only clouds (agent `codex-sky-band`).**
+  - **User correction:** the complete first row of the band beside the centre field must contain only clouds with no blue-sky holes; reverse the stadium/cloud vertical parallax; iPad sees clouds and iPhone does not.
+  - **Files taken:** `public/sky-band.js`, `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only.
+  - **Solid edge:** added a full-width cold-white cloud shelf under the overlapping silhouettes. Its field-facing pixel row is opaque cloud colour across the complete width; blue cannot show through between sprites.
+  - **Direction:** reversed the just-shown vertical motion. On upper-stadium approach, foreground clouds push toward the field edge; the far row moves only 38% as far.
+  - **Device rule:** artifact and tests pin iPhone to band height `0` and iPad to visible `101`-ART-px bands. Therefore only the iPad view calls the sky renderer.
+  - **Tests:** added exact assertions for a full-width white field-facing row, corrected movement direction, and the iPhone/iPad band assignments.
+  - **Status:** local-only correction; no push or deploy.
+
+- **SKY LAB CORRECTION — actual iPhone/iPad player views; field-facing edge is clouds only (agent `codex-sky-band`).**
+  - **User correction:** stop showing abstract depth cards. The artifact must show what a real player sees on iPhone and iPad, with the player-to-upper-stadium parallax. At the centre-field-facing edge there must be **only clouds**.
+  - **Files taken:** `public/sky-band.js`, rebuilt `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only. No client camera/render changes and no unrelated-file changes.
+  - **Composition fix:** all three small balloons and the advertising balloon are constrained to the distant outer 27% of the band. The dense white cloud bank alone occupies the field-facing edge.
+  - **Artifact fix:** replaced the 0/99/118/143/174/200 abstract grid with side-by-side landscape views at actual proportions: iPhone 844×390 (zero spare band, therefore no sky assets) and iPad 1366×1024 (101 ART px above/below the same 1212×560 play window).
+  - **Player parallax:** one 0–100% control moves the mocked camera from centre field to the upper stadium edge. The stadium/terraces pan into the play window while the upper foreground cloud bank lifts outward; horizontal camera parallax moves clouds, crowd rows, and pitch stripes at separate rates.
+  - **Validation:** focused test now explicitly rejects any balloon in the field-facing half in addition to the white-bank, overlap, device-zero-band, sprite, caching, clipping, and parallax assertions.
+  - **Status:** local-only correction; no push or deploy.
+
+- **SKY CLOUD MODEL CORRECTION — white overlapping bank with vertical reveal parallax (agent `codex-sky-band`).**
+  - **User correction:** “dense” means many white clouds physically overlapping near the centre field, not merely more separated blue cloud sprites. When the player moves upward toward the stadium edge, the cloud mass must move away in parallax and reveal the stadium.
+  - **Files taken:** `public/sky-band.js`, `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only. No client camera/render edits and no unrelated-file changes.
+  - **Colour/composition:** clouds now use blue-grey shadow, white body, and cold-white highlight. The pitch-side bank draws at least 14 clouds on a cadence narrower than most sprite widths, creating intentional overlap; a looser five-cloud row sits behind it.
+  - **Vertical behavior:** new normalized `topApproach` input (`0` midfield, `1` upper stadium edge). The foreground bank lifts outward by up to 72% of band height; the far row moves only 38% as much, creating vertical depth parallax.
+  - **Horizontal behavior:** near bank remains horizontally parallaxed at 0.018× `camX`; far row at 0.008×.
+  - **Lab:** added an “approach upper stand” 0–100% slider so the corrected reveal can be reviewed without changing game code.
+  - **Tests:** updated focused checks cover the near-white palette, 14+ foreground clouds, deterministic overlap composition, and substantial outward lift at the stadium edge.
+  - **Status:** local-only follow-up; no push or deploy.
+
 - **SKY ASSET APPROVAL — all cloud/balloon concepts kept; near-pitch clouds made denser (agent `codex-sky-band`).**
   - **User ask:** use every cloud and hot-air-balloon silhouette from the approved concept sheet, but make clouds closer to the field denser. Keep the scenery for screens with spare aspect-ratio space, move it with parallax, and reveal the stadium as the player moves toward the top.
   - **Files taken:** `public/sky-band.js`, `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only. Did not touch `public/client.js` or unrelated untracked files.
