@@ -6607,6 +6607,26 @@ window.__viewDebug = (on = true) => {
 // inequality this whole change exists to remove. The band is sky, all of it, always. The approach to a
 // touchline is expressed by `edgeApproach`, which pushes the cloud bank in sympathy with the stadium
 // scrolling inside the window — the stands arrive in the WINDOW, not in the band.
+// A rectangle of stadium terrace: dark concrete with a grid of seats, deterministically shaded so it does
+// not shimmer between frames. Shared by the side bands (surplus beyond the goal lines) and the headroom
+// above the play window, so a tablet's decoration is one look rather than two.
+function seatGrid(x0, y0, w, h) {
+  if (w <= 0 || h <= 0) return;
+  if (w < 4 || h < 4) { wbCtx.fillStyle = '#33383a'; wbCtx.fillRect(x0, y0, w, h); return; }
+  wbCtx.save();
+  wbCtx.beginPath(); wbCtx.rect(x0, y0, w, h); wbCtx.clip();
+  wbCtx.fillStyle = '#33383a'; wbCtx.fillRect(x0, y0, w, h);
+  const b = Math.max(3, Math.round(ws_(26)));
+  for (let ay = y0; ay < y0 + h; ay += b) for (let ax = x0; ax < x0 + w; ax += b) {
+    const hh = hash(ax * 0.7, ay * 0.7);
+    wbCtx.fillStyle = hh > 0.7 ? '#6b726a' : hh > 0.4 ? '#585f59' : '#484f4a';
+    wbCtx.fillRect(ax + 1, ay + 1, b - 2, b - 2);
+    wbCtx.fillStyle = 'rgba(255,255,255,.06)';
+    wbCtx.fillRect(ax + 1, ay + 1, b - 2, Math.max(1, Math.round(b * 0.18)));
+  }
+  wbCtx.restore();
+}
+
 function drawViewBands() {
   if ((bandY <= 0 && bandX <= 0)) return;
   const t = performance.now() / 1000;
@@ -6626,7 +6646,24 @@ function drawViewBands() {
       if (rect.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(rect.x, rect.y, rect.w, rect.h); return; }
       SkyBand.draw(wbCtx, rect, { camX, t, bannerText: SKY_BANNER, side, edgeApproach });
     };
-    paint({ x: 0, y: 0, w: wbW, h: bandY }, 'top', approach(pitchTopArt));
+    // THE HEADROOM IS STADIUM FIRST, SKY SECOND. All the surplus is above the window now, and filling the
+    // whole of it with sky left the pitch looking like it floated with a slab of nothing over it — the
+    // "still shifted" report. What belongs directly above a touchline is the bowl, so the headroom paints
+    // the terrace for its real world depth (BAND = 3 seat rows + the board lane) and only opens to sky
+    // once those rows have run out, which is what "when 3 chair rows end, sky begins" asks for.
+    // Decoration, never gameplay: it is drawn ABOVE the window and can never contain pitch, so no device
+    // sees a single extra blade of grass and the fair 1212x560 window is untouched.
+    // The terrace is ANCHORED TO THE WORLD, not pinned at a fixed depth, so it scrolls with the camera
+    // exactly like the bowl inside the window: walk up the pitch and the chairs slide down out of the
+    // headroom while sky opens above them; walk down and the headroom packs with chairs again.
+    // `bowlTopArt` is world y = -BAND (the back of the stand). The terrace is then drawn from there all
+    // the way DOWN to the window, which is what keeps this fair — the stretch between the pitch edge and
+    // the window would otherwise be grass, and covering it with stand is what stops a tablet seeing any
+    // pitch a phone does not.
+    const bowlTopArt = pitchTopArt - BAND * scale;
+    const standsTop = clamp(Math.round(bowlTopArt), 0, bandY);
+    paint({ x: 0, y: 0, w: wbW, h: standsTop }, 'top', approach(pitchTopArt));
+    seatGrid(0, standsTop, wbW, bandY - standsTop);
     // Bottom band is normally ZERO now that the window is bottom-anchored — the pitch runs to the bottom
     // edge on every device. It survives only for the degenerate case where playH had to be capped to wbH.
     // Its approach is measured from where the window actually ends, not from a mirrored `wbH - bandY`.
@@ -6639,22 +6676,7 @@ function drawViewBands() {
   // static because a behind-goal terrace barely moves as the camera pans (the goal-lead clamp is the only
   // horizontal travel and it is bounded by CAM_BACK).
   if (bandX > 0) {
-    const side = (x0, w) => {
-      if (w <= 0) return;
-      if (w < SLIVER) { wbCtx.fillStyle = '#33383a'; wbCtx.fillRect(x0, bandY, w, playH); return; }
-      wbCtx.save();
-      wbCtx.beginPath(); wbCtx.rect(x0, bandY, w, playH); wbCtx.clip();
-      wbCtx.fillStyle = '#33383a'; wbCtx.fillRect(x0, bandY, w, playH);
-      const b = Math.max(3, Math.round(ws_(26)));
-      for (let ay = bandY; ay < bandY + playH; ay += b) for (let ax = x0; ax < x0 + w; ax += b) {
-        const h = hash(ax * 0.7, ay * 0.7);
-        wbCtx.fillStyle = h > 0.7 ? '#6b726a' : h > 0.4 ? '#585f59' : '#484f4a';
-        wbCtx.fillRect(ax + 1, ay + 1, b - 2, b - 2);
-        wbCtx.fillStyle = 'rgba(255,255,255,.06)';
-        wbCtx.fillRect(ax + 1, ay + 1, b - 2, Math.max(1, Math.round(b * 0.18)));
-      }
-      wbCtx.restore();
-    };
+    const side = (x0, w) => seatGrid(x0, bandY, w, playH);
     side(0, bandX);
     side(bandX + playW, wbW - (bandX + playW));
   }
