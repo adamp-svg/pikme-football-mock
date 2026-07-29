@@ -997,6 +997,9 @@
   <script type="module" src="/client.js"></script>
   <!-- The lobby tour a brand-new player gets on their first visit to the hub. Self-contained; it is
        handed the floor by tuMaybeAutoStart() in client.js and hands it back when it is done. -->
+  <!-- Ambient sky for the non-play bands on tablets (see drawSkyBands in client.js). Plain script,
+       exposes window.SkyBand; loaded before client.js needs it on the first frame. -->
+  <script src="/sky-band.js"></script>
   <script src="/hub-tour.js"></script>
   <!-- DEV-ONLY visual layout editor (feat/lobby-redesign). Self-gating and purely
        additive: it re-applies any saved lobby layout on every load (so the arrangement

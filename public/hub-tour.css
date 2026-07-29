@@ -54,6 +54,13 @@ body.ht-tour .tu-caption {
 body.ht-tour.ht-cap-bottom .tu-caption {
   top: auto;
   bottom: 0;
+  /* CLEAR OF THE TWO CONTROLS. They live stacked in the bottom-inline-start corner, and this plate
+     spans the full width — measured across six phone sizes, it covered «הבא ›» by 2632px² and «דלג ✕»
+     by 1063-1530px² on every one of them. That is the reported "elements are overlapping".
+     Both sides are inset, not just the one with the buttons, so the text stays centred; 116px clears a
+     ~94px pill plus its inset, and still leaves 408px of line at 640 wide. */
+  left: 116px;
+  right: 116px;
   padding: 10px 0 max(7px, calc(env(safe-area-inset-bottom) + 5px));
   background: linear-gradient(to top, rgba(4, 7, 11, .92) 0%, rgba(4, 7, 11, .78) 55%, rgba(4, 7, 11, 0) 100%);
 }

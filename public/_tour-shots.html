@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>שיעור הלובי — מה נבנה</title>
+<style>
+  :root { --ink:#e8eef2; --dim:#93a2ad; --line:#26313a; --gold:#ffd06a; --ok:#7fd48f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b0f13; color:var(--ink);
+         font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  header { padding:28px 22px 18px; border-bottom:1px solid var(--line); }
+  h1 { margin:0 0 6px; font-size:22px; letter-spacing:.2px; }
+  header p { margin:0; color:var(--dim); font-size:13.5px; }
+  nav { display:flex; gap:8px; flex-wrap:wrap; padding:14px 22px; border-bottom:1px solid var(--line);
+        position:sticky; top:0; background:#0b0f13ee; backdrop-filter:blur(6px); z-index:2; }
+  nav a { color:var(--dim); text-decoration:none; font-size:12.5px; font-weight:700;
+          border:1px solid var(--line); border-radius:999px; padding:5px 11px; }
+  nav a:hover { color:var(--ink); border-color:#3a4652; }
+  section { padding:26px 22px 8px; }
+  h2 { font-size:15px; margin:0 0 4px; color:var(--gold); letter-spacing:.3px; }
+  section > p { margin:0 0 16px; color:var(--dim); font-size:13.5px; max-width:78ch; }
+  .grid { display:grid; gap:18px; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); }
+  figure { margin:0; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#11161b; }
+  figure img { display:block; width:100%; height:auto; }
+  figcaption { padding:9px 12px 11px; font-size:12.5px; color:var(--dim); border-top:1px solid var(--line); }
+  figcaption b { color:var(--ink); font-weight:700; display:block; margin-bottom:2px; }
+  .num { color:var(--ok); font-variant-numeric:tabular-nums; }
+  footer { padding:22px; color:var(--dim); font-size:12.5px; border-top:1px solid var(--line); margin-top:20px; }
+  code { background:#161d24; padding:1px 5px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>שיעור הלובי — כל מה שנבנה</h1>
+  <p>צילומי מסך אמיתיים מ־Chrome עם מגע אמיתי, 844×390, מהריצות שעברו עכשיו. הכל חי בפרודקשן.</p>
+</header>
+
+<nav>
+  <a href="#run">הריצה של שחקן חדש</a>
+  <a href="#legend">13 האלמנטים</a>
+  <a href="#cards">שיעורי הקלפים</a>
+  <a href="#entry">כניסה חוזרת · ? · 🎛️</a>
+  <a href="#fixes">התיקונים האחרונים</a>
+</nav>
+
+<section id="run">
+  <h2>מה שחקן חדש רואה</h2>
+  <p>נחת על הלובי → השיעור מתחיל לבד → בסוף נכנס לשיעור המגרש. אלבום ריק מקבל חפיסת דוגמה של 7 קלפים (6 נפוץ + 1 נדיר), מסומנים «דוגמה», והם נעלמים עם השיעור.</p>
+  <div class="grid">
+    <figure><img src="/_shots/first-01-empty-album-legend.png" alt="">
+      <figcaption><b>שלב 1 · ⚙ הגדרות</b>אלבום ריק, ולכן חפיסת דוגמה בקרוסלה. הכל מוחשך חוץ מהדבר החי אחד.</figcaption></figure>
+    <figure><img src="/_shots/first-07-pitch-tutorial-pops.png" alt="">
+      <figcaption><b>המסירה לשיעור המגרש</b>«יפה מאוד» נעלם לפני המסירה — קודם הוא נשאר על המסך וחסם את השיעור.</figcaption></figure>
+    <figure><img src="/_shots/first-02-skip-hands-over-to-level1.png" alt="">
+      <figcaption><b>«דלג ✕»</b>גם דילוג מוסר לשיעור המגרש — מי שלא רוצה ללמוד את הלובי עדיין לומד לשחק.</figcaption></figure>
+  </div>
+</section>
+
+<section id="legend">
+  <h2>13 האלמנטים, לפי הסדר שביקשת</h2>
+  <p>הגדרות · מחוברים · חברים · מועדונים · חנות · חדשות · דירוג · משחק מהיר · בחר משחק · שחק עם חברים · אימון · בונה מגרש · הפרופיל שלי. כל אחד מואר, מוסבר, <b>ולא ניתן ללחיצה</b> — לחיצה על ⚙ הייתה מוציאה מהשיעור.</p>
+  <div class="grid">
+    <figure><img src="/_shots/lab-01-home-settings.png" alt="">
+      <figcaption><b>1 · הגדרות</b>היד יושבת מחוץ לאלמנט, לא עליו — 54px של יד הסתירו בדיוק את מה שהיא מראה.</figcaption></figure>
+    <figure><img src="/_shots/lab-02-home-quickplay.png" alt="">
+      <figcaption><b>8 · משחק מהיר</b>הכתובית עברה למעלה כדי לא להסתיר את כפתורי התחתית.</figcaption></figure>
+    <figure><img src="/_shots/lab-03-home-profile.png" alt="">
+      <figcaption><b>13 · הפרופיל שלי</b>הנקודות מראות 13 שלבים; אף שלב לא יצא מהלובי.</figcaption></figure>
+  </div>
+</section>
+
+<section id="cards">
+  <h2>שיעורי הקלפים</h2>
+  <p>קודם נדיר על הגיבור, אחר כך מה עושה כל משבצת (בזמן שהן ריקות — רק אז רואים את ⚡🏃🛡️), אחר כך קלף למשבצת, ולבסוף «הכי טוב».</p>
+  <div class="grid">
+    <figure><img src="/_shots/lab-04-hero-gold.png" alt="">
+      <figcaption><b>14 · נדיר על הגיבור</b>הנדיר מובא לחזית לפני הבקשה, והקרוסלה מוקפאת — אחרת הקלף זז מתחת ליד.</figcaption></figure>
+    <figure><img src="/_shots/lab-05-slot-explained.png" alt="">
+      <figcaption><b>15 · ⚡ בעיטה</b>ההסבר בא כשהמשבצת עוד ריקה, וזה הזמן היחיד שרואים את הסמל שלה.</figcaption></figure>
+    <figure><img src="/_shots/lab-06-slot-filled.png" alt="">
+      <figcaption><b>19 · «הכי טוב»</b>ממתין 2 שניות כדי שיראו את שלושת הקלפים נכנסים — אחר כך הכל חוזר לקדמותו.</figcaption></figure>
+    <figure><img src="/_shots/lab-08-final-uncovered.png" alt="">
+      <figcaption><b>אחרי השיעור</b>שלוש משבצות מלאות, גיבור בזהב — ואז <b>הכל משוחזר</b>: כלום לא נשמר.</figcaption></figure>
+  </div>
+</section>
+
+<section id="entry">
+  <h2>איך חוזרים לשיעור, ומה נוסף בהגדרות</h2>
+  <p>שני כפתורים קטנים בפינה של תיבת ההגדרות — <b>רק בלובי</b>, ולא בתוך משחק.</p>
+  <div class="grid">
+    <figure><img src="/_shots/first-08-settings-two-icons.png" alt="">
+      <figcaption><b>? ו־🎛️</b>בפינה השמאלית־עליונה של התיבה, מעל עוצמת הקול, בדיוק כמו שביקשת.</figcaption></figure>
+    <figure><img src="/_shots/first-09-controls-editor-from-lobby.png" alt="">
+      <figcaption><b>🎛️ מהלובי</b>פותח את מגרש האימונים <b>כשעריכת הבקרות כבר פתוחה</b>.</figcaption></figure>
+    <figure><img src="/_shots/first-10-settings-in-match-no-shortcuts.png" alt="">
+      <figcaption><b>בתוך משחק</b>שני הכפתורים נעלמים; «עריכת מיקום הבקרות» של המשחק נשאר.</figcaption></figure>
+    <figure><img src="/_shots/first-11-hero-page-back.png" alt="">
+      <figcaption><b>עמוד הגיבור</b>«‹ חזרה» כמו בכל עמוד אחר. עד עכשיו זה היה העמוד היחיד בלי שום יציאה גלויה.</figcaption></figure>
+  </div>
+</section>
+
+<section id="fixes">
+  <h2>שני התיקונים שרק מדידה גילתה</h2>
+  <p>ההחשכה והפד — שניהם נראו בסדר בצילום מסך ולא היו.</p>
+  <div class="grid">
+    <figure><img src="/_shots/first-12-dim-bands.png" alt="">
+      <figcaption><b>ההחשכה מגיעה לקצה</b>הרקע הוא <code>background-image</code> של <code>#home</code>, לא תיבה של הלובי — ולכן הפילטר של השיעור לא נגע בו. מדידה: הפס העליון <span class="num">58→24</span> מול <span class="num">23–30</span> באמצע.</figcaption></figure>
+    <figure><img src="/_shots/defaults-01-fresh-pad.png" alt="">
+      <figcaption><b>הפד שלך כברירת מחדל</b>כל בקר בתוך <span class="num">0.5px</span> מהערכים ששלחת. ‏<code>cx/cy</code> הם שברים, ולכן זה נוחת נכון בכל מסך.</figcaption></figure>
+  </div>
+</section>
+
+<footer>
+  22 צילומים מהריצות שעברו עכשיו · <code>_hub-tour-verify.mjs</code>, <code>_hub-firstrun-verify.mjs</code>,
+  <code>_defaults-verify.mjs</code>, <code>test-back-nav.mjs</code> — כולם ALL PASS, גם מול פרודקשן.
+  <br>מה שעוד לא נבדק: אצבע אמיתית על שתי הגרירות, ואיך המרווחים הבטוחים יושבים על המכשיר שלך.
+</footer>
+</body>
+</html>
