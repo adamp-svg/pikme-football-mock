@@ -242,6 +242,14 @@
     // Phone fast path: no allocation, media work, save/clip, or sprite-cache creation.
     if (!ctx || w <= 0 || h <= 0) return;
 
+    // DRIFT SPEED. The original rates were measured and came out imperceptible: at ART_PX 3.25 a far
+    // cloud at 0.65 art px/s moves 2.1 device px/s and takes 21.6 MINUTES to cross an iPad, against a
+    // match lasting a couple of minutes — so the sky read as a still image ("i dont see the clouds
+    // animation as expected"). That was the brief's fault, not the art's: it asked for "a few units per
+    // second" without converting to what an eye sees. MOTION scales every rate by one factor so the
+    // depth layering (far slower than near) is preserved: a near cloud now crosses in ~1.6 min and the
+    // blimp in ~1.4, which reads as drifting without pulling the eye off the ball.
+    const MOTION = 5;
     const side = options.side === 'bottom' ? 'bottom' : 'top';
     const camX = Number(options.camX) || 0;
     const edgeApproach = clamp(Number(
@@ -303,7 +311,7 @@
     if (h >= 18) {
       for (let i = 0; i < 5; i++) {
         const cloud = s.clouds[(i * 2 + sideSeed) % s.clouds.length];
-        const speed = 0.65 + i * 0.22;
+        const speed = (0.65 + i * 0.22) * MOTION;
         const span = w + cloud.width + 90;
         const cx = x - cloud.width - 30 + mod(i * 177 + t * speed - camX * 0.008, span);
         const seed = 0.18 + hash(i + sideSeed, 5) * 0.34;
@@ -336,7 +344,7 @@
       for (let i = 0; i < 3; i++) {
         const balloon = s.balloons[i % s.balloons.length];
         const span = w + 140;
-        const bx = x - 70 + mod(88 + i * 241 + t * (0.45 + i * 0.16) - camX * 0.026, span);
+        const bx = x - 70 + mod(88 + i * 241 + t * (0.45 + i * 0.16) * MOTION - camX * 0.026, span);
         const seed = 0.05 + hash(i + 31, sideSeed + 9) * 0.22;
         const by = y + bandY(side, h, balloon.height, seed, quiet);
         ctx.globalAlpha = 0.82;
@@ -350,7 +358,7 @@
       const airAd = makeAirAd(options.bannerText);
       const span = w + airAd.width + 110;
       // Phase it on-screen at t=0 so a static lab/screenshot shows the hero asset immediately.
-      const bx = x - airAd.width - 55 + mod(260 + t * 4.2 - camX * 0.045, span);
+      const bx = x - airAd.width - 55 + mod(260 + t * 4.2 * MOTION - camX * 0.045, span);
       const by = y + bandY(side, h, airAd.height, 0.06, Math.min(quiet, 12));
       ctx.globalAlpha = 0.90;
       ctx.drawImage(airAd, Math.round(bx), Math.round(by));
@@ -366,9 +374,9 @@
     // Lab/test observability; production callers only need draw().
     palette: Object.freeze({ ...C }),
     rates: Object.freeze({
-      cloudDrift: '0.65–1.70 art px/s',
-      smallBalloonDrift: '0.45–0.77 art px/s',
-      airAdDrift: '4.2 art px/s',
+      cloudDrift: '3.25–8.50 art px/s (0.65–1.70 x MOTION 5)',
+      smallBalloonDrift: '2.25–3.85 art px/s (x MOTION 5)',
+      airAdDrift: '21 art px/s (4.2 x MOTION 5)',
       farCloudParallax: 0.008,
       nearCloudParallax: 0.018,
       topApproachPush: 0.55,

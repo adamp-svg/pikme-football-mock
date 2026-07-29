@@ -23,16 +23,20 @@ console.log('reduced-motion reported by the page :', await ev(`matchMedia('(pref
 console.log('SkyBand.reducedMotion()             :', await ev(`window.SkyBand && SkyBand.reducedMotion ? SkyBand.reducedMotion() : 'n/a'`));
 console.log('view                                :', JSON.stringify(await ev('window.__view ? __view() : null')));
 
-// Hash a horizontal strip through the middle of the top band, twice, ~1.2s apart.
-const strip = `(() => {
-  const c = document.getElementById('canvas'); const g = c.getContext('2d');
-  const v = window.__view(); const dpr = c.width / v.vw;
-  const y = Math.round(v.bandY * ${3.25} * dpr / 2);   // middle-ish of the band, in device px
-  const d = g.getImageData(0, Math.max(1, y), c.width, 2).data;
-  let h = 0; for (let i = 0; i < d.length; i += 4) h = (h * 31 + d[i] + d[i+1] * 7 + d[i+2] * 13) | 0;
-  return h;
-})()`;
-const a = await ev(strip); await sleep(1200); const b = await ev(strip); await sleep(1200); const c2 = await ev(strip);
-console.log(`\nband pixel hash: ${a}  ->  ${b}  ->  ${c2}`);
-console.log(a === b && b === c2 ? '  ❌ STATIC — the band is not animating' : '  ✅ the band changes between frames (drift is live)');
+// Clip a screenshot to a strip through the middle of the top band and compare the bytes. Screenshot
+// clipping cannot fail the way an in-page getImageData can, and it is what the eye actually sees.
+const v = await ev('window.__view()');
+const bandDevY = Math.round(v.bandY * 3.25 / 2);   // ART px -> CSS px
+const clip = { x: 0, y: Math.max(1, Math.round(bandDevY * 0.5)), width: v.vw, height: Math.max(8, Math.round(bandDevY * 0.6)), scale: 1 };
+const shot = async () => (await cdp('Page.captureScreenshot', { format: 'png', clip })).data;
+const s1 = await shot(); await sleep(1200); const s2 = await shot(); await sleep(1200); const s3 = await shot();
+const same = (a, b) => a === b;
+console.log(`\nband strip ${clip.width}x${clip.height} at y=${clip.y}: ${s1.length} / ${s2.length} / ${s3.length} bytes`);
+console.log(same(s1, s2) && same(s2, s3)
+  ? '  ❌ STATIC — three captures 1.2s apart are byte-identical'
+  : '  ✅ MOVING — the band differs between captures');
+// Is the whole frame animating at all, or is the page just idle?
+const full = async () => (await cdp('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: Math.round(v.vh * 0.45), width: v.vw, height: 40, scale: 1 } })).data;
+const f1 = await full(); await sleep(1000); const f2 = await full();
+console.log(f1 === f2 ? '  (a pitch strip is also identical — the whole frame may be idle)' : '  (the pitch strip differs, so the render loop is running)');
 ws.close(); process.exit(0);
