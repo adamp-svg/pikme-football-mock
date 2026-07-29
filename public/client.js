@@ -6272,13 +6272,13 @@ const mainCtx = canvas.getContext('2d');
 // see pickArtPx() — as the integer that lands the art resolution closest to the reference. It is a `let`
 // because a rotation changes the answer; every read of it happens after resize() has set it.
 let ART_PX = 4;                      // HARDWARE px per art-pixel — always an integer; set by resize()
-// The art resolution the game was tuned at, stated the way it is actually observed: the reference phone
-// (iPhone 17 Pro landscape) renders the play window across 562 art pixels. Expressed in art px rather
-// than as a scale so it does not have to restate PLAY_W — which is declared below this line — and so the
-// number stays the one you can read straight off __view(). Every other surface aims at this and takes the
-// nearest integer ART_PX it can, so art-pixel SIZE is comparable everywhere instead of the 0.198..0.751
-// scale spread a fixed ART_PX produced across the shipping devices and their rotations.
-const ART_REF_WINDOW_PX = 562;
+// THE ARENA'S RESOLUTION — one number, the same on every device, and the reason they finally match.
+// The play window is always this many art pixels TALL (its width follows from PLAY_W/PLAY_H), so the
+// pitch, the players and the stands are the same image everywhere and only the magnification changes.
+// 241 is what the reference surface — the in-app iPhone 17 Pro, 874x402 at dpr 3 — already renders at an
+// integer blit, so the phone the game was tuned on is left where it is and every other device comes to
+// meet it. Raise it for finer art at more cost, lower it for chunkier; nothing else needs to move.
+const ART_WIN_H = 241;
 // Backstop only. A pathological viewport (a desktop window, a phone held portrait where the 1212-wide
 // window forces a tall buffer) must not be allowed to allocate an arbitrarily large world buffer chasing
 // the reference resolution. No shipping surface in either orientation comes near this; it exists so the
@@ -6309,6 +6309,9 @@ const PLAY_H = 560;
 // ...and the width the same rule already produced: FIELD.W / CAM_ZOOM. Derived, not typed, so CAM_ZOOM
 // stays the single knob for "how much pitch is a fair view".
 const PLAY_W = FIELD.W / CAM_ZOOM;
+// Art pixels per world unit — CONSTANT, and the whole reason two devices now draw the same arena. Derived
+// from ART_WIN_H so there is exactly one number to tune; declared here because it needs PLAY_H.
+const ART_SCALE = ART_WIN_H / PLAY_H;
 let blitW = 0, blitH = 0, blitX = 0, blitY = 0; // the integer-scaled blit rect, centred on the canvas
 let playW = 1, playH = 1;   // the window in ART px (PLAY_W/PLAY_H * scale, capped by the screen)
 let bandX = 0, bandY = 0;   // ART px of non-play band: bandX each side, bandY above and below
@@ -6337,19 +6340,17 @@ const BACK = ROWS * ROW_X + LANE;     // behind-goal terrace = 3 rows + lane, me
 const CAM_BAND = 2.5 * ROW_Y + LANE;
 const CAM_BACK = 2.5 * ROW_X + LANE;
 
-// Pick the integer hardware-px-per-art-px for a backing store of bw x bh. Every candidate is integer by
-// construction, so this is not choosing WHETHER to honour the invariant — it is choosing which of the
-// legal factors puts the art closest to ART_REF_WINDOW_PX. Log-relative error, so 10% finer and 10%
-// chunkier are penalised equally rather than the metric favouring one direction.
+// Pick the largest integer hardware-px-per-art-px at which the FIXED play window still fits the backing
+// store. Largest, because a bigger factor means the arena occupies more of the screen and less of it is
+// band; integer, because a fractional one is the wobble this whole exercise is about. The window's size
+// in art px is a constant (see ART_SCALE), so this only decides magnification, never composition.
 function pickArtPx(bw, bh) {
-  let best = 0, bestErr = Infinity;
-  for (let k = 2; k <= 12; k++) {   // floor of 2: at 1 there is no up-scale left and the art stops being pixel art
-    const w = Math.max(1, Math.floor(bw / k)), h = Math.max(1, Math.floor(bh / k));
-    if (w * h > MAX_WB_PX) continue;
-    const err = Math.abs(Math.log(Math.min(w / PLAY_W, h / PLAY_H) / (ART_REF_WINDOW_PX / PLAY_W)));
-    if (err < bestErr) { bestErr = err; best = k; }
+  const needW = PLAY_W * ART_SCALE, needH = PLAY_H * ART_SCALE;
+  for (let k = 12; k >= 2; k--) {
+    const w = Math.floor(bw / k), h = Math.floor(bh / k);
+    if (w >= needW && h >= needH && w * h <= MAX_WB_PX) return k;
   }
-  return best || 12;                // every k blew the budget: take the cheapest legal one
+  return 2;  // screen too small to hold the window even at 2: resize() falls back to a contain fit
 }
 
 function resize() {
@@ -6381,12 +6382,23 @@ function resize() {
   // any phone whose WebView loses height to an inset) silently saw LESS than the reference. Both are unfair,
   // in opposite directions.
   //
-  // So the window is a fixed 1212x560 world rect and `scale` fits it — min() of the two axes. Whichever axis
-  // binds, the surplus on the other becomes non-play band:
-  //     squarer screen (tablet)      -> width binds  -> surplus HEIGHT -> sky above and below
-  //     longer screen (wide phone)   -> height binds -> surplus WIDTH  -> stadium left and right
-  // Measured across every device we ship to, this puts all of them on exactly 1212x560.
-  scale = Math.min(wbW / PLAY_W, wbH / PLAY_H);
+  // So the window is a fixed 1212x560 world rect. It used to be `scale = min(wbW/PLAY_W, wbH/PLAY_H)` — a
+  // CONTAIN fit, which makes the world region identical everywhere but leaves the ART RESOLUTION at the
+  // mercy of the screen. MEASURED IN THE APP: an iPad Pro 11 rendered that window at 0.4991 art px per
+  // world unit and an iPhone 17 Pro at 0.4304. Same slice of pitch, art pixels 16% apart — so the pitch,
+  // the players and the stands were all drawn at different block sizes, and the two devices visibly did
+  // not show the same arena even though every fairness number agreed.
+  //
+  // `scale` IS NOW A CONSTANT. The window is the same number of art pixels on every device, so the arena
+  // is literally the same image everywhere; only its magnification and the band around it differ. The
+  // surplus screen becomes band exactly as before — which is the mechanism already agreed for the iPad's
+  // proportions:
+  //     squarer screen (tablet)      -> surplus HEIGHT -> sky above and below
+  //     longer screen (wide phone)   -> surplus WIDTH  -> stadium left and right
+  // A device too small to hold the window even at ART_PX 2 falls back to the old contain fit: better a
+  // shrunken arena than a clipped one.
+  const wantW = PLAY_W * ART_SCALE, wantH = PLAY_H * ART_SCALE;
+  scale = (wbW >= wantW && wbH >= wantH) ? ART_SCALE : Math.min(wbW / PLAY_W, wbH / PLAY_H);
   playW = Math.min(wbW, PLAY_W * scale);
   playH = Math.min(wbH, PLAY_H * scale);
   bandX = Math.round((wbW - playW) / 2);
@@ -6500,11 +6512,21 @@ function viewDebugText() {
   // is still at its INITIAL value: wb 1×1, scale 1, dpr 1. That has to be said on the glass. A screenshot
   // of the hub is not a measurement, and "1×1" mistaken for one sends somebody chasing a bug that is not
   // there. The test is whether the canvas is sized for THIS viewport, which is what resize() does.
-  const wantW = Math.round(innerWidth * Math.min(devicePixelRatio || 1, 2));
+  // NO dpr CAP IN THIS EXPECTATION. This used to be `innerWidth * Math.min(dpr, 2)`, mirroring the clamp
+  // resize() applied. The clamp is gone (it was the fractional-blit bug), so a 3x phone now backs the
+  // canvas at innerWidth*3 and the old expression would have declared a correctly-sized canvas UNSIZED —
+  // the readout would have lied on exactly the device this whole exercise is about.
+  const wantW = Math.round(innerWidth * (devicePixelRatio || 1));
   const sized = Math.abs(canvas.width - wantW) <= 2;
+  // hwPerArt is THE number this readout exists for on a device: whether an art pixel lands on a whole
+  // number of hardware pixels. It must equal artPx and be an integer; when they came apart (4.5 on a 3x
+  // phone against 3.0 on a 2x tablet) the phone's grid wobbled and the tablet's did not. Flagged inline
+  // so a screenshot answers it without arithmetic.
+  const hw = v.hwPerArt, aligned = Number.isInteger(hw) && hw === v.artPx;
   const lines = [
     sized ? 'VIEW  sized' : 'VIEW  UNSIZED (pre-match)',
     `vw×vh ${v.vw}×${v.vh}  dpr ${dpr}${dprRaw === dpr ? '' : `(raw ${dprRaw})`}`,
+    `art   ${v.artPx}hw/px  hwPerArt ${hw}  ${aligned ? 'INTEGER ok' : 'FRACTIONAL!'}`,
     `wb    ${v.wbW}×${v.wbH}  scale ${v.scale}`,
     `play  ${v.playW == null ? v.wbW : v.playW}×${v.playH}`,
     `band  ${bx},${by}art  ${cssOf(bx)},${cssOf(by)}css`,
