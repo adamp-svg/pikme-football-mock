@@ -21,6 +21,10 @@ function loadSky({ reduce = false } = {}) {
       this.fillStyle = '';
       this.globalAlpha = 1;
       this.imageSmoothingEnabled = true;
+      this.font = '';
+      this.direction = 'ltr';
+      this.textAlign = 'start';
+      this.textBaseline = 'alphabetic';
     }
     save() { this.ops.push(['save']); }
     restore() { this.ops.push(['restore']); }
@@ -29,6 +33,10 @@ function loadSky({ reduce = false } = {}) {
     clip() { this.ops.push(['clip']); }
     fillRect(...a) { this.ops.push(['fillRect', ...a, this.fillStyle]); }
     drawImage(img, ...a) { this.ops.push(['drawImage', img.width, img.height, ...a, this.globalAlpha]); }
+    // The banner is real text now, so the stub has to speak the text API or makeAirAd throws. The
+    // recorded op carries the string, which is how the RTL/word assertions below can check it.
+    fillText(text, x, y) { this.ops.push(['fillText', text, x, y, this.fillStyle, this.font, this.direction]); }
+    measureText(text) { return { width: String(text).length * 7 }; }
   }
 
   class FakeCanvas {
@@ -164,7 +172,15 @@ function loadSky({ reduce = false } = {}) {
     'prefers-reduced-motion freezes every time-based drawing operation');
 }
 
-check(!source.includes('fillText('), 'Hebrew banner uses bitmap glyphs, not antialiased canvas text');
+// REVERSED DELIBERATELY (2026-07-29, Adam: "put normal text there"). The old assertion forbade
+// fillText so the banner could never be antialiased. But five columns cannot draw Hebrew — ס ו ל ט י ז
+// rendered as unrecognisable shapes and the blimp advertised gibberish. On the one asset whose entire
+// job is to say a word, legible beats crisp. Now assert the opposite, and that the engine does the RTL
+// ordering rather than a hand-rolled pen.
+check(source.includes('fillText('), 'Hebrew banner is real text, so the letters are actually readable');
+check(!source.includes('const GLYPHS'), 'the illegible 5x7 bitmap alphabet is gone, not just bypassed');
+check(source.includes("g.direction = 'rtl'"), 'RTL ordering is left to the text engine');
+check(source.includes('bannerCache'), '...and the raster is still cached per string, not redrawn per frame');
 check(source.includes("cloud2: '#f7fbff'"), 'cloud highlights use the requested near-white palette');
 check(labSource.includes("{ canvas: document.getElementById('iphone'), band: 0 }"),
   'artifact gives iPhone a zero-height cloud band');

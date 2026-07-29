@@ -109,43 +109,16 @@
     pxi(g, mid - 5, h - 4, 10, 3, C.goldD);
   });
 
-  // 5x7 Hebrew bitmap. The lab/default uses a subset, but the full alphabet + finals means callers
-  // can supply any short Hebrew house message without falling back to antialiased browser text.
-  const GLYPHS = {
-    'א': ['10001','01010','00100','01010','10001','10001','10001'],
-    'ב': ['11110','00010','00010','11110','10000','10000','11111'],
-    'ג': ['00111','00001','00001','00001','10001','10001','01110'],
-    'ד': ['11111','00001','00001','00001','00001','00001','00001'],
-    'ה': ['11111','10001','10001','10001','10001','10001','10001'],
-    'ו': ['00110','00110','00110','00110','00110','00110','00110'],
-    'ז': ['11111','00010','00100','00100','00100','00100','00100'],
-    'ח': ['10001','10001','10001','10001','10001','10001','11111'],
-    'ט': ['10001','10001','01001','00101','00011','10001','01110'],
-    'י': ['00110','00110','00110','00000','00000','00000','00000'],
-    'כ': ['11110','00001','00001','00001','00001','00001','11110'],
-    'ך': ['11110','00001','00001','00001','00001','00001','00001'],
-    'ל': ['00010','00010','00010','00110','01010','10010','01100'],
-    'מ': ['10001','11001','10101','10011','10001','10001','11111'],
-    'ם': ['11111','10001','10001','10001','10001','10001','11111'],
-    'נ': ['00111','00001','00001','00001','00001','00001','11110'],
-    'ן': ['00111','00001','00001','00001','00001','00001','00001'],
-    'ס': ['01110','10001','10001','10001','10001','10001','01110'],
-    'ע': ['10001','10001','10001','10001','01010','01010','00100'],
-    'פ': ['11110','10001','10001','11110','10000','10000','10000'],
-    'ף': ['11110','10001','10001','11110','10000','10000','10000'],
-    'צ': ['10001','01001','00101','00011','00101','01001','10001'],
-    'ץ': ['10001','01001','00101','00011','00101','00001','00001'],
-    'ק': ['11111','10001','10001','10101','10011','10000','10000'],
-    'ר': ['11110','00001','00001','00001','00001','00001','00001'],
-    'ש': ['10101','10101','10101','10101','10101','10101','11111'],
-    'ת': ['11111','10001','10001','10001','10001','10001','10001'],
-    ' ': ['00000','00000','00000','00000','00000','00000','00000'],
-  };
-
+  // THE BANNER IS REAL TEXT. It used to be plotted from a hand-drawn 5x7 Hebrew bitmap so it could
+  // never be antialiased — but five columns is not enough to draw Hebrew: ס ו ל ט י ז came out as
+  // unrecognisable shapes, and the blimp advertised gibberish. Legible beats crisp on the one asset
+  // whose entire job is to say a word, so it is fillText now. It is drawn once per distinct string and
+  // cached (bannerCache), so the cost is a single text raster per match, not per frame.
+  // No alphabet to filter against any more: any short string is drawable. The 12-char clamp stays —
+  // the plate is 116px wide and a longer message would either overflow it or shrink to nothing.
   const cleanBannerText = (value) => {
     const src = String(value == null ? 'סולטיז' : value).trim().slice(0, 12);
-    const chars = [...src].filter((ch) => GLYPHS[ch]);
-    return chars.length ? chars.join('') : 'סולטיז';
+    return src.length ? src : 'סולטיז';
   };
 
   const bannerCache = new Map();
@@ -180,21 +153,21 @@
       pxi(g, 49, 30, 116, 16, C.blue);
       pxi(g, 49, 44, 116, 2, C.blueD);
 
-      // RTL: logical first character is drawn at the right edge, then the pen moves left.
-      const px = 2;
-      const advance = 6 * px;
-      const total = text.length * advance - px;
-      let ox = 49 + Math.floor((116 + total) / 2) - 5 * px;
-      const oy = 31;
-      for (const ch of text) {
-        const rows = GLYPHS[ch] || GLYPHS[' '];
-        for (let yy = 0; yy < 7; yy++) {
-          for (let xx = 0; xx < 5; xx++) {
-            if (rows[yy][xx] === '1') pxi(g, ox + xx * px, oy + yy * px, px, px, C.cream);
-          }
-        }
-        ox -= advance;
-      }
+      // Centred in the blue field (x 49..165, y 30..46 -> centre 107, 38). `direction = 'rtl'` lets the
+      // engine order and shape the Hebrew itself, which is the whole point of using real text: the old
+      // hand-rolled right-to-left pen was also a place to get the order wrong.
+      //
+      // Smoothing is deliberately left ON for this one draw — text IS its antialiasing. The sprite is
+      // then blitted with smoothing off like everything else, so the letters upscale as hard pixels.
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.direction = 'rtl';
+      g.font = '700 13px "Arial Hebrew", "Helvetica Neue", Arial, sans-serif';
+      // a dark seat under the type so it survives against the plate's mid-blue
+      g.fillStyle = 'rgba(6,10,22,0.55)';
+      g.fillText(text, 107, 39);
+      g.fillStyle = C.cream;
+      g.fillText(text, 107, 38);
     });
     bannerCache.set(text, c);
     // A malicious/high-churn caller cannot grow this forever.
