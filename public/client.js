@@ -6381,23 +6381,29 @@ function resize() {
   // any phone whose WebView loses height to an inset) silently saw LESS than the reference. Both are unfair,
   // in opposite directions.
   //
-  // So the window is a fixed 1212x560 world rect and `scale` fits it — min() of the two axes. Whichever axis
-  // binds, the surplus on the other becomes non-play band:
-  //     squarer screen (tablet)      -> width binds  -> surplus HEIGHT -> sky above and below
-  //     longer screen (wide phone)   -> height binds -> surplus WIDTH  -> stadium left and right
-  // Measured across every device we ship to, this puts all of them on exactly 1212x560.
-  scale = Math.min(wbW / PLAY_W, wbH / PLAY_H);
-  playW = Math.min(wbW, PLAY_W * scale);
-  playH = Math.min(wbH, PLAY_H * scale);
-  bandX = Math.round((wbW - playW) / 2);
-  bandY = Math.round((wbH - playH) / 2);
-  // AND SLIDE THE WORLD INTO THE WINDOW. These were declared and never assigned, which is the bug behind
-  // "the iPad and the iPhone see different things": the mask sat at bandY while the world was still drawn
-  // from screen 0, so a tablet's window showed the world region shifted DOWN by its band depth — about 143
-  // world units on an iPad Pro 11 — while a phone with no band showed it unshifted. Same camera, different
-  // slice of pitch. camX/camY mean "world at the window's top-left corner"; these two put the window there.
-  viewOffX = bandX;
-  viewOffY = bandY;
+  // WIDTH-DRIVEN, NO LETTERBOX. The contain fit that used to live here (`min(wbW/PLAY_W, wbH/PLAY_H)`)
+  // held every device to an identical 1212x560 world rect, which is strictly fair — and on any screen
+  // squarer than the reference phone it paid for that with a sky band above and below, so a tablet showed
+  // the pitch as a strip through the middle while a phone showed it edge to edge. Four attempts to make
+  // those two look alike (centred band, constant scale, bottom-anchored band, terrace headroom) were each
+  // measured, each shipped, and each rejected on sight: the band itself is the thing that reads wrong.
+  //
+  // So this is back to what shipped before the fair window existed: scale comes from WIDTH alone, the
+  // picture fills the screen on every device, and there are no bands anywhere.
+  //
+  // KNOWN AND ACCEPTED COST — do not "fix" this without asking. Visible WIDTH stays a device-independent
+  // 1212 world units, but visible HEIGHT now follows the aspect ratio: about 557 on the reference iPhone
+  // against about 835 on an iPad Pro 11, so a tablet sees roughly 50% more pitch vertically. That is the
+  // competitive asymmetry the fair-window work was built to remove, traded away deliberately for a
+  // consistent picture. `bandX`/`bandY` stay zero, so drawViewBands is inert and the window offsets are
+  // zero — which also makes screenToWorld trivially the inverse of wx/wy again.
+  scale = wbW / PLAY_W;               // == CAM_ZOOM * wbW / FIELD.W, the pre-fair-window rule
+  playW = wbW;
+  playH = wbH;
+  bandX = 0;
+  bandY = 0;
+  viewOffX = 0;
+  viewOffY = 0;
   bgCanvas.width = Math.ceil((FIELD.W + 2 * BACK) * scale);
   bgCanvas.height = Math.ceil((FIELD.H + 2 * BAND) * scale);
   bgCtx.imageSmoothingEnabled = false;
