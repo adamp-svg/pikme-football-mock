@@ -10,3 +10,6 @@ fields/
 
 # Tutorial verification screenshots (_tu-verify.mjs output) — regenerated on demand
 _tu-shots/
+
+# Device-matrix screenshots (_device-matrix.mjs output) — 2-3MB per device, regenerated on demand
+_device-shots/
