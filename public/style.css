@@ -96,7 +96,9 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hint b { color: #e7dcae; }
 
 /* ---- Game ---- */
-#canvas { display: block; width: 100vw; height: 100vh; touch-action: none; -webkit-user-select: none; user-select: none; }
+/* 100dvh, not 100vh: on iOS 100vh is the LARGE viewport (browser chrome collapsed), so a full-bleed canvas
+   overflows and the bottom of the pitch sits under the home indicator. dvh follows the live viewport. */
+#canvas { display: block; width: 100vw; height: 100dvh; touch-action: none; -webkit-user-select: none; user-select: none; }
 /* TOP HUD: three columns — MY TEAM's power cards · the clock/score/format stack · the OPPONENTS'
    power cards. A GRID (was a plain column) because the two card rails have to flank the centre stack
    and stay put whatever its width is; every child is placed by explicit grid-area, so DOM order in

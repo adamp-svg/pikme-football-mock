@@ -6243,7 +6243,14 @@ const mainCtx = canvas.getContext('2d');
 // device-pixels per art-pixel, then nearest-neighbour up-scaled onto the display.
 // That single up-scale is what turns every edge into a chunky, aliased block.
 // The HUD/overlays are drawn straight onto the crisp full-res main canvas after.
-const ART_PX = 3.25;                 // device px per art-pixel (bigger = chunkier)
+// INTEGER, and that is the whole point. An art pixel must occupy a whole number of HARDWARE pixels or
+// some tiles render 3 device px wide and their neighbours 4, and the grid visibly wobbles. This was 3.25,
+// which made the blit factor 3.2491 on an iPhone 17 Pro and 3.2483 on an iPad Pro 11 — fractional, and
+// DIFFERENT per device, so the same pitch shimmered differently on each screen. That is a large part of
+// why the two devices "looked different" even once they were provably showing the same world region.
+// Art is ~8% finer than before (3 device px per art px instead of 3.25); nothing about the pitch, the
+// arena or any field data changes.
+const ART_PX = 3;                    // device px per art-pixel — MUST stay an integer
 const CAM_ZOOM = 1.65;               // #7: world-view zoom (ART px/world, before ART_PX). Lower = wider view so the goal NET is framed when near a goal. Was 1.85.
 const worldBuf = document.createElement('canvas');
 const wbCtx = worldBuf.getContext('2d', { alpha: false }); // fully painted each frame -> skip per-pixel blending
@@ -6269,6 +6276,7 @@ const PLAY_H = 560;
 // ...and the width the same rule already produced: FIELD.W / CAM_ZOOM. Derived, not typed, so CAM_ZOOM
 // stays the single knob for "how much pitch is a fair view".
 const PLAY_W = FIELD.W / CAM_ZOOM;
+let blitW = 0, blitH = 0, blitX = 0, blitY = 0; // the integer-scaled blit rect, centred on the canvas
 let playW = 1, playH = 1;   // the window in ART px (PLAY_W/PLAY_H * scale, capped by the screen)
 let bandX = 0, bandY = 0;   // ART px of non-play band: bandX each side, bandY above and below
 let viewOffX = 0, viewOffY = 0; // wx()/wy() offsets, so the window sits inside the bands
@@ -6303,8 +6311,12 @@ function resize() {
   canvas.height = innerHeight * dpr;
   canvas.style.imageRendering = 'pixelated'; // keep the up-scaled blocks crisp
   // Low-res world buffer: render the scene small, then blow it up ×ART_PX.
-  wbW = Math.max(1, Math.ceil(canvas.width / ART_PX));
-  wbH = Math.max(1, Math.ceil(canvas.height / ART_PX));
+  // FLOOR, not ceil: a buffer bigger than the canvas would be blitted at a fractional factor again. The
+  // few leftover device pixels (< ART_PX per axis) become letterbox, centred by blitX/blitY below.
+  wbW = Math.max(1, Math.floor(canvas.width / ART_PX));
+  wbH = Math.max(1, Math.floor(canvas.height / ART_PX));
+  blitW = wbW * ART_PX; blitH = wbH * ART_PX;
+  blitX = (canvas.width - blitW) >> 1; blitY = (canvas.height - blitH) >> 1;
   worldBuf.width = wbW; worldBuf.height = wbH;
   wbCtx.imageSmoothingEnabled = false;
   // Tighter zoom (Brawl-Stars-like): player renders large, camera scrolls both
@@ -6585,7 +6597,27 @@ function renderBackground() {
     drawField();
   } finally { ctx = sctx; camX = sx; camY = sy; viewOffY = soffY; viewOffX = soffX; }
 }
-addEventListener('resize', resize);
+// ROTATION AND RESIZE LIFECYCLE. A bare 'resize' listener is not enough on iOS: orientationchange fires
+// BEFORE layout settles, so innerWidth/innerHeight read stale right after it, and a rotation emits a burst
+// of intermediate sizes — reacting to each one reallocates the canvas several times inside one animation
+// (and every reallocation CLEARS it, which is the "blank or half-drawn after rotating" symptom).
+// So: debounce the burst, measure on the next frame, ignore the absurd mid-rotation boxes iOS reports, and
+// re-read devicePixelRatio every time rather than caching it.
+let _fitTimer = 0;
+function scheduleResize() {
+  clearTimeout(_fitTimer);
+  _fitTimer = setTimeout(() => requestAnimationFrame(measureAndResize), 100);
+}
+function measureAndResize() {
+  // innerWidth/Height ARE the container here (the canvas is full-bleed), but they must be sane: iOS can
+  // report a zero or nonsense box mid-rotation. Wait for the next settled frame instead of sizing to it.
+  if (innerWidth < 1 || innerHeight < 1) { scheduleResize(); return; }
+  resize();                 // reassigns canvas.width/height (clearing it) and rebakes the background
+  if (typeof renderBackground === 'function') { /* resize() already rebaked */ }
+}
+addEventListener('resize', scheduleResize);
+addEventListener('orientationchange', scheduleResize);
+visualViewport?.addEventListener('resize', scheduleResize);
 
 // Interpolate remote entities to `renderTime`.
 function interpolated() {
@@ -8229,7 +8261,10 @@ function renderFrame() {
   // --- Blow the buffer up onto the display (nearest-neighbour = fat pixels) ---
   ctx = mainCtx;
   mainCtx.imageSmoothingEnabled = false;
-  mainCtx.drawImage(worldBuf, 0, 0, wbW, wbH, 0, 0, canvas.width, canvas.height);
+  // Exactly wbW*ART_PX x wbH*ART_PX device px — an integer multiple, so every art pixel lands on whole
+  // hardware pixels. The <ART_PX leftover strip is cleared rather than stretched into.
+  if (blitX || blitY) { mainCtx.fillStyle = '#000'; mainCtx.fillRect(0, 0, canvas.width, canvas.height); }
+  mainCtx.drawImage(worldBuf, 0, 0, wbW, wbH, blitX, blitY, blitW, blitH);
   drawHUD(); // HUD/overlays draw crisp, in full-res screen space
   // Chat bubbles draw HERE, not in the world loop: the world is rendered into a low-res buffer and
   // blown up x ART_PX with nearest-neighbour, so a word drawn there comes out chunky (user: "make the
