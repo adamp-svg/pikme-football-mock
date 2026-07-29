@@ -6266,9 +6266,12 @@ let scale = 1, dpr = 1;     // scale = ART pixels per world unit
 // gameplay window fills the screen". Short Androids see 545 of the 560 — 2.7% less — and that is the
 // honest residual, recorded here rather than fixed by shrinking everyone else's view.
 const PLAY_H = 560;
-let playH = 1;              // the window's height in ART px (= PLAY_H * scale, capped by the screen)
-let bandY = 0;              // ART px of non-play band above the window (and the same below it)
-let viewOffY = 0;           // wy()'s extra offset, so the window sits below the top band
+// ...and the width the same rule already produced: FIELD.W / CAM_ZOOM. Derived, not typed, so CAM_ZOOM
+// stays the single knob for "how much pitch is a fair view".
+const PLAY_W = FIELD.W / CAM_ZOOM;
+let playW = 1, playH = 1;   // the window in ART px (PLAY_W/PLAY_H * scale, capped by the screen)
+let bandX = 0, bandY = 0;   // ART px of non-play band: bandX each side, bandY above and below
+let viewOffX = 0, viewOffY = 0; // wx()/wy() offsets, so the window sits inside the bands
 
 let camX = 0, camY = 0;     // camera offset in ART px (subtracted in wx/wy)
 const NET = GOAL.depth;     // gameplay net-pocket depth (matches the sim: ball + players)
@@ -6308,22 +6311,29 @@ function resize() {
   // axes. `scale` is now ART px/world-unit; ×ART_PX keeps on-screen zoom ~same.
   // #7: eased the zoom out a touch (CAM_ZOOM 1.85 -> 1.65) so the goal net/area frames
   // in view when a player is near a goal instead of sitting clipped at the screen edge.
-  scale = CAM_ZOOM * wbW / FIELD.W;
-  // FAIR PLAY WINDOW. `scale` above is derived from WIDTH alone, so every device has always seen the
-  // same 1212 world units across — and however many units of HEIGHT its screen happened to be worth.
-  // Measured on the real devices: a phone sees 560 units tall, an iPad Pro 13" sees 909, which is 62%
-  // more pitch for the tablet player. Same width, free extra vision vertically.
-  // So the window is capped at PLAY_H units and the surplus screen becomes non-play band. Note this
-  // does NOT touch `scale`: sprite size, the background bake and every existing draw call are
-  // unchanged, because the width fit was already the binding constraint on every real device. The cap
-  // is a camera clamp plus a mask, nothing more.
+  // FIT THE FIXED PLAY WINDOW. `scale` used to come from WIDTH alone (CAM_ZOOM * wbW / FIELD.W), which
+  // makes the visible width a device-independent 1212 units but leaves the visible HEIGHT at the mercy of
+  // the aspect ratio: a squarer screen was handed extra pitch for free, and a LONGER one (a 2.4+ phone, or
+  // any phone whose WebView loses height to an inset) silently saw LESS than the reference. Both are unfair,
+  // in opposite directions.
+  //
+  // So the window is a fixed 1212x560 world rect and `scale` fits it — min() of the two axes. Whichever axis
+  // binds, the surplus on the other becomes non-play band:
+  //     squarer screen (tablet)      -> width binds  -> surplus HEIGHT -> sky above and below
+  //     longer screen (wide phone)   -> height binds -> surplus WIDTH  -> stadium left and right
+  // Measured across every device we ship to, this puts all of them on exactly 1212x560.
+  scale = Math.min(wbW / PLAY_W, wbH / PLAY_H);
+  playW = Math.min(wbW, PLAY_W * scale);
   playH = Math.min(wbH, PLAY_H * scale);
+  bandX = Math.round((wbW - playW) / 2);
   bandY = Math.round((wbH - playH) / 2);
-  // NOTE a tiny band (1-2 ART px on a 360dp Android) is left alone deliberately. Snapping it shut and
-  // handing the screen back to the window was tried and is worse than the sliver it removes: it lets
-  // that device see 546 units against everyone else's 540, which is the exact inequality this cap
-  // exists to remove. The band stays; drawSkyBands just paints a sliver flat instead of composing
-  // scenery into it.
+  // AND SLIDE THE WORLD INTO THE WINDOW. These were declared and never assigned, which is the bug behind
+  // "the iPad and the iPhone see different things": the mask sat at bandY while the world was still drawn
+  // from screen 0, so a tablet's window showed the world region shifted DOWN by its band depth — about 143
+  // world units on an iPad Pro 11 — while a phone with no band showed it unshifted. Same camera, different
+  // slice of pitch. camX/camY mean "world at the window's top-left corner"; these two put the window there.
+  viewOffX = bandX;
+  viewOffY = bandY;
   bgCanvas.width = Math.ceil((FIELD.W + 2 * BACK) * scale);
   bgCanvas.height = Math.ceil((FIELD.H + 2 * BAND) * scale);
   bgCtx.imageSmoothingEnabled = false;
@@ -6349,8 +6359,10 @@ function updateCamera() {
   else if (cx > FIELD.W - LEAD_ZONE) lead = (1 - (FIELD.W - cx) / LEAD_ZONE) * LEAD_MAX; // near right goal → pan right
   // Req2 — CLAMP: reveal the wall/net plus AT MOST half of the third (back) row, then stop.
   // CAM_BACK/CAM_BAND = 2.5 rows + board lane (half of the 3rd row exposed).
-  const minX = -CAM_BACK * scale, maxX = (FIELD.W + CAM_BACK) * scale - wbW;
-  const tX = clamp((cx + lead) * scale - wbW / 2, minX, Math.max(minX, maxX));
+  // playW, not wbW — the same substitution as the vertical clamp below, for the same reason: clamping to the
+  // SCREEN is what lets a differently-shaped device pull more world into view.
+  const minX = -CAM_BACK * scale, maxX = (FIELD.W + CAM_BACK) * scale - playW;
+  const tX = clamp((cx + lead) * scale - playW / 2, minX, Math.max(minX, maxX));
   // The vertical clamp works against the PLAY WINDOW (playH), not the screen (wbH). That substitution
   // is the whole fairness fix: clamping to the screen is what let a taller device pull more pitch into
   // view. With playH the window is the same size everywhere, so every player's camera reveals the same
@@ -6368,8 +6380,14 @@ function updateCamera() {
 // worth nothing unless a harness can read it back. _device-matrix.mjs asserts against this.
 window.__view = () => ({
   vw: innerWidth, vh: innerHeight, wbW, wbH, scale: +scale.toFixed(4),
-  bandY, playH: Math.round(playH),
-  seesWorldW: Math.round(wbW / scale), seesWorldH: Math.round(playH / scale),
+  bandX, bandY, playW: Math.round(playW), playH: Math.round(playH),
+  // The world rect actually on screen inside the window — the number two devices must agree on.
+  winWorld: { x: +((camX - viewOffX + bandX) / scale).toFixed(1), y: +((camY - viewOffY + bandY) / scale).toFixed(1),
+              w: +(playW / scale).toFixed(1), h: +(playH / scale).toFixed(1) },
+  // The WINDOW's world size — what the player can actually see. Not wbW/scale: on a long screen the
+  // surplus width is masked as side stadium, so the screen spans more world than the window shows and
+  // wbW/scale would report vision the player does not have (it read 1244 on a Galaxy A15).
+  seesWorldW: Math.round(playW / scale), seesWorldH: Math.round(playH / scale),
   pitchPct: +((playH / scale) / FIELD.H * 100).toFixed(1),
   // The sky/stadium transition, per band: how many ART px of the band the stadium has taken, and the
   // edgeApproach handed to SkyBand. _sky-approach.mjs walks a player at a touchline and watches these.
@@ -6377,6 +6395,95 @@ window.__view = () => ({
   stadiumTop: Math.max(0, Math.min(bandY, Math.round(bandY - camY))),
   stadiumBot: Math.max(0, Math.min(bandY, Math.round((FIELD.H * scale - camY + viewOffY) - (wbH - bandY)))),
 });
+
+// ---- ON-SCREEN VIEW READOUT (debug only) ------------------------------------
+// WHY THIS EXISTS. "The iPad and the iPhone show different things" is a claim about numbers — vw/vh, the
+// dpr cap, the ceil() that lands on wbW, scale, playH, bandY — and __view() above answers it in a browser
+// console. Inside the app it does not: a WKWebView has no console reachable from a shell, so the only
+// channel out of the real device is a SCREENSHOT. Hence the numbers get painted on the glass.
+//
+// TURNING IT ON (any one of these):
+//   ?viewdebug=1                              — and it PERSISTS: pikmeTV-saltiz/app/pages/football.jsx
+//                                               rebuilds the WebView URL from scratch every launch
+//                                               (name/avatar/v=CACHE_BUST), so a query param alone would
+//                                               not survive. The param writes the localStorage key.
+//   localStorage.setItem('fbViewDebug','1')   — the in-app route (Safari Web Inspector, once per sim).
+//   window.__viewDebug(true)                  — programmatic, for harnesses; false turns it off.
+//   ?viewdebug=0                              — off, and clears the stored key.
+// OFF BY DEFAULT and it costs one localStorage read at boot: no element, no timer, no listeners.
+// pointer-events:none + position:fixed, so it can never take a tap or move any layout.
+const VIEW_DEBUG_KEY = 'fbViewDebug';
+let viewDebugEl = null, viewDebugTimer = 0;
+
+// Every field is read through __view() (never off the module lets) so the block can never disagree with
+// the harnesses that assert on __view(). Optional fields are guarded: this readout has to keep working
+// while the window code itself is being changed, and `undefined` on the glass is worse than a missing line.
+function viewDebugText() {
+  const v = window.__view();
+  // The RAW devicePixelRatio matters as much as the capped one: resize() clamps to 2, so an iPhone
+  // reporting 3 and an iPad reporting 2 are a real asymmetry in canvas.width and therefore in wbW/wbH.
+  const dprRaw = +(devicePixelRatio || 1).toFixed(2);
+  const bx = v.bandX || 0, by = v.bandY || 0;
+  const cssOf = (art) => Math.round(art * ART_PX / dpr); // ART px measure nothing on a ruler; CSS px do
+  // resize() is called from exactly ONE place — the matchStart handler — so on the hub every number below
+  // is still at its INITIAL value: wb 1×1, scale 1, dpr 1. That has to be said on the glass. A screenshot
+  // of the hub is not a measurement, and "1×1" mistaken for one sends somebody chasing a bug that is not
+  // there. The test is whether the canvas is sized for THIS viewport, which is what resize() does.
+  const wantW = Math.round(innerWidth * Math.min(devicePixelRatio || 1, 2));
+  const sized = Math.abs(canvas.width - wantW) <= 2;
+  const lines = [
+    sized ? 'VIEW  sized' : 'VIEW  UNSIZED (pre-match)',
+    `vw×vh ${v.vw}×${v.vh}  dpr ${dpr}${dprRaw === dpr ? '' : `(raw ${dprRaw})`}`,
+    `wb    ${v.wbW}×${v.wbH}  scale ${v.scale}`,
+    `play  ${v.playW == null ? v.wbW : v.playW}×${v.playH}`,
+    `band  ${bx},${by}art  ${cssOf(bx)},${cssOf(by)}css`,
+    `sees  ${v.seesWorldW}×${v.seesWorldH}`,
+  ];
+  // The world rect inside the window is THE number two devices must agree on — a matching pair here is
+  // what "the iPad and the iPhone see the same field" actually means.
+  const w = v.winWorld;
+  if (w) lines.push(`win   ${Math.round(w.w)}×${Math.round(w.h)} @${Math.round(w.x)},${Math.round(w.y)}`);
+  return lines.join('\n');
+}
+
+function viewDebugTick() { if (viewDebugEl) viewDebugEl.textContent = viewDebugText(); }
+
+function viewDebugOn(on) {
+  if (on === !!viewDebugEl) return;
+  if (!on) { clearInterval(viewDebugTimer); viewDebugTimer = 0; viewDebugEl.remove(); viewDebugEl = null; return; }
+  const el = document.createElement('div');
+  el.id = 'view-debug';
+  el.setAttribute('aria-hidden', 'true');
+  // Inline styles on purpose: nothing in style.css to collide with, and no other agent's stylesheet edit
+  // can silently change what a screenshot shows. direction:ltr because parts of the page are dir="rtl"
+  // and an RTL run would reorder "874×402". Magenta on black appears nowhere in the game art, so the
+  // block cannot be mistaken for gameplay.
+  el.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483000;margin:0;padding:4px 7px;'
+    + 'font:700 13px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;direction:ltr;'
+    + 'text-align:left;color:#0f0;background:#000;border:2px solid #f0f;border-radius:0;'
+    + 'pointer-events:none;user-select:none;text-shadow:none;letter-spacing:0;';
+  document.body.appendChild(el);
+  viewDebugEl = el;
+  viewDebugTick();
+  // These values only move on a resize/rotate, but a 2 Hz poll is free and covers the ordering case where
+  // the block is created before resize() has run (module top-level runs before the first frame).
+  viewDebugTimer = setInterval(viewDebugTick, 500);
+}
+
+window.__viewDebug = (on = true) => {
+  try { on ? localStorage.setItem(VIEW_DEBUG_KEY, '1') : localStorage.removeItem(VIEW_DEBUG_KEY); } catch { /* private mode */ }
+  viewDebugOn(!!on);
+  return !!on;
+};
+
+{
+  const q = _params.get('viewdebug');
+  let want = false;
+  if (q === '0' || q === 'off') { try { localStorage.removeItem(VIEW_DEBUG_KEY); } catch { /* private mode */ } }
+  else if (q != null && q !== '') { want = true; try { localStorage.setItem(VIEW_DEBUG_KEY, '1'); } catch { /* private mode */ } }
+  else { try { want = localStorage.getItem(VIEW_DEBUG_KEY) === '1'; } catch { /* private mode */ } }
+  if (want) viewDebugOn(true);
+}
 
 // The non-play bands: ALWAYS SKY, drawn into the world buffer after the world so they cover it, and
 // before the blit so they scale up with the same fat pixels as everything else.
@@ -6395,37 +6502,58 @@ window.__view = () => ({
 // inequality this whole change exists to remove. The band is sky, all of it, always. The approach to a
 // touchline is expressed by `edgeApproach`, which pushes the cloud bank in sympathy with the stadium
 // scrolling inside the window — the stands arrive in the WINDOW, not in the band.
-function drawSkyBands() {
-  if (bandY <= 0 || !window.SkyBand) return;
+function drawViewBands() {
+  if ((bandY <= 0 && bandX <= 0)) return;
   const t = performance.now() / 1000;
-  // Under ~4 ART px there is no room to compose anything — a cloud is 3px of its own. Paint the sliver
-  // flat in the sky's own base tone: the mask still holds (which is what fairness needs) and no phone
-  // pays for scenery it cannot see.
   const SLIVER = 4;
-  const flat = (window.SkyBand.palette && window.SkyBand.palette.sky1) || '#18385f';
-  // The blimp's advertising banner. Passed from here rather than left to sky-band.js's default: the
-  // module is generic scenery and the brand belongs to the game.
   const SKY_BANNER = 'סולטיז';
+  const flat = (window.SkyBand && window.SkyBand.palette && window.SkyBand.palette.sky1) || '#18385f';
 
-  // `edgeApproach`: 0 at midfield, 1 once this touchline is reached. Measured as how far the pitch edge
-  // has travelled INTO the band, over the band's depth — so it ramps exactly while the stands are
-  // scrolling into the window, and the sky's push stays in step with them.
-  const pitchTopArt = -camY + viewOffY;                       // ART y of world y = 0
-  const pitchBotArt = FIELD.H * scale - camY + viewOffY;       // ART y of world y = FIELD.H
-  const approach = (intrusionArt) => clamp(intrusionArt / Math.max(1, bandY), 0, 1);
+  // TOP AND BOTTOM: sky. `edgeApproach` is 0 at midfield and 1 once the touchline is reached, measured as
+  // how far the pitch edge has come INTO the band, so the cloud bank pushes in step with the stands
+  // scrolling into the window.
+  if (bandY > 0 && window.SkyBand) {
+    const pitchTopArt = -camY + viewOffY;
+    const pitchBotArt = FIELD.H * scale - camY + viewOffY;
+    const approach = (intrusionArt) => clamp(intrusionArt / Math.max(1, bandY), 0, 1);
+    const paint = (rect, side, edgeApproach) => {
+      if (rect.h <= 0) return;
+      if (rect.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(rect.x, rect.y, rect.w, rect.h); return; }
+      SkyBand.draw(wbCtx, rect, { camX, t, bannerText: SKY_BANNER, side, edgeApproach });
+    };
+    paint({ x: 0, y: 0, w: wbW, h: bandY }, 'top', approach(pitchTopArt));
+    paint({ x: 0, y: bandY + playH, w: wbW, h: wbH - (bandY + playH) }, 'bottom',
+      approach(pitchBotArt - (wbH - bandY)));
+  }
 
-  const paint = (rect, side, edgeApproach) => {
-    if (rect.h <= 0) return;
-    if (rect.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(rect.x, rect.y, rect.w, rect.h); return; }
-    SkyBand.draw(wbCtx, rect, { camX, t, bannerText: SKY_BANNER, side, edgeApproach });
-  };
-  paint({ x: 0, y: 0, w: wbW, h: bandY }, 'top', approach(pitchTopArt));
-  paint({ x: 0, y: bandY + playH, w: wbW, h: wbH - (bandY + playH) }, 'bottom',
-    approach(pitchBotArt - (wbH - bandY)));
+  // LEFT AND RIGHT: STADIUM, not sky. A long screen's surplus sits beyond the GOAL LINES, where the world
+  // already is terrace — so stands are what belongs there, and unlike the touchline case they read as
+  // static because a behind-goal terrace barely moves as the camera pans (the goal-lead clamp is the only
+  // horizontal travel and it is bounded by CAM_BACK).
+  if (bandX > 0) {
+    const side = (x0, w) => {
+      if (w <= 0) return;
+      if (w < SLIVER) { wbCtx.fillStyle = '#33383a'; wbCtx.fillRect(x0, bandY, w, playH); return; }
+      wbCtx.save();
+      wbCtx.beginPath(); wbCtx.rect(x0, bandY, w, playH); wbCtx.clip();
+      wbCtx.fillStyle = '#33383a'; wbCtx.fillRect(x0, bandY, w, playH);
+      const b = Math.max(3, Math.round(ws_(26)));
+      for (let ay = bandY; ay < bandY + playH; ay += b) for (let ax = x0; ax < x0 + w; ax += b) {
+        const h = hash(ax * 0.7, ay * 0.7);
+        wbCtx.fillStyle = h > 0.7 ? '#6b726a' : h > 0.4 ? '#585f59' : '#484f4a';
+        wbCtx.fillRect(ax + 1, ay + 1, b - 2, b - 2);
+        wbCtx.fillStyle = 'rgba(255,255,255,.06)';
+        wbCtx.fillRect(ax + 1, ay + 1, b - 2, Math.max(1, Math.round(b * 0.18)));
+      }
+      wbCtx.restore();
+    };
+    side(0, bandX);
+    side(bandX + playW, wbW - (bandX + playW));
+  }
 }
 
 // World -> ART px (through the camera).
-function wx(x) { return x * scale - camX; }
+function wx(x) { return x * scale - camX + viewOffX; }
 // `viewOffY` slides the whole world down by the top band's depth, so camY keeps meaning "world y at the
 // top of the play window" and every existing draw call lands inside the window with no changes. It is
 // zeroed while renderBackground() bakes the stadium, which draws into its own canvas at its own origin
@@ -6448,14 +6576,14 @@ function screenToWorld(px, py) {
 // Render the static field to the offscreen cache. Temporarily point the camera so
 // wx/wy produce bg-local coords (bg pixel 0,0 = world (-BACK, -BAND)).
 function renderBackground() {
-  const sx = camX, sy = camY, sctx = ctx, soff = viewOffY;
-  camX = -BACK * scale; camY = -BAND * scale; ctx = bgCtx; viewOffY = 0; // bake at the canvas origin
+  const sx = camX, sy = camY, sctx = ctx, soffY = viewOffY, soffX = viewOffX;
+  camX = -BACK * scale; camY = -BAND * scale; ctx = bgCtx; viewOffY = 0; viewOffX = 0; // bake at the origin
   try {
     bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
     drawStands();
     drawSeatChairs(); // empty stadium seats — static furniture; card spectators bob on top later
     drawField();
-  } finally { ctx = sctx; camX = sx; camY = sy; viewOffY = soff; }
+  } finally { ctx = sctx; camX = sx; camY = sy; viewOffY = soffY; viewOffX = soffX; }
 }
 addEventListener('resize', resize);
 
@@ -8096,7 +8224,7 @@ function renderFrame() {
   }
   ctx.restore(); // end the mirrored world
 
-  drawSkyBands();  // cap the view: everything outside the play window stops being pitch
+  drawViewBands();  // cap the view: everything outside the play window stops being pitch
 
   // --- Blow the buffer up onto the display (nearest-neighbour = fat pixels) ---
   ctx = mainCtx;
