@@ -584,8 +584,19 @@
   <div id="party" class="screen hidden">
     <div class="start-shade"></div>
     <div class="subpage" dir="rtl">
-      <div class="subpage-head"><h2>הקבוצה שלי</h2></div>
+      <div class="subpage-head"><h2>הקבוצה שלי</h2>
+        <!-- ROOM CODE on the team page. It used to live only in #lobby's head, and the
+             play-with-friends flow never shows #lobby — so the number you are meant to read out to a
+             friend was on a screen nobody in that flow ever sees. Tap copies it. -->
+        <button id="party-code-wrap" type="button" class="lobby-code-wrap party-code-wrap hidden">קוד חדר <b id="party-code">····</b> <small>שתפו עם חברים</small></button>
+      </div>
       <div class="subpage-body">
+        <!-- HOST-only pending join requests, the SECOND copy of this panel (the first is in #lobby).
+             A friend who joins by CODE lands in `pending` and waits for the host to approve; the host
+             in this flow is standing on THIS screen, so without a panel here the request was
+             unanswerable and the joiner sat on «ממתין לאישור המארח…» for ever. Filled by the same
+             renderRoomRequests(). -->
+        <div id="party-requests" class="room-requests hidden" dir="rtl"></div>
         <div id="party-roster" class="party-roster"></div>
         <!-- SOLO EMPTY STATE (a party of one): sits right after the roster, not inside its flex row
              (a `.pr-empty` flex ITEM there wrapped the roster onto a second row and pushed the whole

@@ -14,8 +14,11 @@
    A scrim INSIDE .hub at z-index 1 fixes it in the right place: .hub-pitch has no z-index (auto),
    every interactive box is z-index 2..6, so the scrim lands above the scenery and below all of it.
    Not a filter on .hub itself — a parent filter cannot be undone by a lit child. */
+/* Covers the VIEWPORT. It used to live inside .hub — a 900x415 stage that fitHub scales and centres —
+   so it only ever darkened the stage and left the letterbox bands bright on any aspect ratio that is not
+   900:415. Now a child of #home (the full-screen .screen), first in DOM order so it paints below .hub. */
 body.ht-tour .ht-scrim {
-  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background: rgba(4, 7, 11, .52);
 }
 
@@ -120,8 +123,8 @@ body.ht-tour .ht-pick {
 body.ht-tour .ht-catch { position: fixed; inset: 0; z-index: 39; }
 body.ht-tour #ht-next {
   position: fixed; z-index: 41;
-  bottom: max(10px, calc(env(safe-area-inset-bottom) + 6px));
-  inset-inline-start: max(10px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  inset-inline-start: max(16px, calc(env(safe-area-inset-left) + 8px));
   font: 800 13px/1 system-ui, sans-serif; color: #10161d; background: #ffd06a;
   border: none; border-radius: 999px; padding: 9px 16px; cursor: pointer;
   box-shadow: 0 3px 0 #a56a16;
@@ -165,9 +168,16 @@ body.ht-read .tu-pips i { width: clamp(5px, 1.5vh, 7px); }
    corner, which on this hub is exactly where ⚙ lives — and ⚙ is step 1, so the very first thing a kid
    is shown was half-covered by the button offering to end the lesson. Caught by screenshot on the real
    page. The opposite corner is clear: the profile box (step 13's target) starts ~90px in. */
+/* SAFE ZONE, and away from the app shell's own chrome. #tu-hub-skip's shipped home is the TOP corner,
+   and on the phone that is where the app's exit lives — reported: «the skip is under the exit app». Both
+   of the tour's controls move to the BOTTOM-inline-start, stacked, with insets that respect the safe
+   area rather than a bare 10px: on a landscape iPhone the notch side inset is 44-59px and the bottom
+   is ~21px, so a 10px offset is inside the rounded corner, not merely close to it. */
 body.ht-tour #tu-hub-skip {
+  top: auto;
   inset-inline-end: auto;
-  inset-inline-start: max(10px, env(safe-area-inset-left));
+  bottom: calc(max(16px, env(safe-area-inset-bottom)) + 44px);   /* sits ABOVE «הבא ›» */
+  inset-inline-start: max(16px, calc(env(safe-area-inset-left) + 8px));
 }
 /* …and in the LAB the badge already owns that corner, so it steps down out of the way. Dev-only. */
 .ht-badge.ht-badge-lab { top: calc(max(10px, env(safe-area-inset-top)) + 34px); }

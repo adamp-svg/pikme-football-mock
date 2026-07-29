@@ -309,13 +309,21 @@ function coachToBody() {
 // a player actually sees is painted behind #home — not a child of .hub — so without this the tour
 // runs on a fully lit lobby. Injected INSIDE .hub at z-index 1: .hub-pitch is z-index auto and every
 // interactive box is 2..6, so it lands above the scenery and below everything the kid looks at.
+// It goes into #home, NOT into .hub. Reported from the phone: "the darkened shadow screen doesn't fit
+// the screen properly on all tutorial pages" — and it could not, because .hub is a 900x415 stage that
+// fitHub scales and centres, so anything inside it covers the STAGE and leaves the letterbox bands
+// either side (or above and below) at full brightness. Any aspect ratio that is not 900:415 shows them.
+//
+// #home is the full-screen .screen, so an absolute inset:0 child of it really is the viewport. It is
+// inserted as the FIRST child so it paints BELOW .hub: both are positioned with auto z-index, so DOM
+// order decides, and appending it would have covered the very element being taught.
 function scrim() {
   if ($('.ht-scrim')) return;
-  const hub = $('.hub');
-  if (!hub) return;
+  const home = $('#home');
+  if (!home) return;
   const el = document.createElement('div');
   el.className = 'ht-scrim';
-  hub.appendChild(el);
+  home.insertBefore(el, home.firstChild);
 }
 
 function clearMarks() {
@@ -757,6 +765,30 @@ const state = () => ({
 });
 
 window.HubTour = { pending, begin, start: (which) => start(which, true), state };
+
+// TAPPING A DROP TARGET MUST NOT NAVIGATE MID-LESSON.
+// The hero and the slots have to stay tappable for the DROP to land — the drop is resolved with
+// elementFromPoint, which skips anything at pointer-events:none — but their own click handlers take the
+// player off the hub: #pick-hero-btn opens the wardrobe (user: "player click the hero and it goes to the
+// hero page") and a tap on a .pslot opens the cards room. Either one abandons the lesson mid-step.
+// So the DROP is kept and the CLICK is swallowed, in the capture phase, only while the tour runs.
+// The drag itself is unaffected: it is carried by the carousel's own pointer capture, not by these
+// elements' clicks.
+// THE WHOLE GESTURE, not just the click. The hero's own tap is a `click` handler (opens the wardrobe),
+// but a slot's tap is decided on POINTERUP inside bindSlotDrag — so swallowing clicks alone let a tap on
+// a slot open the cards room, measured.
+// It is safe to take every event off both, because NEITHER NEEDS ONE: the drop is resolved by the
+// carousel's own handler with document.elementFromPoint, which only needs the element to be hit-testable
+// (pointer-events not none), never to receive an event. Dragging FROM a slot — swap/remove — is not part
+// of any lesson, so losing it for the duration costs nothing.
+for (const type of ['pointerdown', 'pointerup', 'click']) {
+  document.addEventListener(type, (e) => {
+    if (!running || !e.target?.closest) return;
+    if (!e.target.closest('#pick-hero-btn, #power-slots .pslot')) return;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+}
 
 // A release over the HERO that did not turn him gold. The step's own `done` cannot tell the difference
 // between "hasn't tried yet" and "tried with the wrong card", and those need different words on screen.

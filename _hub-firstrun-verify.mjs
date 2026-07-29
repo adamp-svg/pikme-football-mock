@@ -190,6 +190,18 @@ try {
   })`);
   const d = JSON.parse(dim);
   check(d.scrim && d.gate, `the gate and the backdrop scrim are up (${dim})`);
+  // IT MUST COVER THE WHOLE SCREEN. Reported from the phone: the dim "doesn't fit the screen properly".
+  // It could not — it lived inside .hub, a 900x415 stage that fitHub scales and centres, so it darkened
+  // the stage and left the letterbox bands bright on any aspect ratio that is not 900:415.
+  const scrimFit = await b1.ev(`(()=>{
+    const e = document.querySelector('.ht-scrim'); if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return JSON.stringify({ w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight,
+                            covers: r.width >= innerWidth - 1 && r.height >= innerHeight - 1
+                                    && r.left <= 1 && r.top <= 1 });
+  })()`);
+  const sf = JSON.parse(scrimFit || 'null');
+  check(!!sf && sf.covers, `and it covers the ENTIRE viewport, letterbox included (${scrimFit})`);
   check(d.lit === 'none', 'the element being described is at full brightness');
   // Dimmed means the brightness multiplier is actually below 1 — `grayscale(0) brightness(1)` is a
   // no-op that is not the string 'none'.
@@ -301,6 +313,42 @@ try {
     console.log('     (skipped a replay → no finish panel, so nothing to dismiss)');
     check(await b1.vis('#home') === 'shown', 'skipping a replay leaves the player on the lobby');
   }
+
+  // ---- THE HERO PAGE HAS A WAY BACK, like every other page ----------------------------------
+  // It was the last page in the game with NO visible exit: «outside-click closes (no ✕, no save)».
+  // back-nav.js skipped it because it is a `.picker` overlay, not a `.screen`.
+  console.log('\n▶ the hero page can be left the same way as every other page');
+  await b1.waitFor(async () => (await b1.vis('#home')) === 'shown', 8000);
+  await b1.tapAt('#pick-hero-btn');
+  const wardrobe = await b1.waitFor(async () => (await b1.vis('#hero-picker')) === 'shown', 8000);
+  check(!!wardrobe, 'the hero page opens from the lobby');
+  const back = await b1.ev(`(()=>{
+    const b = document.querySelector('#hero-picker-close');
+    if (!b) return JSON.stringify({ missing: true });
+    const r = b.getBoundingClientRect();
+    const ref = document.querySelector('#news .builder-back, #shop .builder-back, .subpage-head > .builder-back');
+    const rs = ref ? getComputedStyle(ref) : null, bs = getComputedStyle(b);
+    return JSON.stringify({
+      shown: r.width > 0 && r.height > 0, label: b.textContent.trim(),
+      // Consistency is the whole ask: same look as the pill every other page uses.
+      sameBg: !!rs && bs.backgroundColor === rs.backgroundColor,
+      sameRadius: !!rs && bs.borderRadius === rs.borderRadius,
+      sameFont: !!rs && bs.fontSize === rs.fontSize && bs.fontWeight === rs.fontWeight,
+      inSafeArea: r.left >= 8 && r.top >= 8,
+    });
+  })()`);
+  const bk = JSON.parse(back);
+  check(!bk.missing && bk.shown, `the «‹ חזרה» pill is there (${back})`);
+  // `includes`, not equality: icon-system.js replaces the ‹ glyph with a sprite, so textContent comes
+  // back as «חזרה» — the same reason the slot captions had to be matched loosely.
+  check(bk.label.includes('חזרה'), `with the same label as every other page («${bk.label}»)`);
+  check(bk.sameBg && bk.sameRadius && bk.sameFont, 'and the same look — background, radius, font');
+  check(bk.inSafeArea, 'inside the safe area');
+  await b1.shot('first-11-hero-page-back');
+  await b1.tapAt('#hero-picker-close');
+  const closed = await b1.waitFor(async () => (await b1.vis('#hero-picker')) !== 'shown', 6000);
+  check(!!closed, 'tapping it really closes the hero page');
+  check(await b1.vis('#home') === 'shown', 'and leaves you on the lobby');
 
   // ---- 🎛️ BESIDE THE ? : lobby → training ground with the controls editor open ---------------
   // The editor drags the LIVE sticks, so it only means anything inside a match — from the hub there was

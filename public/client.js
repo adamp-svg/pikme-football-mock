@@ -2394,6 +2394,11 @@ function startHomeDance() {
 
   btnOpen.addEventListener('click', open);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }); // outside-click closes (no ✕, no save)
+  // …and a VISIBLE way out, to match every other page. back-nav.js generates the «‹ חזרה» pill and
+  // gives it this id (its EXITS table), so the button lands on close() — which stops the hero-fx
+  // canvas and cancels the preview rAF. Bound by delegation because that button is created after this
+  // IIFE runs: back-nav.js is a classic script and this module is deferred.
+  overlay.addEventListener('click', (e) => { if (e.target?.closest?.('#hero-picker-close')) close(); });
 })();
 
 // The user/home screen is shown first (no title gate): render identity + card

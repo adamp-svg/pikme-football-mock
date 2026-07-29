@@ -51,6 +51,10 @@
   const EXITS = {
     'friend-select': { id: 'friend-select-close' },
     party: { delegateTo: 'lobby-leave' },
+    // The WARDROBE. Same trick as friend-select: client.js's setupHeroPicker binds close() to this
+    // id, so adopting it wires the real teardown (stops the hero-fx canvas and cancels the preview
+    // rAF) instead of just hiding the overlay and leaking two loops.
+    'hero-picker': { id: 'hero-picker-close' },
   };
 
   // A tiny owned stylesheet. Deliberately NOT edited into style.css: two other agents hold that
@@ -66,6 +70,15 @@
     const s = document.createElement('style');
     s.id = 'fb-back-nav-css';
     s.textContent = `
+      /* The wardrobe is a .picker overlay, not a .screen with a head — there is no flow position to
+         drop a pill into, so this is the one page where the button is positioned. Top-inline-start of
+         the panel, which is the same visual corner the flow position produces everywhere else. */
+      #hero-picker { position: relative; }
+      #hero-picker > .builder-back {
+        position: absolute; z-index: 3;
+        top: max(10px, env(safe-area-inset-top));
+        inset-inline-start: max(10px, env(safe-area-inset-left));
+      }
       #cards .subpage-head { justify-content: flex-start; }
       .subpage-head > .builder-back { white-space: nowrap; flex: none; cursor: pointer; }
       .subpage-head > .builder-back:active { transform: translateY(2px); }
@@ -99,10 +112,19 @@
     if (!btn.getAttribute('type')) btn.type = 'button';
   }
 
+  // Pages that are NOT `.screen` and would otherwise be skipped entirely. The wardrobe
+  // (#hero-picker) is a `.picker` overlay, which is exactly why it was the last page in the game with
+  // NO visible way out — «outside-click closes (no ✕, no save)», the same invisible affordance this
+  // file exists to replace. Listed rather than loosening the `.screen` selector: `.picker` also
+  // matches modals that legitimately dismiss by backdrop.
+  const EXTRA_PAGES = ['hero-picker'];
+
   function addBacks() {
     injectCss();
     let added = 0;
-    for (const screen of document.querySelectorAll('.screen')) {
+    const pages = [...document.querySelectorAll('.screen')];
+    for (const id of EXTRA_PAGES) { const el = document.getElementById(id); if (el && !pages.includes(el)) pages.push(el); }
+    for (const screen of pages) {
       const id = screen.id;
       if (!id || NOT_SUBPAGES.has(id)) continue;
 
@@ -121,7 +143,10 @@
         normalise(existing);
         continue;
       }
-      if (!head) continue;                       // nothing to hang it on; leave the page alone
+      // No head? Normally that means leave the page alone. The listed EXTRA_PAGES are the exception:
+      // they have no head by design and the CSS above positions the pill on the overlay instead.
+      const isExtra = EXTRA_PAGES.includes(id);
+      if (!head && !isExtra) continue;            // nothing to hang it on; leave the page alone
 
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -137,7 +162,8 @@
       // First child of the head, in normal flow — the head is flex, so this is the start edge and
       // therefore the identical spot on every page. Never position:absolute.
       btn.dataset.fbNormalised = '1';            // already in the canonical form; keep re-runs no-ops
-      head.insertBefore(btn, head.firstChild);
+      if (head) head.insertBefore(btn, head.firstChild);
+      else screen.appendChild(btn);              // EXTRA_PAGES: positioned by this file's own CSS
       added++;
     }
     return added;

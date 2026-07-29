@@ -187,6 +187,28 @@ check(await evalJs("document.body.classList.contains('hub-tu-gate')"), 'the gate
 check(await vis('.ht-scrim') === 'shown', 'the backdrop scrim is up — "everything dims" includes the scenery the gate cannot reach');
 check(await evalJs("getComputedStyle(document.querySelector('.hub-pitch')).filter !== 'none'"), 'the pitch art itself is dimmed');
 check(await vis('#tu-hub-skip') === 'shown', 'there is a way out (דלג ✕)');
+// IN THE SAFE ZONE, and off the app shell's chrome. Reported from the phone: the skip sat under the
+// app's own exit, which lives in the TOP corner — so both controls are at the BOTTOM now, stacked, with
+// insets that clear a rounded corner rather than merely approach it.
+const pills = await evalJs(`(()=>{
+  const out = {};
+  for (const [k, sel] of [['skip','#tu-hub-skip'],['next','#ht-next']]) {
+    const e = document.querySelector(sel);
+    if (!e) { out[k] = null; continue; }
+    const r = e.getBoundingClientRect();
+    out[k] = { left: Math.round(r.left), top: Math.round(r.top), bottom: Math.round(innerHeight - r.bottom),
+               inLowerHalf: r.top > innerHeight * 0.5, clearOfEdges: r.left >= 12 && (innerHeight - r.bottom) >= 12 };
+  }
+  out.overlap = (() => { const a = document.querySelector('#tu-hub-skip')?.getBoundingClientRect();
+    const b = document.querySelector('#ht-next')?.getBoundingClientRect();
+    if (!a || !b) return false;
+    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom); })();
+  return JSON.stringify(out);
+})()`);
+const pl = JSON.parse(pills);
+check(!!pl.skip && pl.skip.inLowerHalf, `«דלג ✕» is at the BOTTOM, away from the app's exit (${JSON.stringify(pl.skip)})`);
+check(!!pl.skip && pl.skip.clearOfEdges, 'and inset from the screen edges, not tucked into a rounded corner');
+check(!pl.overlap, 'the two controls do not sit on top of each other');
 check((await state()).carouselFrozen === true, 'the carousel auto-rotate is frozen — otherwise the card under the hand drifts away');
 
 // THE ORDER IS THE WHOLE POINT OF THIS ROUND: the home legend first, then the hero, then the three
@@ -240,11 +262,16 @@ async function readStep(i, id, name, sel, label) {
              // before, which is how a caption parked at the bottom came to sit on the play strip for
              // steps 9-12 — the buttons those steps are about. Now every step.
              capCovers: (()=>{const c=document.querySelector('.tu-caption').getBoundingClientRect();
-               return cx>=c.left&&cx<=c.right&&cy>=c.top&&cy<=c.bottom;})() };
+               return cx>=c.left&&cx<=c.right&&cy>=c.top&&cy<=c.bottom;})(),
+             // …and neither may the two controls, now that both live at the bottom where the play
+             // strip is. Same rule as the caption: never cover the thing being explained.
+             pillCovers: ['#tu-hub-skip','#ht-next'].some((s)=>{const e=document.querySelector(s);
+               if(!e) return false; const r=e.getBoundingClientRect();
+               return cx>=r.left&&cx<=r.right&&cy>=r.top&&cy<=r.bottom;}) };
   })()`);
   const cap = await text('#tu-cap'), sub = await text('#tu-nudge');
   const ok = lit && lit.pick && lit.boxShown && lit.filter === 'none' && lit.pe === 'none'
-    && !lit.handCovers && !lit.capCovers && cap.includes(name) && sub.length > 3;
+    && !lit.handCovers && !lit.capCovers && !lit.pillCovers && cap.includes(name) && sub.length > 3;
   if (!ok) { console.log(`  ❌ ${label} ${id}: ${JSON.stringify({ lit, cap, sub })}`); failures++; return false; }
   console.log(`  ✅ ${label} «${name}» lit, inert, explained, hand + caption clear — «${sub}»`);
   return true;
@@ -336,6 +363,13 @@ check(!!gesture?.across && Math.abs(gesture.across.x) > 20 && gesture.across.y =
 check(!!gesture?.down && gesture.down.y > gesture.across.y,
   `…and only then sets the card down on the target — ${JSON.stringify(gesture?.down)}`);
 
+// A TAP ON THE HERO MUST NOT LEAVE THE HUB. It has to stay tappable for the drop to land
+// (elementFromPoint skips pointer-events:none), but its own click opens the wardrobe — and a kid who
+// taps instead of dragging would find themselves on the hero page with the lesson abandoned.
+await tap('#pick-hero-btn');
+check(await vis('#hero-picker') !== 'shown', 'tapping the hero does NOT open the wardrobe mid-lesson');
+check(await vis('#home') === 'shown', '…and we are still on the hub');
+check((await state()).stepId === 'hero', 'the step is untouched by the stray tap');
 await liftTo('#home-carousel .cf-card.rarity-rare', '#pick-hero-btn');
 // Read through client.js's own seam (window.__hubPrefs.cosmetic), because during the tour NOTHING is
 // written — the sandbox flag stops saveCosmetic before localStorage. The live myCosmetic is the truth.
@@ -373,6 +407,10 @@ check(await text('#tu-cap') === 'גרור לכאן', `caption reads «גרור �
 check(await evalJs("!document.querySelector('.ht-catch')"), 'the catcher is down again for the drag');
 check(await evalJs("document.querySelector('#power-slots').classList.contains('tu-live')"), 'the SLOTS are lit — elementFromPoint ignores pointer-events:none, so an unlit target eats every drop');
 check(await evalJs("document.querySelector('#power-slots .pslot[data-slot=\"0\"]').classList.contains('ht-drop')"), 'slot 0 is ringed as the drop target');
+// Same for a slot: its own tap opens the cards room, which would abandon the lesson just as surely.
+await tap('#power-slots .pslot[data-slot="0"]');
+check(await vis('#cards') !== 'shown', 'tapping a slot does NOT open the cards room mid-lesson');
+check((await state()).stepId === 'slot', 'and that step is untouched too');
 await liftTo('#home-carousel .cf-card.cf-center', '#power-slots .pslot[data-slot="0"]');
 const filled = await waitFor(async () => (await count('#power-slots .pslot:not(.pslot-empty)')) > 0, 6000);
 check(!!filled, 'a REAL slot really filled');
