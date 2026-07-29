@@ -158,7 +158,17 @@ for (const d of DEVICES) {
   await sleep(600);
   await evalJs(`(()=>{try{localStorage.setItem('fbHubTourSkipped','1');localStorage.removeItem('fbTutorialDoneSet');localStorage.removeItem('fbTutorialDone');}catch{} return 1;})()`);
   await cdp('Page.navigate', { url: PAGE });
-  await sleep(4500);   // tutorial level 1 auto-starts: room + first snapshot + the coach's first frame
+  // WAIT ON THE CONDITION, NOT A TIMER. This was a flat sleep(4500); on a cold cache the match has not
+  // started yet, so __view() still reports the documented pre-match 1x1 UNSIZED state and every geometry
+  // assertion below fails — a FALSE failure, on whichever devices happened to be slow that run, which
+  // trains the reader to ignore the very lines that matter. resize() runs from the matchStart handler,
+  // so wbW > 1 is the signal that there is anything real to measure.
+  for (let i = 0; i < 40; i++) {
+    await sleep(400);
+    const w = await evalJs('window.__view ? window.__view().wbW : 0').catch(() => 0);
+    if (w > 1) break;
+  }
+  await sleep(600);    // let the coach's first frame land so the UI checks below see a settled screen
 
   const facts = await evalJs(VIEWPORT_FACTS);
   console.log(`     viewport ${facts.vw}x${facts.vh} ratio ${facts.ratio} · canvas ${facts.canvas ? facts.canvas.w + 'x' + facts.canvas.h : 'none'}`);
@@ -181,12 +191,32 @@ for (const d of DEVICES) {
   // __view() reports both the chosen factor and the one that reaches the glass; they must be equal (the
   // backing store IS the hardware) and integer. Measured on the pixels too — see the run-length check in
   // the commit that added this: every run in the pitch is a whole multiple of artPx.
+  // ARENA COVERAGE — the assertion that actually bites, and the one whose absence let three separate
+  // canvas "fixes" ship while the user kept seeing something wrong. Each of those proved a number that
+  // COULD NOT FAIL: hwPerArt === artPx is a tautology once resize() assigns dpr = devicePixelRatio
+  // (the ratio is identically 1), and seesWorld === 1212x560 is an algebraic identity of the contain
+  // fit. Both passed green through the commit that cut the iPad's arena to 87%x58% of its screen.
+  //
+  // Coverage is derivable from nothing else: how much of the SCREEN the playable arena occupies. It is
+  // what "the arena got smaller on my iPad" means, and it is what quantized integer magnification
+  // silently spends. `texel` — CSS px per world unit, i.e. how big a player LOOKS — is REPORTED rather
+  // than asserted on purpose: a fixed field of view on a physically bigger screen must produce a bigger
+  // on-glass image, so cross-device texel equality is not a defect condition. Watch it, don't gate it.
   const view = await evalJs('window.__view ? window.__view() : null');
-  if (view && view.hwPerArt != null) {
-    check(Number.isInteger(view.hwPerArt) && view.hwPerArt === view.artPx,
-      `art pixel lands on whole hardware pixels (artPx ${view.artPx}, hwPerArt ${view.hwPerArt})`);
+  if (view && view.wbW > 1 && view.playW) {
+    const cssPerArt = view.artPx / d.dpr;
+    const covW = view.playW * cssPerArt / facts.vw * 100;
+    const covH = view.playH * cssPerArt / facts.vh * 100;
+    const texel = view.scale * cssPerArt;
+    console.log(`     arena ${Math.round(view.playW * cssPerArt)}x${Math.round(view.playH * cssPerArt)}css ` +
+      `= ${covW.toFixed(1)}%W x ${covH.toFixed(1)}%H · texel ${texel.toFixed(3)} css/world · artPx ${view.artPx}`);
+    check(covW >= 95, `arena fills the width (${covW.toFixed(1)}%, want >= 95%)`);
     check(view.seesWorldW === 1212 && view.seesWorldH === 560,
       `play window is the fair 1212x560 (${view.seesWorldW}x${view.seesWorldH})`);
+  } else {
+    // A flat sleep can read the documented pre-match 1x1 UNSIZED state and report a FALSE failure on
+    // whichever devices happened to load slowly. Say so instead of asserting on garbage.
+    check(false, `NEVER REACHED THE IN-MATCH SIZED STATE — measurement invalid, not a layout failure`);
   }
   await shot(`${d.id}-01-boot`);
 

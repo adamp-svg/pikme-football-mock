@@ -6500,11 +6500,27 @@ function viewDebugText() {
   // is still at its INITIAL value: wb 1×1, scale 1, dpr 1. That has to be said on the glass. A screenshot
   // of the hub is not a measurement, and "1×1" mistaken for one sends somebody chasing a bug that is not
   // there. The test is whether the canvas is sized for THIS viewport, which is what resize() does.
-  const wantW = Math.round(innerWidth * Math.min(devicePixelRatio || 1, 2));
+  // NO dpr CAP IN THIS EXPECTATION. df773d3 removed the clamp resize() used to apply, so a 3x phone now
+  // backs the canvas at innerWidth*3; the old `Math.min(dpr, 2)` here declared that correctly-sized canvas
+  // UNSIZED — the readout lied on exactly the device the whole exercise is about.
+  const wantW = Math.round(innerWidth * (devicePixelRatio || 1));
   const sized = Math.abs(canvas.width - wantW) <= 2;
+  // THE TWO NUMBERS THAT TRACK WHAT AN EYE SEES, and the reason this readout exists at all now.
+  // Three canvas "fixes" in a row were each provably right about their own metric and still left the user
+  // looking at something wrong, because every metric chosen was one that could not fail:
+  //   e662001 proved integer alignment — of the backing store, not the glass
+  //   df773d3 proved hwPerArt === artPx — a tautology once the dpr clamp was gone
+  //   863434a proved zero `scale` spread — while cutting the iPad's arena to 87% x 58% of its screen
+  // `cover` is how much of the SCREEN the arena occupies; `texel` is the apparent size of one world unit
+  // in CSS px, i.e. how big a player LOOKS. Two devices showing "the same game" must agree on texel and
+  // should not differ wildly on cover. Neither is derivable from the others, and neither is tautological.
+  const cover = (v.playW && v.vw) ? `${Math.round(v.playW * ART_PX / dpr / v.vw * 100)}%×${Math.round(v.playH * ART_PX / dpr / v.vh * 100)}%` : '—';
+  const texel = v.scale ? (v.scale * ART_PX / dpr).toFixed(3) : '—';
   const lines = [
     sized ? 'VIEW  sized' : 'VIEW  UNSIZED (pre-match)',
     `vw×vh ${v.vw}×${v.vh}  dpr ${dpr}${dprRaw === dpr ? '' : `(raw ${dprRaw})`}`,
+    `cover ${cover}  texel ${texel}css/world`,
+    `art   ${ART_PX}hw/px`,
     `wb    ${v.wbW}×${v.wbH}  scale ${v.scale}`,
     `play  ${v.playW == null ? v.wbW : v.playW}×${v.playH}`,
     `band  ${bx},${by}art  ${cssOf(bx)},${cssOf(by)}css`,
@@ -6637,11 +6653,20 @@ function pxi(x, y, w, h, col) {
   ctx.fillStyle = col;
   ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
 }
+// MUST STAY THE EXACT INVERSE OF wx()/wy(). Those are `v * scale - cam + viewOff`, so undoing them means
+// subtracting viewOff BEFORE dividing by scale. This function did not, and was silently correct only
+// while viewOffX/viewOffY were stuck at 0 — which they were until 72d2eda finally assigned them. That
+// commit fixed the render path and left the input path behind, so every band the renderer added became
+// tap/aim error: measured at bandX/scale and bandY/scale world units, which on an iPad Pro 11 was 88
+// across and 204 down, out of a 560-unit-tall window. The phone the game is tuned on has no band, so it
+// reads 0 and the defect is invisible exactly where it is developed.
+// It has never had a test: index.html loads client.js as type="module", so no harness can reach this
+// symbol. If you change wx/wy, change this, and check __view()'s bandX/bandY are what you expect.
 function screenToWorld(px, py) {
   // CSS px -> art px, then invert the camera; undo the flip for a mirrored B view.
   const ax = px * dpr / ART_PX, ay = py * dpr / ART_PX;
   const cx = flipView() ? (wbW - ax) : ax;
-  return { x: (cx + camX) / scale, y: (ay + camY) / scale };
+  return { x: (cx + camX - viewOffX) / scale, y: (ay + camY - viewOffY) / scale };
 }
 
 // Render the static field to the offscreen cache. Temporarily point the camera so
