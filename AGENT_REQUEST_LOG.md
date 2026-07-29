@@ -45,6 +45,15 @@
 
 ## 2026-07-29
 
+- **TOP/BOTTOM SYMMETRY — shared stadium pixels across iPhone/iPad (agent `codex-sky-band`).**
+  - **User correction:** top band is acceptable but bottom is not. Stadium and sky must flip together, and an iPhone/iPad player at the exact same field position must see the exact same stadium view.
+  - **Files taken:** `public/sky-band.js`, `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only.
+  - **Band symmetry:** bottom now uses the identical horizontal seeds, sprite order, balloon order, cloud shelf, and values as top; only `bandY`/edge direction mirror vertically. The advertising balloon mirrors too instead of disappearing.
+  - **Position model:** artifact slider now covers upper edge → midfield → lower edge. Upper and lower stadium proximity are derived symmetrically and drive the matching top/bottom `edgeApproach`.
+  - **Exact stadium guarantee:** artifact renders the 700×323 play window once into `playCanvas` and blits those exact pixels into both device previews. iPad adds 101px sky bands outside it; iPhone adds zero. Device aspect ratio can no longer alter the stadium framing.
+  - **Tests:** added operation-level top/bottom sprite mirror checks and source assertions that both devices consume the one shared play-window canvas.
+  - **Status:** local-only correction; no push or deploy.
+
 - **SKY EDGE CORRECTION — solid cloud-only first row, inverted motion, iPad-only clouds (agent `codex-sky-band`).**
   - **User correction:** the complete first row of the band beside the centre field must contain only clouds with no blue-sky holes; reverse the stadium/cloud vertical parallax; iPad sees clouds and iPhone does not.
   - **Files taken:** `public/sky-band.js`, `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only.

@@ -5,11 +5,11 @@
 //
 // Public API:
 //   SkyBand.draw(ctx, { x, y, w, h }, {
-//     camX, t, side, bannerText, topApproach
+//     camX, t, side, bannerText, edgeApproach
 //   })
 //
-// `topApproach` is 0 at midfield and 1 at the upper stadium edge. The cloud bank moves toward the
-// field edge as the stadium camera reveals upward, intentionally reversing the previous direction.
+// `edgeApproach` is 0 at midfield and 1 at the stadium edge represented by `side`. Top and bottom
+// use one composition mirrored vertically, so both touchlines reveal the same scenery.
 (() => {
   'use strict';
 
@@ -244,9 +244,14 @@
 
     const side = options.side === 'bottom' ? 'bottom' : 'top';
     const camX = Number(options.camX) || 0;
-    const topApproach = side === 'top' ? clamp(Number(options.topApproach) || 0, 0, 1) : 0;
+    const edgeApproach = clamp(Number(
+      options.edgeApproach == null
+        ? (side === 'top' ? options.topApproach : 0)
+        : options.edgeApproach
+    ) || 0, 0, 1);
     const bankDepth = clamp(Math.round(h * 0.32), 18, 42);
-    const cloudPush = Math.round(topApproach * bankDepth * 0.55);
+    const cloudPush = Math.round(edgeApproach * bankDepth * 0.55);
+    const pushDirection = side === 'top' ? 1 : -1;
     const t = reduced ? 0 : Math.max(0, Number(options.t) || 0);
     const s = ensureSprites();
     const oldSmooth = ctx.imageSmoothingEnabled;
@@ -271,7 +276,7 @@
     }
 
     const quiet = Math.min(18, Math.max(4, Math.floor(h * 0.16)));
-    const sideSeed = side === 'top' ? 0 : 17;
+    const sideSeed = 0; // identical horizontal composition; bandY supplies the vertical mirror
 
     // Opaque cloud shelf: the complete first row touching the field is cloud, never blue sky.
     // It moves in the newly requested (reversed) vertical direction but always leaves a solid cloud
@@ -285,10 +290,11 @@
           pxi(ctx, bx + mod(Math.round(camX * 0.018), 24), bankY + 4, 30, 4, C.cloud2);
         }
       } else {
-        pxi(ctx, x, y, w, bankDepth, C.cloud1);
-        pxi(ctx, x, y + bankDepth - 4, w, 4, C.cloud0);
+        const visibleDepth = bankDepth - cloudPush;
+        pxi(ctx, x, y, w, visibleDepth, C.cloud1);
+        pxi(ctx, x, y + visibleDepth - 4, w, 4, C.cloud0);
         for (let bx = x - 24; bx < x + w + 24; bx += 48) {
-          pxi(ctx, bx + mod(Math.round(camX * 0.018), 24), y + bankDepth - 8, 30, 4, C.cloud2);
+          pxi(ctx, bx + mod(Math.round(camX * 0.018), 24), y + visibleDepth - 8, 30, 4, C.cloud2);
         }
       }
     }
@@ -301,7 +307,8 @@
         const span = w + cloud.width + 90;
         const cx = x - cloud.width - 30 + mod(i * 177 + t * speed - camX * 0.008, span);
         const seed = 0.18 + hash(i + sideSeed, 5) * 0.34;
-        const cy = y + bandY(side, h, cloud.height, seed, quiet) + cloudPush * 0.38;
+        const cy = y + bandY(side, h, cloud.height, seed, quiet)
+          + pushDirection * cloudPush * 0.38;
         ctx.globalAlpha = 0.68 + (i % 2) * 0.08;
         ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
       }
@@ -316,7 +323,8 @@
         const span = w + cloud.width + cadence;
         const cx = x - cloud.width + mod(21 + i * cadence + t * speed - camX * 0.018, span);
         const seed = 0.79 + hash(i + sideSeed, 13) * 0.17;
-        const cy = y + bandY(side, h, cloud.height, seed, Math.min(quiet, 8)) + cloudPush;
+        const cy = y + bandY(side, h, cloud.height, seed, Math.min(quiet, 8))
+          + pushDirection * cloudPush;
         ctx.globalAlpha = 0.88 + (i % 3) * 0.04;
         ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
       }
@@ -326,7 +334,7 @@
     // Balloons live ONLY in the distant outer sky. The entire pitch-side bank is clouds alone.
     if (h >= 46) {
       for (let i = 0; i < 3; i++) {
-        const balloon = s.balloons[(i + (side === 'bottom' ? 1 : 0)) % s.balloons.length];
+        const balloon = s.balloons[i % s.balloons.length];
         const span = w + 140;
         const bx = x - 70 + mod(88 + i * 241 + t * (0.45 + i * 0.16) - camX * 0.026, span);
         const seed = 0.05 + hash(i + 31, sideSeed + 9) * 0.22;
@@ -337,8 +345,8 @@
       ctx.globalAlpha = 1;
     }
 
-    // One hero balloon, top band only. 4.2px/s crosses a tablet-width band in roughly 90–140s.
-    if (side === 'top' && h >= 72) {
+    // The advertising balloon mirrors with the rest of the distant sky.
+    if (h >= 72) {
       const airAd = makeAirAd(options.bannerText);
       const span = w + airAd.width + 110;
       // Phase it on-screen at t=0 so a static lab/screenshot shows the hero asset immediately.

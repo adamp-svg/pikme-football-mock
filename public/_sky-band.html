@@ -55,8 +55,8 @@
 
   <section class="controls" aria-label="Parallax controls">
     <label>
-      <span>Player: center field → upper stadium edge <b id="approach-out">0%</b></span>
-      <input id="approach" type="range" min="0" max="1" value="0" step="0.01" />
+      <span>Player field position <b id="approach-out">midfield</b></span>
+      <input id="approach" type="range" min="0" max="1" value="0.5" step="0.01" />
     </label>
     <label>
       <span>Horizontal camera parallax <b id="cam-out">0</b></span>
@@ -85,9 +85,8 @@
 
   <aside class="note">
     The field-facing edge contains overlapping white clouds only. Hot-air balloons remain in the
-    distant outer sky. Moving the player slider upward pans the stadium into the play window while
-    the upper cloud bank moves in the corrected inverted direction. The iPhone has no cloud layer;
-    the iPad does.
+    distant outer sky. Move from the upper edge through midfield to the lower edge: stadium and sky
+    flip together. Both devices reuse the exact same play-window pixels; only iPad adds sky outside.
     <span id="perf"></span>
   </aside>
 
@@ -101,6 +100,10 @@
       { canvas: document.getElementById('iphone'), band: 0 },
       { canvas: document.getElementById('ipad'), band: 101 },
     ];
+    const playCanvas = document.createElement('canvas');
+    playCanvas.width = W;
+    playCanvas.height = PLAY_H;
+    const playCtx = playCanvas.getContext('2d');
     const approachEl = document.getElementById('approach');
     const approachOut = document.getElementById('approach-out');
     const camEl = document.getElementById('cam-x');
@@ -116,15 +119,14 @@
       g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
     };
 
-    function drawStadium(g, y, approach, camX) {
-      const stadiumBottom = y - 18 + approach * 116;
-      const stadiumTop = stadiumBottom - 94;
-      box(g, 0, y, W, PLAY_H, '#0c160f');
+    const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
-      // Three pixel terraces slide down into view as the camera follows the player upward.
+    function drawTerrace(g, edge, lower, camX) {
+      const stadiumTop = lower ? edge : edge - 94;
       box(g, 0, stadiumTop, W, 94, '#202c26');
       for (let row = 0; row < 3; row++) {
-        const ry = stadiumTop + 7 + row * 27;
+        const visualRow = lower ? 2 - row : row;
+        const ry = stadiumTop + 7 + visualRow * 27;
         box(g, 0, ry, W, 20, row & 1 ? '#37483e' : '#2c3d34');
         const offset = Math.round((-camX * (0.018 + row * 0.006)) % 28);
         for (let x = offset - 28; x < W + 28; x += 28) {
@@ -132,47 +134,71 @@
           box(g, x + 15, ry + 5, 8, 8, '#ffcb43');
         }
       }
-      box(g, 0, stadiumBottom - 7, W, 7, '#101512');
-      box(g, 0, stadiumBottom - 5, W, 3, '#ffcb43');
+      const boardY = lower ? edge : edge - 7;
+      box(g, 0, boardY, W, 7, '#101512');
+      box(g, 0, lower ? boardY + 2 : boardY + 2, W, 3, '#ffcb43');
+    }
 
-      // Pitch moves with the stadium; the followed player stays screen-fixed.
-      box(g, 0, stadiumBottom, W, y + PLAY_H - stadiumBottom, '#2f7d45');
-      for (let x = -70; x < W + 70; x += 140) box(g, x - camX * 0.025, stadiumBottom, 70, y + PLAY_H - stadiumBottom, '#347f49');
-      box(g, 0, stadiumBottom, W, 3, '#fff0c2');
-      box(g, W / 2 - camX * 0.04, stadiumBottom, 3, y + PLAY_H - stadiumBottom, '#dbe7cb');
+    function renderPlayWindow(fieldY, camX) {
+      const g = playCtx;
+      const topEdge = clamp01(1 - fieldY * 2);
+      const bottomEdge = clamp01((fieldY - 0.5) * 2);
+      g.imageSmoothingEnabled = false;
+      box(g, 0, 0, W, PLAY_H, '#2f7d45');
+      for (let x = -70; x < W + 70; x += 140) {
+        box(g, x - camX * 0.025, 0, 70, PLAY_H, '#347f49');
+      }
+      box(g, W / 2 - camX * 0.04, 0, 3, PLAY_H, '#dbe7cb');
+
+      if (topEdge > 0) {
+        const topPitchEdge = -18 + topEdge * 116;
+        drawTerrace(g, topPitchEdge, false, camX);
+        box(g, 0, topPitchEdge, W, 3, '#fff0c2');
+      }
+      if (bottomEdge > 0) {
+        const bottomPitchEdge = PLAY_H + 18 - bottomEdge * 116;
+        drawTerrace(g, bottomPitchEdge, true, camX);
+        box(g, 0, bottomPitchEdge - 3, W, 3, '#fff0c2');
+      }
 
       const px = W * 0.50;
-      const py = y + PLAY_H * 0.54;
+      const py = PLAY_H * 0.54;
       box(g, px - 8, py - 18, 16, 16, '#e84b3c');
       box(g, px - 10, py - 2, 20, 21, '#2052a8');
       box(g, px - 9, py + 19, 7, 9, '#101512');
       box(g, px + 2, py + 19, 7, 9, '#101512');
+      return { topEdge, bottomEdge };
     }
 
-    function drawDevice({ canvas, band }) {
+    function drawDevice({ canvas, band }, edges, camX) {
       const g = canvas.getContext('2d');
-      const approach = Number(approachEl.value);
-      const camX = Number(camEl.value);
       g.imageSmoothingEnabled = false;
       g.clearRect(0, 0, canvas.width, canvas.height);
 
       if (band) {
         SkyBand.draw(g, { x:0, y:0, w:W, h:band }, {
-          camX, topApproach:approach, t:elapsed, side:'top',
+          camX, edgeApproach:edges.topEdge, t:elapsed, side:'top',
         });
       }
-      drawStadium(g, band, approach, camX);
+      g.drawImage(playCanvas, 0, band);
       if (band) {
         SkyBand.draw(g, { x:0, y:band + PLAY_H, w:W, h:band }, {
-          camX, topApproach:0, t:elapsed, side:'bottom',
+          camX, edgeApproach:edges.bottomEdge, t:elapsed, side:'bottom',
         });
       }
     }
 
     function renderAll() {
-      approachOut.textContent = `${Math.round(Number(approachEl.value) * 100)}%`;
+      const fieldY = Number(approachEl.value);
+      const camX = Number(camEl.value);
+      const edges = renderPlayWindow(fieldY, camX);
+      approachOut.textContent = fieldY < 0.45
+        ? `upper ${Math.round((0.5 - fieldY) * 200)}%`
+        : fieldY > 0.55
+          ? `lower ${Math.round((fieldY - 0.5) * 200)}%`
+          : 'midfield';
       camOut.textContent = camEl.value;
-      devices.forEach(drawDevice);
+      devices.forEach((device) => drawDevice(device, edges, camX));
     }
 
     function tick(now) {
@@ -195,12 +221,12 @@
       cv.width = W; cv.height = 202;
       const g = cv.getContext('2d');
       for (let i = 0; i < 80; i++) SkyBand.draw(g, { x:0, y:0, w:W, h:101 }, {
-        camX:i, topApproach:(i % 100) / 100, t:i / 60, side:'top',
+        camX:i, edgeApproach:(i % 100) / 100, t:i / 60, side:'top',
       });
       const runs = 3000;
       const start = performance.now();
       for (let i = 0; i < runs; i++) SkyBand.draw(g, { x:0, y:0, w:W, h:101 }, {
-        camX:i * 0.5, topApproach:(i % 100) / 100, t:i / 120, side:'top',
+        camX:i * 0.5, edgeApproach:(i % 100) / 100, t:i / 120, side:'top',
       });
       const perFrameMs = (performance.now() - start) / runs;
       window.__skyLabMetrics = { perFrameMs, runs };

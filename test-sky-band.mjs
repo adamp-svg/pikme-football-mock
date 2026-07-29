@@ -135,10 +135,21 @@ function loadSky({ reduce = false } = {}) {
   check(h.allocations() === afterFirst + 1, 'a custom short Hebrew banner is cached once');
 
   const bottom = new h.FakeContext();
-  h.SkyBand.draw(bottom, { x: 0, y: 300, w: 700, h: 99 },
-    { camX: 0, camY: 123, t: 4, side: 'bottom' });
-  check(!bottom.ops.some((o) => o[0] === 'drawImage' && o[1] === 174 && o[2] === 70),
-    'hero advertising balloon appears only once, in the top band');
+  const mirrorTop = new h.FakeContext();
+  h.SkyBand.draw(mirrorTop, { x: 0, y: 0, w: 700, h: 99 },
+    { camX: 0, edgeApproach: 0, t: 4, side: 'top' });
+  h.SkyBand.draw(bottom, { x: 0, y: 0, w: 700, h: 99 },
+    { camX: 0, edgeApproach: 0, t: 4, side: 'bottom' });
+  const topImages = mirrorTop.ops.filter((o) => o[0] === 'drawImage');
+  const bottomImages = bottom.ops.filter((o) => o[0] === 'drawImage');
+  check(topImages.length === bottomImages.length && topImages.every((o, i) =>
+    o[1] === bottomImages[i][1]
+    && o[2] === bottomImages[i][2]
+    && o[3] === bottomImages[i][3]
+    && o[4] + o[2] + bottomImages[i][4] === 99),
+  'bottom band is the exact vertical mirror of the accepted top composition');
+  check(bottom.ops.some((o) => o[0] === 'drawImage' && o[1] === 174 && o[2] === 70),
+    'distant advertising balloon mirrors into the bottom band');
 }
 
 {
@@ -159,6 +170,10 @@ check(labSource.includes("{ canvas: document.getElementById('iphone'), band: 0 }
   'artifact gives iPhone a zero-height cloud band');
 check(labSource.includes("{ canvas: document.getElementById('ipad'), band: 101 }"),
   'artifact gives iPad visible upper and lower cloud bands');
+check(labSource.includes('const playCanvas = document.createElement'),
+  'artifact renders one shared play window for both devices');
+check(labSource.includes('g.drawImage(playCanvas, 0, band)'),
+  'iPhone and iPad reuse the exact same stadium pixels at the same field position');
 
 console.log(`\n${failures ? `❌ ${failures} FAILED` : '✅ ALL PASS'}`);
 process.exit(failures ? 1 : 0);
