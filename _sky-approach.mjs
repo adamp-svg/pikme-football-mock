@@ -47,5 +47,23 @@ console.log('');
 ok(first < rows[0].bandY * 0.35, `starts mostly SKY (${first}/${rows[0].bandY} art px of stadium at midfield)`);
 ok(last >= rows[0].bandY - 2, `ends fully STADIUM at the touchline (${last}/${rows[0].bandY})`);
 ok(monotonic, 'the stadium arrives progressively — it descends rather than popping in');
-console.log(fails ? `\n❌ ${fails} FAILED` : '\n✅ the stadium comes down out of the sky');
+
+// THE BAND MUST BE PURE SKY — the approved composition forbids world content in it, and standing ON the
+// touchline is the worst case: that is where the terrace and grass used to bleed through. Pixels come from
+// a CLIPPED SCREENSHOT decoded with _png.mjs, because the game canvas is tainted by cross-origin card art
+// and getImageData() throws a SecurityError.
+const vEnd = await ev('window.__view()');
+const bandCss = Math.round(vEnd.bandY * 3.25 / (2732 / vEnd.vw <= 0 ? 2 : (2732 / vEnd.vw)));
+const bandPx = Math.max(6, Math.round(vEnd.bandY * 3.25 / 2) - 6);   // inside the band, clear of its edge
+const clipShot = async (y, h) => (await cdp('Page.captureScreenshot', { format: 'png', clip: { x: 0, y, width: vEnd.vw, height: h, scale: 1 } })).data;
+const bandB64 = await clipShot(2, bandPx);
+const { decodePng, share } = await import('./_png.mjs');
+const bandImg = decodePng(Buffer.from(bandB64, 'base64'));
+const turf = share(bandImg, (r, g, b) => g > r + 18 && g > b + 12 && g > 60);
+const cloudy = share(bandImg, (r, g, b) => r > 190 && g > 200 && b > 210);
+console.log(`\nband at the touchline (${bandImg.w}x${bandImg.h}px sampled): ${turf.pct}% turf-coloured, ${cloudy.pct}% cloud-white`);
+ok(turf.pct < 1, `the band holds NO pitch and no stands — pure sky (${turf.pct}% turf-coloured)`);
+ok(cloudy.pct > 2, `and it is actually composed sky, not a flat fill (${cloudy.pct}% cloud-white)`);
+void bandCss;
+console.log(fails ? `\n❌ ${fails} FAILED` : '\n✅ composition holds: pure sky band, stadium arrives in the window');
 ws.close(); process.exit(0);

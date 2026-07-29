@@ -6258,13 +6258,14 @@ let scale = 1, dpr = 1;     // scale = ART pixels per world unit
 // reference phone (iPhone 17 Pro, 844x390) sees at CAM_ZOOM 1.65 — the surface the game was tuned on,
 // so it is the reference rather than an invented number. Only the height needs stating; the width
 // already falls out of `scale`.
-// 540, not the iPhone's own 560. The cap can only ever take view AWAY, so a phone SHORTER than the
-// reference cannot reach 560: a 360dp-tall Galaxy A15 tops out at 546, which left a 14-unit spread and
-// meant the shortest phones were the ones now at a disadvantage. 540 is under every supported phone's
-// ceiling, so all of them land on it exactly — measured across iPhone 17 Pro, Galaxy A15/S24, S24
-// Ultra, iPad mini/11"/13" and Galaxy Tab S9 in _fair-check.mjs. It costs the reference phone 20 units
-// (3.6%) of height and buys exact parity. Lower this if a shorter phone than 360dp ever ships.
-const PLAY_H = 540;
+// 560, per the approved composition: the play window is 1212x560 world units on every device. That is
+// exactly what the reference iPhone (844x390 at CAM_ZOOM 1.65) shows, which is the point — it makes the
+// iPhone's band come out at 0, i.e. an iPhone draws no sky at all, as the spec requires.
+// I briefly used 540 to buy exact parity with a 360dp-tall Android (which tops out at 545 and so cannot
+// fill a 560 window). That was the wrong trade: it gave the iPhone a 4px band and broke "on iPhone the
+// gameplay window fills the screen". Short Androids see 545 of the 560 — 2.7% less — and that is the
+// honest residual, recorded here rather than fixed by shrinking everyone else's view.
+const PLAY_H = 560;
 let playH = 1;              // the window's height in ART px (= PLAY_H * scale, capped by the screen)
 let bandY = 0;              // ART px of non-play band above the window (and the same below it)
 let viewOffY = 0;           // wy()'s extra offset, so the window sits below the top band
@@ -6377,18 +6378,23 @@ window.__view = () => ({
   stadiumBot: Math.max(0, Math.min(bandY, Math.round((FIELD.H * scale - camY + viewOffY) - (wbH - bandY)))),
 });
 
-// The non-play bands, drawn into the world buffer after the world so they cover it, and before the
-// blit so they scale up with the same fat pixels as everything else.
+// The non-play bands: ALWAYS SKY, drawn into the world buffer after the world so they cover it, and
+// before the blit so they scale up with the same fat pixels as everything else.
 //
-// WHAT GOES IN THEM depends on what is behind them, and only one of the two cases gets sky:
-//   * band over PITCH — the tablet's surplus screen, grass a phone player would not be shown. It has
-//     to be hidden for the cap to mean anything, and it is covered with SkyBand's clouds/balloons.
-//   * band over the real TERRACE — when the player walks within ~280 units of a touchline the window
-//     edge crosses the line and the band genuinely overlaps the stands. Those are world geometry and
-//     are left alone: they scroll with the world, exactly as they do today.
-// Drawing stadium into the band instead was tried first and rejected on sight: the band is
-// screen-fixed, so world-locked stands slide around inside a static frame and read as broken. Sky is
-// ambient and owes the pitch no fixed geometry, which is why it can live in a fixed frame at all.
+// THE APPROVED COMPOSITION (Codex's spec, reference lab public/_sky-band.html, commit a42c518):
+//     top sky band  ·  the exact shared 1212x560 play window  ·  vertically mirrored bottom sky band
+// The sky never expands, crops or repositions the stadium — it is animated letterboxing sitting above
+// and below it. The stadium's own camera is identical on every device; a tablet only ADDS sky outside
+// the shared window.
+//
+// AN EARLIER VERSION LET THE REAL TERRACE SHOW THROUGH the band wherever the window edge had crossed a
+// touchline, on the theory that stands are world geometry and should not be painted over. That is NOT
+// this composition and it is wrong twice over: it puts world content in a screen-fixed frame (the exact
+// sliding artefact that killed the stadium-in-the-band idea in the first place), and it means two players
+// at the same camera position see different things depending on their screen height, which is the
+// inequality this whole change exists to remove. The band is sky, all of it, always. The approach to a
+// touchline is expressed by `edgeApproach`, which pushes the cloud bank in sympathy with the stadium
+// scrolling inside the window — the stands arrive in the WINDOW, not in the band.
 function drawSkyBands() {
   if (bandY <= 0 || !window.SkyBand) return;
   const t = performance.now() / 1000;
@@ -6396,38 +6402,26 @@ function drawSkyBands() {
   // flat in the sky's own base tone: the mask still holds (which is what fairness needs) and no phone
   // pays for scenery it cannot see.
   const SLIVER = 4;
+  const flat = (window.SkyBand.palette && window.SkyBand.palette.sky1) || '#18385f';
   // The blimp's advertising banner. Passed from here rather than left to sky-band.js's default: the
   // module is generic scenery and the brand belongs to the game.
   const SKY_BANNER = 'סולטיז';
-  const flat = (window.SkyBand.palette && window.SkyBand.palette.sky1) || '#18385f';
+
+  // `edgeApproach`: 0 at midfield, 1 once this touchline is reached. Measured as how far the pitch edge
+  // has travelled INTO the band, over the band's depth — so it ramps exactly while the stands are
+  // scrolling into the window, and the sky's push stays in step with them.
   const pitchTopArt = -camY + viewOffY;                       // ART y of world y = 0
-  const pitchBotArt = FIELD.H * scale - camY + viewOffY;      // ART y of world y = FIELD.H
-  // `edgeApproach` for SkyBand: 0 at midfield, 1 once the stadium has taken the whole band. Measure it
-  // as HOW FAR THE STADIUM HAS COME IN — the intrusion of the touchline into the band, over the band's
-  // own depth. That is the same quantity the sky is being clipped by, so the module's cloud-push and the
-  // sky's shrinking edge move as one, and the stands read as descending out of the sky.
-  //
-  // The first version measured the pitch edge's DISTANCE instead and inverted the whole cue: at midfield
-  // the pitch edge sits ABOVE the band, so the gap is negative and it clamped to 1, while at the
-  // touchline it clamped to 0. Approach fired hardest in the middle of the pitch and switched off at the
-  // line — precisely backwards, and it flattened the transition the art was built for.
+  const pitchBotArt = FIELD.H * scale - camY + viewOffY;       // ART y of world y = FIELD.H
   const approach = (intrusionArt) => clamp(intrusionArt / Math.max(1, bandY), 0, 1);
 
-  // TOP: sky covers from the pitch's top edge down to the window, and nothing above it (that is stand).
-  const topSkyFrom = Math.max(0, pitchTopArt);
-  if (topSkyFrom < bandY) {
-    const r = { x: 0, y: topSkyFrom, w: wbW, h: bandY - topSkyFrom };
-    if (r.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(r.x, r.y, r.w, r.h); }
-    else SkyBand.draw(wbCtx, r, { camX, t, bannerText: SKY_BANNER, side: 'top', edgeApproach: approach(pitchTopArt) });
-  }
-  // BOTTOM: mirrored — sky from the window's lower edge down to the pitch's bottom edge.
-  const winBot = bandY + playH;
-  const botSkyTo = Math.min(wbH, pitchBotArt);
-  if (botSkyTo > winBot) {
-    const r = { x: 0, y: winBot, w: wbW, h: botSkyTo - winBot };
-    if (r.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(r.x, r.y, r.w, r.h); }
-    else SkyBand.draw(wbCtx, r, { camX, t, bannerText: SKY_BANNER, side: 'bottom', edgeApproach: approach(pitchBotArt - (wbH - bandY)) });
-  }
+  const paint = (rect, side, edgeApproach) => {
+    if (rect.h <= 0) return;
+    if (rect.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(rect.x, rect.y, rect.w, rect.h); return; }
+    SkyBand.draw(wbCtx, rect, { camX, t, bannerText: SKY_BANNER, side, edgeApproach });
+  };
+  paint({ x: 0, y: 0, w: wbW, h: bandY }, 'top', approach(pitchTopArt));
+  paint({ x: 0, y: bandY + playH, w: wbW, h: wbH - (bandY + playH) }, 'bottom',
+    approach(pitchBotArt - (wbH - bandY)));
 }
 
 // World -> ART px (through the camera).
