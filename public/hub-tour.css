@@ -17,9 +17,22 @@
 /* Covers the VIEWPORT. It used to live inside .hub — a 900x415 stage that fitHub scales and centres —
    so it only ever darkened the stage and left the letterbox bands bright on any aspect ratio that is not
    900:415. Now a child of #home (the full-screen .screen), first in DOM order so it paints below .hub. */
+/* WHY THE DIM WAS MISSING AT THE TOP, and why the fix is one number.
+   The stadium is not a hub box at all — it is #home's own `background-image`, covering the whole
+   viewport. `.hub-tu-gate .hub > *` therefore never touched it, and `.hub-pitch` (which sounds like the
+   backdrop) is actually a 1080x59 grass STRIP at the bottom of the stage. So the scenery was dimmed only
+   by this scrim's alpha, while every box on top of it was dimmed by the gate's filter as well — and the
+   letterbox band above the stage, which is nothing but that background, read visibly lighter than
+   everything else.
+   Measured with scripts/px-bands.py at a viewport taller than the stage's 900:415 (which is what creates
+   the band): at .52 the top read 58-60 against 32-45 in the middle; at .84 it reads 24-25 against 23.
+   One scrim, one alpha, chosen by measurement rather than by eye — the difference is about 2x in the
+   numbers and almost invisible in a screenshot, which is why two rounds of looking at it did not settle
+   it. Filtering #home itself is not an option: `filter` applies to the whole subtree, so it would dim the
+   lit element too. */
 body.ht-tour .ht-scrim {
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  background: rgba(4, 7, 11, .52);
+  background: rgba(4, 7, 11, 0.84);
 }
 
 /* THE CAPTION LIVES AT THE TOP (user: "i want the text to be at the top, currently it hids the

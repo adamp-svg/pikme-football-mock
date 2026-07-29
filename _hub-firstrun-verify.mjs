@@ -25,6 +25,7 @@ import { WebSocket } from 'ws';
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 const PORT = process.env.PORT || 3013;
 const lanIp = () => Object.values(networkInterfaces()).flat()
@@ -92,6 +93,13 @@ async function browser(cdpPort, label) {
       writeFileSync(`${SHOTS}${name}.png`, Buffer.from(data, 'base64'));
       console.log(`     📸 _tu-shots/${name}.png`);
     },
+    // For the pixel checks: an explicit path and explicit capture params.
+    async shotTo(path, params = {}) {
+      const { data } = await cdp('Page.captureScreenshot', { format: 'png', ...params });
+      writeFileSync(path, Buffer.from(data, 'base64'));
+      console.log(`     📸 ${path.replace(/^.*\//, '_tu-shots/')}`);
+    },
+    cdpRaw: (method, params) => cdp(method, params),
     touch: (type, x, y) => cdp('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] }),
   };
   api.state = () => api.ev('window.HubTour ? window.HubTour.state() : null');
@@ -202,6 +210,28 @@ try {
   })()`);
   const sf = JSON.parse(scrimFit || 'null');
   check(!!sf && sf.covers, `and it covers the ENTIRE viewport, letterbox included (${scrimFit})`);
+  // …AND IS AS DARK AT THE TOP AS ANYWHERE ELSE. Reported twice, and the second time only pixels could
+  // settle it: the scenery is painted by TWO owners (#home's own background-image, full viewport, and
+  // .hub-pitch inside the 900x415 stage), so a strip that looks "not dimmed" is really a strip dimmed
+  // once where the rest is dimmed twice. Measured at a viewport TALLER than the stage's 900:415, which
+  // is what produces the letterbox band in the first place — at 844x390 there is no band to get wrong.
+  // dpr 1 on purpose: at deviceScaleFactor 2 the captured surface did not composite the CSS filters, so
+  // a dpr-2 screenshot showed a bright hub while getComputedStyle reported it dimmed.
+  const bands = await (async () => {
+    await b1.cdpRaw('Emulation.setDeviceMetricsOverride', { width: 844, height: 480, deviceScaleFactor: 1, mobile: true });
+    await sleep(1200);
+    const png = `${SHOTS}first-12-dim-bands.png`;
+    await b1.shotTo(png, { fromSurface: true });
+    await b1.cdpRaw('Emulation.setDeviceMetricsOverride', { width: 844, height: 390, deviceScaleFactor: 2, mobile: true });
+    await sleep(600);
+    const out = execFileSync('python3', ['scripts/px-bands.py', png], { encoding: 'utf8' });
+    const num = (label) => { const m = new RegExp(label + '\\s+mean brightness\\s+([0-9.]+)').exec(out); return m ? parseFloat(m[1]) : null; };
+    return { out, top: num('top 0-20'), top2: num('top 20-44'), mid: num('mid 200-240') };
+  })();
+  const worstTop = Math.max(bands.top ?? 0, bands.top2 ?? 0);
+  check(!!bands.mid && worstTop <= bands.mid * 1.3,
+    `the top of the screen is as dim as the middle — no bright strip (top ${worstTop} vs mid ${bands.mid})`);
+  if (!(worstTop <= (bands.mid || 0) * 1.3)) console.log(bands.out);
   check(d.lit === 'none', 'the element being described is at full brightness');
   // Dimmed means the brightness multiplier is actually below 1 — `grayscale(0) brightness(1)` is a
   // no-op that is not the string 'none'.
