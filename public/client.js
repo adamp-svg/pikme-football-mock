@@ -6489,6 +6489,14 @@ window.__view = () => ({
   camY: Math.round(camY),
   stadiumTop: Math.max(0, Math.min(bandY, Math.round(bandY - camY))),
   stadiumBot: Math.max(0, Math.min(bandY, Math.round((FIELD.H * scale - camY + viewOffY) - (wbH - bandY)))),
+  // WHERE THE CACHED STATIC FIELD IS ACTUALLY BLITTED. bgCanvas pixel (0,0) is world (-BACK, -BAND), so
+  // this MUST equal wx/wy of that corner or the grass, lines, goals and stands sit somewhere other than
+  // the entities drawn on top of them through wx/wy. It is reported rather than assumed because the two
+  // sites that blit it once spelled the offset out by hand and silently dropped viewOffX/viewOffY, which
+  // is invisible on a phone (viewOff 0) and put the whole pitch in the wrong place on an iPad.
+  // _field-align.mjs recomputes it from winWorld and fails if they disagree.
+  bgOriginX: +wx(-BACK).toFixed(2),
+  bgOriginY: +wy(-BAND).toFixed(2),
 });
 
 // ---- ON-SCREEN VIEW READOUT (debug only) ------------------------------------
@@ -6983,7 +6991,10 @@ function drawAudience() {
   if (!audienceReady) { buildAudienceSeats(); renderBackground(); audienceReady = true; audNeedsRebake = true; } // re-bake bg so the empty seats appear
   if (audNeedsRebake || !audLayers || audLayers[0].width !== bgCanvas.width) { bakeAudience(); audNeedsRebake = false; }
   const t = performance.now() * 0.001;
-  const ox = -(camX + BACK * scale), oy = -(camY + BAND * scale);
+  // Same rule as the bgCanvas blit: these layers are baked in bg-local pixels whose (0,0) is world
+  // (-BACK, -BAND), so map that corner with wx/wy rather than re-deriving it — the hand-rolled version
+  // dropped viewOffX/viewOffY and slid the crowd out of the very clip established below with wx/wy.
+  const ox = wx(-BACK), oy = wy(-BAND);
   ctx.save();
   // Clip to OUTSIDE the pitch so the crowd is cut cleanly at the touchlines (fans
   // behind the boards) instead of spilling onto the grass.
@@ -8311,7 +8322,12 @@ function renderFrame() {
   // Team B sees a horizontally-mirrored pitch so they too attack left->right.
   ctx.save();
   if (flipView()) { ctx.translate(wbW, 0); ctx.scale(-1, 1); }
-  ctx.drawImage(bgCanvas, -(camX + BACK * scale), -(camY + BAND * scale)); // cached field at camera offset
+  // bgCanvas pixel (0,0) IS world (-BACK, -BAND), so its destination is exactly that point mapped by
+  // wx/wy. Spelling the offset out by hand here (`-(camY + BAND*scale)`) silently omitted viewOffY the
+  // moment the play window stopped being flush with the buffer: the whole static field — grass, lines,
+  // goals, stands — sat `viewOffY` art px above every entity drawn on top of it through wy(). Invisible
+  // on a phone, where viewOffY is 0; on an iPad it put the entire pitch in the wrong place.
+  ctx.drawImage(bgCanvas, wx(-BACK), wy(-BAND)); // cached field, at the world origin it was baked from
   drawAudience(); // card-art crowd (dynamic, jumping) on top of the cached terraces
   drawStadiumProps(); // perimeter ad boards + team benches (in front of the crowd, off-pitch)
   { const cn = performance.now(); const cdt = confPrevT ? Math.min(0.05, (cn - confPrevT) / 1000) : 0.016; confPrevT = cn; updateConfetti(cdt); drawConfetti(); }
