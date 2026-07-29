@@ -37,6 +37,14 @@ const DEVICES = [
   { id: 'galaxy-s24-ultra', w: 915, h: 412,  dpr: 3, label: 'Galaxy S24 Ultra' },
   { id: 'galaxy-tab-s9',   w: 1280, h: 800,  dpr: 2, label: 'Galaxy Tab S9 (Android tablet)' },
   { id: 'ipad-pro-11',     w: 1194, h: 834,  dpr: 2, label: 'iPad Pro 11" (for comparison)' },
+  // PORTRAIT. The app shell locks the football screen to landscape, but expo-host.md is explicit that an
+  // orientation lock is a HINT — iPadOS has been reported to ignore declared orientations outright, and
+  // the LAN browser surface honours no lock at all. So portrait has to be measured, not assumed away: it
+  // must stay correct (integer art pixels, the same 1212x560 window) even though it is cosmetically
+  // band-heavy, because the width binds and the whole surplus becomes sky.
+  { id: 'ipad-pro-11-port',  w: 834,  h: 1194, dpr: 2, label: 'iPad Pro 11" PORTRAIT' },
+  { id: 'galaxy-tab-s9-port', w: 800, h: 1280, dpr: 2, label: 'Galaxy Tab S9 PORTRAIT' },
+  { id: 'iphone-17-pro-port', w: 390, h: 844,  dpr: 3, label: 'iPhone 17 Pro PORTRAIT (browser only)' },
 ];
 
 let failures = 0;
@@ -164,6 +172,21 @@ for (const d of DEVICES) {
     // clearest single symptom of an aspect ratio the renderer was not built for.
     check(Math.abs(facts.canvas.w - facts.vw) <= 2 && Math.abs(facts.canvas.h - facts.vh) <= 2,
       `canvas fills the viewport (${facts.canvas.w}x${facts.canvas.h} at ${facts.canvas.x},${facts.canvas.y})`);
+  }
+
+  // THE PIXEL-ALIGNMENT INVARIANT. An art pixel must occupy a whole number of HARDWARE pixels. It did
+  // not: a dpr cap of 2 meant a 3x phone rendered at 4.5 hardware px per art px while a 2x tablet got a
+  // clean 3.0, so the grid wobbled on the phone and not on the tablet — a large part of what "the iPad
+  // and the iPhone look different" actually was, once the camera window itself had been made identical.
+  // __view() reports both the chosen factor and the one that reaches the glass; they must be equal (the
+  // backing store IS the hardware) and integer. Measured on the pixels too — see the run-length check in
+  // the commit that added this: every run in the pitch is a whole multiple of artPx.
+  const view = await evalJs('window.__view ? window.__view() : null');
+  if (view && view.hwPerArt != null) {
+    check(Number.isInteger(view.hwPerArt) && view.hwPerArt === view.artPx,
+      `art pixel lands on whole hardware pixels (artPx ${view.artPx}, hwPerArt ${view.hwPerArt})`);
+    check(view.seesWorldW === 1212 && view.seesWorldH === 560,
+      `play window is the fair 1212x560 (${view.seesWorldW}x${view.seesWorldH})`);
   }
   await shot(`${d.id}-01-boot`);
 

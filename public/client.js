@@ -2419,7 +2419,13 @@ function fitHub() {
   const s = Math.min(window.innerWidth / HUB_W, window.innerHeight / HUB_H);
   hubStageEl.style.transform = 'translate(-50%,-50%) scale(' + s + ')';
 }
-addEventListener('resize', fitHub);
+// NO BARE 'resize' LISTENER HERE. This used to be `addEventListener('resize', fitHub)`, which is exactly
+// the pattern the match canvas was corrected away from further down: on iOS `orientationchange` fires
+// before layout settles, so innerWidth/innerHeight read STALE, and a rotation emits a burst of
+// intermediate boxes. The hub then scaled itself off a half-rotated viewport and stayed wrong until some
+// later resize rescued it. There is one settled-measure path in this file now (scheduleResize ->
+// measureAndResize) and the hub hangs off it too, so the lobby and the pitch agree about what size the
+// screen is. Startup still calls it directly — nothing has fired yet at that point.
 fitHub();
 
 // ---- MODES: one source of truth for every mode surface ----------------------
@@ -6248,9 +6254,36 @@ const mainCtx = canvas.getContext('2d');
 // which made the blit factor 3.2491 on an iPhone 17 Pro and 3.2483 on an iPad Pro 11 — fractional, and
 // DIFFERENT per device, so the same pitch shimmered differently on each screen. That is a large part of
 // why the two devices "looked different" even once they were provably showing the same world region.
-// Art is ~8% finer than before (3 device px per art px instead of 3.25); nothing about the pitch, the
-// arena or any field data changes.
-const ART_PX = 3;                    // device px per art-pixel — MUST stay an integer
+//
+// THAT FIX WAS HALF A FIX, and this is the other half. A hard `ART_PX = 3` is an integer number of
+// BACKING-STORE pixels, which is only the same thing as hardware pixels while the backing store is the
+// screen's true pixel count. resize() clamped `dpr` to 2, so on a 3x phone the backing store was 2/3 of
+// the hardware and the compositor stretched the blit by 1.5x on the way to the glass. MEASURED:
+//     iPhone 17 Pro  dpr 3  ->  3 x 3/2 = 4.500 hardware px per art px   <- fractional, wobbles
+//     iPad Pro 11    dpr 2  ->  3 x 2/2 = 3.000 hardware px per art px   <- integer, crisp
+// So the tablet was the only device honouring the invariant this comment states, and the phone the game
+// is TUNED on was the broken one. Worse, `scale` (art px per world unit) came out 0.4636 on the phone
+// against 0.6567 on the tablet: both devices saw the same 1212x560 of pitch (that part is correct and
+// stays correct), but the tablet drew it with art pixels 42% smaller. Same window, different-sized blocks
+// — which is what "the iPad and the iPhone look different" actually was, once the camera window matched.
+//
+// THE RULE NOW. The backing store is the true hardware pixel count (no dpr clamp), so backing px ARE
+// hardware px and `ART_PX` means what this comment always claimed. `ART_PX` is then chosen per surface —
+// see pickArtPx() — as the integer that lands the art resolution closest to the reference. It is a `let`
+// because a rotation changes the answer; every read of it happens after resize() has set it.
+let ART_PX = 4;                      // HARDWARE px per art-pixel — always an integer; set by resize()
+// The art resolution the game was tuned at, stated the way it is actually observed: the reference phone
+// (iPhone 17 Pro landscape) renders the play window across 562 art pixels. Expressed in art px rather
+// than as a scale so it does not have to restate PLAY_W — which is declared below this line — and so the
+// number stays the one you can read straight off __view(). Every other surface aims at this and takes the
+// nearest integer ART_PX it can, so art-pixel SIZE is comparable everywhere instead of the 0.198..0.751
+// scale spread a fixed ART_PX produced across the shipping devices and their rotations.
+const ART_REF_WINDOW_PX = 562;
+// Backstop only. A pathological viewport (a desktop window, a phone held portrait where the 1212-wide
+// window forces a tall buffer) must not be allowed to allocate an arbitrarily large world buffer chasing
+// the reference resolution. No shipping surface in either orientation comes near this; it exists so the
+// search below can never pick a ruinous ART_PX rather than to tune any real device.
+const MAX_WB_PX = 800000;
 const CAM_ZOOM = 1.65;               // #7: world-view zoom (ART px/world, before ART_PX). Lower = wider view so the goal NET is framed when near a goal. Was 1.85.
 const worldBuf = document.createElement('canvas');
 const wbCtx = worldBuf.getContext('2d', { alpha: false }); // fully painted each frame -> skip per-pixel blending
@@ -6304,15 +6337,34 @@ const BACK = ROWS * ROW_X + LANE;     // behind-goal terrace = 3 rows + lane, me
 const CAM_BAND = 2.5 * ROW_Y + LANE;
 const CAM_BACK = 2.5 * ROW_X + LANE;
 
+// Pick the integer hardware-px-per-art-px for a backing store of bw x bh. Every candidate is integer by
+// construction, so this is not choosing WHETHER to honour the invariant — it is choosing which of the
+// legal factors puts the art closest to ART_REF_WINDOW_PX. Log-relative error, so 10% finer and 10%
+// chunkier are penalised equally rather than the metric favouring one direction.
+function pickArtPx(bw, bh) {
+  let best = 0, bestErr = Infinity;
+  for (let k = 2; k <= 12; k++) {   // floor of 2: at 1 there is no up-scale left and the art stops being pixel art
+    const w = Math.max(1, Math.floor(bw / k)), h = Math.max(1, Math.floor(bh / k));
+    if (w * h > MAX_WB_PX) continue;
+    const err = Math.abs(Math.log(Math.min(w / PLAY_W, h / PLAY_H) / (ART_REF_WINDOW_PX / PLAY_W)));
+    if (err < bestErr) { bestErr = err; best = k; }
+  }
+  return best || 12;                // every k blew the budget: take the cheapest legal one
+}
+
 function resize() {
   _pdPxCache.clear();   // --pd-px could come from a media query; re-read it after a rotate/resize
-  dpr = Math.min(devicePixelRatio || 1, 2);
-  canvas.width = innerWidth * dpr;
-  canvas.height = innerHeight * dpr;
+  // NO CLAMP. The clamp to 2 was the bug: it decoupled the backing store from the hardware and made the
+  // blit factor fractional on every 3x phone (see the ART_PX comment). Cost is controlled by ART_PX
+  // instead, which is the honest knob — it trades art resolution, not pixel alignment.
+  dpr = devicePixelRatio || 1;
+  canvas.width = Math.round(innerWidth * dpr);
+  canvas.height = Math.round(innerHeight * dpr);
   canvas.style.imageRendering = 'pixelated'; // keep the up-scaled blocks crisp
   // Low-res world buffer: render the scene small, then blow it up ×ART_PX.
   // FLOOR, not ceil: a buffer bigger than the canvas would be blitted at a fractional factor again. The
   // few leftover device pixels (< ART_PX per axis) become letterbox, centred by blitX/blitY below.
+  ART_PX = pickArtPx(canvas.width, canvas.height);
   wbW = Math.max(1, Math.floor(canvas.width / ART_PX));
   wbH = Math.max(1, Math.floor(canvas.height / ART_PX));
   blitW = wbW * ART_PX; blitH = wbH * ART_PX;
@@ -6393,6 +6445,13 @@ function updateCamera() {
 window.__view = () => ({
   vw: innerWidth, vh: innerHeight, wbW, wbH, scale: +scale.toFixed(4),
   bandX, bandY, playW: Math.round(playW), playH: Math.round(playH),
+  // THE PIXEL-ALIGNMENT INVARIANT, reported rather than asserted in a comment. `artPx` is the chosen
+  // factor and `hwPerArt` is what actually reaches the glass: ART_PX scaled by however far the backing
+  // store is from the true hardware pixel count. They must be equal, and integer. When they came apart
+  // (4.5 on a 3x phone against 3.0 on a 2x tablet) that WAS the "two devices look different" bug, so a
+  // harness asserts on this now — see _device-matrix.mjs.
+  artPx: ART_PX,
+  hwPerArt: +(ART_PX * ((devicePixelRatio || 1) / dpr)).toFixed(3),
   // The world rect actually on screen inside the window — the number two devices must agree on.
   winWorld: { x: +((camX - viewOffX + bandX) / scale).toFixed(1), y: +((camY - viewOffY + bandY) / scale).toFixed(1),
               w: +(playW / scale).toFixed(1), h: +(playH / scale).toFixed(1) },
@@ -6614,6 +6673,7 @@ function measureAndResize() {
   if (innerWidth < 1 || innerHeight < 1) { scheduleResize(); return; }
   resize();                 // reassigns canvas.width/height (clearing it) and rebakes the background
   if (typeof renderBackground === 'function') { /* resize() already rebaked */ }
+  fitHub();                 // the lobby scales off the same settled measurement, not its own stale one
 }
 addEventListener('resize', scheduleResize);
 addEventListener('orientationchange', scheduleResize);
