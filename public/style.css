@@ -3092,6 +3092,30 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    middle of that.) */
 .tutorial.celebrating .tu-caption { opacity: 0; visibility: hidden; transition: opacity .12s ease; }
 
+/* SKIP — the way out of the tutorial. Top-INLINE-END (physical left in this RTL page), which is the one
+   corner the coach never uses: the caption owns top-centre, the sticks own both bottom corners, and the
+   spotlight only ever points at a control. Small and low-contrast on purpose — an adult looking for it
+   finds it, a seven-year-old reaching for the move stick does not hit it. `pointer-events: auto` because
+   .tutorial itself is pointer-events: none so the coach never eats a touch meant for the pitch. */
+.tu-skip {
+  position: absolute; top: max(8px, calc(env(safe-area-inset-top) + 6px));
+  inset-inline-end: max(10px, calc(env(safe-area-inset-right) + 8px));
+  pointer-events: auto; cursor: pointer; appearance: none;
+  font: 800 clamp(11px, min(2.6vh, 2.4vw), 15px)/1 system-ui, sans-serif; letter-spacing: .04em;
+  color: #cbd6c8; background: rgba(9,14,11,.62); border: 1px solid rgba(203,214,200,.28);
+  border-radius: 999px; padding: 7px 13px;
+  /* A real touch target even though the label is small — 44px is the platform minimum and a cramped
+     one is how you get mis-taps on the thing you were trying to avoid. */
+  min-width: 60px; min-height: 34px;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.tu-skip:hover { color: #fff; border-color: rgba(203,214,200,.5); }
+.tu-skip:active { scale: .96; }
+.tu-skip:focus-visible { outline: 2px solid var(--gold, #ffd06a); outline-offset: 2px; }
+/* Gone during the finale card and the goal beat — nothing to skip once the level is won, and the
+   celebration owns the screen. */
+.tutorial.celebrating .tu-skip { opacity: 0; pointer-events: none; }
+
 /* The pointing hand. Parked over the live control by JS (--tu-x/--tu-y) and animated per gesture:
    `circle` walks it around the stick (move), `pull` shows hold -> drag -> release (aim/shoot). */
 /* POSITIONED WITH left/top, NOT transform — and that is load-bearing, not style.

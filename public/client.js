@@ -8176,6 +8176,14 @@ function tuDoneSet() {
     return s;
   } catch { return new Set(); }
 }
+// Skipping is recorded SEPARATELY from finishing. Marking a skipped level "done" would be a lie the
+// rest of the feature then acts on: the picker would show it with a ⭐, `nextLevel` would offer the one
+// after it, and a kid who tapped skip by accident could never be offered level 1 again. This key only
+// suppresses the AUTO-LAUNCH — «איך משחקים?» still lists every level, unlocked exactly as before.
+const TU_SKIP_KEY = 'fbTutorialSkipped';
+function tuWasSkipped() { try { return localStorage.getItem(TU_SKIP_KEY) === '1'; } catch { return false; } }
+function tuMarkSkipped() { try { localStorage.setItem(TU_SKIP_KEY, '1'); } catch { /* private mode */ } }
+
 function tuMarkDone(id) {
   const s = tuDoneSet(); s.add(id);
   try {
@@ -8615,12 +8623,22 @@ function tuEnter(level) {
   if (tuPipsEl && tuPipsEl.childElementCount !== pips) {
     tuPipsEl.innerHTML = Array.from({ length: pips }, () => '<i></i>').join('');
   }
-  // A first run has NO way out — the whole point of an unskippable tutorial. A replay keeps its
-  // exit, because a player who chose to revisit it has already proved they don't need trapping.
+  // The lobby-leave button still belongs to a REPLAY only — a first run's way out is the «דלג ›» button
+  // in the coach layer, which is smaller and further from both thumbs than a full leave control. So a
+  // first-timer can always get out (that used to be impossible by design, and the user asked for it),
+  // without a pitch-sized exit sitting next to the sticks a child is being taught to use.
   document.getElementById('leave-lobby-btn')?.classList.toggle('tu-off', !tuReplay);
   tuSyncControls();
   tuRenderOverlay();
 }
+
+// «דלג ›» — leave the tutorial and go to the hub. Only the auto-launch is suppressed; every level stays
+// listed and replayable under «איך משחקים?», so this is "not now", never "never".
+document.getElementById('tu-skip')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  tuMarkSkipped();
+  leaveToLobby();      // tears the room down and runs tuExit() through the toLobby path
+});
 
 function tuExit() {
   tuEl?.classList.add('hidden');
@@ -9020,7 +9038,7 @@ function tuMaybeAutoStart() {
   if (window.HubTour?.pending() && window.HubTour.begin(tuMaybeAutoStart)) return;
   const done = tuDoneSet();
   // LEVEL 1: the app opens into it, and there is no skip.
-  if (!done.has(TU_LEVELS[0].id)) { startTutorial(0, false); return; }
+  if (!done.has(TU_LEVELS[0].id) && !tuWasSkipped()) { startTutorial(0, false); return; }
   // ...and that is the ONLY auto-launch now. The hub tour used to fire here on a kid's first arrival
   // at the lobby; it is parked (`offered: false`, shared/tutorial.js), so the branch that started it
   // is gated on tuOffered below rather than deleted — the tour still works, it is just not shown.
