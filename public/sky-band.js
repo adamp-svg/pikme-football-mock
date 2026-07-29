@@ -58,13 +58,22 @@
 
   // Block-cloud silhouettes are deliberately blue, never white/cream: no cloud can be confused
   // with the 26-unit cream ball, and the whole band stays below the pitch's contrast.
-  const makeCloud = (w, h, seed) => makeCanvas(w, h, (g) => {
-    const rows = [
-      { x: 8, y: Math.round(h * 0.48), w: w - 16, h: Math.round(h * 0.31) },
-      { x: Math.round(w * 0.22), y: Math.round(h * 0.27), w: Math.round(w * 0.50), h: Math.round(h * 0.48) },
-      { x: Math.round(w * 0.42), y: Math.round(h * 0.13), w: Math.round(w * 0.25), h: Math.round(h * 0.52) },
-      { x: Math.round(w * 0.08), y: Math.round(h * 0.38), w: Math.round(w * 0.30), h: Math.round(h * 0.35) },
-    ];
+  const CLOUD_FORMS = [
+    [[.05,.56,.90,.25],[.18,.36,.34,.35],[.43,.18,.27,.51],[.67,.43,.20,.29]],
+    [[.04,.59,.92,.22],[.16,.43,.25,.27],[.36,.27,.25,.43],[.58,.38,.29,.32]],
+    [[.03,.54,.94,.28],[.12,.35,.27,.39],[.34,.19,.29,.55],[.60,.27,.24,.46],[.77,.46,.14,.28]],
+    [[.06,.61,.88,.21],[.19,.42,.23,.29],[.40,.31,.20,.40],[.58,.18,.22,.53],[.76,.48,.15,.25]],
+    [[.03,.58,.94,.24],[.12,.43,.22,.30],[.30,.27,.24,.45],[.50,.37,.20,.34],[.67,.24,.22,.47],[.82,.49,.12,.25]],
+    [[.02,.57,.96,.26],[.10,.39,.22,.37],[.27,.19,.26,.57],[.48,.30,.21,.46],[.64,.12,.20,.64],[.80,.39,.15,.37]],
+  ];
+
+  const makeCloud = (w, h, seed, formIndex) => makeCanvas(w, h, (g) => {
+    const rows = CLOUD_FORMS[formIndex].map(([rx, ry, rw, rh]) => ({
+      x: Math.round(w * rx),
+      y: Math.round(h * ry),
+      w: Math.round(w * rw),
+      h: Math.round(h * rh),
+    }));
     // Restrained two-pixel extrusion.
     for (const r of rows) pxi(g, r.x + 2, r.y + 2, r.w, r.h, C.sky0);
     for (const r of rows) pxi(g, r.x, r.y, r.w, r.h, C.cloud0);
@@ -78,20 +87,22 @@
     }
   });
 
-  const makeSmallBalloon = (base, dark, light) => makeCanvas(18, 34, (g) => {
-    // 14x19 stepped teardrop + visible 8px string: intentionally not a ball-like circle.
-    pxi(g, 6, 1, 6, 2, C.ink);
-    pxi(g, 3, 3, 12, 3, C.ink);
-    pxi(g, 1, 6, 16, 9, C.ink);
-    pxi(g, 3, 15, 12, 5, C.ink);
-    pxi(g, 6, 20, 6, 4, C.ink);
-    pxi(g, 6, 3, 6, 2, light);
-    pxi(g, 3, 6, 11, 8, base);
-    pxi(g, 5, 14, 8, 5, dark);
-    pxi(g, 7, 19, 4, 3, dark);
-    pxi(g, 4, 7, 3, 6, light);
-    pxi(g, 8, 24, 2, 6, C.ink);       // string
-    pxi(g, 6, 30, 6, 3, C.goldD);     // tiny squared basket
+  const makeSmallBalloon = (w, h, base, dark, light, stripe) => makeCanvas(w, h, (g) => {
+    // Stepped tapered envelope + visible ropes/basket: intentionally not a ball-like circle.
+    const envH = h - 11;
+    const mid = Math.floor(w / 2);
+    pxi(g, mid - 3, 1, 6, 2, C.ink);
+    pxi(g, 4, 3, w - 8, 3, C.ink);
+    pxi(g, 1, 6, w - 2, Math.max(8, envH - 11), C.ink);
+    pxi(g, 3, envH - 5, w - 6, 6, C.ink);
+    pxi(g, mid - 3, envH + 1, 6, 4, C.ink);
+    pxi(g, 3, 5, w - 6, Math.max(8, envH - 10), base);
+    pxi(g, 5, envH - 6, w - 10, 5, dark);
+    pxi(g, mid - 2, 4, 4, envH - 5, stripe);
+    pxi(g, 5, 6, 3, Math.max(5, envH - 13), light);
+    pxi(g, mid - 4, envH + 5, 2, 5, C.ink);
+    pxi(g, mid + 2, envH + 5, 2, 5, C.ink);
+    pxi(g, mid - 5, h - 4, 10, 3, C.goldD);
   });
 
   // 5x7 Hebrew bitmap. The lab/default uses a subset, but the full alphabet + finals means callers
@@ -192,14 +203,17 @@
     if (sprites) return sprites;
     sprites = {
       clouds: [
-        makeCloud(62, 24, 11),
-        makeCloud(94, 32, 29),
-        makeCloud(126, 42, 47),
+        makeCloud(54, 21, 11, 0),
+        makeCloud(68, 24, 19, 1),
+        makeCloud(82, 29, 29, 2),
+        makeCloud(98, 33, 37, 3),
+        makeCloud(118, 39, 47, 4),
+        makeCloud(136, 44, 59, 5),
       ],
       balloons: [
-        makeSmallBalloon(C.red, C.redD, C.redL),
-        makeSmallBalloon(C.blue, C.blueD, C.blueL),
-        makeSmallBalloon(C.gold, C.goldD, C.goldL),
+        makeSmallBalloon(18, 34, C.red, C.redD, C.redL, C.cream),
+        makeSmallBalloon(24, 42, C.blue, C.blueD, C.blueL, C.cream),
+        makeSmallBalloon(28, 48, C.gold, C.goldD, C.goldL, C.red),
       ],
     };
     return sprites;
@@ -257,16 +271,29 @@
     const quiet = Math.min(18, Math.max(4, Math.floor(h * 0.16)));
     const sideSeed = side === 'top' ? 0 : 17;
 
-    // Far clouds: 0.8–1.7 art px/s, 1.2% camera parallax.
+    // Sparse far lane: three low-contrast shapes with the slowest parallax.
     if (h >= 18) {
-      for (let i = 0; i < 4; i++) {
-        const cloud = s.clouds[(i + sideSeed) % s.clouds.length];
-        const speed = 0.8 + i * 0.3;
+      for (let i = 0; i < 3; i++) {
+        const cloud = s.clouds[(i * 2 + sideSeed) % s.clouds.length];
+        const speed = 0.65 + i * 0.22;
         const span = w + cloud.width + 90;
-        const cx = x - cloud.width - 30 + mod(i * 173 + t * speed - camX * 0.012, span);
-        const seed = 0.08 + hash(i + sideSeed, 5) * 0.68;
+        const cx = x - cloud.width - 30 + mod(i * 263 + t * speed - camX * 0.008, span);
+        const seed = 0.06 + hash(i + sideSeed, 5) * 0.30;
         const cy = y + bandY(side, h, cloud.height, seed, quiet);
-        ctx.globalAlpha = 0.72 + (i % 2) * 0.10;
+        ctx.globalAlpha = 0.48 + (i % 2) * 0.08;
+        ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
+      }
+
+      // Dense near-pitch lane: every approved cloud silhouette appears here. Top bands cluster
+      // toward their bottom edge; bottom bands mirror that cluster toward their top edge.
+      for (let i = 0; i < s.clouds.length; i++) {
+        const cloud = s.clouds[i];
+        const speed = 0.9 + i * 0.16;
+        const span = w + cloud.width + 36;
+        const cx = x - cloud.width - 18 + mod(37 + i * 127 + t * speed - camX * 0.016, span);
+        const seed = 0.68 + hash(i + sideSeed, 13) * 0.25;
+        const cy = y + bandY(side, h, cloud.height, seed, Math.min(quiet, 10));
+        ctx.globalAlpha = 0.74 + (i % 3) * 0.06;
         ctx.drawImage(cloud, Math.round(cx), Math.round(cy));
       }
       ctx.globalAlpha = 1;
@@ -308,10 +335,11 @@
     // Lab/test observability; production callers only need draw().
     palette: Object.freeze({ ...C }),
     rates: Object.freeze({
-      cloudDrift: '0.8–1.7 art px/s',
+      cloudDrift: '0.65–1.70 art px/s',
       smallBalloonDrift: '0.45–0.77 art px/s',
       airAdDrift: '4.2 art px/s',
-      cloudParallax: 0.012,
+      farCloudParallax: 0.008,
+      nearCloudParallax: 0.016,
       smallBalloonParallax: 0.026,
       airAdParallax: 0.045,
     }),

@@ -45,6 +45,17 @@
 
 ## 2026-07-29
 
+- **SKY ASSET APPROVAL — all cloud/balloon concepts kept; near-pitch clouds made denser (agent `codex-sky-band`).**
+  - **User ask:** use every cloud and hot-air-balloon silhouette from the approved concept sheet, but make clouds closer to the field denser. Keep the scenery for screens with spare aspect-ratio space, move it with parallax, and reveal the stadium as the player moves toward the top.
+  - **Files taken:** `public/sky-band.js`, `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only. Did not touch `public/client.js` or unrelated untracked files.
+  - **Art change:** expanded the lazy sprite cache from 3 to 6 distinct block-cloud silhouettes and made all four approved balloon silhouettes visible (three scaled floating balloons plus the top-band advertising balloon).
+  - **Depth change:** split clouds into a sparse, low-contrast far lane and a six-shape near-pitch lane; the near lane has twice the population, higher opacity, and is mirrored against the pitch edge for top/bottom bands.
+  - **Parallax:** far clouds use 0.008× `camX`; near clouds use 0.016×, so the denser pitch-side layer has readable depth without moving like gameplay.
+  - **Large-screen gate:** preserved the true zero-height no-op. The layer remains absent when the responsive layout supplies no spare band; no phone allocations or draw calls were introduced.
+  - **Stadium behavior:** existing world camera already pans the cached top terrace/stadium into view as the player approaches the top touchline; this art-only refinement does not duplicate or alter that stadium/camera path.
+  - **Validation:** focused test asserts all six cloud sizes, all four balloon sizes, cache count, clipping, integer pixels, parallax invariants, reduced motion, and zero-height behavior — **ALL PASS**. Full suite remains **91/93**: only the same unrelated `test-bot-ladder.mjs` and `test-bot-partner.mjs` calibration failures reproduced.
+  - **Status:** local-only follow-up; no push or deploy.
+
 - **AMBIENT TABLET SKY BAND — art + standalone lab complete, integration deliberately untouched (agent `codex-sky-band`).**
   - **User ask:** screen-fixed sky above and below the future fixed-height play window: block clouds, small unmistakable balloons, and one hot-air balloon carrying a short RTL Hebrew ad banner. Must compose at 0–200 art px, ignore `camY`, freeze for reduced motion, cache sprites, cost nothing at phone height 0, and ship only as a self-contained module + lab page.
   - **Files taken:** new `public/sky-band.js`, `public/_sky-band.html`, `test-sky-band.mjs`; this log entry only. Did **not** touch `public/client.js`, camera, resize, or render-loop code. Existing untracked `public/_shots/` and `public/_tour-shots.html` belong to another agent and were left alone.

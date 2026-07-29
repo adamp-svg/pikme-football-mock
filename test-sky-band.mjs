@@ -1,6 +1,6 @@
 // Structural/runtime checks for public/sky-band.js without needing a browser canvas.
 // Visual review lives in public/_sky-band.html; these checks pin the API, caching, integer-pixel
-// discipline, camY independence, reduced motion, and the zero-height phone fast path.
+// discipline, approved sprite variety, camY independence, reduced motion, and the zero-height fast path.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
@@ -78,8 +78,15 @@ function loadSky({ reduce = false } = {}) {
   h.SkyBand.draw(top, { x: 3, y: 5, w: 700, h: 174 },
     { camX: 120, camY: -500, t: 18, side: 'top', bannerText: 'שחקו יחד' });
   const afterFirst = h.allocations();
-  check(afterFirst === 7, `first visible top band pre-renders 7 cached sprites (${afterFirst})`);
+  check(afterFirst === 10, `first visible top band pre-renders 10 cached sprites (${afterFirst})`);
   check(top.ops.some((o) => o[0] === 'clip'), 'visible draw clips to the supplied band rect');
+  const drawnSizes = new Set(top.ops
+    .filter((o) => o[0] === 'drawImage')
+    .map((o) => `${o[1]}x${o[2]}`));
+  check(['54x21','68x24','82x29','98x33','118x39','136x44'].every((size) => drawnSizes.has(size)),
+    'all six approved cloud silhouettes are drawn');
+  check(['18x34','24x42','28x48','174x70'].every((size) => drawnSizes.has(size)),
+    'all four approved hot-air balloon silhouettes are drawn');
 
   const again = new h.FakeContext();
   h.SkyBand.draw(again, { x: 3, y: 5, w: 700, h: 174 },
