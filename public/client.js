@@ -6370,6 +6370,11 @@ window.__view = () => ({
   bandY, playH: Math.round(playH),
   seesWorldW: Math.round(wbW / scale), seesWorldH: Math.round(playH / scale),
   pitchPct: +((playH / scale) / FIELD.H * 100).toFixed(1),
+  // The sky/stadium transition, per band: how many ART px of the band the stadium has taken, and the
+  // edgeApproach handed to SkyBand. _sky-approach.mjs walks a player at a touchline and watches these.
+  camY: Math.round(camY),
+  stadiumTop: Math.max(0, Math.min(bandY, Math.round(bandY - camY))),
+  stadiumBot: Math.max(0, Math.min(bandY, Math.round((FIELD.H * scale - camY + viewOffY) - (wbH - bandY)))),
 });
 
 // The non-play bands, drawn into the world buffer after the world so they cover it, and before the
@@ -6397,9 +6402,16 @@ function drawSkyBands() {
   const flat = (window.SkyBand.palette && window.SkyBand.palette.sky1) || '#18385f';
   const pitchTopArt = -camY + viewOffY;                       // ART y of world y = 0
   const pitchBotArt = FIELD.H * scale - camY + viewOffY;      // ART y of world y = FIELD.H
-  // How close this edge of the window is to its touchline: 0 at midfield, 1 once the line is reached.
-  const reach = Math.max(1, (FIELD.H - PLAY_H) / 2 * scale);
-  const approach = (gapArt) => clamp(1 - gapArt / reach, 0, 1);
+  // `edgeApproach` for SkyBand: 0 at midfield, 1 once the stadium has taken the whole band. Measure it
+  // as HOW FAR THE STADIUM HAS COME IN — the intrusion of the touchline into the band, over the band's
+  // own depth. That is the same quantity the sky is being clipped by, so the module's cloud-push and the
+  // sky's shrinking edge move as one, and the stands read as descending out of the sky.
+  //
+  // The first version measured the pitch edge's DISTANCE instead and inverted the whole cue: at midfield
+  // the pitch edge sits ABOVE the band, so the gap is negative and it clamped to 1, while at the
+  // touchline it clamped to 0. Approach fired hardest in the middle of the pitch and switched off at the
+  // line — precisely backwards, and it flattened the transition the art was built for.
+  const approach = (intrusionArt) => clamp(intrusionArt / Math.max(1, bandY), 0, 1);
 
   // TOP: sky covers from the pitch's top edge down to the window, and nothing above it (that is stand).
   const topSkyFrom = Math.max(0, pitchTopArt);
@@ -6414,7 +6426,7 @@ function drawSkyBands() {
   if (botSkyTo > winBot) {
     const r = { x: 0, y: winBot, w: wbW, h: botSkyTo - winBot };
     if (r.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(r.x, r.y, r.w, r.h); }
-    else SkyBand.draw(wbCtx, r, { camX, t, bannerText: SKY_BANNER, side: 'bottom', edgeApproach: approach(wbH - pitchBotArt) });
+    else SkyBand.draw(wbCtx, r, { camX, t, bannerText: SKY_BANNER, side: 'bottom', edgeApproach: approach(pitchBotArt - (wbH - bandY)) });
   }
 }
 
