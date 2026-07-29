@@ -6311,7 +6311,7 @@ const PLAY_H = 560;
 const PLAY_W = FIELD.W / CAM_ZOOM;
 let blitW = 0, blitH = 0, blitX = 0, blitY = 0; // the integer-scaled blit rect, centred on the canvas
 let playW = 1, playH = 1;   // the window in ART px (PLAY_W/PLAY_H * scale, capped by the screen)
-let bandX = 0, bandY = 0;   // ART px of non-play band: bandX each side, bandY ALL of it above (see resize)
+let bandX = 0, bandY = 0;   // ART px of non-play band: bandX each side, bandY above and below
 let viewOffX = 0, viewOffY = 0; // wx()/wy() offsets, so the window sits inside the bands
 
 let camX = 0, camY = 0;     // camera offset in ART px (subtracted in wx/wy)
@@ -6390,18 +6390,7 @@ function resize() {
   playW = Math.min(wbW, PLAY_W * scale);
   playH = Math.min(wbH, PLAY_H * scale);
   bandX = Math.round((wbW - playW) / 2);
-  // BOTTOM-ANCHORED, not centred. The window used to be centred vertically, which split the surplus into
-  // a band above AND below — so on a tablet the pitch floated in the middle of the screen and read as
-  // "shifted" next to a phone, where the window fills the glass and the pitch reaches the bottom edge.
-  // Anchoring the window to the BOTTOM makes the pitch sit in the same place relative to the bottom edge
-  // on every device: identical 1212x560 field, identical framing, and the ONLY difference between a phone
-  // and a tablet is how much headroom is left over the top.
-  //
-  // That headroom is not wasted and it is not a flat mask: drawViewBands paints it with the stadium bowl
-  // where the world has one and sky above it, and `stadiumTop` below tracks the crossover — so walking up
-  // the pitch scrolls chairs into the headroom and pushes the sky up, which is what the extra space is
-  // for. Fairness is untouched: the surplus is never pitch, so nobody sees more grass than anybody else.
-  bandY = Math.max(0, Math.round(wbH - playH));
+  bandY = Math.round((wbH - playH) / 2);
   // AND SLIDE THE WORLD INTO THE WINDOW. These were declared and never assigned, which is the bug behind
   // "the iPad and the iPhone see different things": the mask sat at bandY while the world was still drawn
   // from screen 0, so a tablet's window showed the world region shifted DOWN by its band depth — about 143
@@ -6475,14 +6464,7 @@ window.__view = () => ({
   // edgeApproach handed to SkyBand. _sky-approach.mjs walks a player at a touchline and watches these.
   camY: Math.round(camY),
   stadiumTop: Math.max(0, Math.min(bandY, Math.round(bandY - camY))),
-  // The bottom band starts where the WINDOW ends, not at `wbH - bandY`. That older expression assumed the
-  // surplus was split evenly above and below; the window is bottom-anchored now, so the bottom band is
-  // normally zero and the symmetric form would have reported a band that is not there.
-  // `bandY` has to stay a whole art pixel (it is viewOffY, and a fractional world offset would put every
-  // sprite between pixels), while playH is fractional — so the arithmetic leaves a sub-pixel sliver at the
-  // bottom. Anything under one art pixel is not a band; floor it away rather than report 0.49.
-  stadiumBot: (() => { const botStart = bandY + playH, botH = Math.floor(Math.max(0, wbH - botStart));
-    return botH < 1 ? 0 : Math.max(0, Math.min(botH, Math.round((FIELD.H * scale - camY + viewOffY) - botStart))); })(),
+  stadiumBot: Math.max(0, Math.min(bandY, Math.round((FIELD.H * scale - camY + viewOffY) - (wbH - bandY)))),
 });
 
 // ---- ON-SCREEN VIEW READOUT (debug only) ------------------------------------
@@ -6627,11 +6609,8 @@ function drawViewBands() {
       SkyBand.draw(wbCtx, rect, { camX, t, bannerText: SKY_BANNER, side, edgeApproach });
     };
     paint({ x: 0, y: 0, w: wbW, h: bandY }, 'top', approach(pitchTopArt));
-    // Bottom band is normally ZERO now that the window is bottom-anchored — the pitch runs to the bottom
-    // edge on every device. It survives only for the degenerate case where playH had to be capped to wbH.
-    // Its approach is measured from where the window actually ends, not from a mirrored `wbH - bandY`.
-    const botStart = bandY + playH, botH = Math.floor(Math.max(0, wbH - botStart));
-    paint({ x: 0, y: botStart, w: wbW, h: botH }, 'bottom', approach(pitchBotArt - botStart));
+    paint({ x: 0, y: bandY + playH, w: wbW, h: wbH - (bandY + playH) }, 'bottom',
+      approach(pitchBotArt - (wbH - bandY)));
   }
 
   // LEFT AND RIGHT: STADIUM, not sky. A long screen's surplus sits beyond the GOAL LINES, where the world
