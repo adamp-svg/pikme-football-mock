@@ -56,6 +56,33 @@ const mark = (k) => { try { localStorage.setItem(k, '1'); } catch { /* private m
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
+
+// ---- WHERE THIS LESSON IS ALLOWED TO EXIST ---------------------------------------------------
+// EVERYTHING the tour puts on screen is a child of <body>: the tap-catcher (position:fixed, inset:0),
+// «דלג ✕», «הבא ›», the finish panel, and #tutorial itself, which coachToBody() re-parents out of
+// #game. None of that is a `.screen`, so showScreen() — the only thing that hides the hub when a match
+// begins — cannot touch a single one of them.
+//
+// MEASURED, not reasoned (_ht-verify.mjs step 2, _tu-shots/ht-02-match-under-tour.png): a bot match
+// started while the tour was on step 1 and the running match kept
+//   .ht-catch  0,0 844x390   an invisible full-viewport layer that swallowed every tap on the controls
+//   #tu-hub-skip / #ht-next  two lobby pills over the pitch
+//   <body>     ht-tour ht-read hub-tu-gate ht-inert ht-cap-bottom
+//   #tutorial  still parented to <body>, so it no longer hides with the match screen
+// and, worst of all, client.js's `tuHub` sandbox flag still raised with the lesson's EMPTIED power
+// slots — the player's own three cards were gone from that real match's HUD (compare ht-03), and
+// while that flag is up saveLoadout()/saveCosmetic() write nothing for the rest of the session.
+//
+// So the screen is watched, every frame, and the tour gets off it. There is no event to listen for:
+// showScreen() is module-private to client.js and fires no notification.
+const inMatch = () => { const g = $('#game'); return !!g && !g.classList.contains('hidden'); };
+const onHub = () => { const h = $('#home'); return !!h && !h.classList.contains('hidden') && !inMatch(); };
+// A match that is already inevitable. Quick-match shows the VS / searching overlay OVER #home
+// (client.js showSearching + showTeamIntro both run with showScreen('home')), so "#home is visible" is
+// NOT the same as "the hub belongs to the player" — starting a lesson there means starting it seconds
+// before enterMatch() takes the screen away, which is the exact situation the abandon path exists for.
+const preMatch = () => { const t = $('#team-intro'); return !!t && !t.classList.contains('hidden'); };
+
 const tuEl = $('#tutorial');
 const handEl = $('#tu-hand');
 const capEl = $('#tu-cap');
@@ -285,8 +312,11 @@ let demoing = false;
 // The furniture EVERY step needs, and deliberately not a card: a player with an empty album has no
 // `.cf-card` at all, and requiring one meant the tour silently never started for exactly the newcomer
 // it exists for. (Found on the real page, not in the lab, because the lab always injects seven cards.)
+// …and `onHub()`/`preMatch()`, not just "#home is not .hidden": the quick-match countdown runs on the
+// hub with the VS overlay on top, and a lesson started into that moment is a lesson that will be
+// abandoned a few seconds later mid-step.
 function hubReady() {
-  return !!($('#home') && !$('#home').classList.contains('hidden')
+  return !!(onHub() && !preMatch()
     && $('#hub-settings')
     && $('#power-slots .pslot[data-slot="0"]')
     && $('#pick-hero-btn'));
@@ -301,8 +331,21 @@ const CARD_GRACE_TICKS = 40;   // × 50ms = 2s
 // would render into a hidden subtree and the kid would see a lobby with no instructions at all.
 // Nothing in the DOM says so (no .hidden class, textContent reads correctly), which is exactly how
 // that shipped once. .tutorial is position:fixed/inset:0, so it renders identically on <body>.
+let coachHome = null;   // where #tutorial was authored, so it can be put back
 function coachToBody() {
-  if (tuEl && tuEl.parentElement !== document.body) document.body.appendChild(tuEl);
+  if (!tuEl || tuEl.parentElement === document.body) return;
+  coachHome = { parent: tuEl.parentElement, next: tuEl.nextSibling };
+  document.body.appendChild(tuEl);
+}
+// AND PUT IT BACK ON THE WAY OUT. Living inside #game is not an accident of authoring — it is what
+// hides the coach when the match screen goes away. Left on <body> it is a layer that survives every
+// screen change, which is how a pitch hand and caption end up drawn over a lobby (and it was left
+// there: the probe found #tutorial still parented to BODY during a live match). client.js's parked
+// level-4 tour records and restores it exactly this way (tuCoachToBody / tuCoachRestore).
+function coachRestore() {
+  if (!tuEl || !coachHome) return;
+  coachHome.parent.insertBefore(tuEl, coachHome.next);
+  coachHome = null;
 }
 
 // Dim the SCENERY the gate cannot reach. `.hub-tu-gate .hub > *` dims every hub box, but the stadium
@@ -402,11 +445,20 @@ function badge() {
 // #tu-hub-skip's shipped styling.
 function skipBtn() {
   let b = $('#tu-hub-skip');
-  if (b) return b;
-  b = document.createElement('button');
-  b.id = 'tu-hub-skip'; b.type = 'button'; b.textContent = 'דלג ✕';
-  b.addEventListener('click', (e) => { e.stopPropagation(); finish(true); });
-  document.body.appendChild(b);
+  if (!b) {
+    b = document.createElement('button');
+    b.id = 'tu-hub-skip'; b.type = 'button'; b.textContent = 'דלג ✕';
+    document.body.appendChild(b);
+  }
+  // OUR exit gets bound even to a button somebody else built. client.js's parked level-4 tour makes a
+  // #tu-hub-skip of its own with its own handler (tuHubSkip), and this used to hand that button back
+  // untouched — so on a page where that had run first, the only way out of THIS tour would have ended
+  // the other one and left this one running. Latent while level 4 stays `offered: false`; one line to
+  // make it impossible. The `running` guard is what keeps the sharing safe in both directions.
+  if (!b.dataset.htExit) {
+    b.dataset.htExit = '1';
+    b.addEventListener('click', (e) => { if (!running) return; e.stopPropagation(); finish(true); });
+  }
   return b;
 }
 
@@ -540,6 +592,10 @@ function render() {
 // ---------------------------------------------------------------------------------------------
 function tick(now, token) {
   if (!running || token !== runToken) return;   // a frame left over from the previous tour
+  // IS THE LOBBY STILL THE SCREEN? Checked before anything is measured, advanced or drawn, and every
+  // frame rather than once: there is no "the screen changed" event to subscribe to, and a stale frame
+  // of this tour is a full-viewport tap-catcher sitting on top of a live match.
+  if (!onHub()) { abandon(inMatch() ? 'a match started under the tour' : 'the hub is no longer the visible screen'); return; }
   requestAnimationFrame((t) => tick(t, token));
   const dt = Math.min(0.25, Math.max(0, (now - prevT) / 1000));
   prevT = now;
@@ -558,16 +614,19 @@ function tick(now, token) {
   render();
 }
 
-function finish(skipped) {
+// THE TEARDOWN, with nothing in it about WHY. There are three ways out of this tour — finished,
+// skipped, and abandoned because the hub stopped being the screen — and every one of them has to undo
+// all of this. Sharing one function is the point: the abandon path was missing entirely, and the way a
+// missing exit shows up is a lesson left painted over a live match.
+function teardown() {
   running = false;
+  runToken += 1;                    // retire the frame the last tick already queued
   // Put the loadout and the hero back exactly as they were, and lower the sandbox flag. Done FIRST,
   // before any of the visual teardown, so a throw further down cannot leave the player sandboxed with
-  // a lesson's loadout in memory.
+  // a lesson's loadout in memory. (That flag also silences every later loadout/cosmetic write, so a
+  // leaked one is not cosmetic — it is a session that quietly stops saving.)
   prefs()?.end();
   prefs()?.thawCarousel();          // the lobby's own idle animation resumes
-  // Skipping is not finishing. Both stop the auto-launch coming back tomorrow, but only one of them
-  // means the kid was actually shown the screen.
-  mark(skipped ? SKIP_KEY : DONE_KEY);
   // EVERY class comes off, not just the gate. `ht-tour` carries this tour's own restyling of the
   // shipped coach — the caption moved to the bottom on a plate, smaller text, pips reordered above it —
   // and leaving it on the body meant the PITCH tutorial that follows inherited all of it: its caption,
@@ -576,11 +635,38 @@ function finish(skipped) {
   document.body.classList.remove('hub-tu-gate', 'ht-inert', 'ht-tour', 'ht-read', 'ht-lab', 'ht-demo', 'ht-cap-bottom');
   demoing = false;
   clearMarks();
-  nextCatcher(false);
+  nextCatcher(false);               // removes the full-viewport tap-catcher AND «הבא ›»
   $('.ht-scrim')?.remove();          // the lobby goes back to full brightness
   handAnim?.cancel(); handAnim = null;
+  handKey = '';
   tuEl.classList.add('hidden');
+  coachRestore();                    // #tutorial goes home to #game
   $('#tu-hub-skip')?.classList.add('hidden');
+}
+
+// THE HUB WENT AWAY MID-LESSON. A match can start under this tour without the player touching the
+// gated hub at all — a matchmade quick game, a friend's challenge accepted, a party room going live,
+// the app shell — and nothing in this file can stop that happening. The only correct response is to
+// leave the screen completely and leave nothing behind.
+//
+// Marked NEITHER done NOR skipped, deliberately: the kid was interrupted, so they were neither taught
+// nor asked, and the two keys already encode exactly that distinction. The tour is offered again on
+// the next launch.
+function abandon(why) {
+  if (!running) return;
+  console.info(`[hub-tour] ${why} — abandoning the lesson and clearing the screen`);
+  teardown();
+  // client.js's pitch hand-off is meaningless from inside a match (its own tuMaybeAutoStart() refuses
+  // to run off the hub), and firing it here would be one more thing happening during a kickoff. Its
+  // next connect calls it again anyway.
+  resumeAfter = null;
+}
+
+function finish(skipped) {
+  teardown();
+  // Skipping is not finishing. Both stop the auto-launch coming back tomorrow, but only one of them
+  // means the kid was actually shown the screen.
+  mark(skipped ? SKIP_KEY : DONE_KEY);
   // Hand the floor back: client.js resumes its own auto-start, which is where the pitch tutorial
   // begins. A skip gets the same call — a kid who waved the lobby away still gets taught to play.
   const resume = resumeAfter; resumeAfter = null;
@@ -625,6 +711,10 @@ function finish(skipped) {
 }
 
 function start(which, restart) {
+  // NOT OFF THE LOBBY. The auto-launch waits for hubReady(), but start() is also the public
+  // `HubTour.start()` and the ⚙ → ? replay, and neither of those can be allowed to raise a lobby
+  // lesson over a match: every element it creates lives on <body>, out of reach of the screen switch.
+  if (!onHub()) { console.warn('[hub-tour] refusing to start — the hub is not the visible screen'); return; }
   tour = TOURS[which] ? which : 'full';
   // NOTHING IS SAVED. This raises client.js's `tuHub` sandbox flag and snapshots the loadout + hero, so
   // setSlotCard / swapSlots / saveLoadout / saveCosmetic all stop short of localStorage and of
@@ -731,6 +821,15 @@ function begin(onDone) {
 let waiting = false;
 let readyAt = 0;        // tick the furniture first appeared, so the card grace is measured from there
 function waitForHub(tries) {
+  // A MATCH BEAT US TO IT. Polling on for the remaining ten seconds would mean the lesson opening on
+  // the hub the moment a half-time or a goal celebration happened to show it. Give the floor straight
+  // back instead, unmarked, so the next launch offers it again.
+  if (inMatch()) {
+    waiting = false;
+    console.info('[hub-tour] a match started before the hub was ready — not teaching now');
+    const resume = resumeAfter; resumeAfter = null; resume?.();
+    return;
+  }
   if (hubReady()) {
     if (!readyAt) readyAt = tries;
     // Wait a little longer for the carousel, but only a little — see CARD_GRACE_TICKS.
@@ -802,6 +901,20 @@ document.addEventListener('pointerup', (e) => {
     if (running && STEPS[step]?.id === 'hero' && !STEPS[step].done()) wrongDrop = true;
   }, 250);
 }, true);
+
+// ONE THING CAN OUTLIVE THE LESSON THE TICK CANNOT SEE: the replay's finish panel. `.ht-done` is
+// position:fixed/inset:0 at z-index 42 with its own buttons, and it is shown AFTER the machine has
+// stopped — so the per-frame check in tick() is no longer running to notice a match arriving under it.
+// #game's class attribute is the signal, and it is the very attribute showScreen() writes; watching it
+// costs nothing and needs no cooperation from client.js. Abandoning here as well as in tick() is
+// deliberate: this fires the instant the screen changes rather than on the next frame, and abandon()
+// is a no-op when the tour is not running.
+const screenWatch = new MutationObserver(() => {
+  if (onHub()) return;
+  if (running) abandon(inMatch() ? 'a match started under the tour' : 'the hub is no longer the visible screen');
+  doneEl?.classList.add('hidden');
+});
+for (const el of [$('#game'), $('#home')]) if (el) screenWatch.observe(el, { attributes: true, attributeFilter: ['class'] });
 
 // ---- the lobby's ? button --------------------------------------------------------------------
 // Replayable forever, and it does NOT hand the floor back to the pitch tutorial the way the first-run
