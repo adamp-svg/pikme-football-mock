@@ -139,9 +139,9 @@
   };
 
   const cleanBannerText = (value) => {
-    const src = String(value == null ? 'שחקו יחד' : value).trim().slice(0, 12);
+    const src = String(value == null ? 'סולטיז' : value).trim().slice(0, 12);
     const chars = [...src].filter((ch) => GLYPHS[ch]);
-    return chars.length ? chars.join('') : 'שחקו יחד';
+    return chars.length ? chars.join('') : 'סולטיז';
   };
 
   const bannerCache = new Map();
@@ -344,7 +344,7 @@
       for (let i = 0; i < 3; i++) {
         const balloon = s.balloons[i % s.balloons.length];
         const span = w + 140;
-        const bx = x - 70 + mod(88 + i * 241 + t * (0.45 + i * 0.16) * MOTION - camX * 0.026, span);
+        const bx = x - 70 + mod(88 + i * 241 + t * (0.45 + i * 0.16) * MOTION - camX * 0.005, span);
         const seed = 0.05 + hash(i + 31, sideSeed + 9) * 0.22;
         const by = y + bandY(side, h, balloon.height, seed, quiet);
         ctx.globalAlpha = 0.82;
@@ -358,7 +358,7 @@
       const airAd = makeAirAd(options.bannerText);
       const span = w + airAd.width + 110;
       // Phase it on-screen at t=0 so a static lab/screenshot shows the hero asset immediately.
-      const bx = x - airAd.width - 55 + mod(260 + t * 4.2 * MOTION - camX * 0.045, span);
+      const bx = x - airAd.width - 55 + mod(260 + t * 4.2 * MOTION - camX * 0.003, span);
       const by = y + bandY(side, h, airAd.height, 0.06, Math.min(quiet, 12));
       ctx.globalAlpha = 0.90;
       ctx.drawImage(airAd, Math.round(bx), Math.round(by));
@@ -377,11 +377,20 @@
       cloudDrift: '3.25–8.50 art px/s (0.65–1.70 x MOTION 5)',
       smallBalloonDrift: '2.25–3.85 art px/s (x MOTION 5)',
       airAdDrift: '21 art px/s (4.2 x MOTION 5)',
+      // PARALLAX IS A DEPTH CUE, so it has to fall monotonically with distance: nearest moves most,
+      // furthest moves least. As first built it ran the other way — the balloons (0.026) and the ad
+      // blimp (0.045) were the fastest-parallaxing things in the band while the module's own note puts
+      // them in "the distant outer sky", and the cloud bank hugging the touchline moved least. Measured
+      // on the lab page, the blimp shifted 89px against a 2000px camera pan and the clouds barely 5,
+      // which reads as the sky being pinned to the pitch and the far sky sliding — the inversion the
+      // user spotted. Order is now near clouds 0.018 > far clouds 0.008 > balloons 0.005 > blimp 0.003.
+      // Self-drift is deliberately NOT touched: a blimp under its own power may cross faster than the
+      // clouds it flies behind, and that reads as an aircraft rather than as depth.
       farCloudParallax: 0.008,
       nearCloudParallax: 0.018,
       topApproachPush: 0.55,
-      smallBalloonParallax: 0.026,
-      airAdParallax: 0.045,
+      smallBalloonParallax: 0.005,
+      airAdParallax: 0.003,
     }),
     reducedMotion: () => reduced,
   });

@@ -6391,6 +6391,9 @@ function drawSkyBands() {
   // flat in the sky's own base tone: the mask still holds (which is what fairness needs) and no phone
   // pays for scenery it cannot see.
   const SLIVER = 4;
+  // The blimp's advertising banner. Passed from here rather than left to sky-band.js's default: the
+  // module is generic scenery and the brand belongs to the game.
+  const SKY_BANNER = 'סולטיז';
   const flat = (window.SkyBand.palette && window.SkyBand.palette.sky1) || '#18385f';
   const pitchTopArt = -camY + viewOffY;                       // ART y of world y = 0
   const pitchBotArt = FIELD.H * scale - camY + viewOffY;      // ART y of world y = FIELD.H
@@ -6403,7 +6406,7 @@ function drawSkyBands() {
   if (topSkyFrom < bandY) {
     const r = { x: 0, y: topSkyFrom, w: wbW, h: bandY - topSkyFrom };
     if (r.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(r.x, r.y, r.w, r.h); }
-    else SkyBand.draw(wbCtx, r, { camX, t, side: 'top', edgeApproach: approach(pitchTopArt) });
+    else SkyBand.draw(wbCtx, r, { camX, t, bannerText: SKY_BANNER, side: 'top', edgeApproach: approach(pitchTopArt) });
   }
   // BOTTOM: mirrored — sky from the window's lower edge down to the pitch's bottom edge.
   const winBot = bandY + playH;
@@ -6411,7 +6414,7 @@ function drawSkyBands() {
   if (botSkyTo > winBot) {
     const r = { x: 0, y: winBot, w: wbW, h: botSkyTo - winBot };
     if (r.h < SLIVER) { wbCtx.fillStyle = flat; wbCtx.fillRect(r.x, r.y, r.w, r.h); }
-    else SkyBand.draw(wbCtx, r, { camX, t, side: 'bottom', edgeApproach: approach(wbH - pitchBotArt) });
+    else SkyBand.draw(wbCtx, r, { camX, t, bannerText: SKY_BANNER, side: 'bottom', edgeApproach: approach(wbH - pitchBotArt) });
   }
 }
 
