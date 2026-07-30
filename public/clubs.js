@@ -371,7 +371,14 @@
   }
 
   window.addEventListener('DOMContentLoaded', async () => {
-    await refresh()
+    // THE GATE, client half. The clubs API 404s off-LAN (see clubs/devapi.mjs), so on prod this
+    // bails before touching the DOM: the «בקרוב» stub in index.html stays exactly as it is today and
+    // the rank page's scoped block stays hidden. Never render this feature against fake seeded data
+    // for real players.
+    state.me = await api('/me').catch(() => null)
+    if (!state.me || state.me.error || !state.me.me) return
+    document.getElementById('scope-wrap')?.classList.remove('hidden')
+    render()
     watch('clubs', () => { state.view = 'home'; refresh() })
     watch('rank', renderBoard)
     // client.js stamps the friend's id on the modal (one line there); we fill the rest.

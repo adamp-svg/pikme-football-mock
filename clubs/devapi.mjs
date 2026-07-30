@@ -249,8 +249,23 @@ const readBody = (req) => new Promise((resolve) => {
   req.on('end', () => { try { resolve(JSON.parse(b || '{}')) } catch { resolve({}) } })
 })
 
+// ⚠️ THE GATE. This module has NO AUTH — every caller is the same hardcoded demo user (`ME`), the
+// world is seeded fake players, and `_reset` would let anyone wipe it. On prod that is a live
+// feature made of lies plus an open write endpoint, so the whole surface is refused off-LAN.
+//
+// It matters more here than in most repos: CLAUDE.md records that a commit in football-mock typically
+// reaches prod within the hour whether or not the agent who wrote it pushes (117 pushes in 8 days) —
+// **the decision point is the COMMIT, not the push.** Committing this ungated was the mistake; the
+// gate is what makes it safe to sit on main.
+//
+// Reachable from: localhost, 127.0.0.1, ::1, and private LAN ranges (Adam tests on 10.100.102.x from
+// his phone). Everything else gets 404 — the same answer as before this feature existed.
+const DEV_HOST = /^(localhost|127\.0\.0\.1|\[?::1\]?|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/
+export const isDevHost = (host) => DEV_HOST.test(String(host || ''))
+
 export function handleClubsApi(req, res, urlPath) {
   if (!urlPath.startsWith('/api/clubs')) return false
+  if (!isDevHost(req.headers.host)) { res.writeHead(404); res.end('not found'); return true }
   const q = new URL(req.url, 'http://x').searchParams
   const me = byId.get(ME)
 

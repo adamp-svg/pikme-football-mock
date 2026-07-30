@@ -348,9 +348,24 @@
       <div class="subpage-head">
         <h2>מועדונים</h2>
       </div>
-      <!-- Rendered by /clubs.js. Create / find / my-club are three views of this one body; the
-           city-school-class strip underneath is DERIVED from the app profile and is not leaveable. -->
-      <div class="subpage-body"></div>
+      <!-- The «בקרוב» stub below is what PROD shows, unchanged. /clubs.js replaces this whole body
+           with the real clubs UI only on a dev host (localhost / LAN) — the clubs API is seeded,
+           unauthenticated and 404s off-LAN, so prod must keep the stub rather than render a feature
+           made of fake players. See the gate note in clubs/devapi.mjs. -->
+      <div class="subpage-body">
+        <div class="club-hero">
+          <span class="club-hero-ic">🏰</span>
+          <b>הצטרפו למועדון</b>
+          <small>שחקו יחד · צ׳אטו · התחרו בליגת מועדונים</small>
+        </div>
+        <button class="club-cta lock"><span class="club-cta-ic">➕</span><b>צור מועדון</b><span class="soon-pill">בקרוב</span></button>
+        <button class="club-cta lock"><span class="club-cta-ic">🔎</span><b>חפש מועדון</b><span class="soon-pill">בקרוב</span></button>
+        <div class="club-feats">
+          <div class="club-feat lock"><span class="club-feat-ic">💬</span><div class="club-feat-tx"><b>צ׳אט מועדון</b><small>תיאום משחקים ושיחה</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="club-feat lock"><span class="club-feat-ic">🏆</span><div class="club-feat-tx"><b>ליגת מועדונים</b><small>עונה תחרותית של שבועיים</small></div><span class="soon-pill">בקרוב</span></div>
+          <div class="club-feat lock"><span class="club-feat-ic">👑</span><div class="club-feat-tx"><b>תפקידים</b><small>נשיא · סגן · בכיר · חבר</small></div><span class="soon-pill">בקרוב</span></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -381,9 +396,13 @@
         <div class="rank-subnote">מתקדמים תת־דרגה בכל עלייה ברמה: ברונזה 1 → ברונזה 2 → … → ברונזה 4 → כסף 1</div>
 
         <!-- Scoped boards: my city / school / class / club measured against their own kind, scored by
-             top-K national placement so headcount alone never wins. Filled by /clubs.js. -->
-        <div class="rank-section"><b>הדירוג שלנו</b><span class="rank-sec-hint">עיר · בית ספר · כיתה · מועדון</span></div>
-        <div id="scope-board"></div>
+             top-K national placement so headcount alone never wins. Filled by /clubs.js, and HIDDEN
+             until it confirms the clubs API is reachable — on prod that API 404s, and a heading with
+             nothing under it is worse than no heading. -->
+        <div id="scope-wrap" class="hidden">
+          <div class="rank-section"><b>הדירוג שלנו</b><span class="rank-sec-hint">עיר · בית ספר · כיתה · מועדון</span></div>
+          <div id="scope-board"></div>
+        </div>
 
         <div class="rank-note lock"><b>פרסי עונה</b><span class="soon-pill">בקרוב</span></div>
       </div>
