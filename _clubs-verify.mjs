@@ -83,6 +83,10 @@ const evalJs = async (expr) => {
   return r?.result?.value
 }
 
+// Re-seed the prototype world first. This suite creates a club, joins, leaves and unfriends, so a
+// second run against a still-warm server used to start dirty and report leftovers as failures.
+await fetch(`http://localhost:${PORT}/api/clubs/_reset`, { method: 'POST' }).catch(() => {})
+
 await send('Runtime.enable')
 await send('Page.enable')
 await send('Page.navigate', { url: PAGE })
@@ -138,6 +142,28 @@ check(await evalJs(`document.querySelectorAll('#player-card .myscope').length ==
 check(await evalJs(`document.querySelectorAll('#player-card .myscope.hidden-scope').length === 2`),
   'PRIVACY: a non-friend’s school and class read «רק לחברים», not the real values')
 await shot('09-player-card')
+await evalJs(`document.getElementById('player-card').classList.add('hidden'); 'ok'`)
+
+console.log("\nPLAYER CARD — a FRIEND's card is the friend card (remove, and real school/class)")
+// u4 is seeded as an accepted friend of the caller.
+await evalJs(`window.openPlayerCard('u4'); 'ok'`)
+await waitFor(`!!document.querySelector('#player-card .pc-friend')`)
+check(await evalJs(`!!document.querySelector('#player-card .pc-friend')`), 'the card marks them «✓ חבר שלכם»')
+check(await evalJs(`!!document.querySelector('#player-card .pc-remove')`), 'a friend gets «הסר חבר»')
+check(await evalJs(`!document.querySelector('#player-card .club-go[disabled]')`), 'no dead «בקשה נשלחה» button on a friend')
+check(await evalJs(`document.querySelectorAll('#player-card .myscope.hidden-scope').length === 0`),
+  "a friend's school and class show their real values, not «רק לחברים»")
+await shot('11-player-card-friend')
+
+console.log('PLAYER CARD — removing flips it back to «הוסף כחבר»')
+await evalJs(`(() => { window.confirm = () => true; document.querySelector('#player-card .pc-remove').click(); return 'ok' })()`)
+await waitFor(`!document.querySelector('#player-card .pc-remove')`)
+check(await evalJs(`!document.querySelector('#player-card .pc-remove')`), 'the remove button is gone')
+check(await evalJs(`/הוסף כחבר/.test(document.querySelector('#player-card .club-go')?.textContent || '')`),
+  'and the card offers «➕ הוסף כחבר» again')
+check(await evalJs(`document.querySelectorAll('#player-card .myscope.hidden-scope').length === 2`),
+  'school and class go back to «רק לחברים» the moment the friendship ends')
+await shot('12-player-card-unfriended')
 await evalJs(`document.getElementById('player-card').classList.add('hidden'); 'ok'`)
 
 console.log('\nCLUBS — leave, and the landing takes over')

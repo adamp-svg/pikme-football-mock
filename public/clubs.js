@@ -240,6 +240,7 @@
     if (p.error) { modal.classList.add('hidden'); return }
     const box = el('div', 'pc')
     box.append(el('div', 'pc-head', `<b>${esc(p.nickName)}</b>
+      ${p.friend ? '<span class="pc-friend">✓ חבר שלכם</span>' : ''}
       <small>${num(p.trophies)} 🏆 · ${num(p.xp)} XP</small>`))
 
     // The two national placements Adam asked for, side by side.
@@ -260,7 +261,24 @@
     box.append(strip)
     if (p.club) box.append(el('div', 'scope-note', `${ROLE_HE[p.club.role] || 'חבר'} · ${p.club.count}/30 חברים`))
 
-    if (!p.friend) {
+    // One card, two states. A friend gets the friend actions — the same gesture the friends list
+    // offers, so tapping a name in a club or in a match lands somewhere that behaves identically.
+    if (p.friend) {
+      // NO message button here, deliberately. client.js's openThread(f) gates on canMessage(f) against
+      // the real FRIENDS list, so handing it a synthetic {userId, nickName} silently no-ops — a button
+      // that looks live and does nothing. Messaging belongs on this card only once the card is fed by
+      // the real friends list (i.e. when this API moves into pikme-server), not before.
+      const rm = el('button', 'pc-remove', 'הסר חבר')
+      rm.onclick = async () => {
+        // Confirm first: unfriending is not undoable, the other side has to re-accept. Same rule as
+        // client.js removeFriend().
+        if (!confirm(`להסיר את ${p.nickName} מרשימת החברים?`)) return
+        rm.disabled = true; rm.textContent = 'מסיר…'
+        await post('/friend-remove', { userId: p.id })
+        openPlayerCard(p.id)   // re-render: the card flips back to «הוסף כחבר»
+      }
+      box.append(rm)
+    } else {
       const add = el('button', 'club-go', p.friendPending ? 'בקשה נשלחה' : '➕ הוסף כחבר')
       add.disabled = !!p.friendPending
       add.onclick = async () => { await post('/friend-request', { userId: p.id }); add.textContent = 'בקשה נשלחה'; add.disabled = true }

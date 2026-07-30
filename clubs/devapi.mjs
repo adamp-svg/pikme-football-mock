@@ -134,7 +134,15 @@ function seedClubs() {
     near.forEach((p, i) => { p.clubId = club.id; club.members.push({ id: p.id, role: RANKS[i] || 'member' }) })
   }
 }
-seedClubs()
+// One accepted friendship out of the gate, so the friend-only half of every surface (remove button,
+// real school/class instead of «רק לחברים») is reachable without first walking a request flow.
+function seedAll() {
+  clubs.clear(); joinRequests.clear(); friendRequests.clear(); clubSeq = 0
+  for (const p of players) p.clubId = null
+  seedClubs()
+  friendRequests.set('u1->u4', 'accepted')
+}
+seedAll()
 
 const memberIdsOf = (club) => club.members.map((m) => m.id)
 const roleOf = (club, userId) => club.members.find((m) => m.id === userId)?.role || null
@@ -246,6 +254,15 @@ export function handleClubsApi(req, res, urlPath) {
   const q = new URL(req.url, 'http://x').searchParams
   const me = byId.get(ME)
 
+  // Re-seed. The harness walks create / join / leave / unfriend, all of which mutate this in-memory
+  // world, so a second run against a warm server started dirty and reported failures that were really
+  // leftovers from the previous run. The suite calls this first; nothing in the UI does.
+  if (req.method === 'POST' && urlPath === '/api/clubs/_reset') {
+    seedAll()
+    json(res, 200, { ok: true })
+    return true
+  }
+
   if (urlPath === '/api/clubs/me') {
     const club = me.clubId ? clubs.get(me.clubId) : null
     const myRole = club ? roleOf(club, me.id) : null
@@ -290,6 +307,18 @@ export function handleClubsApi(req, res, urlPath) {
         return json(res, 200, { ok: true, mutual: true })
       }
       friendRequests.set(`${me.id}->${to}`, 'pending')
+      json(res, 200, { ok: true })
+    })
+    return true
+  }
+
+  // Unfriend — drops the edge in BOTH directions, like pikme-server's DELETE /handle-friends/:id.
+  // Also clears a still-pending request, so «הסר» always leaves you at a clean «הוסף».
+  if (req.method === 'POST' && urlPath === '/api/clubs/friend-remove') {
+    readBody(req).then((body) => {
+      const to = String(body.userId || '')
+      friendRequests.delete(`${me.id}->${to}`)
+      friendRequests.delete(`${to}->${me.id}`)
       json(res, 200, { ok: true })
     })
     return true

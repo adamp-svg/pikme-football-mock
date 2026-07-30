@@ -178,3 +178,15 @@
 .fp-clubs, .pf-clubs { width: 100%; display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
 .pf-clubs .myscopes, .fp-clubs .myscopes { max-width: none; }
 .pf-clubs .myscope b, .fp-clubs .myscope b { font-size: 10px; }
+
+/* the card's friend state: a badge in the head, and the destructive action styled as destructive */
+.pc-friend {
+  display: inline-block; margin: 3px 0; padding: 3px 10px; border-radius: 999px;
+  background: #24401f; border: 1px solid #46c05a; color: #8fe39a; font: 800 11px Arial;
+}
+.pc-remove {
+  width: 100%; padding: 11px; border-radius: 12px; border: 2px solid #6b2f2f;
+  background: #2a1616; color: #ff8f7a; font: 900 14px "Arial Black", sans-serif; cursor: pointer;
+}
+.pc-remove:active { transform: translateY(2px); }
+.pc-remove[disabled] { opacity: .6; cursor: not-allowed; }
