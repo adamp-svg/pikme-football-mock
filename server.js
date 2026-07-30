@@ -31,6 +31,7 @@ import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN
 import { verifyFootballToken } from './shared/football-auth.js';
 import { opponentKeyFor } from './shared/opponent-key.js';
 import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, botSideScalar, botLoadoutForLevel } from './shared/bot-buffs.js';
+import { handleClubsApi } from './clubs/devapi.mjs';
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot, botLevelFromXp } from './shared/difficulty.js';
@@ -87,6 +88,8 @@ function proxyProgress(req, res) {
 const server = http.createServer((req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
   if (urlPath === '/dev/progress') return proxyProgress(req, res);
+  // Clubs + scoped ranking (prototype surface — see clubs/devapi.mjs; the real one lives in pikme-server).
+  if (urlPath.startsWith('/api/clubs') && handleClubsApi(req, res, urlPath)) return;
   if (urlPath === '/') urlPath = '/public/index.html';
   if (!urlPath.startsWith('/shared/') && !urlPath.startsWith('/public/')) {
     urlPath = '/public' + urlPath;

@@ -1,0 +1,133 @@
+/* Clubs + scoped ranking. Rides the existing .subpage / .subpage-body layout and the club-* palette
+   already in style.css — this file only adds what the stub had no styles for. */
+
+/* The rank page mounts the board into a bare <div id="scope-board">, which is a flex CHILD of
+   .subpage-body. Without an explicit width it sizes to its widest content — the scrollable metric
+   strip — and on a 402pt phone that pushed the whole board past the viewport, clipping the rank
+   number and the score off the (RTL) left edge. Constrain it here, and give the strip min-width:0
+   so `overflow-x:auto` actually scrolls instead of stretching the parent. */
+#scope-board {
+  width: 100%; max-width: 460px; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+#scope-board > * { min-width: 0; }
+
+/* ── metric switcher: the pressable row that swaps xp / גביעים / שערים / נצחונות / קלפים ───────── */
+.scope-metrics {
+  width: 100%; max-width: 460px; display: flex; gap: 6px; overflow-x: auto;
+  padding-bottom: 2px; scrollbar-width: none;
+}
+.scope-metrics::-webkit-scrollbar { display: none; }
+.metric-pill {
+  flex: 0 0 auto; padding: 7px 13px; border-radius: 999px; border: 2px solid #2c3a2b;
+  background: #1b241a; color: #9fb39a; font: 800 13px "Arial Black", sans-serif;
+  white-space: nowrap; cursor: pointer; transition: transform .06s;
+}
+.metric-pill:active { transform: translateY(2px); }
+.metric-pill.on { background: #ffd447; border-color: #ffe98a; color: #23281f; box-shadow: 0 3px 0 #a8792a; }
+
+/* ── scope tabs: עיר / בית ספר / כיתה / מועדון ─────────────────────────────────────────────────── */
+.scope-tabs { width: 100%; max-width: 460px; display: flex; gap: 6px; }
+.scope-tab {
+  flex: 1; padding: 9px 4px; border-radius: 10px; border: 2px solid #2c3a2b; background: #1b241a;
+  color: #9fb39a; font: 900 13px "Arial Black", sans-serif; cursor: pointer; text-align: center;
+}
+.scope-tab:active { transform: translateY(2px); }
+.scope-tab.on { background: #2f4a2c; border-color: #6fdc6f; color: #fff4ca; }
+
+/* ── a ranked scope row ────────────────────────────────────────────────────────────────────────── */
+.scope-list { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 6px; }
+.scope-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 12px;
+  background: #1b241a; border: 2px solid #2c3a2b;
+}
+.scope-row.mine { border-color: #ffd447; background: #262f1c; }
+.scope-row .pos {
+  min-width: 30px; text-align: center; font: 900 16px "Arial Black", sans-serif; color: #ffd447;
+}
+.scope-row.top1 .pos { color: #ffe98a; }
+.scope-row .em { font-size: 21px; line-height: 1; }
+.scope-row .nm { flex: 1; min-width: 0; }
+.scope-row .nm b {
+  display: block; font: 800 15px/1.15 "Arial", sans-serif; color: #fff4ca;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scope-row .nm small { color: #8ea08a; font-size: 11px; }
+.scope-row .sc { text-align: center; font: 900 17px "Arial Black", sans-serif; color: #cfe6c8; }
+.scope-row .sc small { display: block; font: 700 9px Arial, sans-serif; color: #7f9179; letter-spacing: .5px; }
+
+.scope-note {
+  width: 100%; max-width: 460px; color: #8ea08a; font-size: 11.5px; line-height: 1.45;
+  text-align: center; padding: 0 6px;
+}
+
+/* ── my scopes strip on the rank page ──────────────────────────────────────────────────────────── */
+.myscopes { width: 100%; max-width: 460px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.myscope {
+  padding: 8px 4px; border-radius: 10px; background: #1b241a; border: 2px solid #2c3a2b; text-align: center;
+}
+.myscope .em { font-size: 18px; }
+.myscope b { display: block; font: 900 11px "Arial Black", sans-serif; color: #fff4ca; margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.myscope small { display: block; color: #8ea08a; font-size: 10px; }
+.myscope.locked { opacity: .55; }
+
+/* ── club: my club view ────────────────────────────────────────────────────────────────────────── */
+.club-card {
+  width: 100%; max-width: 460px; display: flex; align-items: center; gap: 12px; padding: 13px;
+  border-radius: 14px; background: linear-gradient(180deg, #2b3a28, #1b241a); border: 2px solid #3f5a3b;
+}
+.club-card .em { font-size: 34px; }
+.club-card .nm { flex: 1; min-width: 0; }
+.club-card .nm b { display: block; font: 900 19px "Arial Black", sans-serif; color: #fff4ca; }
+.club-card .nm small { color: #9fb39a; font-size: 12px; }
+.club-count { font: 900 15px "Arial Black", sans-serif; color: #ffd447; }
+.club-count small { display: block; font: 700 9px Arial; color: #7f9179; }
+
+.member-list { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 4px; }
+.member {
+  display: flex; align-items: center; gap: 9px; padding: 7px 11px; border-radius: 10px;
+  background: #1b241a; border: 1px solid #2c3a2b;
+}
+.member .pos { min-width: 22px; color: #7f9179; font: 800 12px Arial; }
+.member b { flex: 1; font: 700 14px Arial; color: #e7f2e2; }
+.member .xp { color: #9fb39a; font: 800 12px Arial; }
+.member .crown { font-size: 13px; }
+
+/* ── create / find ─────────────────────────────────────────────────────────────────────────────── */
+.club-form { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
+.club-input {
+  width: 100%; padding: 12px 14px; border-radius: 12px; border: 2px solid #3f5a3b; background: #131a12;
+  color: #fff4ca; font: 800 16px Arial; text-align: right; direction: rtl;
+}
+.club-input:focus { outline: none; border-color: #6fdc6f; }
+.emblem-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.emblem-pick {
+  width: 40px; height: 40px; border-radius: 10px; border: 2px solid #2c3a2b; background: #1b241a;
+  font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.emblem-pick.on { border-color: #ffd447; background: #2f4a2c; }
+.club-go {
+  width: 100%; padding: 13px; border-radius: 12px; border: none; background: #46c05a;
+  color: #08210c; font: 900 17px "Arial Black", sans-serif; cursor: pointer; box-shadow: 0 4px 0 #2b7a38;
+}
+.club-go:active { transform: translateY(3px); box-shadow: 0 1px 0 #2b7a38; }
+.club-go[disabled] { opacity: .5; box-shadow: none; cursor: not-allowed; }
+.club-ghost {
+  width: 100%; max-width: 460px; padding: 10px; border-radius: 12px; border: 2px solid #3f5a3b;
+  background: transparent; color: #9fb39a; font: 800 14px Arial; cursor: pointer;
+}
+.club-find-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px;
+  background: #1b241a; border: 2px solid #2c3a2b;
+}
+.club-find-row .em { font-size: 24px; }
+.club-find-row .nm { flex: 1; min-width: 0; }
+.club-find-row .nm b { display: block; font: 800 15px Arial; color: #fff4ca; }
+.club-find-row .nm small { color: #8ea08a; font-size: 11px; }
+.club-join {
+  padding: 7px 15px; border-radius: 999px; border: none; background: #ffd447; color: #23281f;
+  font: 900 13px "Arial Black", sans-serif; cursor: pointer;
+}
+.club-join[disabled] { background: #3a463a; color: #7f9179; cursor: not-allowed; }
+.club-err { color: #ff8f7a; font: 800 13px Arial; text-align: center; min-height: 16px; }

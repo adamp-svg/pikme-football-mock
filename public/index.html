@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="/rank.css" />
   <!-- Loaded last so the sprite pack also replaces legacy CSS pseudo-element emoji. -->
   <link rel="stylesheet" href="/icon-system.css" />
+  <!-- clubs + scoped ranking (see public/clubs.js) -->
+  <link rel="stylesheet" href="/clubs.css" />
   <!-- The lobby tour's own styling: the per-element spotlight the shipped gate cannot express, and
        the read-step furniture. Reuses .tutorial / .tu-hand / .hub-tu-gate from style.css. -->
   <link rel="stylesheet" href="/hub-tour.css" />
@@ -346,20 +348,9 @@
       <div class="subpage-head">
         <h2>מועדונים</h2>
       </div>
-      <div class="subpage-body">
-        <div class="club-hero">
-          <span class="club-hero-ic">🏰</span>
-          <b>הצטרפו למועדון</b>
-          <small>שחקו יחד · צ׳אטו · התחרו בליגת מועדונים</small>
-        </div>
-        <button class="club-cta lock"><span class="club-cta-ic">➕</span><b>צור מועדון</b><span class="soon-pill">בקרוב</span></button>
-        <button class="club-cta lock"><span class="club-cta-ic">🔎</span><b>חפש מועדון</b><span class="soon-pill">בקרוב</span></button>
-        <div class="club-feats">
-          <div class="club-feat lock"><span class="club-feat-ic">💬</span><div class="club-feat-tx"><b>צ׳אט מועדון</b><small>תיאום משחקים ושיחה</small></div><span class="soon-pill">בקרוב</span></div>
-          <div class="club-feat lock"><span class="club-feat-ic">🏆</span><div class="club-feat-tx"><b>ליגת מועדונים</b><small>עונה תחרותית של שבועיים</small></div><span class="soon-pill">בקרוב</span></div>
-          <div class="club-feat lock"><span class="club-feat-ic">👑</span><div class="club-feat-tx"><b>תפקידים</b><small>נשיא · סגן · בכיר · חבר</small></div><span class="soon-pill">בקרוב</span></div>
-        </div>
-      </div>
+      <!-- Rendered by /clubs.js. Create / find / my-club are three views of this one body; the
+           city-school-class strip underneath is DERIVED from the app profile and is not leaveable. -->
+      <div class="subpage-body"></div>
     </div>
   </div>
 
@@ -388,8 +379,13 @@
           <div class="rank-tier t-master"  data-tier="master"><span>🏆</span><b>אלוף</b></div>
         </div>
         <div class="rank-subnote">מתקדמים תת־דרגה בכל עלייה ברמה: ברונזה 1 → ברונזה 2 → … → ברונזה 4 → כסף 1</div>
+
+        <!-- Scoped boards: my city / school / class / club measured against their own kind, scored by
+             top-K national placement so headcount alone never wins. Filled by /clubs.js. -->
+        <div class="rank-section"><b>הדירוג שלנו</b><span class="rank-sec-hint">עיר · בית ספר · כיתה · מועדון</span></div>
+        <div id="scope-board"></div>
+
         <div class="rank-note lock"><b>פרסי עונה</b><span class="soon-pill">בקרוב</span></div>
-        <div class="rank-note lock"><b>טבלת מובילים מלאה</b><span class="soon-pill">בקרוב</span></div>
       </div>
     </div>
   </div>
@@ -989,6 +985,7 @@
        deferred, so this classic script runs first and its buttons exist before client.js binds
        [data-home-back]. Below it, the buttons would render and do nothing. -->
   <script src="/back-nav.js"></script>
+  <script src="/clubs.js"></script>
   <script src="/icon-system.js"></script>
   <script type="module" src="/client.js"></script>
   <!-- The lobby tour a brand-new player gets on their first visit to the hub. Self-contained; it is
