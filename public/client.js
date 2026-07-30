@@ -3141,6 +3141,9 @@ function friendCardEl(f) {
 // Compact friend profile modal (#5): hero avatar, top power cards, division + XP/worth/owned.
 function openFriendProfile(f) {
   const modal = document.getElementById('friend-profile-modal'); if (!modal) return;
+  // Whose card this is, for public/clubs.js — it watches this modal and appends the club +
+  // memberships block from the outside so no clubs code has to live in this file.
+  modal.dataset.userId = f.userId || '';
   const pfp = document.getElementById('fp-pfp'); pfp.innerHTML = ''; pfp.style.background = '';
   const img = (f.image || '').toString();
   if (/^https?:\/\//i.test(img)) { const im = document.createElement('img'); im.src = img; im.alt = ''; pfp.appendChild(im); }

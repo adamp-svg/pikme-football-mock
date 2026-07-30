@@ -131,3 +131,50 @@
 }
 .club-join[disabled] { background: #3a463a; color: #7f9179; cursor: not-allowed; }
 .club-err { color: #ff8f7a; font: 800 13px Arial; text-align: center; min-height: 16px; }
+
+/* ── club sections, member roles, add-friend and kick ──────────────────────────────────────────── */
+.club-sec {
+  width: 100%; max-width: 460px; text-align: right; color: #ffd447;
+  font: 900 13px "Arial Black", sans-serif; margin-top: 4px;
+}
+.member.me { border-color: #ffd447; background: #262f1c; }
+.member .role { color: #9fb39a; font: 800 11px Arial; white-space: nowrap; }
+.fr-add, .fr-kick {
+  border: none; border-radius: 999px; cursor: pointer; font: 900 11px "Arial Black", sans-serif;
+  padding: 5px 9px; white-space: nowrap;
+}
+.fr-add { background: #46c05a; color: #08210c; }
+.fr-kick { background: #3a2020; color: #ff8f7a; padding: 5px 8px; }
+.fr-state { color: #7f9179; font: 800 11px Arial; white-space: nowrap; }
+.member-name { cursor: pointer; text-decoration: underline dotted rgba(255,255,255,.25); }
+.club-min { width: 100%; display: flex; align-items: center; gap: 8px; color: #9fb39a; font: 800 13px Arial; }
+.club-min-in { flex: 1; text-align: center; }
+
+/* ── the player card modal (tap any name) ──────────────────────────────────────────────────────── */
+.pc-back {
+  position: fixed; inset: 0; z-index: 60; background: rgba(6,10,6,.72);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.pc {
+  width: 100%; max-width: 380px; max-height: 86vh; overflow-y: auto; direction: rtl;
+  display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 16px;
+  border-radius: 16px; background: linear-gradient(180deg, #26331f, #141c12); border: 2px solid #3f5a3b;
+}
+.pc-load { color: #9fb39a; font: 800 14px Arial; padding: 20px; }
+.pc-head { text-align: center; }
+.pc-head b { display: block; font: 900 21px "Arial Black", sans-serif; color: #fff4ca; }
+.pc-head small { color: #9fb39a; font-size: 12px; }
+.pc-sec { width: 100%; text-align: right; color: #ffd447; font: 900 12px "Arial Black", sans-serif; }
+.pc-ranks { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pc-rank {
+  padding: 9px 6px; border-radius: 10px; background: #1b241a; border: 2px solid #2c3a2b; text-align: center;
+}
+.pc-rank small { display: block; color: #8ea08a; font-size: 10px; }
+.pc-rank b { display: block; font: 900 20px "Arial Black", sans-serif; color: #ffd447; }
+.pc-rank i { color: #7f9179; font: 700 10px Arial; font-style: normal; }
+.myscope.hidden-scope b { color: #7f9179; font-weight: 700; }
+
+/* the blocks injected into the friend modal and the profile side pane */
+.fp-clubs, .pf-clubs { width: 100%; display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+.pf-clubs .myscopes, .fp-clubs .myscopes { max-width: none; }
+.pf-clubs .myscope b, .fp-clubs .myscope b { font-size: 10px; }

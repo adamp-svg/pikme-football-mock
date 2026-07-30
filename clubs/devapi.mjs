@@ -24,6 +24,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const dir = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/data/schools-directory.json'), 'utf8'))
 
 export const MAX_CLUB_MEMBERS = 30
+
+// Club shape follows Brawl Stars, per CLAUDE.md's "research the big games" rule:
+//   • three types — open (instant join if you clear the bar) · invite (request, president approves) ·
+//     closed (nobody new)
+//   • a minimum-TROPHY requirement the president sets, shown on every listing
+//   • a recommended list with a Refresh, plus search by name
+//   • four ranks: president > vice > senior > member. Each rank accepts and kicks strictly BELOW
+//     itself; the president can never be kicked.
+// Sources: supercell support "Creating or Joining a Club", gamerempire clubs guide, mobilematters roles guide.
+export const CLUB_TYPES = ['open', 'invite', 'closed']
+export const ROLES = ['president', 'vice', 'senior', 'member']
+const roleRank = (r) => ROLES.indexOf(r)
+// Can `actor` act on `target`? Strictly-below rule, so a senior can kick a member but never a senior.
+export const canActOn = (actor, target) => roleRank(actor) < roleRank(target)
+export const canAdmit = (role) => roleRank(role) <= roleRank('senior')
+
 export const METRICS = [
   { key: 'xp', labelHe: 'הכי הרבה XP' },
   { key: 'trophies', labelHe: 'הכי הרבה גביעים' },
@@ -94,23 +110,36 @@ const ME = 'u1' // the demo caller
 // Seeded clubs, so "find clubs near me" has something to order.
 let clubSeq = 0
 const clubs = new Map()
-function makeClub(name, ownerId, emblem = '🏰') {
+const friendRequests = new Map() // `${from}->${to}` -> 'pending' | 'accepted'
+const joinRequests = new Map()   // clubId -> Set(userId)
+
+function makeClub(name, ownerId, emblem = '🏰', type = 'open', minTrophies = 0) {
   const id = `c${++clubSeq}`
-  clubs.set(id, { id, name, emblem, ownerId, memberIds: [ownerId], joinPolicy: 'open', createdSeq: clubSeq })
+  clubs.set(id, { id, name, emblem, ownerId, type, minTrophies, members: [{ id: ownerId, role: 'president' }], createdSeq: clubSeq })
   byId.get(ownerId).clubId = id
   return clubs.get(id)
 }
 function seedClubs() {
-  const groups = [['אלופי הצפון', 'u30', '🦁'], ['נבחרת השכונה', 'u3', '⚡'], ['ילדי המדבר', 'u62', '🐪'], ['הכרישים', 'u12', '🦈']]
-  for (const [name, owner, emblem] of groups) if (byId.has(owner)) makeClub(name, owner, emblem)
-  // fill each seeded club with nearby players so overlap ordering has signal
+  const groups = [
+    ['אלופי הצפון', 'u30', '🦁', 'open', 0],
+    ['נבחרת השכונה', 'u3', '⚡', 'open', 0],
+    ['ילדי המדבר', 'u62', '🐪', 'invite', 1200],
+    ['הכרישים', 'u12', '🦈', 'closed', 2400],
+  ]
+  for (const [name, owner, emblem, type, min] of groups) if (byId.has(owner)) makeClub(name, owner, emblem, type, min)
+  const RANKS = ['vice', 'senior', 'member', 'member', 'member']
   for (const club of clubs.values()) {
     const owner = byId.get(club.ownerId)
     const near = players.filter((p) => !p.clubId && p.cityId === owner.cityId).slice(0, 5)
-    for (const p of near) { p.clubId = club.id; club.memberIds.push(p.id) }
+    near.forEach((p, i) => { p.clubId = club.id; club.members.push({ id: p.id, role: RANKS[i] || 'member' }) })
   }
 }
 seedClubs()
+
+const memberIdsOf = (club) => club.members.map((m) => m.id)
+const roleOf = (club, userId) => club.members.find((m) => m.id === userId)?.role || null
+const friendState = (a, b) => friendRequests.get(`${a}->${b}`) || friendRequests.get(`${b}->${a}`) || null
+const areFriends = (a, b) => friendState(a, b) === 'accepted'
 
 // ── scope helpers ─────────────────────────────────────────────────────────────────────────────────
 const scopeKeyOf = (kind) => (p) => {
@@ -120,6 +149,43 @@ const scopeKeyOf = (kind) => (p) => {
     ? `${p.schoolId}|${p.grade}|${p.classNumber}` : null
   if (kind === 'club') return p.clubId
   return null
+}
+
+// A player's own national place on one metric — what the profile shows as "דירוג גביעים / XP".
+function nationalPlaceOf(userId, metric) {
+  const sorted = [...players].sort((a, b) => b[metric] - a[metric])
+  let place = 0, prev = null
+  for (let i = 0; i < sorted.length; i++) {
+    if (prev === null || sorted[i][metric] !== prev) { place = i + 1; prev = sorted[i][metric] }
+    if (sorted[i].id === userId) return { place, of: sorted.length }
+  }
+  return { place: null, of: sorted.length }
+}
+
+// The PUBLIC view of another player — used by the friend card, the in-game name tap and the profile.
+//
+// ⚠️ PRIVACY SPLIT, deliberate. Club and city are public: a club is user-chosen and public by nature
+// (Brawl Stars shows it to everyone), and a city is coarse. School, grade and class are returned ONLY
+// to an accepted friend — "this 12-year-old is in class ז׳3 at this named school" is precisely what
+// the app's frozen profile spec keeps off public rows, and a match puts you next to strangers.
+// To make everything public, delete the `friend` guard below — one line, deliberately easy to find.
+function publicPlayer(viewerId, p) {
+  const friend = viewerId === p.id || areFriends(viewerId, p.id)
+  const club = p.clubId ? clubs.get(p.clubId) : null
+  return {
+    id: p.id,
+    nickName: p.nickName,
+    xp: p.xp, trophies: p.trophies, goals: p.goals, wins: p.wins, cards: p.cards,
+    ranks: { trophies: nationalPlaceOf(p.id, 'trophies'), xp: nationalPlaceOf(p.id, 'xp') },
+    club: club && { id: club.id, name: club.name, emblem: club.emblem, role: roleOf(club, p.id), count: club.members.length },
+    scopes: {
+      city: p.cityId ? { id: p.cityId, label: scopeLabel('city', p.cityId) } : null,
+      school: friend && p.schoolId ? { id: p.schoolId, label: scopeLabel('school', p.schoolId) } : null,
+      class: friend && scopeKeyOf('class')(p) ? { id: scopeKeyOf('class')(p), label: scopeLabel('class', scopeKeyOf('class')(p)) } : null,
+    },
+    friend,
+    friendPending: friendState(viewerId, p.id) === 'pending',
+  }
 }
 function scopeLabel(kind, id) {
   if (kind === 'city') return cityById.get(id)?.nameHe || id
@@ -182,20 +248,49 @@ export function handleClubsApi(req, res, urlPath) {
 
   if (urlPath === '/api/clubs/me') {
     const club = me.clubId ? clubs.get(me.clubId) : null
+    const myRole = club ? roleOf(club, me.id) : null
     json(res, 200, {
       me: { id: me.id, nickName: me.nickName, xp: me.xp, trophies: me.trophies, goals: me.goals, wins: me.wins, cards: me.cards },
       scopes: myScopes(me),
+      ranks: { trophies: nationalPlaceOf(me.id, 'trophies'), xp: nationalPlaceOf(me.id, 'xp') },
       metrics: METRICS,
       maxMembers: MAX_CLUB_MEMBERS,
       k: DEFAULT_K,
       club: club && {
-        id: club.id, name: club.name, emblem: club.emblem, joinPolicy: club.joinPolicy,
-        isPresident: club.ownerId === me.id, count: club.memberIds.length,
-        members: club.memberIds.map((id) => ({
-          id, nickName: byId.get(id).nickName, xp: byId.get(id).xp,
-          role: id === club.ownerId ? 'president' : 'member',
-        })).sort((a, b) => b.xp - a.xp),
+        id: club.id, name: club.name, emblem: club.emblem, type: club.type, minTrophies: club.minTrophies,
+        myRole, canAdmit: canAdmit(myRole), count: club.members.length,
+        pending: canAdmit(myRole) ? [...(joinRequests.get(club.id) || [])].map((id) => ({ id, nickName: byId.get(id)?.nickName, trophies: byId.get(id)?.trophies })) : [],
+        members: club.members.map(({ id, role }) => ({
+          id, nickName: byId.get(id).nickName, xp: byId.get(id).xp, trophies: byId.get(id).trophies, role,
+          isFriend: areFriends(me.id, id), friendPending: friendState(me.id, id) === 'pending', isMe: id === me.id,
+          canKick: canActOn(myRole, role),
+        })).sort((a, b) => b.trophies - a.trophies),
       },
+    })
+    return true
+  }
+
+  // The public card for any player — friend list, in-game name tap, profile page.
+  if (urlPath.startsWith('/api/clubs/player/')) {
+    const p = byId.get(urlPath.split('/').pop())
+    if (!p) return json(res, 404, { error: 'no_player' }), true
+    json(res, 200, publicPlayer(me.id, p))
+    return true
+  }
+
+  if (req.method === 'POST' && urlPath === '/api/clubs/friend-request') {
+    readBody(req).then((body) => {
+      const to = String(body.userId || '')
+      if (!byId.has(to) || to === me.id) return json(res, 400, { error: 'bad_target' })
+      if (areFriends(me.id, to)) return json(res, 409, { error: 'already_friends' })
+      // Mirrors pikme-server /handle-friends/request: a reverse pending request is an ACCEPT, not a
+      // duplicate — otherwise two players who both tap «הוסף» sit in limbo forever.
+      if (friendRequests.get(`${to}->${me.id}`) === 'pending') {
+        friendRequests.set(`${to}->${me.id}`, 'accepted')
+        return json(res, 200, { ok: true, mutual: true })
+      }
+      friendRequests.set(`${me.id}->${to}`, 'pending')
+      json(res, 200, { ok: true })
     })
     return true
   }
@@ -209,16 +304,30 @@ export function handleClubsApi(req, res, urlPath) {
     return true
   }
 
+  // Brawl-Stars-shaped: a RECOMMENDED list you can refresh, or a name search. Every listing carries
+  // the two things that decide whether you can get in — type and the trophy bar.
   if (urlPath === '/api/clubs/find') {
-    const rows = [...clubs.values()].map((c) => {
-      const members = c.memberIds.map((id) => byId.get(id))
-      const overlap = members.reduce((s, p) => s + closeness(me, p), 0)
+    const term = (q.get('q') || '').trim()
+    const seed = Number(q.get('seed') || 0)
+    let rows = [...clubs.values()].map((c) => {
+      const overlap = memberIdsOf(c).reduce((s, id) => s + closeness(me, byId.get(id)), 0)
+      const friendsInside = memberIdsOf(c).filter((id) => areFriends(me.id, id)).length
+      const full = c.members.length >= MAX_CLUB_MEMBERS
+      const meets = me.trophies >= c.minTrophies
       return {
-        id: c.id, name: c.name, emblem: c.emblem, count: c.memberIds.length,
-        full: c.memberIds.length >= MAX_CLUB_MEMBERS, joinPolicy: c.joinPolicy, _o: overlap,
+        id: c.id, name: c.name, emblem: c.emblem, type: c.type, minTrophies: c.minTrophies,
+        count: c.members.length, full, meets, friendsInside,
+        // What tapping the button will actually do, decided server-side so the client never guesses.
+        action: full ? 'full' : c.type === 'closed' ? 'closed' : !meets ? 'locked' : c.type === 'open' ? 'join' : 'request',
+        _o: overlap + friendsInside * 25,
       }
-    }).sort((a, b) => b._o - a._o || a.count - b.count)
-    json(res, 200, { rows: rows.map(({ _o, ...r }) => r) })
+    })
+    if (term) rows = rows.filter((c) => c.name.includes(term))
+    // Recommended = closeness first. Refresh rotates the tail so the list feels alive without
+    // reordering the genuinely-best matches.
+    rows.sort((a, b) => b._o - a._o || a.count - b.count)
+    if (!term && seed) { const head = rows.slice(0, 2), tail = rows.slice(2); for (let i = 0; i < seed % Math.max(1, tail.length); i++) tail.push(tail.shift()); rows = [...head, ...tail] }
+    json(res, 200, { rows: rows.map(({ _o, ...r }) => r), myTrophies: me.trophies, term })
     return true
   }
 
@@ -228,7 +337,10 @@ export function handleClubsApi(req, res, urlPath) {
       .map((p) => ({ p, c: closeness(me, p) }))
       .sort((a, b) => b.c - a.c || b.p.xp - a.p.xp)
       .slice(0, 12)
-      .map(({ p }) => ({ id: p.id, nickName: p.nickName, xp: p.xp }))
+      .map(({ p }) => ({
+        id: p.id, nickName: p.nickName, xp: p.xp, trophies: p.trophies,
+        isFriend: areFriends(me.id, p.id), friendPending: friendState(me.id, p.id) === 'pending',
+      }))
     json(res, 200, { rows })
     return true
   }
@@ -238,7 +350,9 @@ export function handleClubsApi(req, res, urlPath) {
       const name = String(body.name || '').trim()
       if (name.length < 2 || name.length > 20) return json(res, 400, { error: 'bad_name' })
       if (me.clubId) return json(res, 409, { error: 'already_in_club' })
-      const club = makeClub(name, me.id, String(body.emblem || '🏰').slice(0, 4))
+      const type = CLUB_TYPES.includes(body.type) ? body.type : 'open'
+      const min = Math.max(0, Math.min(9999, Number(body.minTrophies) || 0))
+      const club = makeClub(name, me.id, String(body.emblem || '🏰').slice(0, 4), type, min)
       json(res, 200, { ok: true, clubId: club.id })
     })
     return true
@@ -248,10 +362,49 @@ export function handleClubsApi(req, res, urlPath) {
     readBody(req).then((body) => {
       const club = clubs.get(String(body.clubId))
       if (!club) return json(res, 404, { error: 'no_club' })
-      if (club.memberIds.length >= MAX_CLUB_MEMBERS) return json(res, 409, { error: 'club_full' })
+      if (club.members.length >= MAX_CLUB_MEMBERS) return json(res, 409, { error: 'club_full' })
+      if (club.type === 'closed') return json(res, 403, { error: 'closed' })
+      if (me.trophies < club.minTrophies) return json(res, 403, { error: 'below_trophies', need: club.minTrophies })
+      // Open → straight in. Invite-only → a request the president or a senior approves.
+      if (club.type === 'invite') {
+        if (!joinRequests.has(club.id)) joinRequests.set(club.id, new Set())
+        joinRequests.get(club.id).add(me.id)
+        return json(res, 200, { ok: true, requested: true })
+      }
       if (me.clubId) leave(me)
-      club.memberIds.push(me.id)
+      club.members.push({ id: me.id, role: 'member' })
       me.clubId = club.id
+      json(res, 200, { ok: true, joined: true })
+    })
+    return true
+  }
+
+  // President / VP / senior approving a pending request.
+  if (req.method === 'POST' && urlPath === '/api/clubs/admit') {
+    readBody(req).then((body) => {
+      const club = me.clubId ? clubs.get(me.clubId) : null
+      if (!club || !canAdmit(roleOf(club, me.id))) return json(res, 403, { error: 'not_allowed' })
+      const who = String(body.userId || '')
+      if (!joinRequests.get(club.id)?.has(who)) return json(res, 404, { error: 'no_request' })
+      if (club.members.length >= MAX_CLUB_MEMBERS) return json(res, 409, { error: 'club_full' })
+      const p = byId.get(who)
+      if (p.clubId) leave(p)
+      club.members.push({ id: who, role: 'member' })
+      p.clubId = club.id
+      joinRequests.get(club.id).delete(who)
+      json(res, 200, { ok: true })
+    })
+    return true
+  }
+
+  // Kick — strictly below your own rank (Brawl Stars rule); the president can never be kicked.
+  if (req.method === 'POST' && urlPath === '/api/clubs/kick') {
+    readBody(req).then((body) => {
+      const club = me.clubId ? clubs.get(me.clubId) : null
+      if (!club) return json(res, 403, { error: 'not_allowed' })
+      const who = String(body.userId || '')
+      if (!canActOn(roleOf(club, me.id), roleOf(club, who))) return json(res, 403, { error: 'not_allowed' })
+      leave(byId.get(who))
       json(res, 200, { ok: true })
     })
     return true
@@ -267,13 +420,17 @@ export function handleClubsApi(req, res, urlPath) {
   return true
 }
 
-function leave(me) {
-  const club = clubs.get(me.clubId)
-  if (!club) { me.clubId = null; return }
-  club.memberIds = club.memberIds.filter((id) => id !== me.id)
-  me.clubId = null
-  if (club.ownerId === me.id) {
-    if (club.memberIds.length === 0) clubs.delete(club.id)
-    else club.ownerId = club.memberIds[0] // presidency passes down rather than orphaning the club
-  }
+function leave(p) {
+  const club = clubs.get(p.clubId)
+  if (!club) { p.clubId = null; return }
+  const wasPresident = roleOf(club, p.id) === 'president'
+  club.members = club.members.filter((m) => m.id !== p.id)
+  p.clubId = null
+  if (!wasPresident) return
+  // Presidency passes to the most senior remaining member rather than orphaning the club — the same
+  // succession Brawl Stars uses when a president leaves.
+  if (club.members.length === 0) { clubs.delete(club.id); joinRequests.delete(club.id); return }
+  club.members.sort((a, b) => roleRank(a.role) - roleRank(b.role) || byId.get(b.id).trophies - byId.get(a.id).trophies)
+  club.members[0].role = 'president'
+  club.ownerId = club.members[0].id
 }

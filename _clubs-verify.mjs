@@ -17,6 +17,13 @@ const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/M
 let failures = 0
 const check = (cond, msg) => { console.log((cond ? '  ✅ ' : '  ❌ ') + msg); if (!cond) failures++ }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// Poll instead of guessing a sleep. Anything that re-renders here is a debounce plus a fetch, so a
+// fixed wait either races the round trip or pads every run — a 1200ms sleep read the pre-search list
+// and reported a failure against working code.
+async function waitFor(expr, ms = 6000) {
+  for (let i = 0; i < ms / 100; i++) { if (await evalJs(expr)) return true; await sleep(100) }
+  return false
+}
 
 mkdirSync(SHOTS, { recursive: true })
 rmSync(PROFILE, { recursive: true, force: true })
@@ -60,18 +67,27 @@ const send = (method, params = {}) => new Promise((r) => {
   pending.set(id, r)
   ws.send(JSON.stringify({ id, method, params }))
 })
-const evalJs = async (expr) => (await send('Runtime.evaluate',
-  { expression: expr, awaitPromise: true, returnByValue: true })).result?.value
+// Surface exceptions instead of swallowing them. Returning only `.result.value` hides a thrown
+// evaluate as `undefined`, and a falsy `undefined` then reads as an honest test failure. That cost a
+// long debugging round: a `const i = …` declared by one evaluate stayed in the global scope, so a
+// LATER `const i = …` was a redeclaration SyntaxError, the whole snippet never ran, and the search
+// looked broken while it worked fine. Two lessons, both encoded here: never leak a top-level `const`
+// between evaluates (wrap snippets in an IIFE), and never let an evaluate fail quietly.
+const evalJs = async (expr) => {
+  const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true })
+  if (r?.exceptionDetails) {
+    const msg = r.exceptionDetails.exception?.description || r.exceptionDetails.text
+    console.log(`  ⚠️  evaluate threw: ${String(msg).split('\n')[0]}`)
+    failures++
+  }
+  return r?.result?.value
+}
 
 await send('Runtime.enable')
 await send('Page.enable')
 await send('Page.navigate', { url: PAGE })
 await sleep(3500)
 
-// Headless Chrome hands back a STALE frame if nothing has driven the compositor since the last
-// capture — the first run of this script screenshotted the clubs screen three times while the DOM
-// was provably on #rank. Waiting for two real animation frames (and capturing fromSurface) is what
-// makes the PNG match the DOM the assertions just read.
 // Headless Chrome hands back a STALE frame if nothing has driven the compositor since the last
 // capture — the first run of this script screenshotted the clubs screen three times while the DOM
 // was provably on #rank, and two animation frames did not fix it. Nudging the device metrics forces
@@ -104,6 +120,26 @@ check(await evalJs(`document.querySelectorAll('#clubs .myscope').length === 4`),
 check(await evalJs(`document.querySelectorAll('#clubs .myscope.locked').length === 3`), 'city, school and class are marked locked (not leaveable)')
 await shot('02-clubs-my-club')
 
+console.log('\nCLUBS — add a friend straight from the member list')
+check(await evalJs(`document.querySelectorAll('#clubs .member .role').length > 0`), 'members show their rank (נשיא / סגן / בכיר / חבר)')
+check(await evalJs(`!!document.querySelector('#clubs .fr-add')`), 'an add-friend button sits on members you are not friends with')
+await evalJs(`document.querySelector('#clubs .fr-add').click(); 'ok'`)
+await sleep(1100)
+check(await evalJs(`[...document.querySelectorAll('#clubs .fr-state')].some(n => n.textContent.includes('נשלחה'))`),
+  'tapping it sends the request and the row switches to «נשלחה»')
+await shot('08-clubs-add-friend')
+
+console.log('\nPLAYER CARD — tap a name anywhere')
+await evalJs(`document.querySelector('#clubs .member-name').click(); 'ok'`)
+await sleep(1200)
+check(await evalJs(`!document.getElementById('player-card')?.classList.contains('hidden')`), 'tapping a member name opens the player card')
+check(await evalJs(`document.querySelectorAll('#player-card .pc-rank').length === 2`), 'it shows both national placements (גביעים + XP)')
+check(await evalJs(`document.querySelectorAll('#player-card .myscope').length === 4`), 'it shows city / school / class / club')
+check(await evalJs(`document.querySelectorAll('#player-card .myscope.hidden-scope').length === 2`),
+  'PRIVACY: a non-friend’s school and class read «רק לחברים», not the real values')
+await shot('09-player-card')
+await evalJs(`document.getElementById('player-card').classList.add('hidden'); 'ok'`)
+
 console.log('\nCLUBS — leave, and the landing takes over')
 await evalJs(`[...document.querySelectorAll('#clubs .club-ghost')].find(b => b.textContent.includes('עזבו'))?.click(); 'ok'`)
 await sleep(1000)
@@ -117,7 +153,7 @@ console.log('\nCLUBS — create')
 await evalJs(`[...document.querySelectorAll('#clubs .club-cta')].find(b => b.textContent.includes('צור'))?.click(); 'ok'`)
 await sleep(600)
 check(await evalJs(`!!document.querySelector('#clubs .club-input')`), 'create form renders')
-await evalJs(`const i = document.querySelector('#clubs .club-input'); i.value = 'אלופי סולטיז'; 'ok'`)
+await evalJs(`(() => { const i = document.querySelector('#clubs .club-input'); i.value = 'אלופי סולטיז'; return 'ok' })()`)
 await shot('07-clubs-create')
 await evalJs(`document.querySelector('#clubs .club-go').click(); 'ok'`)
 await sleep(1100)
@@ -126,13 +162,43 @@ check(await evalJs(`document.querySelector('#clubs .club-card .nm b')?.textConte
 check(await evalJs(`document.querySelector('#clubs .club-card .nm small')?.textContent.includes('נשיא')`),
   'the creator becomes president')
 
-console.log('\nCLUBS — find clubs near me')
-await evalJs(`[...document.querySelectorAll('#clubs .club-cta')].find(b => b.textContent.includes('הזמינו') || b.textContent.includes('חפש'))?.click(); 'ok'`)
-await sleep(900)
+console.log('\nCLUBS — find, Brawl-Stars shaped')
+await evalJs(`[...document.querySelectorAll('#clubs .club-cta')].find(b => b.textContent.includes('מועדונים אחרים') || b.textContent.includes('חפש'))?.click(); 'ok'`)
+await sleep(1100)
 check(await evalJs(`document.querySelectorAll('#clubs .club-find-row').length > 0`), 'find-clubs list renders rows')
+check(await evalJs(`[...document.querySelectorAll('#clubs .club-find-row small')].some(n => /פתוח|באישור|סגור/.test(n.textContent))`),
+  'every listing shows its type (פתוח / באישור / סגור)')
+// Assert the NUMBER, not the emoji: icon-system.js walks the DOM and swaps every emoji for a pixel
+// sprite <img>, so textContent legitimately loses the 🏆. Checking for the character reports a
+// failure against working UI — it cost a debugging round the first time.
+check(await evalJs(`[...document.querySelectorAll('#clubs .club-find-row small')].some(n => /מ־[\\d,]+/.test(n.textContent))`),
+  'listings show the minimum-trophy bar')
+check(await evalJs(`document.querySelectorAll('#clubs .club-find-row small .saltiz-icon').length > 0`),
+  'the trophy emoji was swapped for a pixel sprite by icon-system.js (a <span class="saltiz-icon">, not an <img>)')
+check(await evalJs(`[...document.querySelectorAll('#clubs .club-join')].some(b => b.disabled && /סגור|גביעים|מלא/.test(b.textContent))`),
+  'a club you cannot enter shows why and its button is disabled')
+check(await evalJs(`[...document.querySelectorAll('#clubs .club-join')].some(b => b.textContent === 'בקש')`),
+  'an invite-only club offers «בקש», not «הצטרף»')
+check(await evalJs(`!!document.querySelector('#clubs input[placeholder="חיפוש לפי שם"]')`), 'name search box present')
+check(await evalJs(`[...document.querySelectorAll('#clubs .club-ghost')].some(b => b.textContent.includes('רענן'))`), 'refresh button present')
 check(await evalJs(`!document.body.innerHTML.includes('אותה כיתה') && !document.body.innerHTML.includes('same class')`),
   'PRIVACY: no row explains WHY it ranked high (no class/school labelling)')
 await shot('03-clubs-find')
+
+console.log('\nCLUBS — search by name filters the list')
+const before = await evalJs(`document.querySelectorAll('#clubs .club-find-row').length`)
+await evalJs(`(() => {
+  const box = document.querySelector('#clubs input[placeholder="חיפוש לפי שם"]');
+  box.value = 'כרישים';
+  box.dispatchEvent(new Event('input'));
+  return 'ok';
+})()`)
+await waitFor(`document.querySelectorAll('#clubs .club-find-row').length < ${before}`)
+const after = await evalJs(`document.querySelectorAll('#clubs .club-find-row').length`)
+const onlyMatch = await evalJs(`[...document.querySelectorAll('#clubs .club-find-row .nm b')].every(n => n.textContent.includes('כרישים'))`)
+check(after < before && after > 0, `search narrows the list (${before} → ${after})`)
+check(onlyMatch, 'every remaining row matches the term')
+await shot('10-clubs-search')
 
 console.log('\nRANK — scoped boards')
 // Reload before switching sections. Chrome kept handing back the last CLUBS frame for every capture
