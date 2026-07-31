@@ -63,10 +63,22 @@
   const cityName = (id) => (DIR && DIR.city.get(String(DIR.merges[id] || id))) || null
   const schoolName = (id) => (DIR && DIR.school.get(String(id))) || null
 
-  const state = { me: null, labels: {}, metric: 'xp', scope: 'city', view: 'home', findTerm: '', findSeed: 0 }
+  // metric defaults to 'trophies', NOT 'xp'. XP and trophies are ONE number — Adam, 2026-07-31:
+  // "xp is trophies and ranks is ranked trophies or ranked xp" — so the server collapsed them into a
+  // single גביעים metric backed by the xp column and there is no 'xp' key in METRICS any more. It
+  // still ACCEPTS ?metric=xp as an input alias forever, but it always echoes 'trophies', so leaving
+  // the default as 'xp' would highlight no pill on first paint (the `m.key === state.metric` test
+  // below can never match an echo the server will not send).
+  const state = { me: null, labels: {}, metric: 'trophies', scope: 'city', view: 'home', findTerm: '', findSeed: 0 }
 
-  const METRIC_UNIT = { xp: 'XP', trophies: 'גביעים', goals: 'שערים', wins: 'נצחונות', cards: 'קלפים' }
-  const SCOPE_TABS = [['city', 'עיר'], ['school', 'בית ספר'], ['class', 'כיתה'], ['club', 'מועדון']]
+  // Short unit words for the footer. Keyed by METRICS key, so it must track the server's table:
+  // 'xp' is gone (it IS trophies) and 'ranked' is new (the rankPoints ladder — losable, humans-only,
+  // what the tier badge is drawn from). A missing key here renders the literal «undefined».
+  const METRIC_UNIT = { trophies: 'גביעים', ranked: 'דירוג', goals: 'שערים', wins: 'נצחונות', cards: 'קלפים' }
+  // 'personal' is the fifth scope: you against every player, the way the app's own leaderboard works.
+  // The server accepts 'personal' or 'me' and always ECHOES 'personal' — never key anything off the
+  // word that was sent.
+  const SCOPE_TABS = [['personal', 'אני'], ['city', 'עיר'], ['school', 'בית ספר'], ['class', 'כיתה'], ['club', 'מועדון']]
   const TYPE_HE = { open: 'פתוח', invite: 'באישור', closed: 'סגור' }
   const ROLE_HE = { president: '👑 נשיא', vice: '🥈 סגן', senior: '⭐ בכיר', member: 'חבר' }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -292,6 +304,20 @@
     }
   }
 
+  // Every refusal /join can return, in the player's words. `below_trophies` deliberately reuses the
+  // same sentence as the 🔒 tooltip below: both come from ONE server predicate (meetsBar), so the
+  // lock and the refusal cannot disagree.
+  const JOIN_ERR = {
+    below_trophies: '🔒 אין מספיק גביעים',
+    club_full: 'המועדון מלא',
+    closed: 'המועדון סגור',
+    no_club: 'המועדון לא נמצא',
+    bad_club: 'מועדון לא תקין',
+    no_user: 'צריך להתחבר מחדש',
+    server: 'שגיאה, נסו שוב',
+    offline: 'אין חיבור',
+  }
+
   function renderRows(rows, myTrophies, list) {
     const LABEL = { join: 'הצטרף', request: 'בקש', locked: '🔒 גביעים', closed: 'סגור', full: 'מלא' }
     rows.forEach((c) => {
@@ -305,7 +331,14 @@
       btn.onclick = async () => {
         const r = await post('/join', { clubId: c.id })
         if (r.requested) { btn.textContent = 'נשלחה'; btn.disabled = true; return }
-        if (!r.error) { state.view = 'home'; refresh() }
+        if (!r.error) { state.view = 'home'; refresh(); return }
+        // SAY WHY. This used to be `if (!r.error)` and nothing else, so every refusal was swallowed
+        // and the button just did nothing — indistinguishable from a dead tap. It mattered more than
+        // it looked: the trophy bar was reading a field that does not exist on FootballStats, so the
+        // server answered `below_trophies` to EVERYONE on any club with a minimum and the player was
+        // told nothing at all. The server side is fixed; this makes the remaining refusals legible.
+        btn.textContent = JOIN_ERR[r.error] || 'לא הצליח'
+        btn.disabled = true
       }
       row.append(btn)
       list.append(row)
@@ -343,12 +376,12 @@
     const box = el('div', 'pc')
     box.append(el('div', 'pc-head', `<b>${esc(p.nickName)}</b>
       ${p.friend ? '<span class="pc-friend">✓ חבר שלכם</span>' : ''}
-      <small>${num(p.trophies)} 🏆 · ${num(p.xp)} XP</small>`))
+      <small>${num(p.trophies)} 🏆</small>`))
 
     // The two national placements Adam asked for, side by side.
     box.append(el('div', 'pc-ranks', `
-      <div class="pc-rank"><small>דירוג גביעים</small><b>#${p.ranks.trophies.place ?? '—'}</b><i>מתוך ${p.ranks.of || p.ranks.trophies.of}</i></div>
-      <div class="pc-rank"><small>דירוג XP</small><b>#${p.ranks.xp.place ?? '—'}</b><i>מתוך ${p.ranks.xp.of}</i></div>`))
+      <div class="pc-rank"><small>גביעים</small><b>#${p.ranks.trophies.place ?? '—'}</b><i>מתוך ${p.ranks.trophies.of}</i></div>
+      <div class="pc-rank"><small>דירוג</small><b>#${p.ranks.ranked.place ?? '—'}</b><i>מתוך ${p.ranks.ranked.of}</i></div>`))
 
     box.append(el('div', 'pc-sec', 'מועדון ושיוך'))
     const strip = el('div', 'myscopes')
@@ -423,6 +456,9 @@
     host.append(metrics, tabs, list)
 
     const data = await api(`/board?metric=${state.metric}&scope=${state.scope}`)
+    // The server echoes the CANONICAL scope, so branch on what came back, not on what we asked for
+    // (?scope=me is accepted and answered as 'personal').
+    if (data.scope === 'personal') return renderPersonal(data, list)
     if (!data.rows.length) { list.append(el('div', 'scope-note', 'עדיין אין מספיק שחקנים כאן.')); return }
     data.rows.slice(0, 20).forEach((r) => {
       if (!r.label) {
@@ -446,7 +482,48 @@
        ככה יישוב קטן עם ${data.k} שחקנים חזקים מנצח עיר גדולה, ומספר השחקנים לבדו לא קובע.
        (${METRIC_UNIT[state.metric]} · ${data.totalRanked} שחקנים מדורגים)`))
   }
-  const scopeWord = (s) => ({ city: 'עיר', school: 'בית ספר', class: 'כיתה', club: 'מועדון' }[s] || s)
+  const scopeWord = (s) => ({ city: 'עיר', school: 'בית ספר', class: 'כיתה', club: 'מועדון', personal: 'הארץ' }[s] || s)
+
+  // ── the PERSONAL board: you against every player ────────────────────────────────────────────────
+  // A different row shape from the four group boards, so it gets its own renderer rather than more
+  // branches inside the group one. A personal row is a PLAYER:
+  //     { rank, userId?, nickName, image, club, emblem, value, isMe }
+  // and has NO scopeId, score, members or padded. The body also drops `k` and `mineScopeId`, which is
+  // why the group footer cannot be reused — it would print «undefined» twice and explain a top-K
+  // scoring rule that does not apply here (this board is simply highest-value-wins).
+  //
+  // Shaped after the app's own leaderboard so the two read as one feature: the window is top 3 + you
+  // and your neighbours, your row is highlighted IN PLACE (never pinned, never duplicated), a hairline
+  // divider marks wherever the ranks jump, and the standing line is the app's sentence word for word.
+  function renderPersonal(data, list) {
+    const rows = data.rows || []
+    const me = data.me || {}
+    if (!rows.length) {
+      list.append(el('div', 'scope-note', 'עדיין אין שחקנים מדורגים.'))
+      return
+    }
+    let prev = null
+    rows.forEach((r) => {
+      // One divider wherever the window skips ranks — the entire "you are far from the top"
+      // affordance, same as the app. No ellipsis row, no count of who was skipped.
+      if (prev != null && r.rank - prev > 1) list.append(el('div', 'scope-gap'))
+      prev = r.rank
+      const row = el('div', `scope-row${r.isMe ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
+        `<span class="pos">${r.rank}</span><span class="em">${r.emblem || '⚽'}</span>
+         <div class="nm"><b>${esc(r.nickName || 'שחקן')}${r.isMe ? ' · אני' : ''}</b>${r.club ? `<small>${esc(r.club)}</small>` : ''}</div>
+         <div class="sc">${num(r.value)}<small>${METRIC_UNIT[state.metric] || ''}</small></div>`)
+      // data-uid ONLY when the server actually resolved an identity. It OMITS the key rather than
+      // nulling it precisely for this: the string "null" is truthy to the delegate above, so a
+      // `data-uid="null"` would open a player card that 400s.
+      if (r.userId) row.dataset.uid = r.userId
+      list.append(row)
+    })
+    // The standing line, in the app's words. An unranked caller is never given a fabricated place —
+    // the server sends rank null for a zero value and this says so instead of printing «#0».
+    list.append(el('div', 'scope-note', me.rank
+      ? `אתה במקום ${num(me.rank)} מתוך ${num(data.totalRanked)} שחקנים`
+      : `עדיין לא מדורג · ${num(data.totalRanked)} שחקנים`))
+  }
 
   // ── injections into the two screens other agents own ────────────────────────────────────────────
   // The friend modal (client.js) gets a club + memberships block appended; the profile side pane
@@ -470,8 +547,8 @@
     )
     block.append(strip)
     block.append(el('div', 'pc-ranks', `
-      <div class="pc-rank"><small>דירוג גביעים</small><b>#${p.ranks.trophies.place ?? '—'}</b></div>
-      <div class="pc-rank"><small>דירוג XP</small><b>#${p.ranks.xp.place ?? '—'}</b></div>`))
+      <div class="pc-rank"><small>גביעים</small><b>#${p.ranks.trophies.place ?? '—'}</b></div>
+      <div class="pc-rank"><small>דירוג</small><b>#${p.ranks.ranked.place ?? '—'}</b></div>`))
     host.appendChild(block)
   }
 

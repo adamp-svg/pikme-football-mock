@@ -56,6 +56,15 @@
 .scope-row .sc { text-align: center; font: 900 17px "Arial Black", sans-serif; color: #cfe6c8; }
 .scope-row .sc small { display: block; font: 700 9px Arial, sans-serif; color: #7f9179; letter-spacing: .5px; }
 
+/* The rank-jump divider on the personal board. The window is top 3 + you and your neighbours, so
+   between rank 3 and rank 1,204 there is a hole — this hairline is the whole affordance for it, the
+   same as the app. Deliberately NOT an ellipsis row or a "N players skipped" count: those read as
+   content, and the reader only needs to know the list is not contiguous. */
+.scope-gap {
+  width: 100%; max-width: 460px; height: 0; margin: 3px 0;
+  border-top: 1px dashed #3a4a38;
+}
+
 .scope-note {
   width: 100%; max-width: 460px; color: #8ea08a; font-size: 11.5px; line-height: 1.45;
   text-align: center; padding: 0 6px;
@@ -253,16 +262,41 @@
    clubs.js. `align-items: stretch` because the split must fill the width it was given, not shrink
    to its content the way .subpage-body's centred children do. */
 .subpage-body.club-split { overflow: hidden; align-items: stretch; }
+/* ⚠️ `grid-template-rows` IS LOAD-BEARING, not decoration. Without it the grid has one IMPLICIT row,
+   implicit rows are `auto` = max-content, and a definite height on a grid CONTAINER does not
+   constrain an auto row — so the row sizes to the tallest column's content and `align-items:stretch`
+   lays BOTH columns out at that height, past the bottom of a container that is `overflow:hidden`.
+   Measured before this line, my-club: the row computed 318.4px inside a 307.5px grid box on the
+   iPhone 17 Pro and 337.4px inside 277.5px on the Galaxy A15, so the action row was sliced 11px /
+   60px off and those pixels were unreachable — not below a fold, gone. `.club-main` was immune only
+   because `min-height:0 + overflow-y:auto` already stopped it contributing height; `.club-side` had
+   neither, so ITS content was the row height. minmax(0,1fr) pins the row to the box for both. */
 .club-2col {
   width: 100%; max-width: 900px; flex: 1; min-height: 0; margin: 0 auto;
   display: grid; grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px; align-items: stretch;
 }
+/* The side column is sized to FIT (see the HEIGHT BUDGET block below) and _clubs-split.mjs asserts
+   `side.scrollHeight === side.clientHeight` on every phone, so this scroller is a LAST RESORT, never
+   the plan: if one more string ever wraps a line further, the user gets a scroll instead of a button
+   with its bottom sawn off. The 5px of padding is the `.club-cta` / `.club-hero` drop shadow
+   (`box-shadow: 0 5px 0`), which is outside the border box and therefore outside the clip — without
+   it the last button in the column looks flat-bottomed even when the layout technically fits. */
 .club-side {
   min-width: 0; display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-bottom: 5px;
 }
+.club-side::-webkit-scrollbar { display: none; }
 /* The actions drop to the bottom of the column, into space that would otherwise be blank. */
 .club-side .club-actions { margin-top: auto; }
+/* «חזרה» is a footer, not a step in the flow. Pinning the column's trailing ghost button does two
+   things: the back affordance lands in the SAME corner in find as the action row does in my-club and
+   as create's back does, and the ~83px the height budget below freed up in the find column becomes
+   one deliberate gap instead of a ragged tail under the refresh button. Only matches when the last
+   child IS a ghost — in no-club the trailing children are the two primary CTAs, which are the
+   content of that screen and belong under the hero, not shoved to the floor. */
+.club-side > .club-ghost:last-child { margin-top: auto; }
 /* ⚠️ Nothing inside either column may flex, and nothing but .club-main may scroll.
    `.member-list` is a NAME COLLISION: style.css:561 defines a completely unrelated lobby list as
    `flex: 1; overflow-y: auto`, and the clubs roster silently inherited it. Measured before this
@@ -308,11 +342,170 @@
   font: 900 12px "Arial Black", sans-serif; color: #9fb39a;
 }
 
+/* ══ HEIGHT BUDGET ════════════════════════════════════════════════════════════════════════════════
+   The split above fixed the CLIPPING mechanism. This block fixes the reason there was anything to
+   clip: on a landscape phone this screen is height-bound, and not one band in it was height-aware.
+   Every measurement below is CSS px off the real client (see _clubs-split.mjs), not an estimate.
+
+   What a phone actually offers .subpage-body, before content gets a single pixel:
+     iPhone 17 Pro 844x390 → 307.5    Galaxy A15 800x360 → 277.5    Galaxy S24 Ultra 915x412 → 329.5
+   because 82.5px of fixed chrome comes off every device identically — 14 pad-top + 34.5 head +
+   14 head margin + 20 pad-bottom. The side column NEEDED 318.4 (my-club) / 315 (find) / 307.7
+   (no-club), and 337.4 once a narrower column wrapped the club card's meta line. So the layout
+   required a ~401px-tall viewport and only the S24 Ultra's 412 cleared it. Everything shipped
+   shorter was cropped.
+
+   THE RULE HERE: no device branches and no magic numbers — every SIZE is `clamp(floor, Nvh, today)`,
+   so it saturates back to exactly today's value above roughly 560-630px of viewport height and
+   shrinks continuously below it. That is what makes the next phone height somebody ships correct
+   without anyone touching this file.
+
+   HONEST ABOUT THE TABLETS. Every clamp saturates there, and the measured chrome is untouched:
+   iPad Pro 11 and Galaxy Tab S9 report the same 34.5px head, the same 14/18/20/18 padding and the
+   same 751.5 / 717.5 of available body height as before. What DOES change on them is the leading
+   fixes — `display:block; line-height:1` on the three emoji spans (.club-hero-ic, the club card's
+   .em, the chip's .em) is unconditional, because that space is dead on every screen, not just a
+   short one. Measured cost on a tablet: my-club's side column 318.4 → 294.2px, i.e. -29.2px of
+   whitespace with no font, no padding and no content changed, inside a column that has 433px of
+   slack. Not byte-identical, and not a regression — but do not claim it is untouched.
+
+   The one thing deliberately traded away is listed at its rule: the club card's two text lines are
+   now single-line-with-ellipsis instead of wrapping. Folding a fact onto one line beats letting the
+   button underneath it get silently amputated. */
+
+/* CHROME — and the line this fix deliberately does NOT cross. 82.5px of the phone's height is header
+   furniture: 14 pad-top + 34.5 head + 14 head-margin + 20 pad-bottom. The head's 34.5px is not the
+   h2 (measured 31px) — it is the back pill back-nav.js injects, and shrinking it is worth ~7px. It is
+   NOT taken, and neither is pad-top, because both would move or resize that pill: back-nav.js exists
+   to make the back button byte-identical on all 11 sub-pages and test-back-nav.mjs records it
+   measured at 67x32, top:14, right:18 on every one of them. Buying ~12px by making the clubs header
+   the odd one out is a bad trade when the content work below already clears the budget on its own
+   (measured with the chrome untouched: 57.3px of slack on the iPhone, 41.7px on the Galaxy A15).
+   So only the two values that are invisible from any other screen move:
+
+   • pad-bottom, which is under the content and anchors nothing. `max(..., env(...))` is preserved
+     verbatim, and note what that means on the real phone: iOS reports a 21px bottom inset in
+     landscape, 21 > 20, so on a notched iPhone this rule buys ZERO — it is the flat-viewport Android
+     (the Galaxy A15, the worst device in the matrix) that collects the 9.9px.
+   • the head's own margin-bottom, i.e. the gap between the header row and the panel. */
+#clubs .subpage { padding-bottom: max(clamp(8px, 2.8vh, 20px), env(safe-area-inset-bottom)); }
+#clubs .subpage-head { margin-bottom: clamp(5px, 1.8vh, 14px); }
+
+/* THE HERO — the single most expensive band on the screen: 152px, 39% of a 390px viewport, for an
+   icon and two lines of text, and it is in three of the four views (find / no-club / create). Most
+   of that is leading, not ink: a 44px emoji in an inline span generates a ~51px line box. */
+#clubs .club-hero { padding: clamp(8px, 2.4vh, 18px) clamp(10px, 3.4vh, 14px); }
+#clubs .club-hero-ic { display: block; font-size: clamp(24px, 7vh, 44px); line-height: 1; }
+#clubs .club-hero b { font-size: clamp(14px, 3.8vh, 18px); margin-top: clamp(3px, 1.2vh, 6px); line-height: 1.15; }
+#clubs .club-hero small { font-size: clamp(10px, 2.6vh, 11px); margin-top: clamp(2px, 1vh, 4px); line-height: 1.25; }
+
+/* THE CLUB CARD. Two problems: 13px of padding around a 34px emblem whose line box is 45px, and — the
+   nastier one — a WRAP LANDMINE. At the iPhone's 274.7px column the meta line was 14px tall; at the
+   Galaxy A15's 259.8px it wrapped and became 33px, +19px that no budget accounted for, and the real
+   notched iPhone sits at 246.8px so it wraps there too. A long club NAME does the same to the line
+   above. Single-line-with-ellipsis on both is the trade: on the card of a club you are already in,
+   losing the tail of «נשיא · פתוח · מ־1,200 🏆» to an ellipsis is cheaper than losing the bottom of
+   the two buttons underneath. At the sizes below neither line actually reaches the ellipsis on any
+   device in the matrix — this is a guarantee, not a routine truncation. */
+#clubs .club-2col .club-card { padding: clamp(7px, 2.1vh, 13px) clamp(9px, 2.6vh, 13px); gap: clamp(8px, 2.4vh, 12px); }
+#clubs .club-2col .club-card .em { display: block; font-size: clamp(24px, 6.6vh, 34px); line-height: 1; }
+#clubs .club-2col .club-card .nm b,
+#clubs .club-2col .club-card .nm small {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#clubs .club-2col .club-card .nm b { font-size: clamp(15px, 4vh, 19px); line-height: 1.15; }
+#clubs .club-2col .club-card .nm small { font-size: clamp(10.5px, 2.6vh, 12px); line-height: 1.25; }
+
+/* THE SCOPE CHIPS — 154.6px, half the phone's whole budget, and measured IDENTICAL at 360, 390, 560
+   and 834: completely height-blind. A chip's 74.3px breaks down as 4 border + 12 padding + a 28px
+   LINE BOX around an 18px emoji + 2 + 15 label + 13.3 caption. That 28px box is 10px of pure leading
+   for an inline emoji — `display:block; line-height:1` reclaims it with zero content lost and zero
+   font change, which makes it the cheapest px on the page. Nothing here drops the caption: the ranked
+   alternative (4-up + no caption) saves more but was measured to ellipsise the city name at 800px
+   wide, and a truncated primary label is a worse outcome than a shorter one. */
+#clubs .club-2col .myscopes { gap: clamp(4px, 1.6vh, 6px); }
+#clubs .club-2col .myscope { padding: clamp(4px, 1.4vh, 6px) 5px; }
+#clubs .club-2col .myscope .em { display: block; font-size: clamp(15px, 4.2vh, 18px); line-height: 1; }
+#clubs .club-2col .myscope b { font-size: clamp(10px, 2.8vh, 11px); }
+#clubs .club-2col .myscope small { font-size: clamp(9px, 2.5vh, 10px); }
+
+/* THE ACTION ROW. The two buttons already share one row; the 67.8px is one .club-cta's chrome —
+   6px border + 28px padding + a 33.8px line box driven entirely by a 24px emoji at normal
+   line-height. The vertical padding FLOOR is 9px, not 8px, on purpose: it is what keeps the row over
+   the 44px touch-target minimum on the shortest phone in the matrix. Measured after this rule —
+   iPhone 17 Pro 51.0px, Galaxy S24 Ultra 53.3px, Galaxy A15 47.7px — so every device still clears 44
+   while 88% of that row used to be invisible on the A15. Do not lower the 9px to buy height. */
+#clubs .club-2col .club-cta { padding: clamp(9px, 2.6vh, 14px) clamp(10px, 2.8vh, 14px); gap: clamp(8px, 2.4vh, 12px); }
+#clubs .club-2col .club-cta .club-cta-ic { font-size: clamp(17px, 4.6vh, 24px); line-height: 1; }
+#clubs .club-2col .club-cta b { font-size: clamp(13px, 3.4vh, 15px); }
+#clubs .club-2col .club-ghost { padding: clamp(7px, 2.2vh, 10px); font-size: clamp(12.5px, 3.2vh, 14px); line-height: 1.25; }
+/* Between the bands. 10px twice is 20px of a 277px budget on the shortest phone. */
+.club-side { gap: clamp(5px, 1.7vh, 10px); }
+
+/* FORM CONTROLS — the find search box, and every field in create. The input's font stays 16px: below
+   that iOS auto-zooms a focused field, and although index.html pins `maximum-scale=1` this is not
+   worth betting a keyboard-zoom bug on. Only the padding gives. */
+#clubs .club-input { padding: clamp(8px, 2.6vh, 12px) 14px; }
+#clubs .club-form { gap: clamp(6px, 1.8vh, 8px); }
+#clubs .emblem-pick {
+  width: clamp(32px, 8.5vh, 40px); height: clamp(32px, 8.5vh, 40px); font-size: clamp(16px, 4.6vh, 20px);
+}
+#clubs .scope-tab { padding: clamp(6px, 2vh, 9px) 4px; font-size: clamp(12px, 3.2vh, 13px); }
+#clubs .club-sec { font-size: clamp(11px, 3vh, 13px); }
+#clubs .club-err { min-height: clamp(12px, 3.2vh, 16px); font-size: clamp(12px, 3.2vh, 13px); }
+#clubs .club-go { padding: clamp(9px, 2.8vh, 13px); font-size: clamp(15px, 4vh, 17px); }
+
+/* ── CREATE: the one view that is NOT the split ────────────────────────────────────────────────────
+   clubs.js turns `club-split` off for create, so it stays a 460px-capped single stack in an 844-915px
+   landscape window: 524px of content in 277-329px of body, with ~190px of empty pitch down each side.
+   It is not CROPPED — the body keeps `overflow:auto` and a real swipe reaches everything — but the
+   primary «צור מועדון» button sat 123-175px below the fold on ALL THREE phones, and a submit button
+   you have to go looking for is the defect even if nothing is technically clipped.
+
+   Fixed with placement only, no DOM change: create's body holds exactly three children (hero, form,
+   back), so on a wide-and-short screen they go into the same 34/66 split the other views use —
+   identity + back down the narrow side, the fields in the wide one, scrolling on their own if they
+   ever need to. Measured after this: the form is ~264px in a 336px column on the iPhone, i.e. the
+   whole form including the submit button is on screen with room left.
+
+   The `:only-child` rule is the offline/no-token fallback (clubs.js appends a lone .club-hero when
+   /me does not answer); without it that hero would sit in a 34% gutter with an empty screen beside it.
+   Gated `min-width: 621px` to stay mutually exclusive with the portrait rule below. */
+@media (min-width: 621px) and (max-height: 620px) {
+  #clubs .subpage-body:not(.club-split) {
+    display: grid; align-items: start; justify-items: stretch;
+    grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    column-gap: 12px; row-gap: clamp(6px, 1.8vh, 10px);
+  }
+  #clubs .subpage-body:not(.club-split) > .club-hero { grid-area: 1 / 1 / 2 / 2; }
+  #clubs .subpage-body:not(.club-split) > .club-ghost { grid-area: 2 / 1 / 3 / 2; max-width: none; }
+  #clubs .subpage-body:not(.club-split) > .club-form {
+    grid-area: 1 / 2 / 3 / 3; max-width: none; align-self: stretch; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; padding-bottom: 4px;
+  }
+  #clubs .subpage-body:not(.club-split) > .club-form::-webkit-scrollbar { display: none; }
+  #clubs .subpage-body:not(.club-split) > .club-hero:only-child {
+    grid-area: 1 / 1 / 3 / 3; justify-self: center;
+  }
+}
+
 /* Portrait — a browser held upright, or a narrow window. There is no second side to use, so fall
    back to the single stack this screen had before, and let the page scroll again. */
 @media (orientation: portrait), (max-width: 620px) {
-  .club-2col { grid-template-columns: 1fr; flex: none; }
+  .club-2col { grid-template-columns: 1fr; grid-template-rows: auto; flex: none; }
   .club-main { overflow: visible; }
-  .club-side .club-actions { margin-top: 0; }
+  /* ⚠️ RESTORE A SCROLLER. This rule set used to take `.club-main`'s `overflow-y:auto` away and put
+     nothing back, while `.subpage-body.club-split` above kept `overflow:hidden` — clubs.js applies
+     `club-split` in EVERY orientation, not just landscape. The result on 390x844 my-club, measured:
+     body scrollHeight 1625 vs clientHeight 761, `.club-main` computed `visible`, the page itself
+     unable to scroll (it is a 100%-height flex column), and 12 wheel ticks plus 3 full-height touch
+     drags leaving every scrollTop at 0 with 10 of 31 members reachable. 864px of roster was simply
+     not addressable by any gesture. The outer scroller has to come back on when the inner one goes
+     off — and `overflow:hidden` on X stays, because the columns collapse to one and there is nothing
+     to pan sideways to. */
+  .subpage-body.club-split { overflow-x: hidden; overflow-y: auto; }
+  .club-side { overflow: visible; padding-bottom: 0; }
+  .club-side .club-actions, .club-side > .club-ghost:last-child { margin-top: 0; }
   .club-2col .myscopes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
