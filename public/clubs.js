@@ -437,7 +437,21 @@
     // touching the DOM when it does not answer — no football-token (game opened outside the app), or
     // the API unreachable — so the «בקרוב» stub stays and nobody sees a half-dead screen.
     state.me = await api('/me').catch(() => null)
-    if (!state.me || state.me.error || !state.me.me) return
+    if (!state.me || state.me.error || !state.me.me) {
+      // Say WHY, on screen. An empty panel is indistinguishable from a broken one, and the three
+      // reasons need completely different fixes — so name the one that actually happened instead of
+      // making someone guess from a blank box. Deliberately terse and Hebrew-first; the console line
+      // carries the detail for whoever is debugging.
+      const why = !TOKEN ? 'פתחו את המשחק מתוך האפליקציה'
+        : state.me && /http_401|http_403/.test(state.me.error || '') ? 'ההזדהות פגה — סגרו ופתחו מחדש'
+        : 'אין חיבור לשרת כרגע'
+      console.log('[clubs] inactive:', { hasToken: !!TOKEN, base: BASE, error: state.me && state.me.error })
+      const body = $('#clubs .subpage-body')
+      if (body && !body.childElementCount) {
+        body.append(el('div', 'club-hero', `<span class="club-hero-ic">🏰</span><b>מועדונים</b><small>${why}</small>`))
+      }
+      return
+    }
     document.getElementById('scope-wrap')?.classList.remove('hidden')
     render()
     watch('clubs', () => { state.view = 'home'; refresh() })
