@@ -223,8 +223,96 @@
 /* A single member is still readable full-width; two-up only earns its keep once there are a few. */
 .member-list.solo { grid-template-columns: 1fr; }
 
-/* On a genuinely narrow phone, two columns would truncate every name — fall back to one. */
-@media (max-width: 340px) {
+/* On a narrow phone, two columns truncate every name — fall back to one.
+   The threshold is 480px, not the 340px this started at. Measured at 402px (an iPhone held upright):
+   a two-up cell is ~180px and the row still carries a trophy count, an add-friend button AND a kick
+   button, so the name field collapses to ~20px and renders as a single letter plus an ellipsis. The
+   survey of Clash Royale / Clash of Clans / Hay Day found the same floor from the other direction —
+   roughly 70-90px of run per data slot, so ~180px buys a name and ONE other thing, not three. A
+   ragged, truncated two-up list reads worse than half as many legible rows. */
+@media (max-width: 480px) {
   .member-list { grid-template-columns: 1fr; }
   .member .pos { display: block; }
+  .member b { font-size: 13.5px; }
+  .member .role { font-size: 11px; }        /* full width has room for the role word again */
+}
+
+/* ── THE SPLIT: a fixed side column + a list that scrolls on its own ───────────────────────────────
+   Two-up rows halved the roster's height but the SCREEN was still one column, so the club card, the
+   title, the buttons and the scopes strip all queued up above and below the list and the page still
+   scrolled. The game runs landscape (~1212x560 CSS px): height is the scarce axis and width is not,
+   so the fix is to stop stacking and use the width we already have.
+
+   34% / 66% is Brawl Stars' current JOIN A CLUB split, measured off captures of the live client
+   (their in-club screen runs 37/53 with a wider gutter). Their whole club UI is built this way for
+   the same reason — it is a landscape game with a 30-member roster and one screen to show it in.
+
+   Only .club-main scrolls. .club-side is short by construction (card + 2x2 chips + two buttons), so
+   pinning it costs nothing and the page itself never scrolls at all. */
+/* The outer scroller stands down so the inner one can work — see the comment on `club-split` in
+   clubs.js. `align-items: stretch` because the split must fill the width it was given, not shrink
+   to its content the way .subpage-body's centred children do. */
+.subpage-body.club-split { overflow: hidden; align-items: stretch; }
+.club-2col {
+  width: 100%; max-width: 900px; flex: 1; min-height: 0; margin: 0 auto;
+  display: grid; grid-template-columns: minmax(0, 34%) minmax(0, 1fr);
+  gap: 12px; align-items: stretch;
+}
+.club-side {
+  min-width: 0; display: flex; flex-direction: column; gap: 10px;
+}
+/* The actions drop to the bottom of the column, into space that would otherwise be blank. */
+.club-side .club-actions { margin-top: auto; }
+/* ⚠️ Nothing inside either column may flex, and nothing but .club-main may scroll.
+   `.member-list` is a NAME COLLISION: style.css:561 defines a completely unrelated lobby list as
+   `flex: 1; overflow-y: auto`, and the clubs roster silently inherited it. Measured before this
+   reset: the pending list and the member list each took `flex: 1 1 0%`, split the column 205/205,
+   and a single pending row stretched to 189px tall — a huge empty box above the roster. Sizing
+   every child by its content is also what makes .club-main's own scrollHeight meaningful; with
+   flexible children it can never exceed clientHeight, so the overflow check would pass on a
+   squashed column and prove nothing. */
+.club-side > *, .club-main > * { flex: 0 0 auto; overflow: visible; }
+.club-main {
+  min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 8px; scrollbar-width: none;
+}
+.club-main::-webkit-scrollbar { display: none; }
+/* Inside the split, children stop being 460px-capped page blocks and just fill their column. */
+.club-2col .club-card, .club-2col .club-hero, .club-2col .club-cta, .club-2col .club-ghost,
+.club-2col .club-form, .club-2col .club-actions, .club-2col .myscopes,
+.club-2col .member-list, .club-2col .scope-list, .club-2col .scope-note { max-width: none; }
+/* The chips read better 2x2 in a narrow column than 4-across — a 4-up strip at ~34% of the width
+   wraps the Hebrew labels (בית ספר, כיתה) onto three lines and the strip balloons. */
+.club-2col .myscopes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.club-2col .myscope { padding: 6px 5px; }
+/* The locked scopes fade their CONTENT, not their card. `opacity` on the whole cell also faded the
+   panel behind the text, and over the pitch art these chips stopped reading as cards at all — two
+   of the four looked like loose text floating on the stadium. Keep the surface solid and opaque. */
+.club-2col .myscope.locked { opacity: 1; background: #1b241a; border-color: #2c3a2b; }
+.club-2col .myscope.locked > * { opacity: .62; }
+
+/* The list header band. It replaces the old standalone `.club-sec` title row: the count carries the
+   heading, which is how Brawl Stars, Clash Royale and Clash of Clans all label a roster, and it
+   gives ~40px back to the list on a 560px screen. */
+.club-band {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 0 2px; position: sticky; top: 0; z-index: 1;
+  background: linear-gradient(180deg, #131a12 70%, rgba(19,26,18,0));
+  padding-bottom: 4px;
+}
+.club-band b { font: 900 13px "Arial Black", sans-serif; color: #ffd447; }
+/* The count is LTR inside an RTL row — `12/30` must not be reordered to `30/12` by the bidi
+   algorithm, which is exactly what happens to any x/y pair left to inherit direction here. */
+.club-band-n {
+  direction: ltr; unicode-bidi: isolate;
+  font: 900 12px "Arial Black", sans-serif; color: #9fb39a;
+}
+
+/* Portrait — a browser held upright, or a narrow window. There is no second side to use, so fall
+   back to the single stack this screen had before, and let the page scroll again. */
+@media (orientation: portrait), (max-width: 620px) {
+  .club-2col { grid-template-columns: 1fr; flex: none; }
+  .club-main { overflow: visible; }
+  .club-side .club-actions { margin-top: 0; }
+  .club-2col .myscopes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

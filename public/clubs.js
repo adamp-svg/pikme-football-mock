@@ -93,32 +93,71 @@
     const body = $('#clubs .subpage-body')
     if (!body || !state.me) return
     body.innerHTML = ''
+    // `.subpage-body` is the scroller for every other sub-screen. The split views manage their own
+    // scrolling inside `.club-main`, so hand the height to them and switch the outer scroll off —
+    // two nested scrollers on a phone is how you get a screen that moves when you meant to swipe a
+    // list. Set as a class rather than `:has()`, which the older WebViews here may not support.
+    body.classList.toggle('club-split', state.view !== 'create')
     if (state.view === 'create') return renderCreate(body)
     if (state.view === 'find') return renderFind(body)
     state.me.club ? renderMyClub(body) : renderNoClub(body)
   }
 
+  // No club yet: the same split again, so the landing never scrolls either. Find sits ABOVE create,
+  // which is the hierarchy Brawl Stars uses — searching is the common case and creating is the
+  // fallback, expressed by order rather than by making one button louder than the other.
   function renderNoClub(body) {
-    body.append(el('div', 'club-hero', `<span class="club-hero-ic">🏰</span><b>הצטרפו למועדון</b>
+    const grid = el('div', 'club-2col')
+    const side = el('div', 'club-side')
+    const main = el('div', 'club-main')
+    grid.append(side, main)
+    body.append(grid)
+
+    side.append(el('div', 'club-hero', `<span class="club-hero-ic">🏰</span><b>הצטרפו למועדון</b>
       <small>שחקו יחד · התחרו מול מועדונים אחרים</small>`))
-    const create = el('button', 'club-cta', '<span class="club-cta-ic">➕</span><b>צור מועדון</b>')
-    create.onclick = () => { state.view = 'create'; render() }
     const find = el('button', 'club-cta', '<span class="club-cta-ic">🔎</span><b>חפש מועדון</b>')
     find.onclick = () => { state.view = 'find'; render() }
-    body.append(create, find, myScopesStrip())
-    body.append(el('div', 'scope-note', `אתם כבר חלק מהעיר, בית הספר והכיתה שלכם — אלה נקבעים לפי הפרטים
+    const create = el('button', 'club-cta', '<span class="club-cta-ic">➕</span><b>צור מועדון</b>')
+    create.onclick = () => { state.view = 'create'; render() }
+    side.append(find, create)
+
+    main.append(el('div', 'club-band', '<b>השיוכים שלכם</b>'))
+    main.append(myScopesStrip())
+    main.append(el('div', 'scope-note', `אתם כבר חלק מהעיר, בית הספר והכיתה שלכם — אלה נקבעים לפי הפרטים
       באפליקציה ואי אפשר לצאת מהם. מועדון הוא הדבר היחיד שאתם בוחרים.`))
   }
 
+  // MY CLUB is a TWO-COLUMN screen, not a stack. The game runs landscape (~1212x560), so height is
+  // the scarce axis and width is abundant — a single column spent the whole 560px on the header,
+  // the title, four rows of members and the buttons, and pushed the rest under the fold. This is the
+  // layout Brawl Stars ships for exactly the same reason: a narrow identity/action column on one
+  // side (measured at 37% of width there) and the roster taking the rest, scrolling on its own.
+  //
+  // Three density decisions come straight from that survey and are deliberate:
+  //  • The member COUNT lives on the list's header band, not in the club card — it answers "how full
+  //    are we" at the point of use, and it means the roster needs no separate title row (~40px back).
+  //  • The actions sit at the BOTTOM OF THE SIDE COLUMN, which has spare height below the chips.
+  //    In a stack they cost the list real rows; here they cost nothing.
+  //  • Only the side column is fixed. `.club-main` scrolls internally, so the page itself never does.
+  //
+  // Portrait (a browser on a phone held upright, or a narrow window) collapses back to the old
+  // single stack via CSS alone — see the `.club-2col` grid in clubs.css.
   function renderMyClub(body) {
     const c = state.me.club
-    body.append(el('div', 'club-card', `<span class="em">${c.emblem}</span>
-      <div class="nm"><b>${esc(c.name)}</b><small>${ROLE_HE[c.myRole] || 'חבר'} · ${TYPE_HE[c.type]}${c.minTrophies ? ` · מ־${num(c.minTrophies)} 🏆` : ''}</small></div>
-      <div class="club-count">${c.count}/${state.me.maxMembers}<small>חברים</small></div>`))
+    const grid = el('div', 'club-2col')
+    const side = el('div', 'club-side')
+    const main = el('div', 'club-main')
+    grid.append(side, main)
+    body.append(grid)
 
-    // Pending join requests — only a president / vice / senior sees this block at all.
+    side.append(el('div', 'club-card', `<span class="em">${c.emblem}</span>
+      <div class="nm"><b>${esc(c.name)}</b><small>${ROLE_HE[c.myRole] || 'חבר'} · ${TYPE_HE[c.type]}${c.minTrophies ? ` · מ־${num(c.minTrophies)} 🏆` : ''}</small></div>`))
+    side.append(myScopesStrip())
+
+    // Pending join requests — only a president / vice / senior sees this block at all. It belongs
+    // above the roster in the scrolling column: it's transient, and it's about people not yet in it.
     if (c.pending?.length) {
-      body.append(el('div', 'club-sec', `בקשות הצטרפות · ${c.pending.length}`))
+      main.append(el('div', 'club-band', `<b>בקשות הצטרפות</b><span class="club-band-n">${c.pending.length}</span>`))
       const pend = el('div', 'member-list')
       c.pending.forEach((p) => {
         const r = el('div', 'member', `<b>${esc(p.nickName)}</b><span class="xp">${num(p.trophies)} 🏆</span>`)
@@ -126,10 +165,10 @@
         ok.onclick = async () => { await post('/admit', { userId: p.id }); refresh() }
         r.append(ok); pend.append(r)
       })
-      body.append(pend)
+      main.append(pend)
     }
 
-    body.append(el('div', 'club-sec', `חברי המועדון · ${c.count}/${state.me.maxMembers}`))
+    main.append(el('div', 'club-band', `<b>חברי המועדון</b><span class="club-band-n">${c.count}/${state.me.maxMembers}</span>`))
     const list = el('div', 'member-list' + (c.members.length < 3 ? ' solo' : ''))
     c.members.forEach((m, i) => {
       const r = el('div', 'member' + (m.isMe ? ' me' : ''),
@@ -155,16 +194,17 @@
       }
       list.append(r)
     })
-    body.append(list)
+    main.append(list)
 
-    // Side by side: two full-width stacked buttons cost ~110px of a 791px screen for two taps.
+    // The two actions close the side column. They sit below the chips, in space that would otherwise
+    // be blank — the roster pays nothing for them.
     const actions = el('div', 'club-actions')
     const invite = el('button', 'club-cta', '<span class="club-cta-ic">🔎</span><b>מועדונים</b>')
     invite.onclick = () => { state.view = 'find'; render() }
     const leave = el('button', 'club-ghost', 'עזוב')
     leave.onclick = async () => { await post('/leave'); state.view = 'home'; refresh() }
     actions.append(invite, leave)
-    body.append(actions, myScopesStrip())
+    side.append(actions)
   }
 
   function renderCreate(body) {
@@ -210,21 +250,31 @@
     input.focus()
   }
 
+  // FIND is the same two-column split as MY CLUB, and for the same reason: the search box, the
+  // refresh and the back button are a fixed side panel, and the results get the whole other side
+  // with its own scroll. It also matches what Brawl Stars ships today — its JOIN A CLUB screen is
+  // ~34% actions / ~66% list, with the search field and CREATE stacked in the narrow column.
   async function renderFind(body) {
-    body.append(el('div', 'club-hero', `<span class="club-hero-ic">🔎</span><b>מועדונים קרובים אליכם</b>
+    const grid = el('div', 'club-2col')
+    const side = el('div', 'club-side')
+    const main = el('div', 'club-main')
+    grid.append(side, main)
+    body.append(grid)
+
+    side.append(el('div', 'club-hero', `<span class="club-hero-ic">🔎</span><b>מועדונים קרובים אליכם</b>
       <small>לפי הכיתה, בית הספר והעיר שלכם</small>`))
 
     const searchWrap = el('div', 'club-form')
     const search = el('input', 'club-input'); search.placeholder = 'חיפוש לפי שם'; search.value = state.findTerm
     const again = el('button', 'club-ghost', '🔄 רענן רשימה')
     searchWrap.append(search)
-    body.append(searchWrap, again)
+    side.append(searchWrap, again)
 
     const list = el('div', 'scope-list')
-    body.append(list)
+    main.append(list)
     const back = el('button', 'club-ghost', 'חזרה')
     back.onclick = () => { state.view = 'home'; state.findTerm = ''; render() }
-    body.append(back)
+    side.append(back)
 
     // Typing refills the LIST only. Re-rendering the whole view on each keystroke rebuilt the input,
     // which on a phone drops the caret and closes the keyboard — and it silently discarded the term
