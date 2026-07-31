@@ -33,7 +33,7 @@ import { SALTIZ_BOTS, SALTIZ_BOT_BY_ID, botLevelOf, xpForSaltizBot, saltizBotLoa
 import { QUICK_GROUPS, phraseById, REACTION_EMOJI, sanitizeFreeText, freeTextLeft, FREE_TEXT_MAX } from '/shared/quick-messages.js';
 import { CHAT_WORDS, CHAT_EMOTES, CHAT_SHEET, chatById, CHAT_BUBBLE_MS, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from '/shared/quick-chat.js';
 import { rosterCounts } from '/shared/roster.js';
-import { RARITY_RANK, rankForLoadout, backfillLoadout } from '/shared/loadout.js';
+import { RARITY_RANK, rankForLoadout, backfillLoadout, bestUnequipped } from '/shared/loadout.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import { mountHeroFx } from '/hero-fx.js';
 import {
@@ -217,10 +217,12 @@ function loadLoadout() {
   try {
     const inj = window.SALTIZ_LOADOUT; // server-saved cross-device loadout wins over local
     if (Array.isArray(inj)) return [0, 1, 2].map((i) => (inj[i] && inj[i].r && inj[i].n != null ? { r: inj[i].r, n: +inj[i].n } : null));
-    // `{off:1}` (a slot emptied on purpose) lives for ONE session: dropping it here is what makes
-    // every lobby entry start with the best cards backfilled (see effectiveLoadout).
+    // LEGACY COMPAT ONLY: builds before the 2026-07-31 ruling persisted `{off:1}` for a slot the
+    // player had emptied on purpose. The marker no longer exists (see shared/loadout.js), but it is
+    // still sitting in the localStorage of every phone that ran an older build — read as a plain
+    // hole so it backfills like any other, instead of surviving as an empty slot.
     const s = localStorage.getItem('pikme-loadout'); const a = s && JSON.parse(s);
-    return Array.isArray(a) ? a.map((v) => (v && v.off ? null : v)) : null;
+    return Array.isArray(a) ? a.map((v) => (v && v.r && v.n != null ? v : null)) : null;
   } catch { return null; }
 }
 // `tuHub` guard, matching saveCosmetic above: while a hub lesson is running NOTHING is persisted.
@@ -256,7 +258,7 @@ function playerLoadoutBehindTour() {
   const live = window.SALTIZ_CARDS;
   if (swapped) window.SALTIZ_CARDS = _hubSnap.cards;
   try {
-    return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards(), (i) => !!(raw[i] && raw[i].off));
+    return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards());
   } finally { if (swapped) window.SALTIZ_CARDS = live; }
 }
 // The lobby's 🎛️ shortcut (index.html, inside the settings card). The controls editor drags the LIVE
@@ -947,6 +949,18 @@ function showScreen(name) {
     // WebKit (iOS WebView, the real target) RTL: the start edge is scrollLeft 0.
     const strip = document.getElementById('play-strip');
     if (strip) strip.scrollLeft = 0;
+    // THE LOBBY IS NEVER ENTERED WITH AN EMPTY POWER SLOT (ruling 2026-07-31, shared/loadout.js).
+    // This is the ONE gate every arrival at the hub goes through: cold start, «יציאה» out of a room,
+    // the server's `toHome` after a match, a dropped socket, a backdrop tap out of a sub-page. None
+    // of them repainted the slots — measured, 0 mutations of #power-slots across a full match round
+    // trip — so whatever hole existed before the match came back from it untouched, and any fix that
+    // only runs "when the lobby renders" misses every one of these paths because the lobby does not
+    // render. renderPowerSlots() re-runs effectiveLoadout(), which backfills; syncLoadout() then puts
+    // those same three cards on the wire so the sim and the screen cannot disagree (de-duped against
+    // _sentLoadout, so a clean return costs nothing). Both are tour-safe: renderPowerSlots draws the
+    // sandbox's slots and syncLoadout reads playerLoadoutBehindTour(), never the lesson's.
+    renderPowerSlots();
+    syncLoadout();
   }
   else if (name !== 'game' && name !== 'lobby') stopMusic();
   for (const k in screens) screens[k].classList.toggle('hidden', k !== name);
@@ -1349,11 +1363,21 @@ function cardsSig() {
 //   • eagerly drop loadout slots whose card is gone (so they can't silently reappear if re-added),
 //   • demote a now-locked selected hero to the best still-unlocked one.
 function reconcileOnCardChange() {
+  // THE TUTORIAL CANNOT WRITE — the same invariant saveLoadout() enforces at the write, now enforced
+  // on the wire too. __hubPrefs.demoAlbum() swaps window.SALTIZ_CARDS for a lesson deck (for a player
+  // who owns nothing), and myCards() reads that global — so an album poll landing mid-lesson would
+  // push the DEMO deck to the server as the player's album, and the server would then re-sanitize
+  // their real member.loadout against it and drop every slot. The hub poll could already do this
+  // (the tour runs on a visible #home); the always-on interval below would have widened it.
+  // Nothing is consumed by returning here: the signature flips back when end() restores the album,
+  // so the next tick reconciles the real one.
+  if (tuHub) return;
   sendMsg({ type: 'setCards', cards: myCards() });
   if (Array.isArray(myLoadout)) {
-    // `{off:1}` is not a card and validSlot would flatten it to a plain hole — which the backfill
-    // would then fill, silently undoing a removal the player made this session.
-    const cleaned = [0, 1, 2].map((i) => (myLoadout[i] && myLoadout[i].off ? { off: 1 } : validSlot(myLoadout[i])));
+    // A slot whose card is gone becomes a plain hole, and a plain hole backfills — under the
+    // 2026-07-31 ruling there is nothing left to protect here (the {off:1} branch that used to
+    // survive validSlot went with the marker).
+    const cleaned = [0, 1, 2].map((i) => validSlot(myLoadout[i]));
     const changed = [0, 1, 2].some((i) => JSON.stringify(myLoadout[i] ?? null) !== JSON.stringify(cleaned[i]));
     if (changed) { myLoadout = cleaned; saveLoadout(myLoadout); }
   }
@@ -1366,6 +1390,18 @@ function reconcileOnCardChange() {
   // buffsFromLoadout gave that player a flat 1.0 on all three multipliers for the whole session.
   // The album changing is exactly when the effective loadout changes, so the sync is unconditional
   // now; syncLoadout() de-dupes, so a no-op album touch still costs nothing.
+  //
+  // ⚠️ AND THE MEMO HAS TO GO WITH IT — the PERMANENT desync (measured 2026-07-31, end to end,
+  // twice). `_sentLoadout` claims to be an exact model of the server's `member.loadout`, and it is
+  // not: the server RE-DERIVES that record from `member.cards` on every setCards
+  // (server.js sanitizeLoadout), and it also drops any slot whose card the album does not contain.
+  // So a setLoadout validated against a stale/empty server album is silently blanked, the memo
+  // still says "the server has L5 L20 L12", and syncLoadout() early-returns forever after — the
+  // player sits in the lobby looking at three legendaries while the sim gives them a flat
+  // 1.0/1.0/1.0 for the rest of the socket's life. No DOM check can see it. The setCards we just
+  // sent is exactly the moment that record gets rewritten, so forget what we think it holds and
+  // let the next syncLoadout() actually put a frame on the wire.
+  _sentLoadout = null;
   syncLoadout();
   const cut = myCosmetic.indexOf(':'), hero = cut >= 0 ? myCosmetic.slice(0, cut) : myCosmetic;
   if (!isHeroUnlocked(hero)) {
@@ -1878,32 +1914,43 @@ function effectiveLoadout() {
     return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
   }
   const raw = Array.isArray(myLoadout) ? myLoadout : [];
-  // `{off:1}` marks a slot the player DELIBERATELY emptied this session (setSlotCard(i, null)) —
-  // without it the remove gesture would be a no-op, the freed card being the "best unequipped" and
-  // re-equipping itself on the very next render. loadLoadout() drops the marker on the next page
-  // load, so every lobby ENTRY still starts full — the ruling is about STARTING full, not about
-  // fighting the player mid-session.
-  return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards(), (i) => !!(raw[i] && raw[i].off));
+  // UNCONDITIONAL. Outside the tour sandbox there is no longer any value of `myLoadout` that can
+  // produce an empty slot while the album still has an unequipped card in it — the {off:1} marker
+  // and its heldEmpty predicate are gone (ruling 2026-07-31, shared/loadout.js). A hole in `raw` is
+  // just a hole: it re-backfills on every paint, which is also what makes a newly-pulled legendary
+  // auto-upgrade into an auto-filled slot without the player doing anything.
+  return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards());
 }
+// The replacement the remove gesture swaps in — the rule lives in shared/loadout.js (and is unit
+// tested there); this only feeds it the live album. Called BEFORE the slot is cleared, so the card
+// on its way out is still in `eff` and cannot be handed straight back.
+const swapOutCard = (eff) => bestUnequipped(eff, myCards());
 // Drop `card` into `slotIdx` (evict any prior occupant + any other slot holding the same
 // card — one instance per card), persist, re-render, and tell the server live.
+//
+// `card === null` is the REMOVE gesture — drag a slot off every slot, or «הסר קלף מהחריץ». Under the
+// 2026-07-31 ruling it is a SWAP-OUT, not an empty-out: the removed card goes back to the album and
+// the slot immediately takes the best card that is neither equipped elsewhere nor the one just
+// removed, so the gesture keeps a real meaning (it is how you CYCLE a slot) without ever leaving the
+// lobby with a hole. When there is no other card to put there the removal is refused with a toast —
+// a hole is precisely what the ruling forbids, and the player still has the picker if they want a
+// specific card in that slot. Inside the lobby tour the OLD empty-out semantics stay: the lesson is
+// "drag a card into an empty slot", and the sandbox needs one to exist.
 function setSlotCard(slotIdx, card) {
   const eff = effectiveLoadout();
-  // Re-seed this session's {off:1} markers before editing: effectiveLoadout() renders them as
-  // plain nulls, and writing those nulls back would quietly un-mark every OTHER emptied slot.
-  const raw = Array.isArray(myLoadout) ? myLoadout : [];
-  for (let i = 0; i < 3; i++) if (!eff[i] && raw[i] && raw[i].off) eff[i] = { off: 1 };
   if (card) for (let i = 0; i < 3; i++) if (eff[i] && eff[i].r === card.r && +eff[i].n === +card.n) eff[i] = null;
-  // Removing a card marks the slot {off:1}, not null: a bare hole backfills with the best
-  // unequipped card on the next render (effectiveLoadout), which would make removal re-equip the
-  // card it just freed. The marker holds the slot empty for THIS session only.
-  eff[slotIdx] = card ? { r: card.r, n: +card.n } : { off: 1 };
   // LEVEL 4's demo: equip IN MEMORY so the slot fills and the step completes, but write nothing —
   // no localStorage, no postPrefs (the app would persist it under the player's phone), no socket.
-  if (tuHub) { myLoadout = eff; renderPowerSlots(); return; }
+  if (tuHub) { eff[slotIdx] = card ? { r: card.r, n: +card.n } : null; myLoadout = eff; renderPowerSlots(); return; }
+  if (card) eff[slotIdx] = { r: card.r, n: +card.n };
+  else {
+    const next = swapOutCard(eff);             // computed while the outgoing card is still in `eff`
+    if (!next) { toast('אין קלף אחר לחריץ הזה'); return; }
+    eff[slotIdx] = next;
+  }
   myLoadout = eff; saveLoadout(myLoadout);
   renderPowerSlots();
-  syncLoadout(); // the wire carries the EFFECTIVE slots ({off:1} → null, holes backfilled)
+  syncLoadout(); // the wire carries the EFFECTIVE slots — same three cards the screen just drew
 }
 // A TEST SEAM, same idea as window.__tuHubState below: myLoadout / effectiveLoadout are module-local,
 // so a browser check can otherwise only infer the slots from the DOM or the wire — and the whole bug
@@ -1920,13 +1967,11 @@ window.__loadoutProbe = {
 function swapSlots(a, b) {
   if (a === b) return;
   const eff = effectiveLoadout();
-  const raw = Array.isArray(myLoadout) ? myLoadout : [];
-  for (let i = 0; i < 3; i++) if (!eff[i] && raw[i] && raw[i].off) eff[i] = { off: 1 }; // keep emptied-slot markers (see setSlotCard)
   const t = eff[a]; eff[a] = eff[b]; eff[b] = t;
   if (tuHub) { myLoadout = eff; renderPowerSlots(); return; }   // LEVEL 4 lesson: never persisted
   myLoadout = eff; saveLoadout(myLoadout);
   renderPowerSlots();
-  syncLoadout(); // the wire carries the EFFECTIVE slots ({off:1} → null, holes backfilled)
+  syncLoadout(); // the wire carries the EFFECTIVE slots — a deliberate swap is what gets persisted
 }
 // Card thumbnail rendered PIXELATED like the stadium audience: the webp is blitted into a
 // device-res canvas with imageSmoothingEnabled=false (nearest-neighbor, cover-fit), matching the
@@ -2326,7 +2371,9 @@ function showSlotInfo(i) {
       ? '<div class="pinfo-eq">קלף מצויד: ' + (HEB_RAR[card.r] || '') + ' · <span class="pinfo-pct">+' + (RARITY_PCT[card.r] || 0) + '% חוזק</span></div>'
       : '<p class="pinfo-empty">חריץ ריק — גררו קלף מהאוסף לכאן כדי לצייד את הכוח.</p>')
     + '<div class="pinfo-tiers">נדירות הקלף קובעת את החוזק: נפוץ +3% · נדיר +7% · אדיר +12% · אגדי +20%</div>'
-    + (card ? '<button class="pinfo-remove">הסר קלף מהחריץ</button>' : '');
+    // The button SWAPS now, it no longer empties (ruling 2026-07-31 — a lobby slot is never left
+    // bare), so it says so. Class name kept: style.css and the tour's selectors hang off it.
+    + (card ? '<button class="pinfo-remove">החלף לקלף אחר</button>' : '');
   const rm = box.querySelector('.pinfo-remove');
   if (rm) rm.addEventListener('click', () => { setSlotCard(i, null); hidePowerInfo(); renderCardsPage(); }); // removed card returns to the album
   powerInfoEl.classList.remove('hidden');
@@ -2457,6 +2504,25 @@ function startHomeDance() {
   };
   loop();
 }
+// THE ALBUM CAN LAND WHILE THE PLAYER IS NOT LOOKING AT THE HUB.
+// The 700ms album check above lives inside the dancer's rAF loop, behind `#home is visible`. Measured
+// 2026-07-31: inject window.SALTIZ_CARDS while the player is on #friends and the count of setCards
+// frames over the next 2.5s is ZERO — the server keeps the empty album it was joined with, and a
+// match started from there runs the player on [null,null,null] for the rest of the socket's life
+// (the server re-sanitizes member.loadout against that empty album, and the client never learns).
+// The album→server reconcile is the half that must not wait for the hub, so it gets its own plain
+// interval that runs on EVERY screen. The rAF loop keeps the VISUAL half (xp reveal, rank badge,
+// hero) — the shared `_cardsOnlySig` guard means whichever of the two notices first, the other does
+// not repeat the work, and renderHomeCharacter() re-consumes both signatures when the hub is up.
+setInterval(() => {
+  const sig = cardsOnlySig();
+  if (sig === _cardsOnlySig) return;
+  _cardsOnlySig = sig;
+  reconcileOnCardChange();
+  // Off the hub there is nothing to repaint; the hub's own poll sees the stale _cardsSig and
+  // re-renders on the next frame the player is actually looking at it.
+  if (homeEl && !homeEl.classList.contains('hidden')) renderPowerSlots();
+}, 700);
 
 // ---- Hero picker overlay ----------------------------------------------------
 // Full-screen character select: pick a hero (grid) + a tier (Base/Gold/Holo/
@@ -9054,6 +9120,15 @@ function tuHubExit() {
   tuEl?.classList.add('hidden');
   tuCoachRestore();
   tuMockHide();
+  // A LANDMINE, defused (ruling 2026-07-31). This lesson raises `tuHub` WITHOUT going through
+  // __hubPrefs.begin(), so there is no snapshot for end() to restore and nothing here used to
+  // repaint: any render that happened while the flag was up (the album poll → renderHomeCharacter)
+  // painted effectiveLoadout's non-backfilling sandbox branch onto the REAL lobby, and those holes
+  // stayed there after the mock was hidden. The level is parked (`offered: false`,
+  // shared/tutorial.js) so it cannot fire today — one `offered: true` re-arms it, and the ruling has
+  // to hold then too. Now the flag is down, both of these see the real slots again.
+  renderPowerSlots();
+  syncLoadout();
 }
 
 function tuHubLoop(now) {
