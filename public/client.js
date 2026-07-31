@@ -33,6 +33,7 @@ import { SALTIZ_BOTS, SALTIZ_BOT_BY_ID, botLevelOf, xpForSaltizBot, saltizBotLoa
 import { QUICK_GROUPS, phraseById, REACTION_EMOJI, sanitizeFreeText, freeTextLeft, FREE_TEXT_MAX } from '/shared/quick-messages.js';
 import { CHAT_WORDS, CHAT_EMOTES, CHAT_SHEET, chatById, CHAT_BUBBLE_MS, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from '/shared/quick-chat.js';
 import { rosterCounts } from '/shared/roster.js';
+import { RARITY_RANK, rankForLoadout, backfillLoadout } from '/shared/loadout.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import { mountHeroFx } from '/hero-fx.js';
 import {
@@ -242,6 +243,22 @@ let myLoadout = loadLoadout();            // null => auto-fill top-3; else a sav
 // three", a different state from an explicit [null,null,null], and flattening the two would silently
 // change what a player with no saved loadout sees afterwards.
 let _hubSnap = null;
+// What the player would really be playing with right now, ignoring whatever the lesson has put in
+// the slots — the snapshot taken by begin() run through the same rules as effectiveLoadout().
+// Only meaningful while a tour is up; outside one the snapshot is null and this is just the normal
+// answer. syncLoadout() is the only caller (see the note there).
+function playerLoadoutBehindTour() {
+  const raw = (_hubSnap && Array.isArray(_hubSnap.loadout)) ? _hubSnap.loadout : [];
+  // demoAlbum() can swap window.SALTIZ_CARDS for a lesson deck, and both validSlot() and the
+  // backfill read the album through myCards() — which reads that global. Put the player's own album
+  // back for the length of this one synchronous call rather than duplicating myCards()' rules.
+  const swapped = !!(_hubSnap && 'cards' in _hubSnap);
+  const live = window.SALTIZ_CARDS;
+  if (swapped) window.SALTIZ_CARDS = _hubSnap.cards;
+  try {
+    return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards(), (i) => !!(raw[i] && raw[i].off));
+  } finally { if (swapped) window.SALTIZ_CARDS = live; }
+}
 // The lobby's 🎛️ shortcut (index.html, inside the settings card). The controls editor drags the LIVE
 // sticks, so it only means anything inside a match — which left no way to reach it from the hub at all.
 // This flag is set when the shortcut starts a training room and consumed when that room opens.
@@ -320,7 +337,11 @@ window.__pikmeApplyPrefs = function (p) {
     if (Array.isArray(p.loadout)) {
       myLoadout = [0, 1, 2].map((i) => (p.loadout[i] && p.loadout[i].r && p.loadout[i].n != null ? { r: p.loadout[i].r, n: +p.loadout[i].n } : null));
       try { localStorage.setItem('pikme-loadout', JSON.stringify(myLoadout)); } catch { /* private mode */ }
-      sendMsg({ type: 'setLoadout', loadout: myLoadout });
+      // syncLoadout(), NOT the raw `myLoadout`: a cross-device push routinely arrives with holes
+      // (the other device had fewer cards, or the player only ever filled one slot), and sending
+      // those holes verbatim handed the server empty slots while the lobby drew the backfilled
+      // ones. Measured — _loadout-verify.mjs scenario D.
+      syncLoadout();
     }
     applyExtraPrefs(p.prefs);
     if (typeof renderHomeCharacter === 'function') renderHomeCharacter(); // repaint hero + power slots
@@ -965,7 +986,10 @@ function profileInputs() {
   return {
     xpState: currentXpState(), rank: window.SALTIZ_RANK || null,
     cards, cosmetic: myCosmetic || DEFAULT_COSMETIC,
-    unlockedHeroes: unlockedHeroCount(), loadout: rankForLoadout(cards).slice(0, 3),
+    // The slots the player is ACTUALLY playing with, not a fresh top-3 guess: the profile used to
+    // re-rank the album here, so it disagreed with the lobby for anyone who had arranged their own
+    // powers. effectiveLoadout() is the same value the lobby draws and the wire carries.
+    unlockedHeroes: unlockedHeroCount(), loadout: effectiveLoadout(),
     heroPlays: readHeroPlays((k) => localStorage.getItem(k)),
     bestBotLevel: readBestBotLevel((k) => localStorage.getItem(k)),
     arenaCount: profileArenaCount(), friendCount: FRIENDS.length,
@@ -1116,7 +1140,8 @@ let MY_USER_ID = null; // filled from the welcome message (authenticated connect
 // (rarity, card number, copies, worth). Empty on the web/dev without the app.
 const CARD_ART_BASE = 'https://pxsjmychuxwufcvqixgu.supabase.co/storage/v1/object/public/cards';
 const RARITY_GLOW = { common: '#9ab0c5', rare: '#4ea0ff', epic: '#b46bff', legendary: '#ffb800' };
-const RARITY_RANK = { legendary: 3, epic: 2, rare: 1, common: 0 };
+// RARITY_RANK now comes from /shared/loadout.js (derived there from bot-buffs' RARITY_LADDER, the
+// repo's single source for rarity ORDER) — see the import at the top of this file.
 // Dropping a card on the hero re-skins it by the card's rarity (SKIN_RARITY tiers):
 // common→base, rare→gold, epic→holo, legendary→sig. Hero TYPE is kept; only the tier changes.
 const RARITY_SKIN = { common: 'base', rare: 'gold', epic: 'holo', legendary: 'sig' };
@@ -1209,15 +1234,9 @@ function rankCards(cards) {
     (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) ||
     (b.c || 0) - (a.c || 0));
 }
-// "Best" loadout ranking: RARITY first, then DUPLICATION (copies), then worth as a
-// tiebreak. Distinct from rankCards (worth-first) which drives the carousel — the
-// #select-best-btn uses this so the equipped powers are the rarest/most-owned cards.
-function rankForLoadout(cards) {
-  return [...(cards || [])].sort((a, b) =>
-    (RARITY_RANK[b.r] || 0) - (RARITY_RANK[a.r] || 0) ||
-    (b.c || 0) - (a.c || 0) ||
-    (b.w || 0) - (a.w || 0));
-}
+// rankForLoadout (RARITY first, then DUPLICATION, then worth) moved to /shared/loadout.js next to
+// the backfill that consumes it, so both can be unit-tested — see test-loadout-backfill.mjs.
+// Distinct from rankCards (worth-first) above, which drives the carousel.
 // Lazily-loaded card-front <img>s, keyed "rarity_number". crossOrigin left unset so the
 // public Supabase art loads without a CORS handshake (the game never reads canvas pixels).
 const _cardImgs = new Map();
@@ -1240,7 +1259,32 @@ function preloadCards(cards) { for (const c of (cards || [])) cardImage(c.r, c.n
 
 const specialIcon = () => '💣'; // special is Bomb
 function memberInitials(name) { return (name || '?').trim().slice(0, 2).toUpperCase(); }
-function sendMsg(o) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(o)); }
+// The last loadout the SERVER was told (see syncLoadout). Declared up here, not beside syncLoadout
+// far below, because the choke point in sendMsg() reads it: a `let` down there would be in its
+// temporal dead zone for anything that fires before that line evaluates.
+let _sentLoadout = null;
+// EVERY message that can put this player into a match. The loadout the sim buffs from is whatever
+// `member.loadout` held when the room was made, so the effective slots have to be on the wire
+// BEFORE any of these — and hanging that off the one function they all go through is the only
+// version of it that a new entry point cannot forget. (Several call sites also call syncLoadout()
+// explicitly; that is now a no-op second time, since syncLoadout de-dupes.)
+// Deliberately NOT here: 'tutorial' (a scripted lesson, not a match the album should change) and
+// 'spectate' (watch-only — there is no player to buff).
+const MATCH_ENTRY_MSGS = new Set([
+  'quickMatch', 'botGame', 'training', 'builderMatch', 'ready',
+  'challengeRespond', 'partyRespond', 'partyGame', 'joinRoom', 'createRoom',
+]);
+let _inSyncLoadout = false;
+function sendMsg(o) {
+  // Safe during a lobby lesson too: syncLoadout() reads the player's real slots from the tour's
+  // snapshot, never the lesson's — see playerLoadoutBehindTour(). That is what makes the tour's
+  // finale (a real quick match launched from inside the sandbox) enter with the right cards.
+  if (o && MATCH_ENTRY_MSGS.has(o.type) && !_inSyncLoadout) {
+    _inSyncLoadout = true;                    // syncLoadout sends through here too — don't recurse
+    try { syncLoadout(); } finally { _inSyncLoadout = false; }
+  }
+  if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(o));
+}
 function showRoomError(msg) { toast(msg); } // room controls left the friends screen — errors now toast
 // Global toast: a top-level #fp-toast element (outside every .screen), so it's visible
 // regardless of which screen (home/lobby/game/friends) the user is on when it fires.
@@ -1307,15 +1351,22 @@ function cardsSig() {
 function reconcileOnCardChange() {
   sendMsg({ type: 'setCards', cards: myCards() });
   if (Array.isArray(myLoadout)) {
-    const cleaned = [0, 1, 2].map((i) => validSlot(myLoadout[i]));
-    const changed = [0, 1, 2].some((i) => {
-      const a = myLoadout[i] ? { r: myLoadout[i].r, n: +myLoadout[i].n } : null;
-      return JSON.stringify(a) !== JSON.stringify(cleaned[i]);
-    });
-    // Send the EFFECTIVE loadout, not the raw cleaned one: cleaning can leave holes, and holes now
-    // backfill with the best unequipped cards — the server must play the same slots the lobby shows.
-    if (changed) { myLoadout = cleaned; saveLoadout(myLoadout); syncLoadout(); }
+    // `{off:1}` is not a card and validSlot would flatten it to a plain hole — which the backfill
+    // would then fill, silently undoing a removal the player made this session.
+    const cleaned = [0, 1, 2].map((i) => (myLoadout[i] && myLoadout[i].off ? { off: 1 } : validSlot(myLoadout[i])));
+    const changed = [0, 1, 2].some((i) => JSON.stringify(myLoadout[i] ?? null) !== JSON.stringify(cleaned[i]));
+    if (changed) { myLoadout = cleaned; saveLoadout(myLoadout); }
   }
+  // ⚠️ THE BUG THIS FUNCTION SHIPPED WITH (measured 2026-07-31, _loadout-verify.mjs scenario B):
+  // the resync used to live inside the `Array.isArray(myLoadout)` branch above, so a player whose
+  // loadout is `null` — i.e. one who has NEVER opened the card screen, the exact player the ruling
+  // is about — got no setLoadout at all when their album landed after the socket had joined. The
+  // lobby still drew three cards (renderPowerSlots recomputes effectiveLoadout on every paint), so
+  // it LOOKED right, while `member.loadout` on the server stayed [null,null,null] and
+  // buffsFromLoadout gave that player a flat 1.0 on all three multipliers for the whole session.
+  // The album changing is exactly when the effective loadout changes, so the sync is unconditional
+  // now; syncLoadout() de-dupes, so a no-op album touch still costs nothing.
+  syncLoadout();
   const cut = myCosmetic.indexOf(':'), hero = cut >= 0 ? myCosmetic.slice(0, cut) : myCosmetic;
   if (!isHeroUnlocked(hero)) {
     const best = HERO_KEYS[unlockedHeroCount() - 1];
@@ -1827,18 +1878,12 @@ function effectiveLoadout() {
     return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
   }
   const raw = Array.isArray(myLoadout) ? myLoadout : [];
-  const slots = [0, 1, 2].map((i) => validSlot(raw[i]));
-  if (slots.some((s) => !s)) {
-    const used = new Set(slots.filter(Boolean).map((s) => s.r + '_' + s.n));
-    const pool = rankForLoadout(myCards()).filter((c) => !used.has(c.r + '_' + c.n)); // best by rarity, then copies
-    // `{off:1}` marks a slot the player DELIBERATELY emptied this session (setSlotCard(i, null)) —
-    // without it the remove gesture would be a no-op, the freed card being the "best unequipped"
-    // and re-equipping itself on the very next render. loadLoadout() drops the marker on the next
-    // page load, so every lobby ENTRY still starts full — the ruling is about starting, not about
-    // fighting the player mid-session.
-    for (let i = 0; i < 3 && pool.length; i++) if (!slots[i] && !(raw[i] && raw[i].off)) { const c = pool.shift(); slots[i] = { r: c.r, n: +c.n }; }
-  }
-  return slots;
+  // `{off:1}` marks a slot the player DELIBERATELY emptied this session (setSlotCard(i, null)) —
+  // without it the remove gesture would be a no-op, the freed card being the "best unequipped" and
+  // re-equipping itself on the very next render. loadLoadout() drops the marker on the next page
+  // load, so every lobby ENTRY still starts full — the ruling is about STARTING full, not about
+  // fighting the player mid-session.
+  return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards(), (i) => !!(raw[i] && raw[i].off));
 }
 // Drop `card` into `slotIdx` (evict any prior occupant + any other slot holding the same
 // card — one instance per card), persist, re-render, and tell the server live.
@@ -1860,6 +1905,16 @@ function setSlotCard(slotIdx, card) {
   renderPowerSlots();
   syncLoadout(); // the wire carries the EFFECTIVE slots ({off:1} → null, holes backfilled)
 }
+// A TEST SEAM, same idea as window.__tuHubState below: myLoadout / effectiveLoadout are module-local,
+// so a browser check can otherwise only infer the slots from the DOM or the wire — and the whole bug
+// this seam exists for was the DOM and the wire disagreeing. _loadout-verify.mjs reads the raw and
+// effective values here and drives a removal without having to synthesise a drag gesture.
+window.__loadoutProbe = {
+  raw: () => myLoadout,
+  effective: () => effectiveLoadout(),
+  remove: (i) => setSlotCard(i | 0, null),
+  equip: (i, card) => setSlotCard(i | 0, card),
+};
 // Exchange the cards in two slots (lobby drag slot->slot). Moving existing entries never
 // creates a duplicate, so no extra de-dupe is needed; an empty source/target just moves.
 function swapSlots(a, b) {
@@ -2183,7 +2238,7 @@ document.getElementById('cards-best-btn')?.addEventListener('click', () => {
   saveLoadout(myLoadout);
   renderPowerSlots(); renderCardsPage();
   [0, 1, 2].forEach((i, k) => setTimeout(() => popCardsSlot(i), k * 70));   // staggered "all landed" cascade
-  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+  syncLoadout();   // the EFFECTIVE slots, so an album of fewer than 3 cards still can't send holes
 });
 // ---- Lobby slot gestures (delegated on #power-slots, survives re-renders) --------------
 // TAP a slot            -> open the cards room, targeting that slot.
@@ -2760,7 +2815,31 @@ for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends', 
 // Arena "2 נגד 2" launches the same quick match as the home Quick Match button.
 // Push my live equipped loadout to the server right before entering a match, so the countdown/reveal
 // other players see (and my own server-side record) match my slots even if join raced card-loading.
-function syncLoadout() { sendMsg({ type: 'setLoadout', loadout: effectiveLoadout() }); }
+//
+// De-duped against what the server already holds (`_sentLoadout`, declared beside sendMsg).
+// `member.loadout` is written by exactly two messages — `join` and `setLoadout` — so remembering the
+// last one sent is an exact model of the server's record, and that is what lets this be called
+// liberally: from every album change, and from the match-entry choke point in sendMsg, without
+// putting a redundant frame on the wire each time. `_sentLoadout` is re-seeded by join and cleared
+// on close, so a reconnect always re-states it.
+function syncLoadout() {
+  // Never the LESSON's slots. During a lobby tour effectiveLoadout() is the sandbox's — emptySlots()
+  // deliberately clears them so there is something to drag into — and the tour's finale launches a
+  // REAL quick match from inside the sandbox (the ⚽ tap is latched, not intercepted), so the match
+  // request leaves before __hubPrefs.end() puts the player's own loadout back. Reading through the
+  // snapshot instead of the live value makes "the tutorial can never change what the server thinks
+  // you are playing with" true by construction rather than by ordering.
+  const eff = tuHub ? playerLoadoutBehindTour() : effectiveLoadout();
+  const key = JSON.stringify(eff);
+  if (key === _sentLoadout) return;
+  // Only record what actually LEFT: sendMsg drops the frame on a closed/connecting socket, and a
+  // memo that claims the server knows something it was never told is worse than no memo at all.
+  // (ws.onopen re-seeds it and ws.onclose clears it, so this is belt-and-braces — but the failure
+  // mode it prevents is a player silently keeping stale buffs for a whole session.)
+  if (!(ws && ws.readyState === ws.OPEN)) return;
+  _sentLoadout = key;
+  sendMsg({ type: 'setLoadout', loadout: eff });
+}
 // The #arena launchers are gone — that list is rendered from MODES and handled by the
 // delegated .modecard[data-mode-id] listener. The hub strip's goal-brawl shortcut stays
 // (it is a baked layout box), but it launches THROUGH the table so it can never drift.
@@ -2823,7 +2902,7 @@ document.getElementById('select-best-btn')?.addEventListener('click', () => {
   myLoadout = [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
   saveLoadout(myLoadout);
   renderPowerSlots();
-  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+  syncLoadout();   // the EFFECTIVE slots, so an album of fewer than 3 cards still can't send holes
   toast('צוידו הקלפים הטובים ביותר');
 });
 // Play with friends: team-first. «שחק עם חברים» creates the party room and lands straight on the
@@ -4379,7 +4458,12 @@ function connect(name, avatar) {
   ws.binaryType = 'arraybuffer'; // snapshots arrive as compact binary frames
   ws.onopen = () => {
     setNet('connected');
-    ws.send(JSON.stringify({ type: 'join', authToken: FOOTBALL_TOKEN, name, avatar, cards: myCards(), cosmetic: myCosmetic, loadout: effectiveLoadout() }));
+    // `join` is one of the two messages that write member.loadout server-side, so it seeds the
+    // de-dupe memo — otherwise the first syncLoadout() after connecting would re-state a loadout
+    // the server already has.
+    const joinLoadout = effectiveLoadout();
+    _sentLoadout = JSON.stringify(joinLoadout);
+    ws.send(JSON.stringify({ type: 'join', authToken: FOOTBALL_TOKEN, name, avatar, cards: myCards(), cosmetic: myCosmetic, loadout: joinLoadout }));
     if (pingIv) clearInterval(pingIv);
     pingIv = setInterval(sendPing, 1000);   // 1s: enough RTT samples for a usable jitter figure
     loadFriends(); // register friends → server replies friendsPresence → bulb reflects online friends
@@ -4392,6 +4476,7 @@ function connect(name, avatar) {
   // game would otherwise freeze forever — so fall back to the home menu and retry.
   ws.onclose = () => {
     setNet('reconnecting…');
+    _sentLoadout = null;                  // a new socket is a new member record — re-state the slots
     resetNetHud(); resetSnapshotRate();   // stale RTT/snapshot samples must not haunt the next socket
     if (pingIv) { clearInterval(pingIv); pingIv = null; }
     me = { playerId: null, team: null, char: chosenChar };

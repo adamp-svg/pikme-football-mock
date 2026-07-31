@@ -13,3 +13,6 @@ _tu-shots/
 
 # Device-matrix screenshots (_device-matrix.mjs output) — 2-3MB per device, regenerated on demand
 _device-shots/
+
+# Power-slot verification screenshots (_loadout-verify.mjs output) — regenerated on demand
+_loadout-shots/
