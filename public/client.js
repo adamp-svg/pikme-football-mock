@@ -216,7 +216,10 @@ function loadLoadout() {
   try {
     const inj = window.SALTIZ_LOADOUT; // server-saved cross-device loadout wins over local
     if (Array.isArray(inj)) return [0, 1, 2].map((i) => (inj[i] && inj[i].r && inj[i].n != null ? { r: inj[i].r, n: +inj[i].n } : null));
-    const s = localStorage.getItem('pikme-loadout'); const a = s && JSON.parse(s); return Array.isArray(a) ? a : null;
+    // `{off:1}` (a slot emptied on purpose) lives for ONE session: dropping it here is what makes
+    // every lobby entry start with the best cards backfilled (see effectiveLoadout).
+    const s = localStorage.getItem('pikme-loadout'); const a = s && JSON.parse(s);
+    return Array.isArray(a) ? a.map((v) => (v && v.off ? null : v)) : null;
   } catch { return null; }
 }
 // `tuHub` guard, matching saveCosmetic above: while a hub lesson is running NOTHING is persisted.
@@ -1060,7 +1063,10 @@ let _mineRank = false, _mineXp = false;
 async function fetchOwnProgress() {
   const needRank = !window.SALTIZ_RANK || _mineRank;
   const needXp = !window.SALTIZ_XP || _mineXp;
-  if (!needRank && !needXp) return;                     // the app injected both — it wins, always
+  // The streak chip has NO app inject, so it may need this fetch even when xp+rank are both
+  // app-owned; it goes quiet again once fresh (stale-flagged at match end, RANK_SELF_MS throttled).
+  const needStreak = _streakStale || myStreak == null;
+  if (!needRank && !needXp && !needStreak) return;      // the app injected both — it wins, always
   if (_rankSelfBusy) return;
   const now = performance.now();
   if (_rankSelfAt && now - _rankSelfAt < RANK_SELF_MS) return;
@@ -1095,6 +1101,10 @@ async function fetchOwnProgress() {
       window.SALTIZ_XP = Number.isFinite(lvl) && lvl > 0 ? { xp, level: lvl } : { xp };
       _mineXp = true;
     }
+    // Win streak — same payload (/handle-friends/rank and /football/stats both project it, and
+    // /dev/progress proxies them). The server's number wins over any optimistic match-end bump.
+    const st = Number(r.streak);
+    if (Number.isFinite(st)) { myStreak = Math.max(0, st | 0); _streakStale = false; renderHubStreak(); }
   } finally { _rankSelfBusy = false; }
 }
 // Kept as an alias: the hub loop and any other caller still say fetchOwnRank().
@@ -1302,7 +1312,9 @@ function reconcileOnCardChange() {
       const a = myLoadout[i] ? { r: myLoadout[i].r, n: +myLoadout[i].n } : null;
       return JSON.stringify(a) !== JSON.stringify(cleaned[i]);
     });
-    if (changed) { myLoadout = cleaned; saveLoadout(myLoadout); sendMsg({ type: 'setLoadout', loadout: myLoadout }); }
+    // Send the EFFECTIVE loadout, not the raw cleaned one: cleaning can leave holes, and holes now
+    // backfill with the best unequipped cards — the server must play the same slots the lobby shows.
+    if (changed) { myLoadout = cleaned; saveLoadout(myLoadout); syncLoadout(); }
   }
   const cut = myCosmetic.indexOf(':'), hero = cut >= 0 ? myCosmetic.slice(0, cut) : myCosmetic;
   if (!isHeroUnlocked(hero)) {
@@ -1358,6 +1370,74 @@ function renderHubXp() {
     + ' ' + TROPHIES_HE + '</span></div>'
     + '<div class="hub-xp-bar"><b style="width:' + (pct * 100).toFixed(1) + '%"></b></div>';
   el.classList.remove('hidden');
+  renderHubStreak(); // the innerHTML rebuild above wiped the chip — put it back
+}
+
+// ---- WIN-STREAK chip (רצף ניצחונות) beside the level on the trophies bar --------------------
+// Number + a tiny LIVE pixel fire, Brawl-Stars-style. The truth is the API's `streak` (the same
+// field the profile's «רצף נוכחי» row shows, piggybacked on fetchOwnProgress); a match end bumps
+// it optimistically (win +1 / loss 0, exactly where matchResult posts — so practice never moves
+// it) and marks it stale for the next fetch to reconcile. Hidden at 0 — no fire without a streak.
+let myStreak = DEV_LOCAL ? 3 : null; // localhost preview, same rule as the fake-1240 xp fallback
+let _streakStale = true;             // ask the API on the next progression fetch
+function bumpLocalStreak(result) {
+  if (result === 'win') myStreak = (myStreak || 0) + 1;
+  else if (result === 'lose') myStreak = 0;      // a draw neither extends nor breaks — server decides
+  _streakStale = true;
+  renderHubStreak();
+}
+// Chip-only DOM update (never a full bar rebuild — safe mid-reveal while setXpBar owns the bar).
+function renderHubStreak() {
+  const top = document.querySelector('#hub-xp .hub-xp-top');
+  if (!top) return;
+  let chip = top.querySelector('.hub-streak');
+  const n = Math.max(0, Number(myStreak) || 0);
+  if (n < 1) { if (chip) chip.remove(); return; }
+  if (!chip) {
+    chip = document.createElement('span');
+    chip.className = 'hub-streak';
+    chip.title = 'רצף ניצחונות';
+    // 7x10 internal pixels, blown up by CSS `image-rendering: pixelated` — the mode-card trick,
+    // sized to the bar's 9px type.
+    chip.innerHTML = '<canvas class="hub-streak-fire" width="7" height="10" aria-hidden="true"></canvas><b></b>';
+    top.querySelector('.hub-xp-lvl')?.after(chip);
+    startStreakFire();
+  }
+  chip.querySelector('b').textContent = n;
+}
+// The fire: a classic heat-rise cellular sim on a 7x10 grid, ~9fps — flames flicker upward from a
+// hot base row. One shared timer draws onto whichever chip canvas currently exists and stops
+// itself when none does, so renderHubXp() rebuilds never leak intervals.
+const FIRE_PAL = ['#3a1004', '#8a2508', '#d24a0a', '#f58a1f', '#ffc93c', '#fff3b8'];
+const FIRE_REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let _fireTimer = null;
+function drawStreakFire(cv) {
+  const W = cv.width, H = cv.height;
+  const heat = cv._heat || (cv._heat = new Float32Array(W * H));
+  for (let x = 0; x < W; x++) heat[(H - 1) * W + x] = (x === 0 || x === W - 1 ? 0.55 : 0.8) + Math.random() * 0.2;
+  for (let y = 0; y < H - 1; y++) for (let x = 0; x < W; x++) {
+    const sx = Math.max(0, Math.min(W - 1, x + ((Math.random() * 3) | 0) - 1)); // sideways lick
+    heat[y * W + x] = Math.max(0, heat[(y + 1) * W + sx] - (0.07 + Math.random() * 0.13));
+  }
+  const g = cv.getContext('2d');
+  g.clearRect(0, 0, W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const h = heat[y * W + x];
+    if (h <= 0.08) continue;
+    g.fillStyle = FIRE_PAL[Math.min(FIRE_PAL.length - 1, (h * FIRE_PAL.length) | 0)];
+    g.fillRect(x, y, 1, 1);
+  }
+}
+function startStreakFire() {
+  const cv = document.querySelector('.hub-streak-fire');
+  if (!cv) return;
+  if (FIRE_REDUCE) { for (let i = 0; i < 8; i++) drawStreakFire(cv); return; } // settled single frame
+  if (_fireTimer) return;
+  _fireTimer = setInterval(() => {
+    const c = document.querySelector('.hub-streak-fire');
+    if (!c) { clearInterval(_fireTimer); _fireTimer = null; return; }
+    if (!document.hidden) drawStreakFire(c);
+  }, 110);
 }
 
 // ============================================================================
@@ -1734,35 +1814,64 @@ const HEB_RAR = { common: 'נפוץ', rare: 'נדיר', epic: 'אדיר', legend
 function cardOwned(r, n) { return myCards().some((c) => c.r === r && +c.n === +n); }
 function validSlot(s) { return s && s.r && s.n != null && cardOwned(s.r, s.n) ? { r: s.r, n: +s.n } : null; }
 // The 3-slot loadout used for rendering + sending: a saved loadout (validated against
-// the current album) wins; otherwise auto-fill the album's top-3 into slots 0,1,2.
+// the current album) wins for the slots it fills — and any EMPTY slot backfills with the best
+// still-unequipped card (user ruling 2026-07-31: a player with enough cards never enters the
+// lobby with an empty power slot). This covers all three empty-slot sources the old code left
+// bare: a saved loadout with holes, slots invalidated by losing the card, and prefs synced from
+// another device. Deliberate picks in the other slots are respected — only holes are filled.
 function effectiveLoadout() {
-  if (Array.isArray(myLoadout)) return [0, 1, 2].map((i) => validSlot(myLoadout[i]));
-  const top = rankForLoadout(myCards()).slice(0, 3); // default powers = best by rarity, then copies
-  return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
+  if (tuHub) { // the lobby tour's seam NEEDS the old semantics: emptySlots() sets [null,null,null]
+    // so the kid has something to drag into — backfilling here would complete the lesson by itself.
+    if (Array.isArray(myLoadout)) return [0, 1, 2].map((i) => validSlot(myLoadout[i]));
+    const top = rankForLoadout(myCards()).slice(0, 3);
+    return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
+  }
+  const raw = Array.isArray(myLoadout) ? myLoadout : [];
+  const slots = [0, 1, 2].map((i) => validSlot(raw[i]));
+  if (slots.some((s) => !s)) {
+    const used = new Set(slots.filter(Boolean).map((s) => s.r + '_' + s.n));
+    const pool = rankForLoadout(myCards()).filter((c) => !used.has(c.r + '_' + c.n)); // best by rarity, then copies
+    // `{off:1}` marks a slot the player DELIBERATELY emptied this session (setSlotCard(i, null)) —
+    // without it the remove gesture would be a no-op, the freed card being the "best unequipped"
+    // and re-equipping itself on the very next render. loadLoadout() drops the marker on the next
+    // page load, so every lobby ENTRY still starts full — the ruling is about starting, not about
+    // fighting the player mid-session.
+    for (let i = 0; i < 3 && pool.length; i++) if (!slots[i] && !(raw[i] && raw[i].off)) { const c = pool.shift(); slots[i] = { r: c.r, n: +c.n }; }
+  }
+  return slots;
 }
 // Drop `card` into `slotIdx` (evict any prior occupant + any other slot holding the same
 // card — one instance per card), persist, re-render, and tell the server live.
 function setSlotCard(slotIdx, card) {
   const eff = effectiveLoadout();
+  // Re-seed this session's {off:1} markers before editing: effectiveLoadout() renders them as
+  // plain nulls, and writing those nulls back would quietly un-mark every OTHER emptied slot.
+  const raw = Array.isArray(myLoadout) ? myLoadout : [];
+  for (let i = 0; i < 3; i++) if (!eff[i] && raw[i] && raw[i].off) eff[i] = { off: 1 };
   if (card) for (let i = 0; i < 3; i++) if (eff[i] && eff[i].r === card.r && +eff[i].n === +card.n) eff[i] = null;
-  eff[slotIdx] = card ? { r: card.r, n: +card.n } : null;
+  // Removing a card marks the slot {off:1}, not null: a bare hole backfills with the best
+  // unequipped card on the next render (effectiveLoadout), which would make removal re-equip the
+  // card it just freed. The marker holds the slot empty for THIS session only.
+  eff[slotIdx] = card ? { r: card.r, n: +card.n } : { off: 1 };
   // LEVEL 4's demo: equip IN MEMORY so the slot fills and the step completes, but write nothing —
   // no localStorage, no postPrefs (the app would persist it under the player's phone), no socket.
   if (tuHub) { myLoadout = eff; renderPowerSlots(); return; }
   myLoadout = eff; saveLoadout(myLoadout);
   renderPowerSlots();
-  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+  syncLoadout(); // the wire carries the EFFECTIVE slots ({off:1} → null, holes backfilled)
 }
 // Exchange the cards in two slots (lobby drag slot->slot). Moving existing entries never
 // creates a duplicate, so no extra de-dupe is needed; an empty source/target just moves.
 function swapSlots(a, b) {
   if (a === b) return;
   const eff = effectiveLoadout();
+  const raw = Array.isArray(myLoadout) ? myLoadout : [];
+  for (let i = 0; i < 3; i++) if (!eff[i] && raw[i] && raw[i].off) eff[i] = { off: 1 }; // keep emptied-slot markers (see setSlotCard)
   const t = eff[a]; eff[a] = eff[b]; eff[b] = t;
   if (tuHub) { myLoadout = eff; renderPowerSlots(); return; }   // LEVEL 4 lesson: never persisted
   myLoadout = eff; saveLoadout(myLoadout);
   renderPowerSlots();
-  sendMsg({ type: 'setLoadout', loadout: myLoadout });
+  syncLoadout(); // the wire carries the EFFECTIVE slots ({off:1} → null, holes backfilled)
 }
 // Card thumbnail rendered PIXELATED like the stadium audience: the webp is blitted into a
 // device-res canvas with imageSmoothingEnabled=false (nearest-neighbor, cover-fit), matching the
@@ -7972,6 +8081,10 @@ function drawHUD() {
       // Guarded, NOT an early `return`: this runs inside the per-frame HUD update, and returning here
       // would silently skip everything after this branch for the rest of the frame.
       if (!isPracticeMode(roomMode)) {
+        // Streak chip: bump now (win +1 / loss 0) so the hub shows it the moment you land back,
+        // and let the stale-flag reconcile with the server's recorded number on the next fetch.
+        // Inside this guard on purpose — practice moves nothing, including the streak.
+        bumpLocalStreak(myScore > opScore ? 'win' : (myScore < opScore ? 'lose' : 'draw'));
         // Post the result WITH the per-player stats: fire as soon as the server's matchStats arrives,
         // else a 1.2s fallback posts without them (never miss the record).
         _pendingPost = () => { _pendingPost = null; postMatchResult(myT, opT, myScore, opScore); };

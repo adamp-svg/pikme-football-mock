@@ -1105,6 +1105,11 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .hub-xp { width: 158px; }
 .hub-xp.hidden { display: none !important; }
 .hub-xp-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; font: 900 9px "Arial Black", sans-serif; color: #c8d4bf; }
+/* Win-streak chip (renderHubStreak): a live 7x10 pixel fire + the count, sized to the bar's 9px
+   type. Sits right after רמה N in the flex row; hidden entirely at streak 0. */
+.hub-streak { display: inline-flex; align-items: center; gap: 2px; margin-inline-start: -2px; }
+.hub-streak-fire { width: 8px; height: 11px; image-rendering: pixelated; image-rendering: crisp-edges; }
+.hub-streak b { font: 900 10px "Arial Black", sans-serif; color: #ffb63c; text-shadow: 0 1px 0 #3a1602; }
 .hub-xp-lvl b { color: var(--gold); font-size: 11px; }
 .hub-xp-amt { color: #8aa08c; font-variant-numeric: tabular-nums; letter-spacing: .2px; direction: ltr; unicode-bidi: isolate; }
 /* No border — same #34413a line removed from .hub-chip. This is the INNER progress track, so the pale

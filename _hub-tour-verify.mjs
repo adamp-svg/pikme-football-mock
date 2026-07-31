@@ -440,10 +440,16 @@ check(await evalJs("!document.querySelector('.ht-catch')"), 'the tap-catcher was
 
 // ---- THE REVERT — "nothing the lesson does is saved" ----------------------------------------
 // The kid equipped a card, re-skinned the hero, then filled all three slots. None of it may survive
-// the lesson. The lab starts from SALTIZ_LOADOUT=[null,null,null] and 'striker:base', so "back as it
-// was" is checkable exactly.
-const restored = await waitFor(async () => (await count('#power-slots .pslot.pslot-empty')) === 3, 5000);
-check(!!restored, `every slot is EMPTY again — the lesson's loadout did not survive it (${await count('#power-slots .pslot.pslot-empty')}/3 empty)`);
+// the lesson. The lab starts from SALTIZ_LOADOUT=[null,null,null] and 'striker:base'.
+// SINCE THE 2026-07-31 RULING ("power slots never START empty"), "back as it was" no longer LOOKS
+// empty: outside the tour sandbox, effectiveLoadout() backfills empty slots with the album's best —
+// so the restored [null,null,null] renders as the top three (visually the same set «הכי טוב» picked;
+// rankForLoadout drives both). The revert is therefore proven by the persistence checks below
+// (nothing in localStorage, restore-by-reference), and HERE by the slots being the ENTRY state:
+// full via backfill, not held empty by the lesson's teardown.
+const restored = await waitFor(async () => (await count('#power-slots .pslot.pslot-empty')) === 0
+  && (await count('#power-slots .pslot')) === 3, 5000);
+check(!!restored, `the slots settled into the post-ruling entry state — 3 backfilled, 0 empty (${await count('#power-slots .pslot.pslot-empty')}/3 empty)`);
 check((await state()).cosmetic === 'striker:base', `and the hero is back in his own skin (myCosmetic = ${(await state()).cosmetic})`);
 await shot('lab-07-best-equipped');
 // The payoff, photographed with the panel lifted for one frame: three equipped slots and a gold hero.
