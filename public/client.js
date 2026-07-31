@@ -233,6 +233,45 @@ function loadLoadout() {
 function saveLoadout(a) { if (tuHub) return; try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } postPrefs(); }
 let myLoadout = loadLoadout();            // null => auto-fill top-3; else a saved [{r,n}|null] x3
 
+// ── BEST CARDS ON LOAD ──────────────────────────────────────────────────────────────────────────
+// Adam, three times and escalating — 2026-07-30 "make the cards power slots automatic with the best
+// cards!!! when enetering the game!!!!", 2026-07-31 "always have the best cards by defult whenevr a
+// user is in the main lobby always!!!!!!!!", 2026-08-01 "the main lobby of the football, should have
+// best cards on poer slots when loaded".
+//
+// The 2026-07-31 pass read "by default" as "fill the EMPTY slots" and left a saved loadout alone.
+// That was too conservative and it is the reason he reported it still broken: reproduced in
+// _slots-onload.mjs — an album holding three legendaries, three commons saved in localStorage, and
+// the lobby paints the three COMMONS, because none of the three slots is a hole so there is nothing
+// to backfill. The screenshot shows a legendary in the carousel and commons in the slots.
+//
+// So the rule is now: EVERY LOAD STARTS FROM THE BEST THREE. Once per page load, as soon as the album
+// is actually known, the loadout is reset to the top three and persisted. Within that session a
+// deliberate pick still sticks — otherwise the card picker and drag-to-equip would be dead controls,
+// reverting under the player's finger on the next repaint.
+//
+// Fires from three places because the album can arrive before OR after the first paint, and the
+// once-flag makes the extra calls free:
+//   • the boot render (album injected pre-load — the normal path in the app)
+//   • reconcileOnCardChange (album lands after the socket joined — the late path)
+//   • showScreen('home')  (belt and braces: every arrival at the hub)
+// It deliberately does NOT latch on an empty album, so a player whose cards are still in flight is
+// seeded by whichever of those fires first after they land, not skipped.
+let _seededBestThisLoad = false;
+function seedBestOnLoad() {
+  if (_seededBestThisLoad) return;
+  if (tuHub) return;                       // the lobby tour owns the slots inside its sandbox
+  const cards = myCards();
+  if (!cards.length) return;               // album not here yet — try again on the next trigger
+  _seededBestThisLoad = true;
+  const top = rankForLoadout(cards).slice(0, 3);
+  const next = [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
+  const same = JSON.stringify(next) === JSON.stringify([0, 1, 2].map((i) => validSlot((myLoadout || [])[i])));
+  if (same) return;                        // already the best — do not churn localStorage or the wire
+  myLoadout = next;
+  saveLoadout(myLoadout);
+}
+
 // ---- THE LOBBY TOUR'S SEAM (public/hub-tour.js) ----------------------------------------------
 // The tour runs on the real hub with the real handlers, and nothing it does may survive it. Three
 // things it cannot do from outside this module, because myLoadout / myCosmetic / tuHub are private:
@@ -959,6 +998,7 @@ function showScreen(name) {
     // those same three cards on the wire so the sim and the screen cannot disagree (de-duped against
     // _sentLoadout, so a clean return costs nothing). Both are tour-safe: renderPowerSlots draws the
     // sandbox's slots and syncLoadout reads playerLoadoutBehindTour(), never the lesson's.
+    seedBestOnLoad();     // no-op after the first time it latches; covers a late-arriving album
     renderPowerSlots();
     syncLoadout();
   }
@@ -1318,6 +1358,7 @@ function renderHomeCharacter() {
   if (MY_AVATAR) { homeFaceEl.style.backgroundImage = `url("${MY_AVATAR}")`; homeFaceEl.textContent = ''; }
   else { homeFaceEl.style.backgroundImage = 'none'; homeFaceEl.textContent = memberInitials(MY_NAME); }
   renderCarousel();
+  seedBestOnLoad();       // best three before the slots are first painted — see seedBestOnLoad()
   renderPowerSlots();
   renderHubStats();
   renderHubXp();
@@ -1372,6 +1413,10 @@ function reconcileOnCardChange() {
   // Nothing is consumed by returning here: the signature flips back when end() restores the album,
   // so the next tick reconciles the real one.
   if (tuHub) return;
+  // The album just changed, which is the moment "the best three" first becomes knowable for a player
+  // whose cards were still in flight at boot. Runs BEFORE the cleanup below so the sync at the end
+  // carries the seeded loadout rather than the stale one.
+  seedBestOnLoad();
   sendMsg({ type: 'setCards', cards: myCards() });
   if (Array.isArray(myLoadout)) {
     // A slot whose card is gone becomes a plain hole, and a plain hole backfills — under the
