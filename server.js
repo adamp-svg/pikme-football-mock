@@ -31,7 +31,7 @@ import { normalizeCosmetic, randomBotCosmetic, DEFAULT_COSMETIC, HERO_KEYS, SKIN
 import { verifyFootballToken } from './shared/football-auth.js';
 import { opponentKeyFor } from './shared/opponent-key.js';
 import { buffsFromLoadout, loadoutTotalPct, EXTREME_SKILL, EXTREME_BOT_BUFFS, botSideScalar, botLoadoutForLevel } from './shared/bot-buffs.js';
-import { handleClubsApi } from './clubs/devapi.mjs';
+
 const BACKPRESSURE_LIMIT = 8 * 1024; // drop a snapshot to a backed-up client. Small on purpose: every frame is a full ~150B keyframe, so a stalled mobile client should SKIP to fresh state, not replay ~10s of stale frames (was 64KB ≈ 400+ frames).
 import { computeBotInputs, createBotMemory } from './shared/bot-ai.js';
 import { DIFFICULTY_LEVELS, DEFAULT_LEVEL, clampLevel, levelAt, levelFromLegacy, xpForBotLevel, displayLevelForBot, botLevelFromXp } from './shared/difficulty.js';
@@ -85,11 +85,42 @@ function proxyProgress(req, res) {
     .catch(() => { res.writeHead(502); res.end('{"error":"upstream unreachable"}'); });
 }
 
+// Same-origin passthrough to pikme-server's /handle-clubs/*, so the clubs screens work on a LAN host
+// where CORS would otherwise silently discard the response. Forwards the method, the football-auth
+// header and the body verbatim; adds nothing and decides nothing.
+function proxyClubs(req, res, urlPath) {
+  const isFriends = urlPath.startsWith('/dev/friends');
+  const upstreamBase = isFriends ? '/handle-friends' : '/handle-clubs';
+  const sub = urlPath.replace(/^\/dev\/(clubs|friends)/, '') || '/me';
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const auth = req.headers['football-auth'];
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', () => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (auth) headers['football-auth'] = auth;
+    fetch(`${PIKME_UPSTREAM}${upstreamBase}${sub}${qs}`, {
+      method: req.method,
+      headers,
+      body: req.method === 'GET' || req.method === 'HEAD' ? undefined : Buffer.concat(chunks),
+    })
+      .then(async (r) => {
+        const body = await r.text();
+        res.writeHead(r.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(body);
+      })
+      .catch(() => { res.writeHead(502); res.end('{"error":"upstream unreachable"}'); });
+  });
+}
+
 const server = http.createServer((req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
   if (urlPath === '/dev/progress') return proxyProgress(req, res);
-  // Clubs + scoped ranking (prototype surface — see clubs/devapi.mjs; the real one lives in pikme-server).
-  if (urlPath.startsWith('/api/clubs') && handleClubsApi(req, res, urlPath)) return;
+  // Clubs + scoped ranking. The REAL implementation is pikme-server /handle-clubs/* (authenticated by
+  // the football-token). On a prod/app host the client calls it directly; on a dev or LAN host
+  // pikme-server's CORS allowlist excludes us, so this same-origin passthrough forwards the call and
+  // its football-auth header — exactly the reason /dev/progress exists.
+  if (urlPath.startsWith('/dev/clubs') || urlPath.startsWith('/dev/friends')) return proxyClubs(req, res, urlPath);
   if (urlPath === '/') urlPath = '/public/index.html';
   if (!urlPath.startsWith('/shared/') && !urlPath.startsWith('/public/')) {
     urlPath = '/public' + urlPath;

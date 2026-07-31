@@ -25,10 +25,45 @@
 (function () {
   const $ = (s, r = document) => r.querySelector(s)
   const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n }
-  const api = (p, opt) => fetch('/api/clubs' + p, opt).then((r) => r.json())
-  const post = (p, body) => api(p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })
+  // REAL backend: pikme-server /handle-clubs/*, authenticated by the football-token the app injects.
+  // Routing mirrors client.js's own rule for token-authed calls — on a dev/LAN host pikme-server's CORS
+  // allowlist excludes us, so we go through this server's same-origin /dev/clubs passthrough instead.
+  const TOKEN = (() => { try { return window.PIKME_FOOTBALL_TOKEN || new URLSearchParams(location.search).get('ftoken') || null } catch { return null } })()
+  const DEV_HOST = /^(localhost|10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?)/.test(location.hostname)
+  const BASE = DEV_HOST ? '/dev/clubs' : 'https://server.pikme.tv/handle-clubs'
+  const headers = () => Object.assign({ 'Content-Type': 'application/json' }, TOKEN ? { 'football-auth': TOKEN } : {})
+  const api = (p, opt) => fetch(BASE + p, Object.assign({ headers: headers() }, opt || {}))
+    .then((r) => (r.ok ? r.json() : r.json().catch(() => ({ error: 'http_' + r.status }))))
+    .catch(() => ({ error: 'offline' }))
+  const post = (p, body) => api(p, { method: 'POST', body: JSON.stringify(body || {}) })
 
-  const state = { me: null, metric: 'xp', scope: 'city', view: 'home', findTerm: '', findSeed: 0 }
+  // Friending is NOT a clubs concern — pikme-server already owns it at /handle-friends/*, and that is
+  // the same graph the app's friends list uses. Routed separately so a club never forks the friend model.
+  const FRIENDS_BASE = DEV_HOST ? '/dev/friends' : 'https://server.pikme.tv/handle-friends'
+  const friendReq = (userId) => fetch(`${FRIENDS_BASE}/request`, { method: 'POST', headers: headers(), body: JSON.stringify({ toUserId: userId }) })
+    .then((r) => (r.ok ? { ok: true } : { error: 'http_' + r.status })).catch(() => ({ error: 'offline' }))
+  const friendDel = (userId) => fetch(`${FRIENDS_BASE}/${encodeURIComponent(userId)}`, { method: 'DELETE', headers: headers() })
+    .then((r) => (r.ok ? { ok: true } : { error: 'http_' + r.status })).catch(() => ({ error: 'offline' }))
+
+  // The server ships scope IDs only — never Hebrew names — so a city/school name never travels over the
+  // wire attached to a player. Resolve them here from the same bundled directory the app's onboarding
+  // uses (572 cities / 5,180 schools, already served by this game server).
+  let DIR = null
+  const dirReady = fetch('/data/schools-directory.json').then((r) => r.json())
+    .then((d) => {
+      const CITY_MERGES = { '675414749': '2025178902' }
+      const OVERRIDE = { '2025178902': 'תל אביב-יפו' }
+      DIR = {
+        city: new Map(d.cities.map((c) => [c.id, OVERRIDE[c.id] || c.nameHe])),
+        school: new Map(d.schools.map((x) => [x.id, x.displayName || x.nameHe])),
+        merges: CITY_MERGES,
+      }
+    }).catch(() => { DIR = { city: new Map(), school: new Map(), merges: {} } })
+  const GRADE_HE = { 1: 'א׳', 2: 'ב׳', 3: 'ג׳', 4: 'ד׳', 5: 'ה׳', 6: 'ו׳', 7: 'ז׳', 8: 'ח׳', 9: 'ט׳', 10: 'י׳', 11: 'י״א', 12: 'י״ב' }
+  const cityName = (id) => (DIR && DIR.city.get(String(DIR.merges[id] || id))) || null
+  const schoolName = (id) => (DIR && DIR.school.get(String(id))) || null
+
+  const state = { me: null, labels: {}, metric: 'xp', scope: 'city', view: 'home', findTerm: '', findSeed: 0 }
 
   const METRIC_UNIT = { xp: 'XP', trophies: 'גביעים', goals: 'שערים', wins: 'נצחונות', cards: 'קלפים' }
   const SCOPE_TABS = [['city', 'עיר'], ['school', 'בית ספר'], ['class', 'כיתה'], ['club', 'מועדון']]
@@ -37,7 +72,21 @@
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
   const num = (n) => Number(n || 0).toLocaleString('he-IL')
 
-  async function refresh() { state.me = await api('/me'); render() }
+  async function refresh() {
+    await dirReady
+    state.me = await api('/me')
+    if (state.me && state.me.scopes) {
+      const sc = state.me.scopes
+      state.labels = {
+        city: sc.city ? cityName(sc.city.id) : null,
+        school: sc.school ? schoolName(sc.school.id) : null,
+        class: (sc.school && sc.grade != null && sc.classNumber != null)
+          ? `${GRADE_HE[sc.grade] || sc.grade}${sc.classNumber} · ${schoolName(sc.school.id) || ''}` : null,
+        club: state.me.club ? state.me.club.name : null,
+      }
+    }
+    render()
+  }
 
   // ── the CLUBS screen ────────────────────────────────────────────────────────────────────────────
   function render() {
@@ -94,7 +143,7 @@
         else if (m.friendPending) r.append(el('span', 'fr-state', 'נשלחה'))
         else {
           const add = el('button', 'fr-add', '➕ חבר')
-          add.onclick = async (e) => { e.stopPropagation(); await post('/friend-request', { userId: m.id }); refresh() }
+          add.onclick = async (e) => { e.stopPropagation(); await friendReq(m.id); refresh() }
           r.append(add)
         }
       }
@@ -211,15 +260,15 @@
   }
 
   function myScopesStrip() {
-    const s = state.me.scopes
+    const s = state.labels || {}
     const strip = el('div', 'myscopes')
     const cell = (em, label, locked) => el('div', 'myscope' + (locked ? ' locked' : ''),
       `<span class="em">${em}</span><b>${label ? esc(label) : '—'}</b><small>${locked ? '🔒 מהאפליקציה' : 'נבחר'}</small>`)
     strip.append(
-      cell('🏙️', s.city?.label, true),
-      cell('🏫', s.school?.label, true),
-      cell('🎒', s.class?.label, true),
-      cell(state.me.club?.emblem || '🏰', s.club?.label, false),
+      cell('🏙️', s.city, true),
+      cell('🏫', s.school, true),
+      cell('🎒', s.class, true),
+      cell(state.me.club?.emblem || '🏰', s.club, false),
     )
     return strip
   }
@@ -274,14 +323,14 @@
         // client.js removeFriend().
         if (!confirm(`להסיר את ${p.nickName} מרשימת החברים?`)) return
         rm.disabled = true; rm.textContent = 'מסיר…'
-        await post('/friend-remove', { userId: p.id })
+        await friendDel(p.id)
         openPlayerCard(p.id)   // re-render: the card flips back to «הוסף כחבר»
       }
       box.append(rm)
     } else {
       const add = el('button', 'club-go', p.friendPending ? 'בקשה נשלחה' : '➕ הוסף כחבר')
       add.disabled = !!p.friendPending
-      add.onclick = async () => { await post('/friend-request', { userId: p.id }); add.textContent = 'בקשה נשלחה'; add.disabled = true }
+      add.onclick = async () => { await friendReq(p.id); add.textContent = 'בקשה נשלחה'; add.disabled = true }
       box.append(add)
     }
     const close = el('button', 'club-ghost', 'סגור')
@@ -323,6 +372,16 @@
     const data = await api(`/board?metric=${state.metric}&scope=${state.scope}`)
     if (!data.rows.length) { list.append(el('div', 'scope-note', 'עדיין אין מספיק שחקנים כאן.')); return }
     data.rows.slice(0, 20).forEach((r) => {
+      if (!r.label) {
+        if (state.scope === 'city') r.label = cityName(r.scopeId)
+        else if (state.scope === 'school') r.label = schoolName(r.scopeId)
+        else if (state.scope === 'class') {
+          const [sid, g, c] = String(r.scopeId).split('|')
+          r.label = `${GRADE_HE[g] || g}${c} · ${schoolName(sid) || ''}`
+        }
+      }
+      r.label = r.label || String(r.scopeId)
+      r.emblem = r.emblem || ({ city: '🏙️', school: '🏫', class: '🎒', club: '🏰' }[state.scope])
       const mine = r.scopeId === data.mineScopeId
       list.append(el('div', `scope-row${mine ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
         `<span class="pos">${r.rank}</span><span class="em">${r.emblem}</span>
@@ -371,10 +430,9 @@
   }
 
   window.addEventListener('DOMContentLoaded', async () => {
-    // THE GATE, client half. The clubs API 404s off-LAN (see clubs/devapi.mjs), so on prod this
-    // bails before touching the DOM: the «בקרוב» stub in index.html stays exactly as it is today and
-    // the rank page's scoped block stays hidden. Never render this feature against fake seeded data
-    // for real players.
+    // The clubs API is now REAL and authenticated (pikme-server /handle-clubs/*). We still bail before
+    // touching the DOM when it does not answer — no football-token (game opened outside the app), or
+    // the API unreachable — so the «בקרוב» stub stays and nobody sees a half-dead screen.
     state.me = await api('/me').catch(() => null)
     if (!state.me || state.me.error || !state.me.me) return
     document.getElementById('scope-wrap')?.classList.remove('hidden')

@@ -348,23 +348,10 @@
       <div class="subpage-head">
         <h2>מועדונים</h2>
       </div>
-      <!-- The «בקרוב» stub below is what PROD shows, unchanged. /clubs.js replaces this whole body
-           with the real clubs UI only on a dev host (localhost / LAN) — the clubs API is seeded,
-           unauthenticated and 404s off-LAN, so prod must keep the stub rather than render a feature
-           made of fake players. See the gate note in clubs/devapi.mjs. -->
-      <div class="subpage-body">
-        <div class="club-hero">
-          <span class="club-hero-ic">🏰</span>
-          <b>הצטרפו למועדון</b>
-          <small>שחקו יחד · צ׳אטו · התחרו בליגת מועדונים</small>
-        </div>
-        <button class="club-cta lock"><span class="club-cta-ic">➕</span><b>צור מועדון</b><span class="soon-pill">בקרוב</span></button>
-        <button class="club-cta lock"><span class="club-cta-ic">🔎</span><b>חפש מועדון</b><span class="soon-pill">בקרוב</span></button>
-        <div class="club-feats">
-          <div class="club-feat lock"><span class="club-feat-ic">💬</span><div class="club-feat-tx"><b>צ׳אט מועדון</b><small>תיאום משחקים ושיחה</small></div><span class="soon-pill">בקרוב</span></div>
-          <div class="club-feat lock"><span class="club-feat-ic">🏆</span><div class="club-feat-tx"><b>ליגת מועדונים</b><small>עונה תחרותית של שבועיים</small></div><span class="soon-pill">בקרוב</span></div>
-          <div class="club-feat lock"><span class="club-feat-ic">👑</span><div class="club-feat-tx"><b>תפקידים</b><small>נשיא · סגן · בכיר · חבר</small></div><span class="soon-pill">בקרוב</span></div>
-        </div>
+      <!-- Filled by /clubs.js from pikme-server /handle-clubs/* (real, authenticated). It bails
+           before touching the DOM if there is no football-token or the API is unreachable, so an
+           out-of-app visitor sees an empty panel rather than a half-dead screen. -->
+      <div class="subpage-body"></div>
       </div>
     </div>
   </div>
