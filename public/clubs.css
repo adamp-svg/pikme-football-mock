@@ -190,3 +190,41 @@
 }
 .pc-remove:active { transform: translateY(2px); }
 .pc-remove[disabled] { opacity: .6; cursor: not-allowed; }
+
+/* ── DENSITY PASS: side-by-side instead of one long column ─────────────────────────────────────────
+   A full 30-member club stacked one row per line ran ~1600px in a 791px viewport — two screens of
+   scrolling before you reach the actions at the bottom. Brawl Stars keeps a club on one screen by
+   putting the club's numbers in a horizontal band and never giving a member a full row to itself.
+
+   1) Members go two-up. 30 members = 15 rows, not 30. Rows lose the rank number (the list is already
+      ordered) and the role becomes a badge, so a name still fits at half width.
+   2) The two stacked full-width actions become one row.
+   3) The header band carries count/type/trophies inline rather than on their own lines. */
+.member-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.member {
+  gap: 6px; padding: 6px 8px; min-width: 0;
+}
+.member b { font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member .pos { display: none; }              /* the list is already ordered — the number is noise at half width */
+.member .xp { font-size: 11px; white-space: nowrap; }
+.member .role { font-size: 0; }              /* keep the node for the crown/badge glyph, drop the word */
+.member .role::first-letter { font-size: 12px; }
+.fr-add, .fr-kick { padding: 4px 7px; font-size: 10px; }
+.fr-state { font-size: 10px; }
+
+/* actions side by side */
+.club-actions { width: 100%; max-width: 460px; display: flex; gap: 8px; }
+.club-actions > * { flex: 1; margin: 0; }
+
+/* A single member is still readable full-width; two-up only earns its keep once there are a few. */
+.member-list.solo { grid-template-columns: 1fr; }
+
+/* On a genuinely narrow phone, two columns would truncate every name — fall back to one. */
+@media (max-width: 340px) {
+  .member-list { grid-template-columns: 1fr; }
+  .member .pos { display: block; }
+}

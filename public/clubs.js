@@ -129,8 +129,8 @@
       body.append(pend)
     }
 
-    body.append(el('div', 'club-sec', 'חברי המועדון'))
-    const list = el('div', 'member-list')
+    body.append(el('div', 'club-sec', `חברי המועדון · ${c.count}/${state.me.maxMembers}`))
+    const list = el('div', 'member-list' + (c.members.length < 3 ? ' solo' : ''))
     c.members.forEach((m, i) => {
       const r = el('div', 'member' + (m.isMe ? ' me' : ''),
         `<span class="pos">${i + 1}</span>
@@ -157,11 +157,14 @@
     })
     body.append(list)
 
-    const invite = el('button', 'club-cta', '<span class="club-cta-ic">🔎</span><b>מועדונים אחרים</b>')
+    // Side by side: two full-width stacked buttons cost ~110px of a 791px screen for two taps.
+    const actions = el('div', 'club-actions')
+    const invite = el('button', 'club-cta', '<span class="club-cta-ic">🔎</span><b>מועדונים</b>')
     invite.onclick = () => { state.view = 'find'; render() }
-    const leave = el('button', 'club-ghost', 'עזבו את המועדון')
+    const leave = el('button', 'club-ghost', 'עזוב')
     leave.onclick = async () => { await post('/leave'); state.view = 'home'; refresh() }
-    body.append(invite, leave, myScopesStrip())
+    actions.append(invite, leave)
+    body.append(actions, myScopesStrip())
   }
 
   function renderCreate(body) {
