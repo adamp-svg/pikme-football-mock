@@ -1476,17 +1476,32 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    party ones (team page + host sheet) are the same card at `pc-mini` size, so picking a game with
    friends looks like picking one in the lobby. */
 .mode-list { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+/* The lobby launch surface ("מה משחקים?") is a GRID OF SQUARES, not a one-row flex squeeze: five
+   modes in a flex row left each card a sliver on a phone. auto-fill + aspect-ratio keeps every card
+   the same square whatever the count; extra rows overflow into .subpage-body's scroll. */
 .mode-list[data-modes="launch"] {
-  flex-direction: row; align-items: stretch; justify-content: center; gap: 12px;
-  flex: 1; min-height: 190px; padding: 2px 0 6px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  align-items: stretch; gap: 12px;
+  flex: none; padding: 2px 0 6px;
 }
+.mode-list[data-modes="launch"] .pcard { max-width: none; aspect-ratio: 1 / 1; }
 .mode-list[data-modes="party"] {
   flex-direction: row; align-items: stretch; justify-content: center; flex-wrap: wrap;
   gap: 8px; padding: 2px 0 4px;
 }
+/* The «בחר משחק» overlay gets the same square-grid treatment, one size down. The grid (not the
+   team page's wrap-row) is scoped to the overlay because #party's list shares a scroll box with
+   the roster and must keep its fixed card height. Capped + scrollable so a growing mode list
+   overflows inside the sheet instead of stretching it past a landscape phone. */
+#game-select .mode-list[data-modes="party"] {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  justify-content: stretch; gap: 8px; padding: 2px;
+  max-height: min(52vh, 360px); overflow-y: auto;
+}
+#game-select .pcard.pc-mini { max-width: none; min-width: 0; height: auto; aspect-ratio: 1 / 1; }
 
-/* ---- picker: portrait pixel-art mode card ---------------------------------
-   Four fit across the landscape stage, so there is no scrolling and no tabs.
+/* ---- picker: square pixel-art mode card ---------------------------------
+   Cards live in a square grid (see .mode-list rules above) and overflow by scrolling.
    Anatomy top-to-bottom: coloured title band · pixel scene · rule strip. */
 .pcard {
   appearance: none; padding: 0; cursor: pointer; position: relative; overflow: hidden;

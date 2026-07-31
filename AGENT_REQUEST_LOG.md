@@ -41,6 +41,19 @@
 - Local test server is `PORT=3012 node server.js` (main dev server is :3010). Node does NOT hot-reload — **restart the server** after server/shared changes.
 - Before claiming done: `node --check` the files + run the test suite (`for f in test*.mjs; do node $f; done`); report real output, list known pre-existing fails separately.
 
+## 2026-07-31
+
+- **Agent `modes-1v1` (~12:4x IDT): 1v1 mode + square mode-picker + training picks any mode.** Request (verbatim, 3 items): add a 1v1; fix the dimensions of the game selection on the select-game page — square-looking cards that overflow nicely; training "play with bots" should let the player pick any game from the choose-games list.
+  - Files taken: `server.js`, `public/client.js`, `public/style.css`, `public/mode-art.js`, `public/index.html` (orchestration locks held).
+  - Plan: FORMATS row `'1v1'` (teamSize 1) + CARD_TO_FORMAT + MODES card + pixel art; grid layout w/ `aspect-ratio: 1` + scroll for `#arena` launch list and `#game-select`; `botGame` message gains `game` card id, `startBotGame` applies the format (arena/teamSize/goalsToWin) so training can run 1v1/2v2/3v3/brawl.
+  - Done. `botGame` wire: `{ type:'botGame', diffLevel, game:'1v1'|'2v2'|'brawl'|'3v3' }` — no `game` = classic 2v2 (back-compat kept). New e2e `test-botgame-modes.mjs` (14 checks: roster size / teamSize / goalsToWin / 3v3 arena per pick, legacy shape, matchmade 1v1 seats A+B).
+  - Verified: node --check ×3; test-modes-table / test-mode-format / test-botgame-modes / vs-consistency / matchmaking-teams / matchmaker / roster-humans / practice-no-payout / kickoff-rule / field-spawns / training / party / ranked-mode / match-info / tutorial / back-nav ALL PASS. CDP walkthrough at 844×390 + 667×375: arena grid = square 152/149px cards (5 in a row @844; 4+wrap+scroll @667), training picker overlay = 114px squares w/ scroll (overflow 82-90px), tapping 1v1 starts a real vs-bots match, zero JS errors. Gotcha for the next agent: suppressing the first-run tutorial in headless needs `fbTuDone='basics'` (level-1 id, not a guess) or `fbTutorialSkipped='1'`.
+  - NOT pushed (standing rule). Remember: a commit here typically reaches prod within the hour anyway — this change is server+client compatible in either deploy order (old client × new server: no `game` → 2v2; new client × old server: extra field ignored… but old startBotGame simply ignores `game`, still 2v2).
+  - **Follow-up in the same session (item 4): «כייף» minigame.** Request: a mode where the partner bot is level 12 and the enemies are level 0, 2v2, FIRST card on the pick-game page.
+    - Client: `fun` is the first MODES row (pink band, crowned-partner pixel art, meta «שותף רמה 12 · 2 נגד 2»). Its launch sends `botGame { game:'fun' }` — a vs-bots minigame, not a queue. `party: false`, so the team page / «בחר משחק» host picker / training picker do NOT offer it (a private room's format can't pin bot levels).
+    - Server: in `startBotGame`, `game === 'fun'` builds a `room.botPlan` with `namedLevel` pins — partner `DIFFICULTY_LEVELS.length-1` (idx 11 → shows רמה 12), both enemies idx 0 (shows רמה 1) — riding the invited-house-bot mechanism (applyTeamSkill honours it live; relevelBots skips pinned bots; loadouts roll from each bot's own level so display == gameplay). Names come from `pickBotIdentities` at each bot's own level.
+    - Verified: test-botgame-modes §2 (8 new checks: roster, pins, shown levels, real names) + saltiz-bots / saltiz-bot-party / bot-cards / matchmaking-live / mode-format / modes-table ALL PASS; CDP @844×390: fun is the rightmost (first, RTL) of 6 square cards, tap → live match, zero JS errors.
+
 ## 2026-07-28
 
 ## 2026-07-30

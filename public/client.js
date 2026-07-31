@@ -2444,6 +2444,16 @@ fitHub();
 // `soon` is what a not-yet-built mode promises INSTEAD of a bare «בקרוב».
 const MODES = [
   {
+    id: 'fun', ic: '🎉', name: 'כייף', sub: 'שותף אלוף · יריבים קלים',
+    meta: ['שותף רמה 12', '2 נגד 2'], hue: ['#f79ad3', '#c95ba6'],
+    // A vs-bots MINIGAME, not a queue: the tap IS the match (botGame with the 'fun' card — server
+    // pins your partner to the ladder's top and both enemies to its bottom via namedLevel).
+    // First in the table on purpose: the user ruled it leads the pick-game page.
+    // party: false — a private room's format can't pin bot levels, so party surfaces skip it.
+    state: 'live',
+    launch: () => sendMsg({ type: 'botGame', diffLevel, game: 'fun' }),
+  },
+  {
     id: '2v2', ic: '⚽', name: 'כדורגל · 2 נגד 2', sub: 'אצטדיון הבלוקים',
     meta: ['ראשון ל-3', 'עד 2 דק׳'], hue: ['#7fd48f', '#4fae66'],
     // `format` ties this row to the server's FORMATS key, so the VS/teams page can name the mode
@@ -2453,6 +2463,12 @@ const MODES = [
     // quick-match button (5s) — both resolve to the same server format, so only the message they
     // send can tell the two entry points apart. `matchmade` is that split; `quickMatch` keeps its own.
     launch: () => sendMsg({ type: 'matchmade', format: 'quick', diffLevel: xpDiffLevel(), trophies: myTrophies() }),
+  },
+  {
+    id: '1v1', ic: '⚔️', name: 'כדורגל · 1 נגד 1', sub: 'דו-קרב · אצטדיון הבלוקים',
+    meta: ['ראשון ל-3', '2 שחקנים'], hue: ['#f2937f', '#d05a44'],
+    state: 'live', party: true, format: '1v1',
+    launch: () => sendMsg({ type: 'matchmade', format: '1v1', diffLevel: xpDiffLevel(), trophies: myTrophies() }),
   },
   {
     id: 'brawl', ic: '🥅', name: 'קרב על השער', sub: 'אצטדיון הבלוקים',
@@ -2504,8 +2520,9 @@ function renderModeList(el) {
     const card = document.createElement('button');
     card.dataset.modeId = m.id;
     card.dataset.modeKind = kind;
-    // The PICKER card: coloured title band · pixel-art scene · rule strip. Four fit across the
-    // landscape stage at full size; the mini variant fits the same four inside a panel.
+    // The PICKER card: coloured title band · pixel-art scene · rule strip. The launch surface and
+    // the «בחר משחק» overlay lay these out as a square grid that scrolls (style.css .mode-list
+    // rules); the mini variant is the same card one size down for the party surfaces.
     card.className = 'pcard' + (kind === 'party' ? ' pc-mini' : '') + (m.state === 'live' ? '' : ' lock');
     card.style.setProperty('--band-hi', m.hue[0]);
     card.style.setProperty('--band-lo', m.hue[1]);
@@ -2545,6 +2562,14 @@ document.addEventListener('click', (e) => {
       } else {
         sendMsg({ type: 'partyVote', game: m.id });
       }
+      return;
+    }
+    // TRAINING (🤖 משחק מול בוטים → the same picker overlay): the pick IS the launch — a solo
+    // vs-bots match of that mode, no room and no party. 'training' can only be current here
+    // (every opener of #game-select sets gameSelectMode), so this never shadows the lobby flows.
+    if (gameSelectMode === 'training' && card.closest('#game-select')) {
+      closeGameSelect();
+      sendMsg({ type: 'botGame', diffLevel, game: m.id });
       return;
     }
     // Private/party room, OUTSIDE #party (the game-select picker overlay — see openGameSelect):
@@ -2675,7 +2700,10 @@ document.getElementById('tc-cancel')?.addEventListener('click', () => document.g
 // The training ground opens AT the picked level (the server used to always start it at the default,
 // so the sentry ignored the picker until you re-picked mid-session). Change it live with the 🤖 chip.
 document.getElementById('tc-ground')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); sendMsg({ type: 'training', diffLevel }); });
-document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); unlockAudio(); syncLoadout(); sendMsg({ type: 'botGame', diffLevel }); }); // play-with-bots uses the manual difficulty picker (change it live in settings)
+// Play-with-bots no longer hardwires 2v2: it opens the SAME game picker as the lobby (mode
+// 'training' — the delegated mode-card handler turns the pick into a `botGame`), so a vs-bots
+// match can be any live mode. Difficulty still comes from the manual picker (change it live in settings).
+document.getElementById('tc-bots')?.addEventListener('click', () => { document.getElementById('train-choose')?.classList.add('hidden'); openGameSelect('training'); });
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Pick-best loadout (restored): null loadout => effectiveLoadout() auto-fills the album's
 // top-3 into the slots; persist, re-render the home slots, and tell the server live.

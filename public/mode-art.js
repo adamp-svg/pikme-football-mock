@@ -63,6 +63,21 @@ function goal(g, x, y, w, h) {
 }
 
 const SCENES = {
+  // כייף: confetti sky, your CROWNED super-partner leading the charge, two hapless reds.
+  fun(g) {
+    pitch(g, 16);
+    for (const [cx, cy, c] of [[6, 4, GOLD], [16, 9, RED], [26, 3, WHITE], [38, 7, GOLD], [48, 4, BLUE], [55, 10, RED]]) px(g, cx, cy, 2, 2, c);
+    px(g, ART_W / 2 - 1, 16, 2, ART_H - 16, LINE);
+    guy(g, 12, 30, BLUE, BLUE_D, 1);          // you
+    guy(g, 20, 20, BLUE, BLUE_D, 1);          // the רמה-12 partner…
+    px(g, 20, 18, 5, 2, GOLD);                // …crowned
+    px(g, 21, 17, 1, 1, GOLD); px(g, 23, 17, 1, 1, GOLD);
+    guy(g, 42, 22, RED, RED_D, -1);
+    guy(g, 46, 33, RED, RED_D, -1);
+    px(g, 47, 31, 3, 1, DARK);                // a "?" of confusion over the far red
+    px(g, 49, 29, 1, 2, DARK); px(g, 48, 28, 2, 1, DARK);
+    ball(g, 30, 26);
+  },
   // Classic 2v2: two blues, two reds, ball in the middle of a striped pitch.
   '2v2'(g) {
     pitch(g, 16);
@@ -74,6 +89,18 @@ const SCENES = {
     guy(g, 40, 20, RED, RED_D, -1);
     guy(g, 34, 31, RED, RED_D, -1);
     ball(g, 28, 33);
+  },
+  // 1v1 duel: one blue, one red, staring each other down over the ball at the centre spot.
+  '1v1'(g) {
+    pitch(g, 16);
+    px(g, ART_W / 2 - 1, 16, 2, ART_H - 16, LINE);
+    px(g, 2, 20, 6, 16, LINE); px(g, 3, 21, 4, 14, GRASS_A);            // left box
+    px(g, ART_W - 8, 20, 6, 16, LINE); px(g, ART_W - 7, 21, 4, 14, GRASS_A); // right box
+    guy(g, 17, 24, BLUE, BLUE_D, 1);
+    guy(g, 38, 24, RED, RED_D, -1);
+    ball(g, 28, 31);
+    px(g, 25, 33, 2, 1, WHITE);          // dust — the standoff is already moving
+    px(g, 34, 33, 2, 1, WHITE);
   },
   // Goal brawl: the goal fills the frame, a striker winding up, ball mid-flight.
   brawl(g) {

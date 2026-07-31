@@ -129,6 +129,9 @@ const rooms = new Map();     // roomId -> room
 // joinMatchmade(). Two near-identical copies is exactly how goal-brawl drifted off the VS page.
 const FORMATS = {
   quick: { prefix: 'pub',   teamSize: 2, goalsToWin: GOALS_TO_WIN, rule: 'ראשון ל-3 · עד 2 דק׳' },
+  // 1v1 — a duel on the shipped pitch. teamSize is the ONLY difference: matchmaking, bot fill and
+  // the kickoff formation all scale by it already (field-spawns is flat for 1 player, centre lane).
+  '1v1': { prefix: 'duel',  teamSize: 1, goalsToWin: GOALS_TO_WIN, rule: 'ראשון ל-3 · 1 נגד 1' },
   brawl: { prefix: 'brawl', teamSize: 2, goalsToWin: 0,            rule: 'הכי הרבה גולים · 2 דקות' },
   // 3v3 — 6 players. Fits the 8-slot snapshot mask as-is, so no wire change (5v5 would NOT; see
   // summery/TEAM_FORMATS_PLAN.md §2.2). Its own arena, because MAIN_FIELD's dense centre turns into
@@ -145,7 +148,7 @@ const LOBBY_BUBBLE_MS = 8000;
 const roomField = (room) => ((FORMATS[room && room.format] || {}).cleanField) || MAIN_FIELD_CLEAN;
 // MODES card id (client-side) -> FORMATS key (server-side). The picker's '2v2' card is the 'quick'
 // format; every other card id matches its format key. Unknown ids fall back to quick.
-const CARD_TO_FORMAT = { '2v2': 'quick', brawl: 'brawl', '3v3': '3v3' };
+const CARD_TO_FORMAT = { '2v2': 'quick', '1v1': '1v1', brawl: 'brawl', '3v3': '3v3' };
 const formatForCard = (cardId) => CARD_TO_FORMAT[cardId] || 'quick';
 // Stamp a format onto a room. One place, so the public queue and a private room's "Play Now" can
 // never disagree about what a format means.
@@ -1045,34 +1048,54 @@ function startBuilderMatch(member, field, diffLevel) {
   room.rosterVersion++; broadcastRoster(room);
 }
 
-// Training option: a full 2v2 MATCH vs bots only (default arena, real clock). Instant,
-// solo entry; the human is team A and every other slot is a bot. Difficulty from the client.
-function startBotGame(member, diffLevel) {
+// Training option: a full MATCH vs bots only (real clock). Instant, solo entry; the human is
+// team A and every other slot is a bot. Difficulty from the client. `game` is a picker CARD id —
+// training offers the same mode list as the lobby, so a vs-bots match can be 1v1/2v2/3v3/brawl;
+// the format supplies teamSize, win rule AND the arena (3v3 plays on its own pitch here too).
+function startBotGame(member, diffLevel, game) {
   leaveCurrentRoom(member);
   // mode 'botgame', not 'match': this is a solo practice room, and the room has to SAY so for the
   // difficulty gate (canSetDiffLive) to tell it apart from a public matchmade room. `roomJoined`
   // already reported 'botgame' to the client; only the room object was still calling itself a match.
   // (room.mode is compared against 'training' and nothing else, so nothing downstream shifts.)
   const room = makeRoom(`bots-${++roomCounter}`, false, 'botgame');
+  applyFormat(room, formatForCard(game)); // an unknown/missing pick stays the classic 2v2 ('quick')
   rooms.set(room.id, room);
   addToRoom(member, room);
   room.state = createState();
-  room.state.goalsToWin = room.goalsToWin || 0; // vs-bots is a normal 2v2 → first to 3
-  setField(room.state, MAIN_FIELD_CLEAN); // play on the main arena (custom field)
+  room.state.goalsToWin = room.goalsToWin || 0; // from the format: first-to-3, or 0 = timed (brawl)
+  room.state.teamSize = roomTeamSize(room); // spawnPos reads this for the kickoff formation
+  setField(room.state, roomField(room)); // this format's arena (3v3 has its own; else the main one)
   if (typeof diffLevel === 'number') room.diffLevel = clampLevel(diffLevel);
   room.inputs.clear();
   room.botCounter = 0;
+  // כייף — the fun 2v2 minigame: YOUR partner is the ladder's TOP bot (רמה 12) and both enemies are
+  // its bottom. Pure botPlan work: `namedLevel` pins each bot's own skill (applyTeamSkill) and keeps
+  // the live difficulty chip (relevelBots) off it — the exact invited-house-bot mechanism, so no new
+  // skill plumbing. Loadouts roll from each bot's OWN level, same promise as everywhere: the cards
+  // the reveal shows are the buffs the sim applies. ('fun' is not in CARD_TO_FORMAT, so the format
+  // above already resolved to the classic 2v2.)
+  if (game === 'fun') {
+    const top = DIFFICULTY_LEVELS.length - 1, low = 0;
+    const partner = pickBotIdentities(1, top, room.id)[0];
+    const enemies = pickBotIdentities(2, low, `${room.id}-enemies`);
+    const funBot = (idn, team, slot, lvl) => {
+      const loadout = botLoadoutForLevel(lvl);
+      return { team, slot, namedLevel: lvl, loadout, cards: loadoutToCards(loadout), cosmetic: botCosmeticForRoom(room), name: idn.name };
+    };
+    room.botPlan = [funBot(partner, 'A', 1, top), funBot(enemies[0], 'B', 0, low), funBot(enemies[1], 'B', 1, low)];
+  }
   addPlayer(room.state, member.id, { name: member.name, char: DEFAULT_CHAR, team: 'A', slot: 0, isBot: false, cosmetic: member.cosmetic || DEFAULT_COSMETIC, buffs: buffsFromLoadout(member.loadout) });
   room.inputs.set(member.id, emptyInput());
   member.team = 'A'; member.inMatch = true; member.afk = false; member.lastInputAt = nowMs();
   const matchId = nextMatchId(room);
   const roster = [{ id: member.id, name: member.name, avatar: member.avatar || null, team: 'A', cards: member.cards || [], cosmetic: member.cosmetic || DEFAULT_COSMETIC, loadout: sanitizeLoadout(member.loadout, member.cards), isBot: false }];
   room.phase = 'match';
-  fillBots(room, roster); // fill the other 3 slots with bots
+  fillBots(room, roster); // fill every other slot (roomMax − 1 of them) with bots
   attachBall(room.state);   // MATCH START: ball loose in the middle, both sides race for it
   room.endHoldT = 0; room.statsSent = false;
   send(member.ws, { type: 'roomJoined', mode: 'botgame', code: null });
-  send(member.ws, { type: 'matchStart', mode: 'botgame', diffLevel: room.diffLevel, matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: MAIN_FIELD_CLEAN, goalsToWin: room.state.goalsToWin | 0 });
+  send(member.ws, { type: 'matchStart', mode: 'botgame', format: room.format, diffLevel: room.diffLevel, matchId, playerId: member.id, team: 'A', field: FIELD, chars: CHARACTERS, settings: room.state.settings, players: roster, arena: roomField(room), teamSize: roomTeamSize(room), goalsToWin: room.state.goalsToWin | 0 });
   room.rosterVersion++; broadcastRoster(room);
 }
 
@@ -1793,7 +1816,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
       if (msg.type === 'builderMatch') { startBuilderMatch(member, msg.field, msg.diffLevel); return; }
-      if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel); return; }
+      if (msg.type === 'botGame') { startBotGame(member, msg.diffLevel, msg.game); return; }
       if (msg.type === 'spectate') { startSpectate(member, msg.diffLevel); return; }
       // IN-MATCH QUICK CHAT. The wire carries an ID only — never text — and the server validates it
       // against the shared catalogue before relaying. A crafted frame therefore cannot broadcast
