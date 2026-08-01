@@ -1187,6 +1187,55 @@ async function fetchOwnProgress() {
 }
 // Kept as an alias: the hub loop and any other caller still say fetchOwnRank().
 const fetchOwnRank = fetchOwnProgress;
+
+// ---- ALBUM self-fetch -------------------------------------------------------
+// EXACTLY the same problem as the rank block above, and it cost the player far more.
+//
+// myCards() reads window.SALTIZ_CARDS and nothing else. That global is injected by the app — except
+// the SHIPPED app never injects it: grep any release branch (tf-93, tf-95, tf-96) of pikmeTV-app for
+// SALTIZ_CARDS and you get ZERO hits. It exists only on an unshipped branch. So on a real phone the
+// album was permanently [], and that one fact broke two things that looked unrelated:
+//   1. the power slots could never auto-fill — ranking an empty album yields nothing;
+//   2. a REMEMBERED loadout looked forgotten every session, because validSlot() gates every saved
+//      slot on cardOwned(), and against an empty album every card the player owns reads as un-owned.
+// Reported three times as "the cards are not prefilled and are not remembered". Both symptoms, one
+// cause, and no amount of lobby-side work could fix it — the data was never arriving.
+//
+// So the game now reads its own album, and stops depending on the app injecting anything:
+//   GET /handle-clubs/my-cards  (identity from the signed football token; the phone never leaves
+//   the server, and the caller can only ever ask for its OWN cards).
+// The app inject stays the fast path and stays AUTHORITATIVE — if it is present and non-empty we
+// never overwrite it, same rule as _mineRank/_mineXp above.
+//
+// ⚠️ Like the rank block, this must stay ABOVE startHomeDance() — it is reached from the same
+// synchronous first frame, and `let` state is not hoisted (the TDZ crash documented above).
+let _albumSelfAt = 0, _albumSelfBusy = false, _mineAlbum = false;
+const ALBUM_SELF_MS = 60000;     // an album changes when a card is scanned, not second to second
+async function fetchOwnAlbum() {
+  // Only when the app did NOT give us one. A non-empty inject always wins.
+  const injected = Array.isArray(window.SALTIZ_CARDS) && window.SALTIZ_CARDS.length;
+  if (injected && !_mineAlbum) return;
+  if (!FOOTBALL_TOKEN) return;                 // no identity → nothing to ask for
+  if (_albumSelfBusy) return;
+  const now = performance.now();
+  if (_albumSelfAt && now - _albumSelfAt < ALBUM_SELF_MS) return;
+  _albumSelfBusy = true; _albumSelfAt = now;
+  try {
+    // Same routing rule as fetchOwnProgress(): a dev/LAN host goes through this server's
+    // same-origin passthrough, because the API's CORS allowlist excludes dev origins.
+    const dev = /^(localhost|10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?)/.test(location.hostname);
+    const r = dev ? await apiGet('/dev/clubs/my-cards', true) : await apiGet('/handle-clubs/my-cards');
+    const cards = r && Array.isArray(r.cards) ? r.cards : null;
+    if (!cards || !cards.length) return;       // nothing to show — leave the inject alone
+    window.SALTIZ_CARDS = cards;
+    _mineAlbum = true;
+    // The album just became known. reconcileOnCardChange() is the one path that seeds the best
+    // three, tells the server, and repaints — going through it means this behaves identically to
+    // the app injecting late, which is already a tested path.
+    reconcileOnCardChange();
+    renderCarousel(); renderPowerSlots(); renderHubStats();
+  } finally { _albumSelfBusy = false; }
+}
 let MY_USER_ID = null; // filled from the welcome message (authenticated connections only)
 
 // ---- Player album (cards) -------------------------------------------------
@@ -1358,6 +1407,9 @@ function renderHomeCharacter() {
   if (MY_AVATAR) { homeFaceEl.style.backgroundImage = `url("${MY_AVATAR}")`; homeFaceEl.textContent = ''; }
   else { homeFaceEl.style.backgroundImage = 'none'; homeFaceEl.textContent = memberInitials(MY_NAME); }
   renderCarousel();
+  // Kick the album read on the very first hub paint rather than waiting up to 700ms for the poll —
+  // it is async and no-ops when the app injected, so it costs nothing when the fast path works.
+  fetchOwnAlbum();
   seedBestOnLoad();       // best three before the slots are first painted — see seedBestOnLoad()
   renderPowerSlots();
   renderHubStats();
@@ -2531,6 +2583,9 @@ function startHomeDance() {
         // fetchOwnRank() is a no-op when the app injected; otherwise it fills the same global
         // (rate-limited internally) so the badge works in a browser and in pre-rank app builds.
         fetchOwnRank();
+        // Same shape, same reason: a no-op when the app injected an album, otherwise it fetches the
+        // player's own cards so the power slots have something to fill with. Rate-limited internally.
+        fetchOwnAlbum();
         pollRank();
         const sig = cardsSig();
         if (sig !== _cardsSig) {
