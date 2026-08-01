@@ -73,7 +73,13 @@ ok('dev hosts route through the same-origin /dev/progress passthrough', /DEV_HOS
 ok('apiGet supports a same-origin call for it', /async function apiGet\(path, sameOrigin\)/.test(src));
 ok('delta is 0 on a standing read', /delta: 0, botLevel: null/.test(src));
 ok('it is rate-limited', /RANK_SELF_MS/.test(src));
-ok('the hub loop calls it', /fetchOwnRank\(\);\s*\n\s*pollRank\(\);/.test(src));
+// Asked of `code` (comments stripped) and with a bounded gap, because sibling self-fetches
+// legitimately land between these two — `fetchOwnAlbum()` did exactly that. Pinning them adjacent
+// failed a loop that still called both, which is the brittleness the note above warns about.
+ok('the hub loop calls it', /fetchOwnRank\(\);[\s\S]{0,300}?pollRank\(\);/.test(code));
+// The album self-fetch is the ONLY album source in a browser and in every shipped app build — the
+// app has never injected SALTIZ_CARDS — so the power slots have nothing to fill with if it is lost.
+ok('the same loop self-fetches the album for the power slots', /fetchOwnAlbum\(\);/.test(code));
 // The post-match trophy REVEAL only fires when the client OBSERVES xp increase, so a stale local
 // value means no animation at all. Measured: after rolling the client's number back, the bar did not
 // correct until t=62s — the 60s RANK_SELF_MS limit was the only thing gating it. Match-end must
