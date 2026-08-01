@@ -33,7 +33,7 @@ import { SALTIZ_BOTS, SALTIZ_BOT_BY_ID, botLevelOf, xpForSaltizBot, saltizBotLoa
 import { QUICK_GROUPS, phraseById, REACTION_EMOJI, sanitizeFreeText, freeTextLeft, FREE_TEXT_MAX } from '/shared/quick-messages.js';
 import { CHAT_WORDS, CHAT_EMOTES, CHAT_SHEET, chatById, CHAT_BUBBLE_MS, CHAT_SEND_GAP_MS, CHAT_BURST_N, CHAT_BURST_MS, CHAT_COOLDOWN_MS } from '/shared/quick-chat.js';
 import { rosterCounts } from '/shared/roster.js';
-import { RARITY_RANK, rankForLoadout, backfillLoadout, bestUnequipped } from '/shared/loadout.js';
+import { RARITY_RANK, rankForLoadout, backfillLoadout } from '/shared/loadout.js';
 import { drawHero, ACTION_DUR, LOBBY_DANCES } from '/heroes.js';
 import { mountHeroFx } from '/hero-fx.js';
 import {
@@ -295,7 +295,10 @@ function playerLoadoutBehindTour() {
   const live = window.SALTIZ_CARDS;
   if (swapped) window.SALTIZ_CARDS = _hubSnap.cards;
   try {
-    return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards());
+    // Same 2026-08-01 semantics as effectiveLoadout(): an Array snapshot renders what it says
+    // (holes included), only a null snapshot (no choice ever made) auto-fills the top three.
+    if (_hubSnap && Array.isArray(_hubSnap.loadout)) return [0, 1, 2].map((i) => validSlot(raw[i]));
+    return backfillLoadout([null, null, null], myCards());
   } finally { if (swapped) window.SALTIZ_CARDS = live; }
 }
 // The lobby's 🎛️ shortcut (index.html, inside the settings card). The controls editor drags the LIVE
@@ -2008,18 +2011,18 @@ function effectiveLoadout() {
     const top = rankForLoadout(myCards()).slice(0, 3);
     return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
   }
-  const raw = Array.isArray(myLoadout) ? myLoadout : [];
-  // UNCONDITIONAL. Outside the tour sandbox there is no longer any value of `myLoadout` that can
-  // produce an empty slot while the album still has an unequipped card in it — the {off:1} marker
-  // and its heldEmpty predicate are gone (ruling 2026-07-31, shared/loadout.js). A hole in `raw` is
-  // just a hole: it re-backfills on every paint, which is also what makes a newly-pulled legendary
-  // auto-upgrade into an auto-filled slot without the player doing anything.
-  return backfillLoadout([0, 1, 2].map((i) => validSlot(raw[i])), myCards());
+  // RULING 2026-08-01 (supersedes 2026-07-31's "a hole re-backfills on every paint"): "make sure
+  // the player can remove cards and leave empty slots as well." The two rules compose, they don't
+  // conflict: ENTERING the lobby always equips the best three (seedBestOnLoad — every load), and
+  // WITHIN the session a hole the player made stays a hole. So an Array loadout renders exactly
+  // what it says — validated against the album, never backfilled. Only `myLoadout === null` (no
+  // choice ever made, i.e. the moments before the seed latches) keeps the auto-fill semantics.
+  if (Array.isArray(myLoadout)) return [0, 1, 2].map((i) => validSlot(myLoadout[i]));
+  return backfillLoadout([null, null, null], myCards());
 }
-// The replacement the remove gesture swaps in — the rule lives in shared/loadout.js (and is unit
-// tested there); this only feeds it the live album. Called BEFORE the slot is cleared, so the card
-// on its way out is still in `eff` and cannot be handed straight back.
-const swapOutCard = (eff) => bestUnequipped(eff, myCards());
+// (swapOutCard/bestUnequipped left with the 2026-08-01 ruling — remove now leaves a real hole;
+// the shared bestUnequipped rule survives in shared/loadout.js for its unit tests and any
+// future caller.)
 // Drop `card` into `slotIdx` (evict any prior occupant + any other slot holding the same
 // card — one instance per card), persist, re-render, and tell the server live.
 //
@@ -2037,12 +2040,11 @@ function setSlotCard(slotIdx, card) {
   // LEVEL 4's demo: equip IN MEMORY so the slot fills and the step completes, but write nothing —
   // no localStorage, no postPrefs (the app would persist it under the player's phone), no socket.
   if (tuHub) { eff[slotIdx] = card ? { r: card.r, n: +card.n } : null; myLoadout = eff; renderPowerSlots(); return; }
-  if (card) eff[slotIdx] = { r: card.r, n: +card.n };
-  else {
-    const next = swapOutCard(eff);             // computed while the outgoing card is still in `eff`
-    if (!next) { toast('אין קלף אחר לחריץ הזה'); return; }
-    eff[slotIdx] = next;
-  }
+  // RULING 2026-08-01: remove means REMOVE. The slot goes empty and stays empty for the session
+  // (effectiveLoadout no longer backfills an Array loadout); the next load re-seeds the best three
+  // anyway, so nobody re-enters the lobby with a hole. The swap-out-or-refuse dance (bestUnequipped
+  // + the «אין קלף אחר» toast) went with the superseded 2026-07-31 ruling.
+  eff[slotIdx] = card ? { r: card.r, n: +card.n } : null;
   myLoadout = eff; saveLoadout(myLoadout);
   renderPowerSlots();
   syncLoadout(); // the wire carries the EFFECTIVE slots — same three cards the screen just drew
@@ -2057,6 +2059,47 @@ window.__loadoutProbe = {
   remove: (i) => setSlotCard(i | 0, null),
   equip: (i, card) => setSlotCard(i | 0, card),
 };
+// ---- ON-GLASS SLOT DEBUG (?slotdebug=1, persisted like ?viewdebug) --------------------------
+// Same reason SHOW_VIEW_DEBUG exists: a WKWebView has no console reachable from a shell, so the
+// only way to read the loadout state off a real device/simulator is to paint it on the glass and
+// screenshot it. 2026-08-01: the sim showed three empty power slots while localStorage AND the
+// server both held the player's best three legendaries — the data layer and the paint disagreed,
+// and nothing short of this overlay can say which half is lying on-device. The flag persists once
+// seen (the app's game URL takes no params), so it can be armed by writing localStorage directly.
+(() => {
+  let on = false;
+  try {
+    if (/[?&]slotdebug=1\b/.test(location.search)) localStorage.setItem('fbSlotDebug', '1');
+    if (/[?&]slotdebug=0\b/.test(location.search)) localStorage.removeItem('fbSlotDebug');
+    on = localStorage.getItem('fbSlotDebug') === '1';
+  } catch { /* private mode */ }
+  if (!on) return;
+  const errs = [];
+  window.addEventListener('error', (e) => { errs.push(String(e.message).slice(0, 120)); if (errs.length > 4) errs.shift(); });
+  window.addEventListener('unhandledrejection', (e) => { errs.push('rej:' + String(e.reason).slice(0, 110)); if (errs.length > 4) errs.shift(); });
+  const el = document.createElement('pre');
+  el.style.cssText = 'position:fixed;left:4px;top:4px;z-index:99999;margin:0;padding:4px 6px;'
+    + 'background:rgba(0,0,0,.75);color:#7fff7f;font:9px/1.3 monospace;pointer-events:none;'
+    + 'max-width:60vw;max-height:90vh;overflow:hidden;white-space:pre-wrap;word-break:break-all;text-align:left;direction:ltr;';
+  document.body.appendChild(el);
+  const key = (s) => (s && s.r ? s.r.slice(0, 3) + '_' + s.n : String(s));
+  setInterval(() => {
+    let dom = 'n/a';
+    try {
+      dom = [...document.querySelectorAll('#power-slots .pslot')].map((p) =>
+        p.classList.contains('pslot-empty') ? 'EMPTY' : ((p.className.match(/rarity-([a-z]+)/) || [])[1] || '?')).join(',');
+    } catch (e) { dom = 'err:' + e.message; }
+    try {
+      el.textContent = 'SLOTDEBUG'
+        + '\nalbum=' + myCards().length + ' inj=' + (Array.isArray(window.SALTIZ_CARDS) ? window.SALTIZ_CARDS.length : typeof window.SALTIZ_CARDS)
+        + '\nraw=' + (Array.isArray(myLoadout) ? myLoadout.map(key).join(' ') : String(myLoadout))
+        + '\neff=' + effectiveLoadout().map(key).join(' ')
+        + '\ndom=' + dom + ' seeded=' + _seededBestThisLoad + ' tuHub=' + tuHub
+        + '\ntoken=' + (FOOTBALL_TOKEN ? 'yes' : 'no') + ' host=' + location.host
+        + (errs.length ? '\nERR ' + errs.join(' | ') : '');
+    } catch (e) { el.textContent = 'SLOTDEBUG probe threw: ' + e.message; }
+  }, 1000);
+})();
 // Exchange the cards in two slots (lobby drag slot->slot). Moving existing entries never
 // creates a duplicate, so no extra de-dupe is needed; an empty source/target just moves.
 function swapSlots(a, b) {
@@ -2071,23 +2114,24 @@ function swapSlots(a, b) {
 // Card thumbnail rendered PIXELATED like the stadium audience: the webp is blitted into a
 // device-res canvas with imageSmoothingEnabled=false (nearest-neighbor, cover-fit), matching the
 // crowd's crunchy card-art look instead of a smooth photo. w/h are the CSS box dims (for aspect + buffer).
+// ⚠️ 2026-08-01: this was a canvas — new Image() + drawImage with imageSmoothingEnabled=false —
+// and on WKWebView (the ONLY engine the shipped app has) every slot canvas rendered BLANK while
+// the data layer was perfect: the on-glass slotdebug overlay read raw/eff = the three best
+// legendaries and dom=legendary×3 on the simulator, yet the player saw three empty-looking
+// frames. That is the "cards are not prefilled" report — the paint, not the data. The carousel
+// draws the SAME webp URLs through a plain <img> and shows art fine in the same WebView, so the
+// slot art now takes that proven path. Nothing is lost: .pslot-art / .tdeck-art already carry
+// image-rendering:pixelated (the crunchy look) and object-fit:cover (the cover fit) in CSS —
+// the canvas was reimplementing both by hand. onerror hides the img so a missing art file
+// leaves the rarity frame showing, same intent as the old display:none.
 function slotCardEl(card, cls, w, h) {
-  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-  const cv = document.createElement('canvas');
-  cv.className = cls;
-  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-  const g = cv.getContext('2d'); g.imageSmoothingEnabled = false;
-  const img = new Image();
-  img.onload = () => {
-    const s = Math.max(cv.width / img.naturalWidth, cv.height / img.naturalHeight); // cover
-    const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
-    g.imageSmoothingEnabled = false;
-    g.clearRect(0, 0, cv.width, cv.height);
-    g.drawImage(img, (cv.width - dw) / 2, (cv.height - dh) / 2, dw, dh);
-  };
-  img.onerror = () => { cv.style.display = 'none'; };
+  const img = document.createElement('img');
+  img.className = cls;
+  img.alt = '';
+  img.width = w; img.height = h;              // pre-decode layout hint; CSS still sizes it
+  img.onerror = () => { img.style.display = 'none'; };
   img.src = `${CARD_ART_BASE}/${card.r}/${card.n}.webp`;
-  return cv;
+  return img;
 }
 const powerSlotsEl = document.getElementById('power-slots');
 function renderPowerSlots() {

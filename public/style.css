@@ -2653,7 +2653,7 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .tdeck-top { position: absolute; inset: 0; border-radius: 8px; overflow: hidden; border: 3px solid #2c3830; box-shadow: 0 6px 14px rgba(0,0,0,.5); }
 .tdeck-top.rarity-legendary { border-color: #ffd23f; } .tdeck-top.rarity-epic { border-color: #b46bff; }
 .tdeck-top.rarity-rare { border-color: #4ea0ff; } .tdeck-top.rarity-common { border-color: #ff5a4d; }
-.tdeck-art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.tdeck-art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; image-rendering: pixelated; }
 .tdeck-pile-empty { width: 60px; height: 84px; border-radius: 8px; border: 2px dashed rgba(255,255,255,.12); background: rgba(0,0,0,.15); }
 
 /* ---- inline coverflow carousel ---- */
