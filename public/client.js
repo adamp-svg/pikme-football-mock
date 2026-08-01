@@ -3459,9 +3459,18 @@ function updateFriendsDot() {
   const d = document.getElementById('friends-dot');
   if (d) d.classList.toggle('hidden', ONLINE.size === 0);
 }
+// BOTH DIRECTIONS (2026-08-01: "show those sent and thos recived, allow to accept and reject or
+// cancel"). Fetched together so the pane can never show one half of the truth; each list stays silent
+// on its own error, exactly as the incoming list always did.
+// `/requests/sent` is a newer endpoint — an older API answers 404 and apiGet returns null, which
+// renders as "no sent requests" instead of breaking the pane.
 async function loadRequests() {
-  const reqs = await apiGet('/handle-friends/requests');       // secondary list — stay silent on error
+  const [reqs, sent] = await Promise.all([
+    apiGet('/handle-friends/requests'),
+    apiGet('/handle-friends/requests/sent'),
+  ]);
   renderRequests(Array.isArray(reqs) ? reqs : []);
+  renderSentRequests(Array.isArray(sent) ? sent : []);
 }
 // The named bots that match this query and aren't already in the list. Resolved LOCALLY: they have no
 // account for the server's nickName search to find, so they'd be unsearchable if we waited on the API.
@@ -3516,15 +3525,38 @@ function friendRow(f, opts = {}) {
     btn.textContent = 'הוסף';
     // A bot friendship is local (no account to request), so adding is instant — no pending state.
     if (f.isBot) btn.onclick = () => { if (addBotFriend(f.userId)) { btn.textContent = 'נוסף'; btn.disabled = true; toast(`${f.nickName} נוסף לחברים`); loadFriends(); } };
-    else btn.onclick = async () => { if (await apiPost('/handle-friends/request', { toUserId: f.userId })) { btn.textContent = 'נשלח'; btn.disabled = true; } };
+    // Sending used to leave NO trace: the button said «נשלח» and the next repaint forgot it, so the
+    // player had no way to tell a sent request from a swallowed one. Now it also lands in the
+    // «בקשות ששלחתי» list (and says so), which is where it can be cancelled.
+    else btn.onclick = async () => {
+      btn.disabled = true;
+      if (await apiPost('/handle-friends/request', { toUserId: f.userId })) {
+        btn.textContent = 'נשלח';
+        toast(`הבקשה נשלחה ל${f.nickName || 'שחקן'}`);
+        loadRequests();                      // so it is already in «ששלחתי» when they look
+      } else { btn.disabled = false; toast('שליחת הבקשה נכשלה'); }
+    };
   }
   else if (opts.kind === 'request') {
     btn.textContent = 'אישור';
-    btn.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'accept' })) { loadFriends(); } };
+    // loadFriends() ends by calling loadRequests(), so accepting refreshes BOTH lists.
+    btn.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'accept' })) { toast(`${f.nickName || 'שחקן'} נוסף לחברים`); loadFriends(); } };
     const dec = document.createElement('button');
     dec.className = 'friend-act ghost'; dec.textContent = 'דחה';
-    dec.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'decline' })) { loadRequests(); } };
+    dec.onclick = async () => { if (await apiPost('/handle-friends/respond', { requestId: f.requestId, action: 'decline' })) { toast('הבקשה נדחתה'); loadRequests(); } };
     div.appendChild(dec);
+  }
+  // A request I SENT: the only move is to withdraw it. Cancelling DELETES the row server-side, so the
+  // same person can be asked again afterwards (the unique from→to index makes a surviving row block
+  // every later attempt — that is the bug this whole change came from).
+  else if (opts.kind === 'sent') {
+    btn.textContent = 'בטל';
+    btn.className = 'friend-act ghost';
+    btn.onclick = async () => {
+      btn.disabled = true;
+      if (await apiPost('/handle-friends/cancel', { requestId: f.requestId })) { toast('הבקשה בוטלה'); loadRequests(); }
+      else { btn.disabled = false; toast('הביטול נכשל'); }
+    };
   }
   else { btn.textContent = 'אתגר'; btn.disabled = !online; btn.onclick = () => sendMsg({ type: 'challenge', toUserId: f.userId }); }
   div.appendChild(btn);
@@ -3694,8 +3726,16 @@ function renderSearch(items) { renderList('friend-search-results', items, { kind
 function renderRequests(items) {
   const list = Array.isArray(items) ? items : [];
   renderList('friend-requests', list, { kind: 'request' }, 'אין בקשות חברות');
+  // The tab badge counts INCOMING only — it means "something is waiting for you to decide". A sent
+  // request is not a to-do, and counting it would nag the sender about their own tap.
   const badge = document.getElementById('fr-req-badge');
   if (badge) { badge.textContent = String(list.length); badge.classList.toggle('hidden', list.length === 0); }
+}
+// The outgoing half. `userId` is normalised from the endpoint's `toUserId` so friendRow's shared
+// avatar/name/online code needs no special case.
+function renderSentRequests(items) {
+  const list = (Array.isArray(items) ? items : []).map((r) => ({ ...r, userId: r.toUserId }));
+  renderList('friend-requests-sent', list, { kind: 'sent' }, 'לא שלחת בקשות');
 }
 
 function showChallengePrompt(challengeId, fromName) {

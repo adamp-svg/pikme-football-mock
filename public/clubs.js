@@ -194,7 +194,17 @@
         else if (m.friendPending) r.append(el('span', 'fr-state', 'נשלחה'))
         else {
           const add = el('button', 'fr-add', '➕ חבר')
-          add.onclick = async (e) => { e.stopPropagation(); await friendReq(m.id); refresh() }
+          // The refresh below is what USED to erase the result: the server never sent friendPending,
+          // so the re-rendered row offered ➕ again and the tap looked like it did nothing (reported
+          // 2026-08-01, "friend request stopped working in the clubs"). The server sends it now; the
+          // button also says so immediately, and says so when it FAILS instead of staying silent.
+          add.onclick = async (e) => {
+            e.stopPropagation()
+            add.disabled = true
+            const res = await friendReq(m.id)
+            if (res && !res.error) { add.replaceWith(el('span', 'fr-state', 'נשלחה')); refresh() }
+            else { add.disabled = false; add.textContent = '➕ חבר · נכשל' }
+          }
           r.append(add)
         }
       }
@@ -416,7 +426,12 @@
     } else {
       const add = el('button', 'club-go', p.friendPending ? 'בקשה נשלחה' : '➕ הוסף כחבר')
       add.disabled = !!p.friendPending
-      add.onclick = async () => { await friendReq(p.id); add.textContent = 'בקשה נשלחה'; add.disabled = true }
+      add.onclick = async () => {
+        add.disabled = true
+        const res = await friendReq(p.id)
+        if (res && !res.error) { add.textContent = 'בקשה נשלחה' }
+        else { add.disabled = false; add.textContent = 'השליחה נכשלה · נסו שוב' }
+      }
       box.append(add)
     }
     const close = el('button', 'club-ghost', 'סגור')

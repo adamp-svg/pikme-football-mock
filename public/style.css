@@ -1460,6 +1460,10 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 /* Invite screen sections (online / pending / accepted) */
 .fs-sections { display: flex; flex-direction: column; gap: 12px; margin-bottom: 10px; }
 .fs-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin-bottom: 6px; letter-spacing: .3px; }
+/* Friend-request directions (received / sent) — same voice as .fs-sec-h, with room above so the two
+   lists read as two groups rather than one long list. First one loses the top margin. */
+.fr-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin: 12px 0 6px; letter-spacing: .3px; }
+.fr-sec-h:first-child { margin-top: 0; }
 /* SAFE AREA. `viewport-fit=cover` paints under the notch, the dynamic island and the home indicator,
    and this runs in a WebView inside the app — so every sub-page needs the insets, not just #cards and
    the builder (which were the only two that had them). max() keeps the old padding on a flat viewport
