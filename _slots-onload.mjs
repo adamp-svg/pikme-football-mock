@@ -1,11 +1,15 @@
-/* Does the MAIN LOBBY show the BEST cards in the power slots ON LOAD?
+/* Does a FIRST-TIME player's MAIN LOBBY show the BEST cards in the power slots ON LOAD?
  *
- * Adam, 2026-08-01: "the main lobby of the football, should have best cards on poer slots when loaded".
- * The 2026-07-31 fix only fills EMPTY slots — a saved loadout holding weaker cards survives untouched.
- * This reproduces that, and is the regression test for whatever replaces it.
+ * ⚠️ SCOPE CHANGED 2026-08-01 (evening) — READ THIS BEFORE "FIXING" THIS FILE.
+ * It used to seed three commons into localStorage and assert the lobby REPLACED them with the best
+ * three on every load. That rule is SUPERSEDED: "i want the user last chosen her, and suit and power
+ * slot cards to be the ones when enetering the football lobby game." A remembered choice now wins and
+ * the auto-best is the FIRST-TIME default only — so the old assertion, if restored, would be testing
+ * for the bug. The remembered case is `_remember-last.mjs` (scenario A); this file owns the other
+ * half: a player with NOTHING saved must still never meet an empty lobby.
  *
- * Seeds a REAL saved loadout of three commons into localStorage, injects an album that also contains
- * legendaries, loads the game, and reads what the lobby actually paints plus what went on the wire.
+ * Injects an album, loads the game with a CLEAN localStorage, and reads what the lobby actually
+ * paints plus what went on the wire. NO_INJECT=1 / LATE=1 still cover the album-delivery paths.
  *
  *   node _slots-onload.mjs [port]        # default 3016
  */
@@ -38,7 +42,8 @@ const ALBUM = [
   { r: 'common', n: 4, c: 7, w: 80 },
 ]
 const BEST = ['legendary_5', 'legendary_20', 'legendary_12']
-// What a player who once picked by hand has sitting in localStorage.
+// A hand-made pick, used ONLY by phase 2 below (proving the seed does not re-fire mid-session).
+// It is deliberately NOT pre-seeded before the load any more — see the scope note at the top.
 const WEAK_SAVED = [{ r: 'common', n: 1 }, { r: 'common', n: 2 }, { r: 'common', n: 4 }]
 
 async function main() {
@@ -80,7 +85,9 @@ async function main() {
         localStorage.setItem('fbTutorialSkipped','1');
         localStorage.setItem('fbHubTourDone','1');
         localStorage.setItem('fbTuHubSkipped','1');
-        localStorage.setItem('pikme-loadout', JSON.stringify(${JSON.stringify(WEAK_SAVED)}));
+        // NO pikme-loadout: this file tests the FIRST-TIME player. A saved loadout here would make
+        // the run assert the superseded every-load reseed (see the scope note at the top).
+        localStorage.removeItem('pikme-loadout');
       } catch (e) {}
       // Record every setLoadout frame the client actually sends — the screen and the wire are two
       // different claims and the whole bug class here is them disagreeing.

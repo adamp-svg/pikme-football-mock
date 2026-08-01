@@ -178,7 +178,18 @@ try {
 function loadCosmetic() {
   try {
     const inj = window.SALTIZ_COSMETIC;
-    if (inj && typeof inj === 'string') return normalizeCosmetic(inj);
+    if (inj && typeof inj === 'string') {
+      const c = normalizeCosmetic(inj);
+      // MIRROR THE SERVER COPY LOCALLY (2026-08-01 evening, "the last chosen hero and suit"). The
+      // inject is authoritative but it is not guaranteed to be THERE: it rides on the app's football
+      // stats query, so one failed/slow fetch used to drop the player back to the striker default
+      // even though they had chosen another hero on this very device. Writing it through means
+      // localStorage is always a faithful record of the last chosen look, and the fallback below is a
+      // real answer instead of a guess. Direct setItem, not saveCosmetic(): no postPrefs echo of a
+      // value that just came FROM the server (same reason applyExtraPrefs writes directly).
+      try { localStorage.setItem('pikme_cosmetic', c); } catch { /* private mode */ }
+      return c;
+    }
     return normalizeCosmetic(localStorage.getItem('pikme_cosmetic'));
   } catch { return DEFAULT_COSMETIC; }
 }
@@ -216,7 +227,14 @@ function setHeroSkinByRarity(rarity) {
 function loadLoadout() {
   try {
     const inj = window.SALTIZ_LOADOUT; // server-saved cross-device loadout wins over local
-    if (Array.isArray(inj)) return [0, 1, 2].map((i) => (inj[i] && inj[i].r && inj[i].n != null ? { r: inj[i].r, n: +inj[i].n } : null));
+    if (Array.isArray(inj)) {
+      const a = [0, 1, 2].map((i) => (inj[i] && inj[i].r && inj[i].n != null ? { r: inj[i].r, n: +inj[i].n } : null));
+      // Mirrored locally for the same reason as the hero in loadCosmetic(): the inject rides on the
+      // app's stats query, and a load without it must still restore the last chosen cards rather than
+      // fall through to "nothing chosen" (which would re-seed the best three over a real choice).
+      try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ }
+      return a;
+    }
     // LEGACY COMPAT ONLY: builds before the 2026-07-31 ruling persisted `{off:1}` for a slot the
     // player had emptied on purpose. The marker no longer exists (see shared/loadout.js), but it is
     // still sitting in the localStorage of every phone that ran an older build — read as a plain
@@ -233,40 +251,43 @@ function loadLoadout() {
 function saveLoadout(a) { if (tuHub) return; try { localStorage.setItem('pikme-loadout', JSON.stringify(a)); } catch { /* private mode */ } postPrefs(); }
 let myLoadout = loadLoadout();            // null => auto-fill top-3; else a saved [{r,n}|null] x3
 
-// ── BEST CARDS ON LOAD ──────────────────────────────────────────────────────────────────────────
-// Adam, three times and escalating — 2026-07-30 "make the cards power slots automatic with the best
-// cards!!! when enetering the game!!!!", 2026-07-31 "always have the best cards by defult whenevr a
-// user is in the main lobby always!!!!!!!!", 2026-08-01 "the main lobby of the football, should have
-// best cards on poer slots when loaded".
+// ── WHAT THE PLAYER SEES ON LOAD: THEIR LAST CHOICE, ELSE THE BEST THREE ────────────────────────
+// ⚠️ RULING 2026-08-01 (evening) — THIS REVERSES THE "ALWAYS BEST THREE ON EVERY LOAD" RULE ABOVE
+// IT. Verbatim: "i want the user last chosen her, and suit and power slot cards to be the ones when
+// enetering the football lobby game". So the remembered choice WINS, and the auto-best is only the
+// FIRST-TIME default. Do not "restore" the every-load reseed: it is the thing being removed.
 //
-// The 2026-07-31 pass read "by default" as "fill the EMPTY slots" and left a saved loadout alone.
-// That was too conservative and it is the reason he reported it still broken: reproduced in
-// _slots-onload.mjs — an album holding three legendaries, three commons saved in localStorage, and
-// the lobby paints the three COMMONS, because none of the three slots is a hole so there is nothing
-// to backfill. The screenshot shows a legendary in the carousel and commons in the slots.
+// The history, so the next agent does not cycle back: 2026-07-30 → 2026-08-01 morning he asked four
+// times for the slots to auto-fill with the best cards, escalating each time, and the reason he kept
+// re-reporting it was NEVER the seeding rule — it was two real bugs found later the same day: the
+// shipped app never injected the album (so nothing could be ranked or validated, see fetchOwnAlbum)
+// and WKWebView painted the slot art blank (see slotCardEl). Both are fixed. What he actually wanted
+// all along is "the lobby is never empty", and remembering a real choice satisfies that too.
 //
-// So the rule is now: EVERY LOAD STARTS FROM THE BEST THREE. Once per page load, as soon as the album
-// is actually known, the loadout is reset to the top three and persisted. Within that session a
-// deliberate pick still sticks — otherwise the card picker and drag-to-equip would be dead controls,
-// reverting under the player's finger on the next repaint.
+// Seeds only when there is NOTHING to remember — `myLoadout` is not an array, i.e. no localStorage
+// entry AND no window.SALTIZ_LOADOUT from the server (see loadLoadout). Once seeded it becomes the
+// remembered choice, so this fires once in a player's life, not once per load. An array WITH holes is
+// a deliberate state under the remove-leaves-empty ruling and is restored exactly as it was.
 //
 // Fires from three places because the album can arrive before OR after the first paint, and the
 // once-flag makes the extra calls free:
-//   • the boot render (album injected pre-load — the normal path in the app)
-//   • reconcileOnCardChange (album lands after the socket joined — the late path)
+//   • the boot render (album injected pre-load — the app's fast path)
+//   • reconcileOnCardChange (album lands after the socket joined — the late/self-fetch path)
 //   • showScreen('home')  (belt and braces: every arrival at the hub)
-// It deliberately does NOT latch on an empty album, so a player whose cards are still in flight is
-// seeded by whichever of those fires first after they land, not skipped.
+// It deliberately does NOT latch on an empty album, so a first-time player whose cards are still in
+// flight is seeded by whichever trigger fires first after they land, not skipped.
 let _seededBestThisLoad = false;
 function seedBestOnLoad() {
   if (_seededBestThisLoad) return;
   if (tuHub) return;                       // the lobby tour owns the slots inside its sandbox
+  // THE REMEMBERED CHOICE WINS. Anything array-shaped came from this player (localStorage) or from
+  // their own server-saved prefs (SALTIZ_LOADOUT) — it is their last pick and it is not overwritten.
+  if (Array.isArray(myLoadout)) { _seededBestThisLoad = true; return; }
   const cards = myCards();
   if (!cards.length) return;               // album not here yet — try again on the next trigger
   _seededBestThisLoad = true;
-  // Literally the auto-press: the same function the «הכי טוב» button calls, quietly.
-  // Deliberately NOT a "only if it changed" optimisation any more — the rule is "press the button on
-  // load", and a press always writes and always syncs. The cost is one localStorage write per load.
+  // First-time player only: the same function «הכי טוב» calls, quietly. This write is what turns the
+  // seed into a remembered choice for every later load.
   equipBestCards(true);
 }
 
@@ -1466,15 +1487,33 @@ function reconcileOnCardChange() {
   // Nothing is consumed by returning here: the signature flips back when end() restores the album,
   // so the next tick reconciles the real one.
   if (tuHub) return;
-  // The album just changed, which is the moment "the best three" first becomes knowable for a player
-  // whose cards were still in flight at boot. Runs BEFORE the cleanup below so the sync at the end
-  // carries the seeded loadout rather than the stale one.
+  // ⚠️ AN EMPTY ALBUM MEANS "NOT KNOWN YET", NOT "YOU OWN NOTHING" — AND THIS IS THE OTHER HALF OF
+  // "not remembered from my last session" (found 2026-08-01 evening, reading the app's own code).
+  // Everything below reconciles the player's saved state against `myCards()` AND PERSISTS the result:
+  // the slot clean writes localStorage + postPrefs, and the hero clamp below demotes to the best
+  // UNLOCKED hero, where unlocks are 7-distinct-cards-owned. Against an empty album every card the
+  // player owns reads un-owned, so one pass with no album wipes all three slots to holes and demotes
+  // a remembered `robot:sig` back to striker — permanently, on localStorage AND on the server.
+  // It is reachable on a real phone, not hypothetically: the app re-injects
+  // `window.SALTIZ_CARDS = buildCompactCards(claimsData)` from a useEffect on every claims change,
+  // and buildCompactCards(undefined) is `[]` — so a cold cache, a failed refetch or a logout pushes
+  // an EMPTY album into a game that already had one, the fingerprint flips, and this runs.
+  // An empty album carries no information, so the honest response is to do NOTHING with it: no
+  // setCards (which would make the server re-sanitize member.loadout against nothing and flatten the
+  // buffs), no clean, no demote. The next non-empty album reconciles for real.
+  // Cost of the guard: a player who genuinely owns zero cards keeps a locked hero in the client until
+  // they own something — invisible next to permanently losing everyone else's saved choices.
+  if (!myCards().length) return;
+  // The album just became known, which is the moment "the best three" first becomes knowable for a
+  // FIRST-TIME player whose cards were still in flight at boot (seedBestOnLoad is a no-op for anyone
+  // with a remembered choice). Runs BEFORE the cleanup below so the sync at the end carries the
+  // seeded loadout rather than the stale one.
   seedBestOnLoad();
   sendMsg({ type: 'setCards', cards: myCards() });
   if (Array.isArray(myLoadout)) {
-    // A slot whose card is gone becomes a plain hole, and a plain hole backfills — under the
-    // 2026-07-31 ruling there is nothing left to protect here (the {off:1} branch that used to
-    // survive validSlot went with the marker).
+    // A slot whose card is genuinely gone from a KNOWN album becomes a plain hole — and under the
+    // 2026-08-01 remove-leaves-empty ruling a hole stays a hole (effectiveLoadout no longer
+    // backfills), so this is now the only thing that clears a slot without the player asking.
     const cleaned = [0, 1, 2].map((i) => validSlot(myLoadout[i]));
     const changed = [0, 1, 2].some((i) => JSON.stringify(myLoadout[i] ?? null) !== JSON.stringify(cleaned[i]));
     if (changed) { myLoadout = cleaned; saveLoadout(myLoadout); }
@@ -2012,12 +2051,26 @@ function effectiveLoadout() {
     return [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
   }
   // RULING 2026-08-01 (supersedes 2026-07-31's "a hole re-backfills on every paint"): "make sure
-  // the player can remove cards and leave empty slots as well." The two rules compose, they don't
-  // conflict: ENTERING the lobby always equips the best three (seedBestOnLoad — every load), and
-  // WITHIN the session a hole the player made stays a hole. So an Array loadout renders exactly
-  // what it says — validated against the album, never backfilled. Only `myLoadout === null` (no
-  // choice ever made, i.e. the moments before the seed latches) keeps the auto-fill semantics.
-  if (Array.isArray(myLoadout)) return [0, 1, 2].map((i) => validSlot(myLoadout[i]));
+  // the player can remove cards and leave empty slots as well." It composes with the evening ruling
+  // (see seedBestOnLoad): a first-time player is seeded the best three, and from then on the
+  // REMEMBERED choice — holes included — renders exactly as saved. Only `myLoadout === null`
+  // (nothing ever chosen, i.e. the moments before the seed latches) auto-fills.
+  if (Array.isArray(myLoadout)) {
+    // ⚠️ AN EMPTY ALBUM IS "NOT KNOWN YET", NOT "YOU OWN NOTHING" — the PAINT half of the guard in
+    // reconcileOnCardChange, and on its own an "my power slots are empty when I enter" report.
+    // validSlot() drops any slot whose card cardOwned() cannot find, so against an album that has
+    // not arrived yet (or one the app just re-injected as `[]` — it really does, see that guard)
+    // EVERY remembered card reads un-owned and the lobby paints three empty frames until the album
+    // lands. Measured in _remember-last.mjs scenario C. With no album there is nothing to validate
+    // against, so the honest paint is the choice the player made.
+    if (!myCards().length) {
+      return [0, 1, 2].map((i) => {
+        const s = myLoadout[i];
+        return s && s.r && s.n != null ? { r: s.r, n: +s.n } : null;
+      });
+    }
+    return [0, 1, 2].map((i) => validSlot(myLoadout[i]));
+  }
   return backfillLoadout([null, null, null], myCards());
 }
 // (swapOutCard/bestUnequipped left with the 2026-08-01 ruling — remove now leaves a real hole;
