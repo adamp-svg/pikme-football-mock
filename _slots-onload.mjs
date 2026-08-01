@@ -16,6 +16,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 const PORT = process.argv[2] || '3016'
 // NO_INJECT=1 reproduces the shipped app: no window.SALTIZ_CARDS at all.
 const NO_INJECT = process.env.NO_INJECT === '1' ? 'true' : 'false'
+// LATE=1 : album arrives 3s after load (the app's claims-query race)
+const LATE = process.env.LATE === '1' ? 'true' : 'false'
 const OUT = '/private/tmp/claude-501/-Users-adamleeperelman-Documents-pikeme/00ddc158-6376-4024-ba10-455d2c7bceff/scratchpad/slotshot'
 mkdirSync(OUT, { recursive: true })
 try { rmSync(OUT + '/profile', { recursive: true, force: true }) } catch {}
@@ -64,10 +66,15 @@ async function main() {
   await send('Page.addScriptToEvaluateOnNewDocument', {
     source: `(() => {
       const NO_INJECT_FLAG = ${NO_INJECT};
+      const LATE_FLAG = ${LATE};
       // ⚠️ THE CONDITION THAT MATTERS. The SHIPPED app never injects SALTIZ_CARDS (zero hits on
       // tf-93/95/96), so the real phone starts with NO album. Set NO_INJECT=1 to reproduce that and
       // prove the game fetches its own album; leave it off to test the app fast path.
       if (!NO_INJECT_FLAG) window.SALTIZ_CARDS = ${JSON.stringify(ALBUM)};
+      // LATE_FLAG reproduces the app's real race: bootJs runs before the claims query resolves, so
+      // the game boots with an EMPTY album and the app pushes the real one later via
+      // injectJavaScript(). If the lobby does not react to that, the slots stay empty forever.
+      if (LATE_FLAG) { window.SALTIZ_CARDS = []; setTimeout(() => { window.SALTIZ_CARDS = ${JSON.stringify(ALBUM)}; }, 3000); }
       window.SALTIZ_XP = { xp: 4200, level: 9 };
       try {
         localStorage.setItem('fbTutorialSkipped','1');
@@ -99,7 +106,7 @@ async function main() {
     })()`,
   })
   await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?ftoken=harness` })
-  await sleep(7000)
+  await sleep(process.env.LATE === '1' ? 12000 : 7000)
 
   const read = async (label) => {
     const r = await send('Runtime.evaluate', {

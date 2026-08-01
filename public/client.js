@@ -264,12 +264,10 @@ function seedBestOnLoad() {
   const cards = myCards();
   if (!cards.length) return;               // album not here yet — try again on the next trigger
   _seededBestThisLoad = true;
-  const top = rankForLoadout(cards).slice(0, 3);
-  const next = [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
-  const same = JSON.stringify(next) === JSON.stringify([0, 1, 2].map((i) => validSlot((myLoadout || [])[i])));
-  if (same) return;                        // already the best — do not churn localStorage or the wire
-  myLoadout = next;
-  saveLoadout(myLoadout);
+  // Literally the auto-press: the same function the «הכי טוב» button calls, quietly.
+  // Deliberately NOT a "only if it changed" optimisation any more — the rule is "press the button on
+  // load", and a press always writes and always syncs. The cost is one localStorage write per load.
+  equipBestCards(true);
 }
 
 // ---- THE LOBBY TOUR'S SEAM (public/hub-tour.js) ----------------------------------------------
@@ -3061,15 +3059,24 @@ document.getElementById('tc-bots')?.addEventListener('click', () => { document.g
 document.getElementById('reset-ball-btn').addEventListener('click', () => { sendMsg({ type: 'resetBall' }); });
 // Pick-best loadout (restored): null loadout => effectiveLoadout() auto-fills the album's
 // top-3 into the slots; persist, re-render the home slots, and tell the server live.
-document.getElementById('select-best-btn')?.addEventListener('click', () => {
-  unlockAudio();
-  // Equip the 3 best cards by rarity, then duplication (see rankForLoadout).
-  const top = rankForLoadout(myCards()).slice(0, 3);
+// THE RULE (Adam, 2026-08-01): "on football first loading, you auto press the button select best."
+// Lifted out of the click handler so the auto-press runs the IDENTICAL code path a real tap runs —
+// not a reimplementation of it that can drift. `quiet` skips the toast and the audio unlock, which
+// are the only two things that make sense for a tap and not for a page load.
+function equipBestCards(quiet) {
+  const cards = myCards();
+  if (!cards.length) return false;          // nothing owned yet — the caller retries when it lands
+  const top = rankForLoadout(cards).slice(0, 3);
   myLoadout = [0, 1, 2].map((i) => (top[i] ? { r: top[i].r, n: +top[i].n } : null));
   saveLoadout(myLoadout);
   renderPowerSlots();
   syncLoadout();   // the EFFECTIVE slots, so an album of fewer than 3 cards still can't send holes
-  toast('צוידו הקלפים הטובים ביותר');
+  if (!quiet) toast('צוידו הקלפים הטובים ביותר');
+  return true;
+}
+document.getElementById('select-best-btn')?.addEventListener('click', () => {
+  unlockAudio();
+  if (!equipBestCards(false)) toast('אין עדיין קלפים');
 });
 // Play with friends: team-first. «שחק עם חברים» creates the party room and lands straight on the
 // team page (#party) — there is no separate invite-first step. Inviting happens FROM the team page,
