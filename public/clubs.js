@@ -40,6 +40,11 @@
   // Friending is NOT a clubs concern — pikme-server already owns it at /handle-friends/*, and that is
   // the same graph the app's friends list uses. Routed separately so a club never forks the friend model.
   const FRIENDS_BASE = DEV_HOST ? '/dev/friends' : 'https://server.pikme.tv/handle-friends'
+  // The game's own confirm dialog (client.js askConfirm), for the destructive club actions. Not
+  // window.confirm(): a WebView only shows a native JS dialog if the HOST app implements the confirm
+  // panel, which is exactly why "are you sure" never reached the player on unfriend. The fallback
+  // exists only for a page that somehow loads clubs.js without client.js.
+  const ask = (o) => (window.askConfirm ? window.askConfirm(o) : Promise.resolve(confirm(o.title)))
   const friendReq = (userId) => fetch(`${FRIENDS_BASE}/request`, { method: 'POST', headers: headers(), body: JSON.stringify({ toUserId: userId }) })
     .then((r) => (r.ok ? { ok: true } : { error: 'http_' + r.status })).catch(() => ({ error: 'offline' }))
   const friendDel = (userId) => fetch(`${FRIENDS_BASE}/${encodeURIComponent(userId)}`, { method: 'DELETE', headers: headers() })
@@ -83,6 +88,26 @@
   const ROLE_HE = { president: '👑 נשיא', vice: '🥈 סגן', senior: '⭐ בכיר', member: 'חבר' }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
   const num = (n) => Number(n || 0).toLocaleString('he-IL')
+
+  // LEAVING THE CLUB — one implementation, two entry points (the «עזוב» action under the chips and
+  // the 🚪 on my own roster row), so the reassurance can never exist on one of them and not the other.
+  // A president is warned differently: they are not just leaving, they are handing the club over.
+  async function leaveClub() {
+    const club = state.me && state.me.club
+    if (!club) return
+    const president = club.myRole === 'president'
+    const yes = await ask({
+      title: `לצאת מ${club.name}?`,
+      body: president
+        ? 'אתם הנשיא — ביציאה המועדון עובר לחבר אחר. כדי לחזור תצטרכו לבקש להצטרף מחדש.'
+        : 'כדי לחזור תצטרכו לבקש להצטרף מחדש, ומישהו יצטרך לאשר.',
+      ok: 'צא מהמועדון', cancel: 'בטל', danger: true,
+    })
+    if (!yes) return
+    await post('/leave')
+    state.view = 'home'
+    refresh()
+  }
 
   async function refresh() {
     await dirReady
@@ -208,10 +233,34 @@
           r.append(add)
         }
       }
+      // MY OWN ROW: the one thing I can do to myself here is leave. Reported 2026-08-02 — "cannot
+      // remove myself as a friend in clubs, should be leave club with reassurance": the row offered
+      // nothing at all for `isMe`, so the only way out was the small «עזוב» under the chips, which
+      // reads as part of the club-browsing actions rather than something about me.
+      if (m.isMe) {
+        const out = el('button', 'fr-kick', '🚪')
+        out.title = 'יציאה מהמועדון'
+        out.onclick = (e) => { e.stopPropagation(); leaveClub() }
+        r.append(out)
+      }
       if (m.canKick) {
         const k = el('button', 'fr-kick', '✕')
         k.title = 'הסר מהמועדון'
-        k.onclick = async (e) => { e.stopPropagation(); await post('/kick', { userId: m.id }); refresh() }
+        // Confirm first: a kick is instant, it is not undoable by the person kicked, and this ✕ sits
+        // on a scrolling touch list right next to the add-friend button (reported 2026-08-02 —
+        // "too easy to kick off club"). Naming the member is the point: it makes a mis-tap obvious.
+        k.onclick = async (e) => {
+          e.stopPropagation()
+          const yes = await ask({
+            title: `להסיר את ${m.nickName} מהמועדון?`,
+            body: 'הוא יוכל לבקש להצטרף שוב, אבל תצטרכו לאשר אותו מחדש.',
+            ok: 'הסר', cancel: 'בטל', danger: true,
+          })
+          if (!yes) return
+          k.disabled = true
+          await post('/kick', { userId: m.id })
+          refresh()
+        }
         r.append(k)
       }
       list.append(r)
@@ -224,7 +273,7 @@
     const invite = el('button', 'club-cta', '<span class="club-cta-ic">🔎</span><b>מועדונים</b>')
     invite.onclick = () => { state.view = 'find'; render() }
     const leave = el('button', 'club-ghost', 'עזוב')
-    leave.onclick = async () => { await post('/leave'); state.view = 'home'; refresh() }
+    leave.onclick = () => leaveClub()
     actions.append(invite, leave)
     side.append(actions)
   }
