@@ -415,9 +415,17 @@
       // the real friends list (i.e. when this API moves into pikme-server), not before.
       const rm = el('button', 'pc-remove', 'הסר חבר')
       rm.onclick = async () => {
-        // Confirm first: unfriending is not undoable, the other side has to re-accept. Same rule as
-        // client.js removeFriend().
-        if (!confirm(`להסיר את ${p.nickName} מרשימת החברים?`)) return
+        // Confirm first: unfriending is not undoable, the other side has to re-accept. Same rule AND
+        // the same dialog as client.js removeFriend() — window.confirm() is not shown by every
+        // WebView host, which is why "are you sure" never reached the player (2026-08-02). Falls
+        // back to confirm() only if this card is somehow loaded without client.js.
+        const ask = window.askConfirm || ((o) => Promise.resolve(confirm(o.title)))
+        const yes = await ask({
+          title: `להסיר את ${p.nickName} מרשימת החברים?`,
+          body: 'הוא יוסר גם אצלו, ותצטרכו לאשר בקשה חדשה כדי לחזור להיות חברים.',
+          ok: 'הסר', cancel: 'בטל', danger: true,
+        })
+        if (!yes) return
         rm.disabled = true; rm.textContent = 'מסיר…'
         await friendDel(p.id)
         openPlayerCard(p.id)   // re-render: the card flips back to «הוסף כחבר»
@@ -544,8 +552,14 @@
   // The friend modal (client.js) gets a club + memberships block appended; the profile side pane
   // (profile.js) gets the same block under the hero / trophies / cards. Both are done from OUT here
   // so those files keep almost no clubs code — see the FOOTPRINT note at the top.
-  async function injectInto(hostSel, userId, markerCls) {
-    const host = $(hostSel)
+  // ⚠️ `hostSel` IS A PRIORITY LIST, TRIED IN ORDER — it must NOT be a comma selector.
+  // `querySelector('a, b')` returns the first match in DOCUMENT ORDER, not the first selector that
+  // matches: with 'modal .fp-card, modal' it always answered the MODAL, because the overlay precedes
+  // the card it contains. That is how the rank block ended up beside the card instead of in it, and
+  // (once an anchor was added) how insertBefore started throwing NotFoundError — the anchor was a
+  // descendant of the card, never a child of the overlay.
+  async function injectInto(hostSels, userId, markerCls, beforeSel) {
+    const host = (Array.isArray(hostSels) ? hostSels : [hostSels]).map((s) => $(s)).find(Boolean)
     if (!host || host.querySelector('.' + markerCls)) return
     const p = await api(`/player/${encodeURIComponent(userId)}`)
     if (p.error) return
@@ -564,7 +578,12 @@
     block.append(el('div', 'pc-ranks', `
       <div class="pc-rank"><small>גביעים</small><b>#${p.ranks.trophies.place ?? '—'}</b></div>
       <div class="pc-rank"><small>דירוג</small><b>#${p.ranks.ranked.place ?? '—'}</b></div>`))
-    host.appendChild(block)
+    // Place it INSIDE the card, above whatever closing control the host has (the friend modal ends
+    // with «הסר חבר», and a rank strip below a destructive button reads as part of it).
+    // insertBefore demands a DIRECT child, so only use the anchor when it actually is one.
+    const anchor = beforeSel && host.querySelector(beforeSel)
+    if (anchor && anchor.parentNode === host) host.insertBefore(block, anchor)
+    else host.appendChild(block)
   }
 
   function watch(id, fn) {
@@ -602,7 +621,15 @@
     watch('friend-profile-modal', (n) => {
       n.querySelector('.fp-clubs')?.remove()
       const uid = n.dataset.userId
-      if (uid) injectInto('#friend-profile-modal .fp-body, #friend-profile-modal', uid, 'fp-clubs')
+      // ⚠️ THE HOST IS `.fp-card`, NOT THE MODAL — and that one selector was the whole "a friend's
+      // profile doesn't show his rank" bug (2026-08-02). This modal has NO `.fp-body`, so the old
+      // selector fell through to `#friend-profile-modal`, which is the full-screen overlay:
+      // `display:flex; align-items:center; justify-content:center`. The block therefore became a
+      // SECOND FLEX CHILD sitting BESIDE the card, not inside it — on a wide iPad there was room so
+      // it was visible, on a landscape phone it was squeezed off-screen. Hence "shows on the iPad,
+      // missing on the iPhone". `.fp-card` already has `max-height:92vh; overflow-y:auto`, so once
+      // the block lands inside it, it scrolls into reach at any height.
+      if (uid) injectInto(['#friend-profile-modal .fp-card', '#friend-profile-modal'], uid, 'fp-clubs', '#fp-remove')
     })
     // The profile page's fixed right pane — under hero / trophies / cards.
     watch('profile', () => setTimeout(() => injectInto('.pf-side', state.me.me.id, 'pf-clubs'), 250))

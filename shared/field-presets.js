@@ -2,6 +2,7 @@
 // Each `field` is in the field-builder save shape { version, bushes, hardWalls, dryWalls, crates }.
 import { MAIN_FIELD } from './main-field.js';
 import { FIELD_3V3 } from './field-3v3.js';
+import { FIELD_CORRIDORS, FIELD_RING, FIELD_FORTRESS } from './field-arenas.js';
 
 // "Classic" = the original mirror-symmetric default arena (4 stone covers + 3 bushes), expressed
 // in field-builder shape (stone covers → solid boxes; centre + wing bushes).
@@ -29,5 +30,10 @@ export const FIELD_PRESETS = [
   { id: 'main', name: 'ראשי', field: MAIN_FIELD },
   { id: 'threes', name: 'שלושות', field: FIELD_3V3 }, // the 3v3 arena — open centre, cover on the wings
   { id: 'classic', name: 'קלאסי', field: CLASSIC },
-  { id: 'empty', name: 'ריק', field: EMPTY },
+  // 2026-08-02 — three new arenas (shared/field-arenas.js). Each has ONE tactical idea, so picking
+  // one changes how the match is played rather than just how it looks:
+  { id: 'corridors', name: 'מסדרונות', field: FIELD_CORRIDORS }, // three lanes — passing over dribbling
+  { id: 'ring', name: 'טבעת', field: FIELD_RING },               // hold the centre ring, four ways in
+  { id: 'fortress', name: 'מבצר', field: FIELD_FORTRESS },       // open midfield, cover at the goals
+  { id: 'empty', name: 'ריק', field: EMPTY },                    // stays LAST: it is the blank canvas
 ];

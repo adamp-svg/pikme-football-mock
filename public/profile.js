@@ -47,10 +47,25 @@ const CSS = `
   padding: max(10px, var(--sa-top, env(safe-area-inset-top))) max(10px, var(--sa-right, env(safe-area-inset-right)))
            max(10px, var(--sa-bottom, env(safe-area-inset-bottom))) max(10px, var(--sa-left, env(safe-area-inset-left)));
   box-sizing: border-box; font-family: "Arial Black", sans-serif; }
-/* The FIXED pane. flex-basis in px (not %) so the hero never squeezes to nothing in landscape. */
+/* The FIXED pane. flex-basis in px (not %) so the hero never squeezes to nothing in landscape.
+   ⚠️ IT SCROLLS, and it has to (2026-08-02). It was overflow:hidden, and this column is where
+   clubs.js appends the club strip and the גביעים/דירוג block from the outside — so on a phone
+   everything under the hero fell past the bottom edge with no way to reach it. The game is
+   landscape-locked, so an iPhone gives this column ~390px against an iPad's ~834px: identical code,
+   fine on the tablet, truncated on the phone. Reported as "the clubs clipped and the trophies and
+   ranked not visible (which they are in the ipad)".
+   This does NOT contradict the "only scroll region" note on .pf-body below: that warns against
+   NESTED scrollers, which swallow a drag. .pf-side and .pf-body are SIBLINGS — a drag belongs to
+   exactly one of them, and neither can steal the other's gesture.
+   min-height:0 is load-bearing: without it a flex item refuses to shrink below its content and
+   overflow-y never has anything to scroll. */
 .pf-side { flex: 0 0 176px; display: flex; flex-direction: column; align-items: center; gap: 4px;
   background: rgba(19,27,22,.94); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08;
-  padding: 10px 8px; overflow: hidden; }
+  padding: 10px 8px; overflow-y: auto; overflow-x: hidden; min-height: 0;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+/* The hero canvas must not be squashed by a short column — it is the one item whose height a flex
+   parent would otherwise steal to fit the rest. */
+.pf-side > .pf-hero-canvas { flex: 0 0 auto; }
 .pf-hero-canvas { width: 132px; height: 137px; image-rendering: pixelated; }
 .pf-name { font: 900 13px "Arial Black", sans-serif; color: #f2ead0; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

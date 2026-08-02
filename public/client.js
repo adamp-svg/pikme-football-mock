@@ -1423,6 +1423,47 @@ function toast(msg) {
   _toastT = setTimeout(() => fpToastEl.classList.add('hidden'), 2000);
 }
 
+// ---- ASK BEFORE SOMETHING IRREVERSIBLE -------------------------------------------------------
+// ⚠️ DO NOT REPLACE THIS WITH window.confirm(). Both unfriend paths already called confirm() and
+// Adam still reported (2026-08-02) that "it too easy to remove friends" — i.e. the guard is not
+// reaching the player. A WKWebView only shows a JS dialog if the HOST implements the confirm panel
+// delegate, and this game runs inside an app we do not control; a suppressed dialog is answered for
+// us, so the guard is either invisible or absent depending on the host. An in-game dialog is the
+// game's own DOM: it looks like the game, it works on every host, and a harness can drive it.
+//
+// Returns a promise for true/false, so callers read like the confirm() they replace:
+//   if (!(await askConfirm({ ... }))) return;
+// Tap outside or «בטל» resolves false — the safe answer is always the default.
+let _askEl = null;
+function askConfirm({ title, body = '', ok = 'אישור', cancel = 'בטל', danger = false } = {}) {
+  return new Promise((resolve) => {
+    _askEl?.remove();
+    const wrap = document.createElement('div'); wrap.className = 'ask-modal'; wrap.dir = 'rtl';
+    const card = document.createElement('div'); card.className = 'ask-card';
+    const h = document.createElement('div'); h.className = 'ask-title'; h.textContent = title || '';
+    card.appendChild(h);
+    if (body) { const b = document.createElement('div'); b.className = 'ask-body'; b.textContent = body; card.appendChild(b); }
+    const row = document.createElement('div'); row.className = 'ask-row';
+    const no = document.createElement('button'); no.className = 'ask-btn'; no.textContent = cancel;
+    const yes = document.createElement('button'); yes.className = 'ask-btn' + (danger ? ' ask-danger' : ' ask-go'); yes.textContent = ok;
+    // Cancel FIRST in the DOM so it is the one under the thumb in RTL, and so a stray tap on the
+    // edge of a scrolling list cannot land on the destructive button.
+    row.append(no, yes); card.appendChild(row); wrap.appendChild(card);
+    document.body.appendChild(wrap); _askEl = wrap;
+    const done = (v) => { wrap.remove(); if (_askEl === wrap) _askEl = null; resolve(v); };
+    no.onclick = () => done(false);
+    yes.onclick = () => done(true);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) done(false); });
+  });
+}
+// SHARED WITH public/clubs.js. client.js is a module, so nothing in it is global unless it says so —
+// and clubs.js is a plain script that injects the player card (with its own «הסר חבר») from the
+// outside. Without this export it would silently fall back to window.confirm(), i.e. straight back
+// to the bug. Same reason __hubPrefs and __loadoutProbe are exported.
+window.askConfirm = askConfirm;
+// A harness (and only a harness) needs to answer the dialog without synthesising taps.
+window.__askProbe = { open: () => !!_askEl, answer: (v) => _askEl?.querySelector(v ? '.ask-go, .ask-danger' : '.ask-btn')?.click() };
+
 // Show the player's character (their avatar as the face) on the home menu.
 function renderHomeCharacter() {
   homeNameEl.textContent = MY_NAME;
@@ -3687,7 +3728,15 @@ function openFriendProfile(f) {
 // (which unfriends BOTH sides). Confirmed first: it is not undoable for a real friend, who has to
 // re-accept a fresh request.
 async function removeFriend(f, btn) {
-  if (!f || !confirm(`להסיר את ${f.nickName || 'החבר'} מרשימת החברים?`)) return;
+  if (!f) return;
+  // askConfirm, not confirm() — see the note on askConfirm(). Unfriending is not undoable: the other
+  // side has to accept a fresh request, so this is exactly the gesture that must cost a second tap.
+  const yes = await askConfirm({
+    title: `להסיר את ${f.nickName || 'החבר'} מרשימת החברים?`,
+    body: 'הוא יוסר גם אצלו, ותצטרכו לאשר בקשה חדשה כדי לחזור להיות חברים.',
+    ok: 'הסר', cancel: 'בטל', danger: true,
+  });
+  if (!yes) return;
   if (btn) { btn.disabled = true; btn.textContent = 'מסיר…'; }
   const ok = f.isBot ? removeBotFriend(f.userId) : await apiDelete(`/handle-friends/${f.userId}`);
   if (!ok) { if (btn) { btn.disabled = false; btn.textContent = 'הסר חבר'; } return; }

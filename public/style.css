@@ -2753,6 +2753,25 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
 .fp-remove:active { transform: translateY(2px); box-shadow: 0 2px 0 #26090b; }
 .fp-remove:disabled { opacity: .55; cursor: default; }
 
+/* ---- IN-GAME CONFIRM (askConfirm in client.js) --------------------------------------------------
+   Replaces window.confirm() for destructive taps. A WebView only shows a native JS dialog if the
+   HOST app implements the confirm panel, so the browser one is not a guard we can rely on inside the
+   app — this is. z-index sits above .fp-modal (60) because it is asked FROM that modal. */
+.ask-modal { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center;
+  background: rgba(3,6,4,.78); padding: 12px; }
+.ask-card { width: min(90vw, 360px); max-height: 88vh; overflow-y: auto; background: #16211a;
+  border: 3px solid #3a4a3c; border-radius: 14px; padding: 16px 14px; text-align: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55); }
+.ask-title { font: 900 14px "Arial Black", sans-serif; color: #f2ead0; line-height: 1.35; }
+.ask-body { margin-top: 8px; font: 900 11px "Arial Black", sans-serif; color: #9fb0a2; line-height: 1.5; }
+.ask-row { display: flex; gap: 10px; margin-top: 14px; }
+.ask-btn { flex: 1 1 0; padding: 11px 10px; cursor: pointer; font: 900 12px "Arial Black", sans-serif;
+  color: #e7dcae; background: #2c3a2e; border: 3px solid #4a5a4c; box-shadow: 0 4px 0 #12190f;
+  min-height: 44px; }                                  /* 44px: the smallest reliable touch target */
+.ask-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #12190f; }
+.ask-go { color: #d9ffe2; background: #1f4a2a; border-color: #2f7c40; box-shadow: 0 4px 0 #0b260f; }
+.ask-danger { color: #ffd9d9; background: #4a1b1e; border-color: #7c2b30; box-shadow: 0 4px 0 #26090b; }
+
 /* ============================================================================
    XP REWARD REVEAL — post-match hub overlay: full-screen confetti + a big
    centre number that meteors onto the #hub-xp bar (see playXpReveal in client.js).
