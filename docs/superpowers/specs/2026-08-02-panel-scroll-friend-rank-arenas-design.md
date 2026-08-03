@@ -2,9 +2,9 @@
 
 **Date:** 2026-08-02 · **Status:** approved by Adam · **Ships:** game-side only (Render), no app build.
 
-> ⚠️ **DEPLOY IS HELD.** App Store version 3.3.3 is in Apple review and the reviewer opens the LIVE
-> game, so Adam chose "build and commit, do not deploy". Commit locally; **do not push** — a push to
-> `football-mock` auto-deploys Render. Ship on his explicit word, after the review verdict.
+> ✅ **SHIPPED 2026-08-03.** The hold is over: 3.3.3 went READY_FOR_SALE on the App Store and Adam
+> gave the word, so this is pushed and live on Render. (It was deliberately held while 3.3.3 was in
+> review, because the reviewer opens the LIVE game — that reasoning stands for the next time.)
 
 ## Why these are safe to ship without review
 
