@@ -100,7 +100,7 @@ async function main() {
           if (url.includes('/requests/sent')) return Promise.resolve(json([{ requestId: 'r-out-1', toUserId: 'u-maya', nickName: 'מאיה', image: null }]));
           if (url.includes('/requests'))      return Promise.resolve(json([]));
           if (url.includes('/request'))       return Promise.resolve(json({ ok: true }));
-          if (url.match(/\\/handle-friends\\/?($|\\?)/)) return Promise.resolve(json([{ userId: 'u-friend', nickName: 'יואב', image: null }]));
+          if (url.match(/\\/(handle-friends|dev\\/friends)\\/?($|\\?)/)) return Promise.resolve(json([{ userId: 'u-friend', nickName: 'יואב', image: null }]));
           return Promise.resolve(json([]));
         }
         return realFetch(u, o);
@@ -171,13 +171,17 @@ async function main() {
   await shot('online-844x390')
 
   console.log('\n3) ➕ SENDS A FRIEND REQUEST')
-  const apiBefore = s.api.filter(c => c.includes('POST') && c.includes('/request')).length
+  // On a dev/LAN host the client routes friends calls through this server's /dev/friends passthrough
+  // (CORS), so the path is /dev/friends/request here and /handle-friends/request in the app. Both are
+  // the same call; matching only the app spelling made this assert on the host, not the feature.
+  const isRequestCall = (c) => c.startsWith('POST') && /\/(handle-friends|dev\/friends)\/request/.test(c)
+  const apiBefore = s.api.filter(isRequestCall).length
   await evl(`(() => { const r = [...document.querySelectorAll('#online-list .friend-row')].find(r => r.querySelector('.friend-name').textContent === 'דן');
     [...r.querySelectorAll('button')].find(b => b.textContent.includes('חבר')).click(); })()`)
   await sleep(1500)
   s = await read()
-  const reqCalls = s.api.filter(c => c.startsWith('POST') && c.includes('/handle-friends/request'))
-  check('POST /handle-friends/request carried the right userId', reqCalls.some(c => c.includes('u-dan')), reqCalls[0])
+  const reqCalls = s.api.filter(isRequestCall)
+  check('the friend-request POST carried the right userId', reqCalls.some(c => c.includes('u-dan')), reqCalls[0])
   check('...exactly once', reqCalls.length === apiBefore + 1, `${reqCalls.length} call(s)`)
   check('the button now reads נשלחה and is dead', btnOf(rowOf(s, 'דן'), 'נשלחה')?.off === true, JSON.stringify(rowOf(s, 'דן')?.btns))
   // THE RACE THIS CAUGHT: the stub's /requests/sent deliberately does NOT list the new request, which

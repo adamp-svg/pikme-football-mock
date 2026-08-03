@@ -3408,25 +3408,33 @@ function hideRoomWait() { if (roomWaitEl) roomWaitEl.classList.add('hidden'); }
 function apiHeaders() { return { 'content-type': 'application/json', 'football-auth': FOOTBALL_TOKEN || '' }; }
 // #3: returns null on FAILURE (so callers can show an inline error/retry state) vs an
 // array/object on success — a silent [] used to hide "couldn't load" behind "no friends".
+// On a dev/LAN host pikme-server's CORS allowlist excludes us, so the browser discards the response
+// no matter what the API answers — which is why the friends buttons could not be tried anywhere but
+// the app. This server already proxies /dev/friends/* → /handle-friends/* (method, football-auth
+// header and body forwarded verbatim), and clubs.js has routed through it from the start; friends
+// calls now do the same. On the app/prod host nothing changes: the direct URL is still used.
+const apiUrl = (path) => (DEV_HOST && path.startsWith('/handle-friends'))
+  ? '/dev/friends' + path.slice('/handle-friends'.length)
+  : `${PIKME_API}${path}`;
 async function apiGet(path, sameOrigin) {
   try {
     // sameOrigin: hit THIS server instead of PIKME_API (used by the /dev/progress passthrough, which
     // exists precisely because the API's CORS allowlist excludes dev hosts).
-    const r = await fetch(sameOrigin ? path : `${PIKME_API}${path}`, { headers: apiHeaders() });
+    const r = await fetch(sameOrigin ? path : apiUrl(path), { headers: apiHeaders() });
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
 }
 async function apiPost(path, body) {
   try {
-    const r = await fetch(`${PIKME_API}${path}`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
+    const r = await fetch(apiUrl(path), { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
     if (!r.ok) { toast('החיבור נכשל, נסה שוב'); return false; }
     return true;
   } catch { toast('החיבור נכשל, נסה שוב'); return false; }
 }
 async function apiDelete(path) {
   try {
-    const r = await fetch(`${PIKME_API}${path}`, { method: 'DELETE', headers: apiHeaders() });
+    const r = await fetch(apiUrl(path), { method: 'DELETE', headers: apiHeaders() });
     if (!r.ok) { toast('החיבור נכשל, נסה שוב'); return false; }
     return true;
   } catch { toast('החיבור נכשל, נסה שוב'); return false; }
