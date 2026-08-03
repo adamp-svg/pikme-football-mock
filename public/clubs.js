@@ -83,7 +83,9 @@
   // Short unit words for the footer. Keyed by METRICS key, so it must track the server's table:
   // 'xp' is gone (it IS trophies) and 'ranked' is new (the rankPoints ladder — losable, humans-only,
   // what the tier badge is drawn from). A missing key here renders the literal «undefined».
-  const METRIC_UNIT = { trophies: 'גביעים', ranked: 'דירוג', goals: 'שערים', wins: 'נצחונות', cards: 'קלפים' }
+  // A missing key here renders the literal «undefined», so it must track the server's METRICS table.
+  // `views` joined 2026-08-03 — the cards economy's totalPoints, which is what a city gets ranked by.
+  const METRIC_UNIT = { trophies: 'גביעים', ranked: 'דירוג', goals: 'שערים', wins: 'נצחונות', cards: 'קלפים', views: 'צפיות' }
   // 'personal' is the fifth scope: you against every player, the way the app's own leaderboard works.
   // The server accepts 'personal' or 'me' and always ECHOES 'personal' — never key anything off the
   // word that was sent.
@@ -536,6 +538,10 @@
     // (?scope=me is accepted and answered as 'personal').
     if (data.scope === 'personal') return renderPersonal(data, list)
     if (!data.rows.length) { list.append(el('div', 'scope-note', 'עדיין אין מספיק שחקנים כאן.')); return }
+    // The unit comes from the metric the SERVER echoed, not from local state: the two diverge whenever the
+    // server canonicalises the request (?metric=xp is answered as 'trophies'), and the label must describe
+    // the column the numbers actually came from. Falls back to local state for an older server.
+    const unit = METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
     data.rows.slice(0, 20).forEach((r) => {
       if (!r.label) {
         if (state.scope === 'city') r.label = cityName(r.scopeId)
@@ -550,13 +556,19 @@
       const mine = r.scopeId === data.mineScopeId
       list.append(el('div', `scope-row${mine ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
         `<span class="pos">${r.rank}</span><span class="em">${r.emblem}</span>
-         <div class="nm"><b>${esc(r.label)}</b><small>${r.members} שחקנים${r.padded ? ` · חסרים ${r.padded}` : ''}</small></div>
-         <div class="sc">${r.score}<small>ניקוד</small></div>`))
+         <div class="nm"><b>${esc(r.label)}</b><small>${r.members} שחקנים</small></div>
+         <div class="sc">${num(r.value)}<small>${unit}</small></div>`))
     })
+    // ⚠️ THE RULE CHANGED 2026-08-03 (Adam: "ranked simialr to players"): a group's number is the plain
+    // SUM of its members' metric and the HIGHEST wins — the same number and the same direction as the
+    // player board, which is the whole point. It used to be the sum of the best 3 national PLACES with the
+    // lowest winning, and this note used to explain that a small town could beat a big city. It cannot any
+    // more: the headcount trade-off is real and accepted until a population fix is chosen (server
+    // routes-pikme/leaderboard/placement.js keeps rankScopes for that), so the copy must NOT keep
+    // promising fairness the scoring no longer delivers.
     list.append(el('div', 'scope-note',
-      `הניקוד = סכום המקומות הארציים של ${data.k} השחקנים הטובים ביותר ב${scopeWord(state.scope)} — הנמוך ביותר מנצח.
-       ככה יישוב קטן עם ${data.k} שחקנים חזקים מנצח עיר גדולה, ומספר השחקנים לבדו לא קובע.
-       (${METRIC_UNIT[state.metric]} · ${data.totalRanked} שחקנים מדורגים)`))
+      `הניקוד = סכום ה${unit} של כל השחקנים ב${scopeWord(state.scope)} — הגבוה ביותר מנצח.
+       (${data.totalRanked} שחקנים מדורגים)`))
   }
   const scopeWord = (s) => ({ city: 'עיר', school: 'בית ספר', class: 'כיתה', club: 'מועדון', personal: 'הארץ' }[s] || s)
 

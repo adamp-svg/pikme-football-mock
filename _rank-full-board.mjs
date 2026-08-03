@@ -37,6 +37,14 @@ await send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
       if(url.includes('/me')) return J({ me:{ userId:'u5', nickName:'אדם', trophies:2500, level:7 },
         club:null, metrics:[{key:'trophies',labelHe:'גביעים'}], scopes:{}, maxMembers:30, k:3 });
       if(url.includes('/board')){
+        // GROUP boards: cities ranked by the SUM of their players' metric, highest wins (the 2026-08-03
+        // rule) - value + members, and no score/padded/k, which belonged to top-K placement.
+        // NO BACKTICKS IN THIS COMMENT: it lives inside a JS template literal, so one ends the string.
+        if(!url.includes('scope=personal')){
+          return J({ metric:'views', scope:'city', k:null, totalRanked:40, mineScopeId:'5000',
+            rows:[ {rank:1,scopeId:'5000',value:9000,members:12},
+                   {rank:2,scopeId:'9000',value:4000,members:3} ] });
+        }
         const full=url.includes('full=1');
         // 40 ranked players; the WINDOW shows 7 of them, the FULL board all 40.
         return J({ metric:'trophies', scope:'personal', full, totalRanked:40,
@@ -84,6 +92,27 @@ await sleep(2000)
 s=await read()
 check('back to the 7-row window', s.rows===7, `${s.rows} rows`)
 check('and back to offering the full table', !!s.btn && s.btn.includes('כל הטבלה'), s.btn)
+
+console.log('\n4) CITIES RANKED LIKE PLAYERS — total, highest first')
+await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(b=>b.textContent==='עיר').click()`)
+await sleep(2000)
+const g=await evl(`(()=>({
+  rows:[...document.querySelectorAll('#scope-board .scope-row')].map(r=>({
+    pos:r.querySelector('.pos').textContent,
+    name:r.querySelector('.nm b').textContent,
+    sub:r.querySelector('.nm small').textContent,
+    sc:r.querySelector('.sc').textContent,
+  })),
+  note:[...document.querySelectorAll('#scope-board .scope-note')].map(n=>n.textContent.replace(/\s+/g,' ').trim()),
+}))()`)
+console.log('   ', JSON.stringify(g.rows))
+check('two cities are listed', g.rows.length===2, `${g.rows.length}`)
+check('ranked highest-total first', g.rows[0]?.sc.startsWith('9,000') || g.rows[0]?.sc.startsWith('9000'), g.rows[0]?.sc)
+check('the number is labelled with the metric unit, not ניקוד', !!g.rows[0] && g.rows[0].sc.includes('צפיות'), g.rows[0]?.sc)
+check('the headcount is shown', !!g.rows[0] && g.rows[0].sub.includes('12 שחקנים'), g.rows[0]?.sub)
+check('no leftover «חסרים N» padding text', !g.rows.some(r=>r.sub.includes('חסרים')))
+check('the note says HIGHEST wins', g.note.some(n=>n.includes('הגבוה ביותר מנצח')), g.note[0])
+check('...and no longer promises a small town can win', !g.note.some(n=>n.includes('יישוב קטן')))
 
 const r=await send('Page.captureScreenshot',{format:'png'})
 if(r?.data){const {writeFileSync,mkdirSync}=await import('node:fs');mkdirSync(OUT,{recursive:true});writeFileSync(`${OUT}/personal-window.png`,Buffer.from(r.data,'base64'))}
