@@ -67,8 +67,16 @@ const CSS = `
    parent would otherwise steal to fit the rest. */
 .pf-side > .pf-hero-canvas { flex: 0 0 auto; }
 .pf-hero-canvas { width: 132px; height: 137px; image-rendering: pixelated; }
+/* flex:0 0 auto is NOT decoration — it is the ANTI-SQUASH. .pf-side is a flex COLUMN and this rule
+   sets overflow:hidden, which per the flexbox spec zeroes an item's AUTOMATIC MINIMUM SIZE (that
+   min-height:auto floor only protects items that are not scroll containers). So when the pane was
+   over-full the browser did not overflow the name — it crushed the player's own name to a 0px-tall
+   box and showed nothing. Measured 2026-08-03 with the pane 462px of content in 334px: name = 0px on
+   all three phone sizes, 18px on the iPad, which is why the phone pane looked like it started at the
+   rank badge. _profile-side-fit.mjs asserts this height is greater than 0 so no future "it fits now"
+   can be won by silently crushing the contents. */
 .pf-name { font: 900 13px "Arial Black", sans-serif; color: #f2ead0; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; }
 .pf-badge { display: flex; align-items: center; gap: 5px; font: 900 11px "Arial Black", sans-serif;
   color: #e7dcae; background: #22301f; border: 2px solid #46543f; padding: 3px 7px; }
 .pf-trophies { display: flex; align-items: center; gap: 5px; font: 900 12px "Arial Black", sans-serif;
@@ -117,6 +125,69 @@ const CSS = `
 .pf-sec { animation: pf-in .22s ease-out both; }
 @keyframes pf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .pf-sec { animation: none; } }
+
+/* ── THE SIDE PANE ON A SHORT SCREEN ──────────────────────────────────────────────────────────────
+   The game is landscape-locked, so the pane gets the DEVICE WIDTH as its height: ~370px on an
+   iPhone 12 against ~814px on an iPad. clubs.js appends the club strip + the גביעים/דירוג block to
+   the BOTTOM of this column from the outside, and it did not fit. MEASURED 2026-08-03 with
+   _profile-side-fit.mjs (worst case: the app also injects SALTIZ_RANK, which adds the second
+   מקום X מתוך Y line):
+
+       viewport     pane visible   content   overflow   the rank block sat
+       800x360          334          462      128px     115px past the fold
+       844x390          364          462       98px      85px past the fold
+       932x430          404          462       58px      45px past the fold
+      1194x834          808          462        0px      fully visible  (the iPad, fine all along)
+
+   Making the pane scrollable (2026-08-02) made the block REACHABLE, not VISIBLE — Adam: "I still
+   cannot see it." Nobody drags a 176px column they have no reason to think holds anything. So the px
+   are reclaimed here instead. Everything is inside max-height media queries: at 481px and taller NOT
+   ONE declaration below applies, so the iPad renders byte-identically to before. Precedent for the
+   shape: the @media (max-height: 400px) rules in style.css.
+
+   The compaction budget has to cover the overflow PLUS the 18px the name takes back once it stops
+   being squashed (see the anti-squash note above) — 146px at 360, 116px at 390, 76px at 430.
+
+   ⚠️ Four selectors below reach into markup that clubs.js owns (.pf-clubs, .myscope, .pc-rank).
+   That is deliberate and it is NOT an edit of clubs.js or clubs.css: this stylesheet is injected into
+   <head> at render time, i.e. after the clubs.css <link>, and every selector here is scoped under
+   .pf-side, so it outranks the clubs rules on specificity alone and only ever affects the copy of the
+   block that lives in this pane. The same block in the friend modal (.fp-clubs) is untouched. */
+@media (max-height: 480px) {
+  /* Tier 1 — pure tightening, no element loses a feature. Worth ~76px, which is the whole 430 case:
+     pane gap 4→2 (-14 over 7 gaps), vertical padding 10→6 (-8), badge padding (-4),
+     the two rank lines lose their loose leading (-6), the clubs block gap+margin (-14),
+     and the injected cells stop being page-sized: .myscope 64→~47 and .pc-rank 64→~43 (-38). */
+  .pf-side { gap: 2px; padding: 6px 8px; }
+  .pf-badge { padding: 1px 6px; }
+  .pf-trophies { line-height: 1.1; }
+  .pf-board { line-height: 1.1; }
+  .pf-side-slots { margin-top: 0; }
+  .pf-side .pf-clubs { margin-top: 2px; gap: 4px; }
+  .pf-side .pc-sec { font-size: 11px; }
+  .pf-side .myscope { padding: 3px 3px; border-radius: 8px; }
+  .pf-side .myscope .em { font-size: 12px; }
+  .pf-side .pc-rank { padding: 3px 4px; border-radius: 8px; }
+  .pf-side .pc-rank b { font-size: 13px; }
+}
+@media (max-height: 410px) {
+  /* Tier 2 — 390 and below need ~40px more than tightening can give, so the hero portrait pays it.
+     It is the single biggest item in the pane (137px, 30% of the content) and the profile also draws
+     the same hero in the body's הגיבור שלי section. Sized off the viewport so a 360 and a 390 phone
+     each get what they can afford, capped at the original 132x137 so this can never ENLARGE it.
+     The canvas backing store stays 208x216 — only the CSS box shrinks, so it gets crisper, not
+     blurrier. The slots drop from 34 to 26px, which keeps them as a legible strip. */
+  .pf-hero-canvas { width: clamp(100px, 27vh, 132px); height: clamp(104px, 28vh, 137px); }
+  .pf-slot { width: 26px; height: 26px; }
+}
+@media (max-height: 375px) {
+  /* Tier 3 — the 800x360 phones (SE, mini) are still ~26px short, and this strip is the cheapest
+     thing in the pane: it repeats the equipped cards, which the body's הקלפים החזקים שלי section
+     already shows with the gold .eq border. A duplicate loses less than the club + rank block does
+     by being invisible, which is the whole bug. Same call as style.css hiding .pslot-cap under
+     400px. */
+  .pf-side-slots { display: none; }
+}
 `;
 
 let cssMounted = false;
