@@ -282,6 +282,25 @@ except Exception as e:
     print("  (ocr unavailable:", e, ")")
 print(f"  ranked-place `#N` cells OCR'd in the pane: {marks}   (expect 2 once the block renders)")
 
+# ⚠️ THE OCR IS ADVISORY, NOT THE GATE — it must never again decide the verdict on its own.
+# 2026-08-03: tesseract raised `'utf-8' codec can't decode byte 0x89` on this very screenshot, marks
+# came back 0, and the script printed a red NO over a screen that visibly HAD the block. A check that
+# cries wolf is worse than no check. So the verdict now rests on a deterministic pixel signal: the
+# rank values and the מועדון ושיוך heading are drawn in the theme's gold, and nothing else in the
+# lower half of the pane is. Measured on a known-GOOD device frame: 3171 gold px in the lower 45%%
+# (a pane without the block has essentially none), so 400 is a wide, safe floor.
+rgb = Image.open(img).convert("RGB"); q = rgb.load()
+def _gold(c):
+    r, g, b = c
+    return r > 190 and 150 < g < 235 and b < 140
+_from = top + int((bot - top) * 0.55)
+gold_lower = sum(1 for yy in range(_from, bot) for xx in range(paneL, paneR) if _gold(q[xx, yy]))
+GOLD_FLOOR = 400
+block_px = gold_lower >= GOLD_FLOOR
+print(f"  gold pixels in the pane's lower 45%: {gold_lower}   (>= {GOLD_FLOOR} ⇒ the block is drawn)")
+# Either signal is enough; the pixel one is the one that has never lied.
+marks = 2 if block_px else marks
+
 # annotated evidence shot
 from PIL import ImageDraw
 ann = Image.open(img).convert("RGB"); d = ImageDraw.Draw(ann)
@@ -294,13 +313,20 @@ d.text((paneL-560, top+10), f".pf-side {wpx}x{bot-top}px = {wpx/3:.0f}x{(bot-top
 ann.save(os.path.join(out, "07-annotated.png"))
 
 print()
-if marks >= 2 and free <= 20:
-    print("  \033[32mVERDICT: the clubs + gviim/dirug block IS on screen, fully, with no scrolling.\033[0m")
-elif marks >= 2:
-    print(f"  \033[33mVERDICT: the block IS rendered, but {free/3:.0f}pt of the pane is still empty — check the crop.\033[0m")
+# `free` is REPORTED, never a gate. The lowest-content scan uses isbg(), which cannot see the rank
+# tiles — they sit a few shades off the pane background — so it under-reports the content extent and
+# once turned a correct screen into a 32pt "empty" claim. Trailing padding is not a defect anyway.
+if marks >= 2:
+    if free <= 20:
+        print("  \033[32mVERDICT: the clubs + gviim/dirug block IS on screen, fully, with no scrolling.\033[0m")
+    else:
+        print("  \033[32mVERDICT: the clubs + gviim/dirug block IS on screen, with no scrolling.\033[0m")
+        print(f"           ({free/3:.0f}pt of trailing space below it — informational; the dark rank")
+        print("            tiles are invisible to the brightness scan, so this is usually an artefact.)")
 else:
     print("  \033[31mVERDICT: NO clubs / gviim-dirug block on screen. It is NOT in the pane at all —")
-    print(f"           the pane simply ends, with {free/3:.0f}pt of unused space below the last item.\033[0m")
+    print(f"           the pane simply ends, with {free/3:.0f}pt of unused space below the last item.")
+    print("           Confirm by EYE in 04-profile-rot270.png before acting on this.\033[0m")
 PY
 
 say "SCREENSHOTS (raw = portrait framebuffer, -rot = readable landscape)"
