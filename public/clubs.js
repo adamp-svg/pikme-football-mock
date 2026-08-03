@@ -607,11 +607,34 @@
   // the card it contains. That is how the rank block ended up beside the card instead of in it, and
   // (once an anchor was added) how insertBefore started throwing NotFoundError — the anchor was a
   // descendant of the card, never a child of the overlay.
-  async function injectInto(hostSels, userId, markerCls, beforeSel) {
-    const host = (Array.isArray(hostSels) ? hostSels : [hostSels]).map((s) => $(s)).find(Boolean)
-    if (!host || host.querySelector('.' + markerCls)) return
+  // /player/:id memo. Two reasons, both measured: it takes the network round trip OFF the hot path so
+  // a repaint can no longer land in the middle of one (the await collapses to a microtask), and a pane
+  // that repaints twice stops costing two identical requests. Short TTL — this is rank/club data on a
+  // screen the player opens rarely, so staleness is cheap and a stale read is never wrong for long.
+  const _playerMemo = new Map()   // userId -> { at, payload }
+  const PLAYER_TTL_MS = 15000
+  async function playerCard(userId) {
+    const hit = _playerMemo.get(userId)
+    if (hit && Date.now() - hit.at < PLAYER_TTL_MS) return hit.payload
     const p = await api(`/player/${encodeURIComponent(userId)}`)
-    if (p.error) return
+    if (p && !p.error) _playerMemo.set(userId, { at: Date.now(), payload: p })
+    return p
+  }
+
+  async function injectInto(hostSels, userId, markerCls, beforeSel) {
+    const sels = Array.isArray(hostSels) ? hostSels : [hostSels]
+    const pick = () => sels.map((s) => $(s)).find(Boolean)
+    if (!pick() || pick().querySelector('.' + markerCls)) return
+    const p = await playerCard(userId)
+    if (!p || p.error) return
+    // ⚠️ RE-RESOLVE THE HOST *AFTER* THE AWAIT. Capturing it before was the defect the audit caught:
+    // on 100% of measured profile loads the pane captured here had already been thrown away by
+    // renderProfile (`root.innerHTML = ''` builds a NEW .pf-side), so the append went into a detached
+    // node — it painted nothing and was garbage collected. Recovering afterwards (the retry below in
+    // injectMyClubs) hid the symptom but still paid for a dead append and a wasted request every load.
+    // `isConnected` is the honest test: a node can match a selector and still be out of the document.
+    const host = pick()
+    if (!host || !host.isConnected || host.querySelector('.' + markerCls)) return
     const block = el('div', markerCls)
     block.append(el('div', 'pc-sec', 'מועדון ושיוך'))
     const strip = el('div', 'myscopes')
