@@ -1040,11 +1040,18 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
   background: rgba(19,27,22,.9); border: 3px solid #46543f; box-shadow: 0 4px 0 #070b08;
 }
 .hub-icobtn:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
+/* A BUTTON since 2026-08-03 (it opens #online, the connected-players page) — the UA resets keep it
+   pixel-identical to the <span> it replaced, so the baked stage layout is unaffected. */
 .hub-online {
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   font: 900 10px "Arial Black", sans-serif; letter-spacing: .5px; color: #c8d4bf;
   background: rgba(11,16,12,.85); border: 3px solid #3a473c; padding: 6px 9px; box-shadow: 0 4px 0 #070b08;
+  -webkit-appearance: none; appearance: none; border-radius: 0; cursor: pointer;
 }
+.hub-online:active { transform: translateY(2px); box-shadow: 0 2px 0 #070b08; }
+/* The chip is ~26 logical px tall and the stage is scaled DOWN on a phone, so the visible box is a
+   poor thumb target. This grows the touch area well past it without moving a single pixel of layout. */
+.hub-online::after { content: ''; position: absolute; inset: -12px; }
 .hub-online i { width: 9px; height: 9px; border-radius: 50%; background: #57e08a; box-shadow: 0 0 8px #57e08a; }
 .hub-season {
   font: 900 10px "Arial Black", sans-serif; color: #2a1c05; padding: 6px 9px;
@@ -1464,6 +1471,20 @@ input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-se
    lists read as two groups rather than one long list. First one loses the top margin. */
 .fr-sec-h { font: 900 12px "Arial Black", sans-serif; color: #8fe0a6; text-align: right; margin: 12px 0 6px; letter-spacing: .3px; }
 .fr-sec-h:first-child { margin-top: 0; }
+
+/* ---- CONNECTED PLAYERS (#online) ----------------------------------------------------------
+   Rows reuse .friend-row wholesale, so this page inherits the friends list's look and only needs
+   the three things it adds: the header hint, the hero·level subtitle, and the in-match marker. */
+.on-hint { font: 800 11px "Arial Black", sans-serif; color: #8ea08a; text-align: right; margin: 0 0 10px; }
+.on-sub { font: 800 11px "Arial Black", sans-serif; color: #8fe0a6; background: #10241a;
+  border: 1px solid #244b34; border-radius: 8px; padding: 5px 9px; white-space: nowrap; }
+/* Still invitable (ruling 2026-08-03) — the tag explains a slow answer, it does not block the row. */
+.on-busy { font: 800 10px "Arial Black", sans-serif; color: #ffd88a; background: #2a2010;
+  border: 1px solid #5a4620; border-radius: 8px; padding: 5px 8px; white-space: nowrap; }
+.friend-row.in-match { border-color: #5a4620; }
+/* Two actions per row on a narrow phone: let the name give up space before the buttons wrap. */
+#online-list .friend-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#online-list .friend-act { flex: 0 0 auto; padding: 8px 10px; }
 /* SAFE AREA. `viewport-fit=cover` paints under the notch, the dynamic island and the home indicator,
    and this runs in a WebView inside the app — so every sub-page needs the insets, not just #cards and
    the builder (which were the only two that had them). max() keeps the old padding on a flat viewport

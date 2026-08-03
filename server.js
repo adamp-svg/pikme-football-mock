@@ -144,6 +144,7 @@ const server = http.createServer((req, res) => {
 // Room manager
 // ---------------------------------------------------------------------------
 const COUNTDOWN_TIME = 5;    // seconds from start to kickoff
+const INVITE_COOLDOWN_MS = 1500; // min gap between party invites to the SAME person (anti-flood; see inviteFriend)
 const AFK_SECONDS = 10;      // no meaningful input for this long -> becomes a bot
 const TEAM_CAP = 2;          // players per team in a 2v2 match
 
@@ -1531,6 +1532,42 @@ function broadcastLobby(room) {
   for (const m of room.members) if (!m.inMatch) send(m.ws, payload);
 }
 
+// Trophies/level a member REPORTS about itself (join + setStats). Only used for display on the
+// connected-players roster — matchmaking still takes trophies from the enqueue message, so a client
+// lying here changes nothing about who it plays against.
+function applyStats(member, msg) {
+  if (!member || !msg) return;
+  const t = +msg.trophies;
+  if (Number.isFinite(t) && t >= 0) member.trophies = t;
+  const l = +msg.level;
+  if (Number.isFinite(l) && l >= 1) member.level = Math.min(99, Math.round(l));
+}
+
+// The CONNECTED-PLAYERS roster (asked for 2026-08-03: "a page with all connected player").
+// Everyone authenticated and connected, minus the caller. Keyed off onlineByUser, which means
+// guests (no userId) are absent by construction, and so are bots — a bot is never a `member`.
+//
+// THE FIELD LIST IS THE PRIVACY BOUNDARY. Nickname, avatar, hero and level are already public on the
+// leaderboard; phone, club, school and scopes are NOT, and must never be added here just because the
+// member object happens to carry them.
+function onlineRoster(forMember) {
+  const out = [];
+  for (const m of onlineByUser.values()) {
+    if (!m || m === forMember || !m.userId) continue;
+    out.push({
+      userId: m.userId,
+      name: m.name || '',
+      avatar: m.avatar || null,
+      cosmetic: m.cosmetic || null,
+      level: Number.isFinite(+m.level) ? +m.level : null,
+      inMatch: !!m.inMatch,
+    });
+  }
+  // Stable order the client can render without sorting: available players first, then by name.
+  out.sort((a, b) => (a.inMatch - b.inMatch) || a.name.localeCompare(b.name, 'he'));
+  return out;
+}
+
 // Presence: which of THIS member's friends are currently connected.
 function sendPresenceTo(member) {
   if (!member) return;
@@ -1809,7 +1846,11 @@ wss.on('connection', (ws, req) => {
         let avatar = (ident?.image || msg.avatar || '').toString().slice(0, 400) || null;
         if (avatar && avatar.startsWith('http://')) avatar = 'https://' + avatar.slice(7);
         const cards = sanitizeCards(msg.cards);
-        member = { id, ws, userId: ident?.userId || null, name, avatar, cards, loadout: sanitizeLoadout(msg.loadout, cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null, pendingRoom: null, friends: [] };
+        member = { id, ws, userId: ident?.userId || null, name, avatar, cards, loadout: sanitizeLoadout(msg.loadout, cards), cosmetic: normalizeCosmetic(msg.cosmetic), team: 'A', inMatch: false, afk: false, lastInputAt: nowMs(), room: null, pendingRoom: null, friends: [], inviteAt: new Map() };
+        // Level/trophies for the CONNECTED-PLAYERS roster. Until now the server only learned a
+        // member's trophies at enqueue(), so anyone sitting on the hub had no level to show. `join`
+        // may still be too early (SALTIZ_XP can land after it) — `setStats` below is the late path.
+        applyStats(member, msg);
         members.set(ws, member);
         if (member.userId) { onlineByUser.set(member.userId, member); notifyFriendsOfPresence(member.userId); }
         send(ws, { type: 'welcome', id, field: FIELD, chars: CHARACTERS, userId: member.userId });
@@ -1924,6 +1965,11 @@ wss.on('connection', (ws, req) => {
         sendPresenceTo(member);
         return;
       }
+      // Late trophies/level (the hub sends this once SALTIZ_XP has landed) — display only.
+      if (msg.type === 'setStats') { applyStats(member, msg); return; }
+      // The connected-players page asks for the roster on open and every 5s while it is visible.
+      // Pull, not push: no new broadcast, and a 5s-stale row costs nothing on this screen.
+      if (msg.type === 'whoOnline') { send(ws, { type: 'onlineList', players: onlineRoster(member) }); return; }
       if (msg.type === 'challenge') {
         const toUserId = (msg.toUserId || '').toString();
         if (!member.userId) { send(ws, { type: 'challengeError', msg: 'לא מחובר' }); return; }
@@ -1955,7 +2001,17 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'inviteFriend') {
         const toUserId = (msg.toUserId || '').toString();
         if (!member.userId) { send(ws, { type: 'partyError', msg: 'לא מחובר' }); return; }
-        if (!member.friends.includes(toUserId)) { send(ws, { type: 'partyError', msg: 'לא חבר' }); return; }
+        // NOT FRIENDS-ONLY ANY MORE (2026-08-03). This used to refuse with 'לא חבר', which made every
+        // invite button on the connected-players page fail — that page lists strangers by design, so
+        // the roster being public makes the invite target list public too. The friend check was also
+        // the only anti-flood guard, so a cooldown takes its place: a stranger's invite pops a modal
+        // inside their game, and that is not something one client should be able to do in a loop.
+        // PER PAIR, NOT PER INVITER. A blanket per-member cooldown broke the normal way a party gets
+        // built — test-party-3v3-chat seats two friends 280ms apart, and a host inviting several
+        // people in a row is the ordinary case, not abuse. What actually needs policing is one person
+        // being made to dismiss the same modal over and over, which is exactly a repeat of one pair.
+        const lastToTarget = member.inviteAt.get(toUserId) || 0;
+        if (nowMs() - lastToTarget < INVITE_COOLDOWN_MS) { send(ws, { type: 'partyError', msg: 'רגע אחד…' }); return; }
         // Ensure I have a private room to invite into. A room I'm already IN — host or not — is
         // reused as-is; only a missing/non-private room (fresh join, or still queued in public
         // matchmaking) triggers a fresh one, which makes ME its host.
@@ -1972,6 +2028,10 @@ wss.on('connection', (ws, req) => {
         const target = onlineByUser.get(toUserId);
         if (!target) { send(ws, { type: 'partyError', msg: 'החבר לא מחובר' }); return; }
         r.invited.add(toUserId);
+        // Only a DELIVERED invite arms the cooldown (a refusal above costs nothing). The map is keyed by
+        // target and cleared wholesale if it ever grows silly — it is a spam guard, not a ledger.
+        if (member.inviteAt.size > 200) member.inviteAt.clear();
+        member.inviteAt.set(toUserId, nowMs());
         send(target.ws, { type: 'partyInvite', code: r.id, fromUserId: member.userId, fromName: member.name });
         send(ws, { type: 'partyInviteSent', toUserId });
         return;

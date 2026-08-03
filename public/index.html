@@ -43,7 +43,11 @@
       <!-- Exit (✕) removed: the phone/app shell provides its own back/close affordance. -->
       <button id="hub-settings" class="hub-icobtn" title="הגדרות" aria-label="הגדרות">⚙</button>
       <span class="hub-season">עונה 1</span>
-      <span class="hub-online"><i></i><span id="home-online">0</span> מחוברים</span>
+      <!-- The connected count is a BUTTON now (2026-08-03): it opens #online, the page listing
+           everyone connected, with friend-request + invite-to-party per row. It was a bare <span>
+           printing a number nobody could act on. #home-online keeps its id and its meaning, so the
+           5Hz `home` broadcast that fills it is untouched. -->
+      <button id="hub-online-btn" class="hub-online" aria-label="שחקנים מחוברים"><i></i><span id="home-online">0</span> מחוברים</button>
 
       <!-- profile pic + player name as separate boxes -->
       <div id="home-face" class="hub-pfp"></div>
@@ -417,6 +421,25 @@
         <div class="cards-left">
           <div id="cards-deck" class="cards-deck"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= CONNECTED PLAYERS =================
+       Opened by the hub's «N מחוברים» chip. Lists EVERYONE connected (not just friends — that is
+       what the friends screen's מחוברים tab is for), each row offering a friend request and a
+       party invite. Rows are built by renderOnline() in client.js and reuse .friend-row, so this
+       page looks like the friends list it sits beside. -->
+  <div id="online" class="screen hidden">
+    <div class="start-shade"></div>
+    <div class="subpage" dir="rtl">
+      <div class="subpage-head">
+        <button data-home-back class="subpage-back">‹ חזרה</button>
+        <h2>שחקנים מחוברים</h2>
+      </div>
+      <div class="subpage-body">
+        <div class="on-hint">כל מי שמחובר עכשיו · הוסיפו לחברים או הזמינו לקבוצה</div>
+        <div id="online-list" class="friend-list"></div>
       </div>
     </div>
   </div>

@@ -1636,6 +1636,18 @@ function renderHubXp() {
     + '<div class="hub-xp-bar"><b style="width:' + (pct * 100).toFixed(1) + '%"></b></div>';
   el.classList.remove('hidden');
   renderHubStreak(); // the innerHTML rebuild above wiped the chip — put it back
+  // Tell the server the level OTHER players see on the connected-players roster. It has to come from
+  // here: the server only ever learned a member's trophies at enqueue(), so anyone sitting on the hub
+  // had no level at all, and `join` fires before the app's SALTIZ_XP inject may have landed. Display
+  // only — matchmaking still takes trophies from the match message, so this can't affect who you play.
+  reportStats(xp, level);
+}
+let _statsSent = null;   // last "trophies|level" put on the wire — this paints often, the wire shouldn't
+function reportStats(trophies, level) {
+  const sig = `${trophies}|${level}`;
+  if (sig === _statsSent) return;
+  _statsSent = sig;
+  sendMsg({ type: 'setStats', trophies, level });
 }
 
 // ---- WIN-STREAK chip (רצף ניצחונות) beside the level on the trophies bar --------------------
@@ -3059,7 +3071,7 @@ document.addEventListener('click', (e) => {
 // 'friend-select' is deliberately NOT registered here: it is a MODAL over #party now (opened/closed
 // directly via openInviteSheet/closeInviteSheet, same pattern as #game-select), not a page
 // showScreen() should ever hide #party for or vice-versa.
-for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party', 'thread']) {
+for (const id of ['arena', 'news', 'shop', 'clubs', 'cards', 'rank', 'party', 'thread', 'online']) {
   const el = document.getElementById(id);
   if (el) screens[id] = el;
 }
@@ -3105,7 +3117,7 @@ function isDismissBackdrop(t, screenEl) {
   // default is always keep-open — content or controls added by other agents never trigger it.
   return t.matches('.subpage, .subpage-body, .subpage-head, h2');
 }
-for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends', 'profile']) {
+for (const id of ['arena', 'news', 'shop', 'clubs', 'rank', 'cards', 'friends', 'profile', 'online']) {
   const scr = screens[id];
   if (!scr) continue;
   let downOnBackdrop = false;
@@ -3178,6 +3190,9 @@ document.getElementById('ti-search-cancel')?.addEventListener('click', () => {
   sendMsg({ type: 'cancelSearch' });
   hideSearching(); quickVs = false; hideVs(); showScreen('home');
 });
+// The hub's connected count opens the connected-players page (it printed a number and did nothing
+// before). Kept next to the friends button because the two pages are siblings.
+document.getElementById('hub-online-btn')?.addEventListener('click', openOnlinePage);
 document.getElementById('friends-btn').addEventListener('click', () => {
   unlockAudio(); showScreen('friends');
   const s = document.getElementById('friend-search'); if (s) s.value = '';
@@ -3595,7 +3610,9 @@ function friendRow(f, opts = {}) {
     btn.className = 'friend-act ghost';
     btn.onclick = async () => {
       btn.disabled = true;
-      if (await apiPost('/handle-friends/cancel', { requestId: f.requestId })) { toast('הבקשה בוטלה'); loadRequests(); }
+      // Cancelling is the ONE thing that clears an optimistic mark — otherwise the connected-players
+      // page would keep saying «נשלחה» for a request that no longer exists.
+      if (await apiPost('/handle-friends/cancel', { requestId: f.requestId })) { OPTIMISTIC_SENT.delete(f.userId); SENT_TO.delete(f.userId); toast('הבקשה בוטלה'); loadRequests(); }
       else { btn.disabled = false; toast('הביטול נכשל'); }
     };
   }
@@ -3784,7 +3801,127 @@ function renderRequests(items) {
 // avatar/name/online code needs no special case.
 function renderSentRequests(items) {
   const list = (Array.isArray(items) ? items : []).map((r) => ({ ...r, userId: r.toUserId }));
+  // The connected-players page needs to know who I've ALREADY asked, or its ➕ would offer to send a
+  // request the API will refuse as a duplicate. This is the one place that truth arrives.
+  //
+  // ⚠️ UNION, NOT REPLACE. Tapping ➕ marks the row optimistically and then calls loadRequests(); if
+  // that response does not yet contain the brand-new request — a read racing the write, or an
+  // eventually-consistent read — a plain assignment DELETES the optimistic mark and the row goes back
+  // to offering a request the API will now refuse as a duplicate. Measured in _online-page.mjs: the
+  // button flipped back to «➕ חבר» ~1s after a successful send. Optimistic marks are kept for the
+  // session; the only thing that clears one is a cancel, which goes through the sent list itself.
+  SENT_TO = new Set([...list.map((r) => r.userId).filter(Boolean), ...OPTIMISTIC_SENT]);
   renderList('friend-requests-sent', list, { kind: 'sent' }, 'לא שלחת בקשות');
+  if (onlineScreenOpen()) renderOnline();
+}
+
+// --------------------------------------------------------------------------
+// CONNECTED PLAYERS (#online) — asked for 2026-08-03.
+//
+// The hub's «N מחוברים» chip used to be a dead <span>. It now opens this page: EVERYONE connected,
+// not just friends (the friends screen's מחוברים tab is the friends-only view and stays as it was),
+// each row offering a friend request and a party invite.
+//
+// PULL, NOT PUSH. The roster is asked for on open and every 5s while the page is visible. The server
+// has no roster broadcast and doesn't need one — a 5s-stale row on a browse screen costs nothing, and
+// the alternative is a new fan-out on every connect/disconnect for a page players rarely sit on.
+// --------------------------------------------------------------------------
+let ONLINE_ROSTER = [];      // [{userId, name, avatar, cosmetic, level, inMatch}] from `onlineList`
+let SENT_TO = new Set();     // userIds with a pending outgoing friend request (server truth ∪ optimistic)
+let OPTIMISTIC_SENT = new Set(); // requests sent from THIS page that the server list may not show yet
+let INVITED_TO = new Set();  // userIds invited to my party this session (optimistic, per session)
+// `partyError` carries no userId, so the row that must be un-marked is the one just tapped. Without
+// this an invite the server REFUSED (cooldown, full room, mid-match) would keep saying «הוזמן» —
+// the button would be lying about something that never happened.
+let _lastInviteUid = null;
+let onlinePollId = null;
+const onlineScreenOpen = () => !document.getElementById('online')?.classList.contains('hidden');
+const isMyFriend = (uid) => FRIENDS.some((f) => f.userId === uid);
+
+function requestOnline() { sendMsg({ type: 'whoOnline' }); }
+function stopOnlinePoll() { if (onlinePollId) { clearInterval(onlinePollId); onlinePollId = null; } }
+function startOnlinePoll() {
+  stopOnlinePoll();
+  // Self-cancelling: the poll checks whether the page is still up rather than relying on every exit
+  // path (back button, backdrop tap, a match starting, the server's toHome) to remember to stop it.
+  onlinePollId = setInterval(() => {
+    if (!onlineScreenOpen()) { stopOnlinePoll(); return; }
+    requestOnline();
+  }, 5000);
+}
+function openOnlinePage() {
+  unlockAudio();
+  showScreen('online');
+  if (!ONLINE_ROSTER.length) listMsg('online-list', 'טוען שחקנים…');
+  else renderOnline();          // show the last roster instantly, refresh under it
+  requestOnline();
+  loadRequests();               // so ➕ already reads «נשלחה» for anyone I asked earlier
+  startOnlinePoll();
+}
+// hero · level, the two public things a player wants to know about a stranger before inviting them.
+function onlineSubtitle(p) {
+  const hero = HERO_NAMES[(p.cosmetic || '').split(':')[0]] || '';
+  const lvl = Number.isFinite(+p.level) && +p.level >= 1 ? `רמה ${+p.level}` : '';
+  return [hero, lvl].filter(Boolean).join(' · ');
+}
+function onlineRow(p) {
+  const div = document.createElement('div');
+  div.className = 'friend-row online' + (p.inMatch ? ' in-match' : '');
+  const dot = document.createElement('span'); dot.className = 'friend-dot';
+  const pfp = document.createElement('img'); pfp.className = 'friend-pfp';
+  const imgUrl = (p.avatar || '').toString();
+  if (/^https?:\/\//i.test(imgUrl)) pfp.src = imgUrl;
+  const nm = document.createElement('span'); nm.className = 'friend-name'; nm.textContent = p.name || 'שחקן';
+  div.append(dot, pfp, nm);
+  const sub = onlineSubtitle(p);
+  if (sub) { const t = document.createElement('span'); t.className = 'on-sub'; t.textContent = sub; div.appendChild(t); }
+  // In a match: shown, and still invitable (explicit ruling 2026-08-03) — the invite simply waits in
+  // their prompt. The label is there so the tapper knows why the answer may be slow.
+  if (p.inMatch) { const t = document.createElement('span'); t.className = 'on-busy'; t.textContent = 'במשחק'; div.appendChild(t); }
+
+  // ➕ FRIEND REQUEST. Three settled states, so the button never invites a call the API will refuse.
+  const fb = document.createElement('button');
+  fb.className = 'friend-act';
+  if (isMyFriend(p.userId)) { fb.textContent = '✓ חבר'; fb.disabled = true; fb.classList.add('ghost'); }
+  else if (SENT_TO.has(p.userId)) { fb.textContent = 'נשלחה'; fb.disabled = true; fb.classList.add('ghost'); }
+  else if (!MY_USER_ID) { fb.textContent = '➕ חבר'; fb.disabled = true; fb.title = 'התחברו דרך האפליקציה'; }
+  else {
+    fb.textContent = '➕ חבר';
+    fb.onclick = async () => {
+      fb.disabled = true;
+      if (await apiPost('/handle-friends/request', { toUserId: p.userId })) {
+        SENT_TO.add(p.userId); OPTIMISTIC_SENT.add(p.userId);
+        fb.textContent = 'נשלחה'; fb.classList.add('ghost');
+        toast(`הבקשה נשלחה ל${p.name || 'שחקן'}`);
+        loadRequests();          // lands it in «בקשות ששלחתי», where it can be cancelled
+      } else { fb.disabled = false; toast('שליחת הבקשה נכשלה'); }
+    };
+  }
+  div.appendChild(fb);
+
+  // 👥 PARTY INVITE. `inviteFriend` no longer requires friendship (server.js, 2026-08-03) — that check
+  // was what made this button impossible on a page of strangers. Tapping it puts ME in a party lobby:
+  // the server creates my private room if I don't have one.
+  const ib = document.createElement('button');
+  ib.className = 'friend-act';
+  if (INVITED_TO.has(p.userId)) { ib.textContent = 'הוזמן'; ib.disabled = true; ib.classList.add('ghost'); }
+  else {
+    ib.textContent = '👥 הזמן';
+    ib.onclick = () => {
+      sendMsg({ type: 'inviteFriend', toUserId: p.userId });
+      INVITED_TO.add(p.userId);
+      _lastInviteUid = p.userId;   // so a partyError can take «הוזמן» back off this row
+      ib.textContent = 'הוזמן'; ib.disabled = true; ib.classList.add('ghost');
+    };
+  }
+  div.appendChild(ib);
+  return div;
+}
+function renderOnline() {
+  const el = document.getElementById('online-list'); if (!el) return;
+  if (!ONLINE_ROSTER.length) { listMsg('online-list', 'אף אחד אחר לא מחובר כרגע'); return; }
+  el.innerHTML = '';
+  ONLINE_ROSTER.forEach((p) => el.appendChild(onlineRow(p)));
 }
 
 function showChallengePrompt(challengeId, fromName) {
@@ -4836,6 +4973,7 @@ function connect(name, avatar) {
   ws.onclose = () => {
     setNet('reconnecting…');
     _sentLoadout = null;                  // a new socket is a new member record — re-state the slots
+    _statsSent = null;                     // …and re-state the level, or the roster shows this player as level-less
     resetNetHud(); resetSnapshotRate();   // stale RTT/snapshot samples must not haunt the next socket
     if (pingIv) { clearInterval(pingIv); pingIv = null; }
     me = { playerId: null, team: null, char: chosenChar };
@@ -4988,15 +5126,22 @@ function connect(name, avatar) {
       if (!document.getElementById('friends')?.classList.contains('hidden')) renderOnlineFriends();
       renderFriends();
       renderPartyInvite();                 // party lobby: refresh who's invitable
+    } else if (msg.type === 'onlineList') {
+      ONLINE_ROSTER = Array.isArray(msg.players) ? msg.players : [];
+      if (onlineScreenOpen()) renderOnline();
     } else if (msg.type === 'partyInvite') {
       showPartyInvite(msg.code, msg.fromName || 'חבר');
     } else if (msg.type === 'partyInviteSent') {
       toast('ההזמנה נשלחה');
+      if (_lastInviteUid === msg.toUserId) _lastInviteUid = null;  // confirmed — a later error is about something else
+      INVITED_TO.add((msg.toUserId || '').toString());
     } else if (msg.type === 'partyInviteAccepted') {
       toast(`${msg.name || 'חבר'} הצטרף`);
       renderPartyInvite();
     } else if (msg.type === 'partyError') {
       toast(msg.msg || 'ההזמנה נכשלה');
+      // The invite did NOT go out — put the row back so it can be tapped again.
+      if (_lastInviteUid) { INVITED_TO.delete(_lastInviteUid); _lastInviteUid = null; if (onlineScreenOpen()) renderOnline(); }
     } else if (msg.type === 'challengeReceived') {
       showChallengePrompt(msg.challengeId, msg.fromName);
     } else if (msg.type === 'challengeDeclined') {
