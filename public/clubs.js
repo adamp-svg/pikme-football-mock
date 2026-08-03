@@ -74,7 +74,11 @@
   // still ACCEPTS ?metric=xp as an input alias forever, but it always echoes 'trophies', so leaving
   // the default as 'xp' would highlight no pill on first paint (the `m.key === state.metric` test
   // below can never match an echo the server will not send).
-  const state = { me: null, labels: {}, metric: 'trophies', scope: 'city', view: 'home', findTerm: '', findSeed: 0 }
+  // `full` belongs to the PERSONAL board only: false = the podium + my neighbourhood (the default), true
+  // = every ranked player, the way the cards app's board works (Adam, 2026-08-03: "so they can see the
+  // full leaderboard on press"). Reset when the scope changes, so leaving and re-entering אני starts from
+  // the window rather than from whatever the last visit left behind.
+  const state = { me: null, labels: {}, metric: 'trophies', scope: 'city', view: 'home', findTerm: '', findSeed: 0, full: false }
 
   // Short unit words for the footer. Keyed by METRICS key, so it must track the server's table:
   // 'xp' is gone (it IS trophies) and 'ranked' is new (the rankPoints ladder — losable, humans-only,
@@ -521,13 +525,13 @@
     const tabs = el('div', 'scope-tabs')
     SCOPE_TABS.forEach(([key, label]) => {
       const t = el('button', 'scope-tab' + (key === state.scope ? ' on' : ''), label)
-      t.onclick = () => { state.scope = key; renderBoard() }
+      t.onclick = () => { state.scope = key; state.full = false; renderBoard() }
       tabs.append(t)
     })
     const list = el('div', 'scope-list')
     host.append(metrics, tabs, list)
 
-    const data = await api(`/board?metric=${state.metric}&scope=${state.scope}`)
+    const data = await api(`/board?metric=${state.metric}&scope=${state.scope}${state.full ? '&full=1' : ''}`)
     // The server echoes the CANONICAL scope, so branch on what came back, not on what we asked for
     // (?scope=me is accepted and answered as 'personal').
     if (data.scope === 'personal') return renderPersonal(data, list)
@@ -595,6 +599,18 @@
     list.append(el('div', 'scope-note', me.rank
       ? `אתה במקום ${num(me.rank)} מתוך ${num(data.totalRanked)} שחקנים`
       : `עדיין לא מדורג · ${num(data.totalRanked)} שחקנים`))
+
+    // «כל הטבלה» — the full leaderboard, the way the cards app's board works. Only offered when there is
+    // actually more to see: with 6 ranked players the window already IS the whole table, and a button that
+    // changes nothing on press is worse than no button.
+    // Branch on the server's echoed `full`, never on state.full — the two disagree for the frame between
+    // a tap and the response, and the echo is the one that describes the rows on screen.
+    const showingAll = data.full || data.totalRanked <= rows.length
+    if (!showingAll || data.full) {
+      const btn = el('button', 'scope-more', data.full ? 'קרוב אליי' : `כל הטבלה · ${num(data.totalRanked)} שחקנים`)
+      btn.onclick = () => { state.full = !data.full; renderBoard() }
+      list.append(btn)
+    }
   }
 
   // ── injections into the two screens other agents own ────────────────────────────────────────────
