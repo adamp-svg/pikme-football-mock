@@ -635,11 +635,34 @@
     else host.appendChild(block)
   }
 
-  function watch(id, fn) {
+  // `init` defaults to watching only the `class` attribute — i.e. "the screen was shown". That is
+  // enough for a screen whose content is built BEFORE it is unhidden (the friend modal), and NOT
+  // enough for one that repaints itself afterwards — see the profile watcher below.
+  // MY OWN profile pane, re-entrant by design: the subtree observer above fires once per DOM change
+  // during a repaint (dozens of times), so this has to be cheap and safe to call repeatedly.
+  //   • the marker check makes an already-injected pane a no-op;
+  //   • `busy` stops two mutations in the same tick from both getting past that check and firing two
+  //     /player/:id requests (and appending the block twice);
+  //   • injecting appends into .pf-side, which is itself a subtree mutation — the marker check is what
+  //     stops that from looping.
+  // The player visits this screen rarely, so one request per genuine repaint is the right trade for
+  // never showing a pane with the clubs and rank missing.
+  let _myClubsBusy = false
+  async function injectMyClubs() {
+    if (_myClubsBusy) return
+    const host = $('.pf-side')
+    if (!host || host.querySelector('.pf-clubs')) return
+    if (!state.me || !state.me.me) return        // /me failed at boot; nothing to inject yet
+    _myClubsBusy = true
+    try { await injectInto(['.pf-side'], state.me.me.id, 'pf-clubs') }
+    finally { _myClubsBusy = false }
+  }
+
+  function watch(id, fn, init) {
     const node = document.getElementById(id)
     if (!node) return
     new MutationObserver(() => { if (!node.classList.contains('hidden')) fn(node) })
-      .observe(node, { attributes: true, attributeFilter: ['class'] })
+      .observe(node, init || { attributes: true, attributeFilter: ['class'] })
   }
 
   window.addEventListener('DOMContentLoaded', async () => {
@@ -681,7 +704,18 @@
       if (uid) injectInto(['#friend-profile-modal .fp-card', '#friend-profile-modal'], uid, 'fp-clubs', '#fp-remove')
     })
     // The profile page's fixed right pane — under hero / trophies / cards.
-    watch('profile', () => setTimeout(() => injectInto('.pf-side', state.me.me.id, 'pf-clubs'), 250))
+    //
+    // ⚠️ WATCHES childList+subtree, NOT just `class`, AND HAS NO TIMER. Both matter (measured
+    // 2026-08-03, _profile-clubs-race.mjs). This used to be
+    // `watch('profile', () => setTimeout(() => injectInto(...), 250))`, and openProfile() paints the
+    // page TWICE: once from cached numbers, then again after `await fetchOwnStats()` resolves. The
+    // second render REBUILDS #profile and destroys whatever was injected into it, and the old
+    // class-only observer never fired again — so the clubs strip and the גביעים/דירוג block appeared
+    // only when the stats call happened to beat the 250ms timer. Adam saw it "sometimes show and
+    // sometimes not"; the deciding call (/handle-friends/rank) measures 166–269ms from prod, i.e. it
+    // straddles the threshold, and loses more often on cellular.
+    // Watching the subtree means every repaint re-triggers this, so the block cannot be orphaned.
+    watch('profile', injectMyClubs, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true })
     renderBoard()
   })
 })()
