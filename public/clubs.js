@@ -648,14 +648,29 @@
   // The player visits this screen rarely, so one request per genuine repaint is the right trade for
   // never showing a pane with the clubs and rank missing.
   let _myClubsBusy = false
+  let _myClubsDirty = false
   async function injectMyClubs() {
-    if (_myClubsBusy) return
-    const host = $('.pf-side')
-    if (!host || host.querySelector('.pf-clubs')) return
+    // ⚠️ A REPAINT THAT LANDS MID-REQUEST MUST NOT BE DROPPED. Returning early while busy was a
+    // residual hole in the re-inject fix: /player/:id takes a network round trip, and if
+    // renderProfile #2 replaces .pf-side during that window, the block we are about to append goes
+    // into a node that has already been discarded — and the mutation that would have re-triggered us
+    // was swallowed by the busy flag. Net effect: the pane ends up with no block at all, i.e. exactly
+    // the bug we were fixing, just in a narrower window. So remember the missed tick and retry.
+    if (_myClubsBusy) { _myClubsDirty = true; return }
     if (!state.me || !state.me.me) return        // /me failed at boot; nothing to inject yet
+    if (!$('.pf-side') || $('.pf-side').querySelector('.pf-clubs')) return
     _myClubsBusy = true
-    try { await injectInto(['.pf-side'], state.me.me.id, 'pf-clubs') }
-    finally { _myClubsBusy = false }
+    try {
+      // Loop, not a single call: each pass clears the flag first, so a repaint arriving DURING the
+      // await is caught by the next iteration. Terminates because the guard below stops as soon as a
+      // live pane holds the block — and if no pane exists any more there is nothing left to do.
+      for (;;) {
+        _myClubsDirty = false
+        await injectInto(['.pf-side'], state.me.me.id, 'pf-clubs')
+        const pane = $('.pf-side')
+        if (!_myClubsDirty || !pane || pane.querySelector('.pf-clubs')) break
+      }
+    } finally { _myClubsBusy = false }
   }
 
   function watch(id, fn, init) {

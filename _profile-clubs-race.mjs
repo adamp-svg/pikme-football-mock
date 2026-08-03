@@ -34,6 +34,11 @@ const CDP = 9443
 const CASES = [
   { name: 'stats FAST (0ms)   — render #2 lands before the 250ms inject', delay: 0 },
   { name: 'stats SLOW (600ms) — render #2 lands after the 250ms inject', delay: 600 },
+  // The residual hole in the re-inject fix: /player/:id is a network round trip, and if the repaint
+  // lands DURING it, the block is appended to a pane that has already been discarded — while the
+  // mutation that would re-trigger the injection is swallowed by the busy flag. Needs playerDelay >
+  // statsDelay so render #2 fires mid-request.
+  { name: 'REPAINT MID-REQUEST — /player slow (500ms), stats land at 200ms', delay: 200, playerDelay: 500 },
 ]
 
 async function main() {
@@ -77,7 +82,12 @@ async function main() {
         window.__timeline = [];
         window.fetch = async (u, o) => {
           const url = String(u);
-          if (url.includes('/player/')) { window.__timeline.push('player'); return json(PLAYER); }
+          if (url.includes('/player/')) {
+            window.__timeline.push('player:start');
+            await wait(${c.playerDelay || 0});
+            window.__timeline.push('player:done');
+            return json(PLAYER);
+          }
           if (url.includes('/clubs') || url.includes('/dev/clubs')) return json(ME);
           // THE VARIABLE UNDER TEST: how long the profile's stats call takes.
           if (url.includes('/dev/progress') || url.includes('/handle-friends/rank')) {
@@ -104,6 +114,16 @@ async function main() {
       // A subtree observer that re-injects must never append the block twice — that would be two
       // clubs strips stacked in the pane.
       clubsCount: document.querySelectorAll('.pf-side .pf-clubs').length,
+      // PRESENT is not the same as VISIBLE: the block is appended at the BOTTOM of a 176px-wide,
+      // full-height pane. On a landscape phone the hero + name + badge + trophies + slots already
+      // fill it, so the clubs/rank strip can sit past the fold and need a deliberate scroll.
+      fold: (() => { const side=document.querySelector('.pf-side'), b=document.querySelector('.pf-side .pf-clubs');
+        if(!side||!b) return null;
+        const sr=side.getBoundingClientRect(), br=b.getBoundingClientRect();
+        return { paneVisibleH: Math.round(sr.height), paneScrollH: side.scrollHeight,
+                 blockTopWithinPane: Math.round(br.top - sr.top),
+                 hiddenBelowFold: Math.max(0, Math.round(br.bottom - sr.bottom)),
+                 needsScroll: br.bottom > sr.bottom + 1 }; })(),
       ranksCount: document.querySelectorAll('.pf-side .pc-ranks').length,
       timeline: (window.__timeline || []).join(' → '),
     }))()`)
@@ -114,16 +134,17 @@ async function main() {
     console.log('   clubs block   :', r?.clubsBlock ? 'PRESENT' : '❌ MISSING')
     console.log('   ranks block   :', r?.ranksBlock ? 'PRESENT' : '❌ MISSING')
     console.log('   copies        : clubs=' + r?.clubsCount + ' ranks=' + r?.ranksCount + (r?.clubsCount === 1 ? '' : '  ⚠ DUPLICATED'))
+    console.log('   visibility    :', JSON.stringify(r?.fold))
   }
   ws.close(); chrome.kill()
 
   const fast = results[0][1], slow = results[1][1]
+  const every = results.every(([, r]) => r && r.clubsBlock && r.ranksBlock && r.clubsCount === 1 && r.ranksCount === 1)
   console.log('\n---------------- VERDICT ----------------')
   // AFTER THE FIX this must pass on BOTH paths: the subtree observer re-injects after every repaint,
   // so the stats latency stops deciding whether the pane is complete.
-  const bothOk = !!(fast?.clubsBlock && fast?.ranksBlock && slow?.clubsBlock && slow?.ranksBlock
-    && fast?.clubsCount === 1 && slow?.clubsCount === 1 && fast?.ranksCount === 1 && slow?.ranksCount === 1)
-  if (bothOk) console.log('✅ FIXED — clubs + rank present on BOTH the fast and the slow path')
+  const bothOk = every   // EVERY case, including the mid-request repaint — not just the first two
+  if (bothOk) console.log('✅ FIXED — clubs + rank present, exactly once, on ALL ' + results.length + ' paths')
   else if (fast?.clubsBlock && !slow?.clubsBlock) console.log('❌ RACE STILL PRESENT — slow stats still loses the block')
   else console.log('❌ unexpected: fast=' + JSON.stringify(fast) + ' slow=' + JSON.stringify(slow))
   process.exit(bothOk ? 0 : 1)

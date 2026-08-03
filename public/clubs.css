@@ -71,9 +71,19 @@
 }
 
 /* ── my scopes strip on the rank page ──────────────────────────────────────────────────────────── */
-.myscopes { width: 100%; max-width: 460px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+/* ⚠️ minmax(0, 1fr), NOT 1fr — and it is a bug fix, not a style tweak (measured 2026-08-03).
+   `1fr` is shorthand for `minmax(auto, 1fr)`, and that `auto` floor is the item's min-content width.
+   With four Hebrew scope labels that floor is wider than this grid's container, so the track refused
+   to shrink and the strip ran PAST the container's start edge — clipping the 4th cell (the club) by a
+   measured 18px inside the profile's 176px side pane and 32px on the iPad. The ellipsis already on
+   `.myscope b` could not save it: the text was allowed to shrink, the TRACK was not.
+   minmax(0, …) drops the floor to zero so the cells shrink and the label ellipsises instead. Costs no
+   height, which matters — the phone pane has none to spare (_profile-side-fit.mjs).
+   min-width: 0 on the cell is the same fix one level down, for the cell's own contents. */
+.myscopes { width: 100%; max-width: 460px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .myscope {
   padding: 8px 4px; border-radius: 10px; background: #1b241a; border: 2px solid #2c3a2b; text-align: center;
+  min-width: 0;
 }
 .myscope .em { font-size: 18px; }
 .myscope b { display: block; font: 900 11px "Arial Black", sans-serif; color: #fff4ca; margin-top: 2px;
