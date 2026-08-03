@@ -41,6 +41,15 @@
 - Local test server is `PORT=3012 node server.js` (main dev server is :3010). Node does NOT hot-reload — **restart the server** after server/shared changes.
 - Before claiming done: `node --check` the files + run the test suite (`for f in test*.mjs; do node $f; done`); report real output, list known pre-existing fails separately.
 
+## 2026-08-03
+
+- **Agent `panel+rank+arenas` (~08:5x IDT): THE HELD BATCH IS PUSHED AND LIVE.** Request: *"ok the app is in app store. you can push the changes"*. Pushed `fcfad43..873477a` (5 commits), deploy `dep-d9o2sje7bikc73crr5sg`.
+  - **Verified 3.3.3 is `READY_FOR_SALE` via the ASC API before pushing** — not taken on trust, because the whole point of the hold was the review.
+  - **Byte-verified prod against local HEAD for EVERY changed file** (`client.js`, `clubs.js`, `profile.js`, `style.css`, `index.html`, `shared/field-presets.js`, `shared/field-arenas.js`) — all equal, per the repo rule to check prod's STATE rather than trust the deploy mechanism. Feature markers confirmed in the live bytes too: `askConfirm` ×5, the `.pf-side` scroll rule, the `hostSels` priority list, `leaveClub`, `.ask-modal` styles, and all three arena ids.
+  - Re-ran everything immediately before pushing: `test-arena-fairness` green, `_clubs-guards.mjs` 17/17, `_profile-friend-ui.mjs` 28/28. Suite 94/97 with the same three pre-existing fails (`test-bot-ladder`, `test-bot-partner`, `test-vs-consistency` — they fail on clean HEAD and none of them touches this code).
+  - **Cleared the "DO NOT PUSH" banners** in the spec and in the 2026-08-02 entry below, so no later agent is told to hold a deploy that already shipped. The REASON for holding is kept — the reviewer opens the LIVE game — because it applies again next time a build is in review.
+  - Reaches players on their next app launch (release builds load `PROD_GAME_URL` with `?v=<launch>` + `no-store`). No new TestFlight or App Store build needed.
+
 ## 2026-08-02
 
 - **⚠️ Agent `panel+rank+arenas` (~11:0x IDT): FOUR game-side changes, BUILT AND COMMITTED BUT DELIBERATELY NOT DEPLOYED.** Requests: *"in the iphone versino the my profile status, in the right panel the hero and user stats the clubs etc are clipped … should make the side panel scrallable"*, *"i also want to make a are you sure, when removeing friends. currently it too easy"*, *"when i click a friend profile it dosnt show me his rank"*, and *"introducing new arenas"*. Spec `c736501`, code `d1110ba`. Files: `public/profile.js`, `public/clubs.js`, `public/client.js`, `public/style.css`, `shared/field-presets.js`, new `shared/field-arenas.js`, new `test-arena-fairness.mjs` + harnesses (locks taken and released).
