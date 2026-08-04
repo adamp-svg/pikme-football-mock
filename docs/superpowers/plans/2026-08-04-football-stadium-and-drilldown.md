@@ -218,23 +218,42 @@ Expected: `FAIL: no podium on the city tab`
 
 In `renderBoard()`, the group path already resolves `r.label` for city/school/grade/class before rendering rows. **The podium must be drawn AFTER that loop assigns labels** — otherwise it renders raw ids. So: keep the existing `data.rows.slice(0, 20).forEach(...)` label-resolution, but move row *appending* to run after a `renderPodium` call, like this:
 
+The group branch **already** resolves labels inside its `data.rows.slice(0, 20).forEach(...)` loop
+(`clubs.js` ~line 556-577), using `cityName()`, `schoolName()`, and inline `GRADE_HE` lookups — there
+is no `gradeClassLabel()` helper and you must not invent one. The change is to **split that one loop in
+two**: resolve first, then draw the podium, then draw the rows.
+
+Replace the single loop's head so the label/emblem assignment runs over a named array, and keep its
+body EXACTLY as it is today (`cityName` / `schoolName` / the two `GRADE_HE` branches / the
+`r.label = r.label || String(r.scopeId)` fallback / the emblem defaults) — only the two `state.scope`
+reads change to `data.scope`:
+
 ```js
     const unit = METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
     const shown = data.rows.slice(0, 20)
-    // Resolve labels FIRST — the podium prints names, and an unresolved row would show «1953726605».
+    // PASS 1 — resolve labels. The podium prints NAMES, so it must run after this or it shows «1953726605».
     shown.forEach((r) => {
       if (!r.label) {
         if (data.scope === 'city') r.label = cityName(r.scopeId)
         else if (data.scope === 'school') r.label = schoolName(r.scopeId)
-        else if (data.scope === 'grade' || data.scope === 'class') r.label = gradeClassLabel(data.scope, r.scopeId)
+        else if (data.scope === 'grade') { const [, g] = String(r.scopeId).split('|'); r.label = `שכבת ${GRADE_HE[g] || g}` }
+        else if (data.scope === 'class') { const [, g, c] = String(r.scopeId).split('|'); r.label = `${GRADE_HE[g] || g}${c}` }
       }
+      r.label = r.label || String(r.scopeId)
+      r.emblem = r.emblem || ({ city: '🏙️', school: '🏫', grade: '📚', class: '🎒', club: '🏰' }[data.scope])
     })
+    // PASS 2 — the podium, then the rows it did not take.
     const onPodium = renderPodium(shown, list, unit)
+    shown.forEach((r) => {
+      if (onPodium.has(podiumId(r))) return
+      // …the existing row-building body, unchanged…
+    })
 ```
 
-then guard the existing row loop with `if (onPodium.has(podiumId(r))) return` as its first line.
-
-⚠️ Use `data.scope`, not `state.scope`, in those label branches — the server echoes the canonical scope and the two disagree mid-tap. If the existing code uses `state.scope`, fix it here; that is the same class of bug as the metric/unit mismatch already documented in this file.
+⚠️ `data.scope`, not `state.scope`. The server echoes the canonical scope and the two disagree for the
+frame between a tap and the response — the same class of bug the metric/unit mismatch note in this file
+already documents. The existing code reads `state.scope` in these branches; correcting it is part of
+this task.
 
 - [ ] **Step 4: Run the test and watch it pass**
 
