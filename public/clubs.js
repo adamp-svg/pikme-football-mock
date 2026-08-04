@@ -601,6 +601,48 @@
   // Mirrors SCHOOL_SCOPED in pikme-server routes-pikme/leaderboard/groups.js.
   const SCHOOL_SCOPED_TABS = ['grade', 'class']
 
+  // ── the PODIUM ────────────────────────────────────────────────────────────────────────────────────
+  // ONE renderer for all six tabs. It works on group rows AND player rows because /handle-clubs/board
+  // deliberately ships the same `value` key for both ("what lets the client render both with one row
+  // component"). Label falls back scopeId-side: a player row has nickName, a group row has label.
+  //
+  // ⚠️ Picks the three BY POSITION after sorting on rank, never by testing `rank === 1|2|3`. Ranks are
+  // dense and tie: several rows legitimately share rank 1, and a value test would render the same slot
+  // three times and leave two empty placeholders. Returns the ids it drew so the caller can exclude
+  // them from the list below BY IDENTITY — a `rank > 3` filter deletes a 4th row tied at 3.
+  const MEDAL = { 1: { disc: '#F5C400', face: '#F7E39B' }, 2: { disc: '#B9C2CC', face: '#DDE3E9' }, 3: { disc: '#CD7F32', face: '#EBC49B' } }
+
+  function podiumId(r) { return String(r.userId != null ? r.userId : r.scopeId) }
+
+  function renderPodium(rows, host, unit) {
+    const ranked = (rows || [])
+      .filter((r) => r && Number.isFinite(Number(r.rank)) && Number(r.rank) >= 1)
+      .slice()
+      .sort((a, b) => Number(a.rank) - Number(b.rank))
+      .slice(0, 3)
+    if (!ranked.length) return new Set()
+    const pod = el('div', 'scope-podium')
+    // 2 · 1 · 3 so #1 is centre and tallest. A missing place renders nothing rather than a placeholder.
+    const slots = [[ranked[1], 'second'], [ranked[0], 'first'], [ranked[2], 'third']]
+    slots.forEach(([r, cls]) => {
+      if (!r) { pod.append(el('div', 'pod-place ' + cls)); return }
+      const place = Number(cls === 'first' ? 1 : cls === 'second' ? 2 : 3)
+      const m = MEDAL[place]
+      const name = r.nickName != null ? r.nickName : (r.label != null ? r.label : '—')
+      // The disc prints the row's OWN dense rank, not the slot number, or a tie invents places the board
+      // does not have.
+      pod.append(el('div', 'pod-place ' + cls,
+        `${cls === 'first' ? '<div class="pod-crown">👑</div>' : ''}
+         <div class="pod-disc" style="background:${m.disc}">${Number(r.rank)}</div>
+         <div class="pod-name">${esc(String(name))}</div>
+         <div class="pod-ped" style="background:${m.face}">
+           <span class="pod-val">${num(r.value)}</span><span class="pod-unit">${esc(unit || '')}</span>
+         </div>`))
+    })
+    host.append(pod)
+    return new Set(ranked.map(podiumId))
+  }
+
   // ── the PERSONAL board: you against every player ────────────────────────────────────────────────
   // A different row shape from the four group boards, so it gets its own renderer rather than more
   // branches inside the group one. A personal row is a PLAYER:
@@ -619,8 +661,11 @@
       list.append(el('div', 'scope-note', 'עדיין אין שחקנים מדורגים.'))
       return
     }
+    const unit = METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
+    const onPodium = renderPodium(rows, list, unit)
     let prev = null
     rows.forEach((r) => {
+      if (onPodium.has(podiumId(r))) return   // already on the podium — never draw a row twice
       // One divider wherever the window skips ranks — the entire "you are far from the top"
       // affordance, same as the app. No ellipsis row, no count of who was skipped.
       if (prev != null && r.rank - prev > 1) list.append(el('div', 'scope-gap'))
@@ -628,7 +673,7 @@
       const row = el('div', `scope-row${r.isMe ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
         `<span class="pos">${r.rank}</span><span class="em">${r.emblem || '⚽'}</span>
          <div class="nm"><b>${esc(r.nickName || 'שחקן')}${r.isMe ? ' · אני' : ''}</b>${r.club ? `<small>${esc(r.club)}</small>` : ''}</div>
-         <div class="sc">${num(r.value)}<small>${METRIC_UNIT[state.metric] || ''}</small></div>`)
+         <div class="sc">${num(r.value)}<small>${unit}</small></div>`)
       // data-uid ONLY when the server actually resolved an identity. It OMITS the key rather than
       // nulling it precisely for this: the string "null" is truthy to the delegate above, so a
       // `data-uid="null"` would open a player card that 400s.

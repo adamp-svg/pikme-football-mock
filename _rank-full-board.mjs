@@ -76,7 +76,10 @@ const read=()=>evl(`(()=>({
 }))()`)
 let s=await read()
 console.log('\n1) THE WINDOW, WITH A WAY OUT')
-check('the window shows only its 7 rows', s.rows===7, `${s.rows} rows`)
+// Task 1 (stadium slice) put ranks 1-3 on a .scope-podium above the list, so the plain .scope-row
+// count is now 3 fewer than the window/full sizes below (7-3=4, 40-3=37) — not a regression, the
+// podium's whole point is that its three never repeat in the list underneath it.
+check('the window shows its 4 non-podium rows (top 3 moved to the podium)', s.rows===4, `${s.rows} rows`)
 check('a «כל הטבלה» button is offered', !!s.btn && s.btn.includes('כל הטבלה'), s.btn)
 check('...and it names the population', !!s.btn && s.btn.includes('40'), s.btn)
 check('the standing line is present', s.note.some(n=>n.includes('מקום')), s.note[0])
@@ -85,7 +88,7 @@ console.log('\n2) PRESS → THE FULL TABLE')
 await evl(`document.querySelector('#scope-board .scope-more').click()`)
 await sleep(2000)
 s=await read()
-check('every ranked player is listed', s.rows===40, `${s.rows} rows`)
+check('every ranked player is listed (minus the 3 on the podium)', s.rows===37, `${s.rows} rows`)
 check('the client asked for full=1', s.asked.some(u=>u.includes('full=1')), s.asked.join(' '))
 check('the button now offers the way back', !!s.btn && s.btn.includes('קרוב אליי'), s.btn)
 
@@ -93,7 +96,7 @@ console.log('\n3) PRESS AGAIN → BACK TO THE WINDOW')
 await evl(`document.querySelector('#scope-board .scope-more').click()`)
 await sleep(2000)
 s=await read()
-check('back to the 7-row window', s.rows===7, `${s.rows} rows`)
+check('back to the 4-row window', s.rows===4, `${s.rows} rows`)
 check('and back to offering the full table', !!s.btn && s.btn.includes('כל הטבלה'), s.btn)
 
 console.log('\n4) CITIES RANKED LIKE PLAYERS — total, highest first')

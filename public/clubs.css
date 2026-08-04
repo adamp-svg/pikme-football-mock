@@ -527,3 +527,31 @@
   .club-side .club-actions, .club-side > .club-ghost:last-child { margin-top: 0; }
   .club-2col .myscopes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+
+/* ── podium (stadium) — the top 3 of whatever the active tab ranks ──────────────────────────────
+   Dark-theme sibling of the card app's LeaderboardPodium: same medal triad and the same 2·1·3
+   column order, on this screen's olive ground rather than the app's cream. */
+.scope-podium {
+  background: #1d2417; border: 1px solid #2f3a26; border-radius: 16px;
+  padding: 12px 8px 0; margin: 0 auto 10px; max-width: 520px;
+  display: grid; grid-template-columns: 1fr 1.14fr 1fr; align-items: end; gap: 5px;
+}
+.pod-place { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; }
+.pod-crown { font-size: 19px; line-height: 1; margin-bottom: 1px; }
+.pod-disc {
+  width: 38px; height: 38px; border-radius: 999px; display: grid; place-items: center;
+  font: 900 16px Arial, sans-serif; color: #1a1205;
+  border: 2px solid rgba(255,255,255,.75); margin-bottom: 6px;
+}
+.pod-place.first .pod-disc { width: 48px; height: 48px; font-size: 20px; box-shadow: 0 0 12px 1px rgba(245,196,0,.55); }
+.pod-name {
+  font: 800 12px Arial, sans-serif; color: #e7f0e2; margin-bottom: 7px; line-height: 1.2;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pod-ped { width: 100%; border-radius: 12px 12px 0 0; padding: 7px 3px 12px; }
+.pod-place.first  .pod-ped { height: 74px; }
+.pod-place.second .pod-ped { height: 52px; }
+.pod-place.third  .pod-ped { height: 40px; }
+.pod-val { display: block; font: 900 15px "Arial Black", sans-serif; color: #1a1205; }
+.pod-place.first .pod-val { font-size: 17px; }
+.pod-unit { display: block; font: 700 9px Arial, sans-serif; color: rgba(26,18,5,.66); letter-spacing: .5px; }
