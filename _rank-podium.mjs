@@ -122,6 +122,21 @@ const SCHOOL = {
     { rank: 5, scopeId: '510339', value: 8790, members: 9 },
   ],
 }
+// REVIEW FIX (2026-08-04) — a city/school the directory can't resolve. `999999999999` is deliberately
+// absent from public/data/schools-directory.json (grepped, 0 hits), so `cityName()` returns null for it
+// and PASS 1's fallback (`r.label = r.label || String(r.scopeId)`) backfills the RAW id — exactly the
+// case the back button must NOT print verbatim. Ranks 1-3 use real, resolvable ids so the podium paints
+// normally; rank 4 (the row the harness clicks, same "first .scope-row" convention as CITY above) is
+// the unresolvable one.
+const CITY_UNRESOLVED = {
+  metric: 'trophies', scope: 'city', k: 3, totalRanked: 4, mineScopeId: '2025178902',
+  rows: [
+    { rank: 1, scopeId: '2025178902', value: 91200, members: 12 },   // תל אביב-יפו
+    { rank: 2, scopeId: '1807972421', value: 88400, members: 9 },    // אום אל-פחם
+    { rank: 3, scopeId: '475307122', value: 80100, members: 7 },     // אופקים
+    { rank: 4, scopeId: '999999999999', value: 8900, members: 4 },   // not in the directory, on purpose
+  ],
+}
 // Club rows arrive WITH a label already (a club has a user-given name, resolved server-side) — the
 // resolve loop's `if (!r.label)` guard must leave it alone.
 const CLUB = {
@@ -420,6 +435,29 @@ async function main() {
   console.log('   after metric change, asked:', afterMetric)
   check('a request followed the metric change', afterMetric.length > 0, afterMetric.length)
   check('the metric-change request carries no key= (drill was cleared)', afterMetric.every(u => !u.includes('key=')), JSON.stringify(afterMetric))
+
+  // ── REVIEW FIX — an unresolved city/school must not print its raw scopeId on the back button ──────
+  // PASS 1 in renderBoard() backfills `r.label` with `String(r.scopeId)` whenever cityName()/schoolName()
+  // return null, so by the time `open()` runs `r.label` is NEVER falsy — testing it directly (the
+  // original code) buries the back button's scopeWord() fallback forever. `r.unresolved` is the fix:
+  // recorded BEFORE that fallback line runs, so `open()` can still tell "the directory resolved a name"
+  // apart from "nothing did." CITY_UNRESOLVED's rank-4 row uses a scopeId (999999999999) grepped absent
+  // from schools-directory.json, so cityName() genuinely returns null for it — not a stubbed lie.
+  console.log('\n9) REVIEW FIX — an unresolved city falls back to scopeWord(), never the raw scopeId')
+  await evl(`window.__GBOARD.city = ${JSON.stringify(CITY_UNRESOLVED)}`)
+  await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(t=>t.textContent==='עיר')?.click()`)
+  await sleep(1500)
+  await evl(`document.querySelector('#scope-board .scope-row').click()`)
+  await sleep(1500)
+  const unresolved = JSON.parse(await evl(`(() => {
+    const back = document.querySelector('.scope-back')
+    return JSON.stringify({ back: !!back, backText: back ? back.textContent : '' })
+  })()`))
+  console.log('   ', unresolved)
+  check('a back affordance appears for the unresolved city', unresolved.back, unresolved.backText)
+  check('back button text is scopeWord(\'city\') = "עיר", never the raw scopeId digits',
+    unresolved.back && unresolved.backText.includes('עיר') && !unresolved.backText.includes('999999999999'),
+    unresolved.backText)
 
   ws.close(); chrome.kill()
 

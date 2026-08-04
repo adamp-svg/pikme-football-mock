@@ -581,6 +581,14 @@
           r.label = `${GRADE_HE[g] || g}${c}`
         }
       }
+      // Recorded BEFORE the id fallback below overwrites it — `open()` needs to tell "the directory
+      // resolved a name" apart from "nothing did, so we're printing the raw id", and after the next
+      // line r.label is never falsy again so that distinction would be lost forever. Review finding
+      // 2026-08-04: a city/school the directory can't resolve (new city, a merge missing from
+      // DIR.merges, or DIR itself still null because the fetch is slow/failed — see the ⚠️ note above
+      // renderBoard) used to hand its raw scopeId straight to the back button as if it were a real
+      // name, permanently burying the scopeWord() fallback the back button was written to use.
+      r.unresolved = !r.label
       r.label = r.label || String(r.scopeId)
       r.emblem = r.emblem || ({ city: '🏙️', school: '🏫', grade: '📚', class: '🎒', club: '🏰' }[data.scope])
     })
@@ -595,10 +603,14 @@
          <div class="sc">${num(r.value)}<small>${unit}</small></div>`)
       // Group rows open that entity's players. Cursor + role so it reads as interactive, and the label
       // is carried through so the drilled view can name it without re-resolving the directory.
+      // ⚠️ `r.unresolved` (not `r.label`) gates this: PASS 1 above backfills `r.label` with the raw
+      // scopeId whenever the directory can't resolve a name, so `r.label` alone is NEVER falsy here —
+      // testing it would make the back button's scopeWord() fallback (renderPersonal) permanently
+      // unreachable and print the digits instead. Send '' only when nothing was actually resolved.
       row.style.cursor = 'pointer'
       row.setAttribute('role', 'button')
       row.tabIndex = 0
-      const open = () => { state.drill = { kind: data.scope, key: String(r.scopeId), label: r.label || '' }; state.full = false; renderBoard() }
+      const open = () => { state.drill = { kind: data.scope, key: String(r.scopeId), label: r.unresolved ? '' : r.label }; state.full = false; renderBoard() }
       row.onclick = open
       row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }
       list.append(row)
