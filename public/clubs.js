@@ -89,7 +89,10 @@
   // 'personal' is the fifth scope: you against every player, the way the app's own leaderboard works.
   // The server accepts 'personal' or 'me' and always ECHOES 'personal' — never key anything off the
   // word that was sent.
-  const SCOPE_TABS = [['personal', 'אני'], ['city', 'עיר'], ['school', 'בית ספר'], ['class', 'כיתה'], ['club', 'מועדון']]
+  // 'grade' added 2026-08-04, together with SCOPE_KINDS server-side. It had to be added SERVER-FIRST:
+  // boardScope() falls back to 'city' for an unknown scope, so a grade tab shipped ahead of the server
+  // would have silently drawn the CITY board under a שכבות heading.
+  const SCOPE_TABS = [['personal', 'אני'], ['city', 'עיר'], ['school', 'בית ספר'], ['grade', 'שכבה'], ['class', 'כיתה'], ['club', 'מועדון']]
   const TYPE_HE = { open: 'פתוח', invite: 'באישור', closed: 'סגור' }
   const ROLE_HE = { president: '👑 נשיא', vice: '🥈 סגן', senior: '⭐ בכיר', member: 'חבר' }
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -555,13 +558,21 @@
       if (!r.label) {
         if (state.scope === 'city') r.label = cityName(r.scopeId)
         else if (state.scope === 'school') r.label = schoolName(r.scopeId)
+        // grade + class are ranked INSIDE the caller's own school now (server SCHOOL_SCOPED), so every row
+        // on the board shares one school and naming it per row is pure noise. The heading carries it once.
+        // ⚠️ The KEY still contains the semel — it is parsed positionally here and the server deliberately
+        // kept it so shipped clients cannot break. Read it, just do not print it.
+        else if (state.scope === 'grade') {
+          const [, g] = String(r.scopeId).split('|')
+          r.label = `שכבת ${GRADE_HE[g] || g}`
+        }
         else if (state.scope === 'class') {
-          const [sid, g, c] = String(r.scopeId).split('|')
-          r.label = `${GRADE_HE[g] || g}${c} · ${schoolName(sid) || ''}`
+          const [, g, c] = String(r.scopeId).split('|')
+          r.label = `${GRADE_HE[g] || g}${c}`
         }
       }
       r.label = r.label || String(r.scopeId)
-      r.emblem = r.emblem || ({ city: '🏙️', school: '🏫', class: '🎒', club: '🏰' }[state.scope])
+      r.emblem = r.emblem || ({ city: '🏙️', school: '🏫', grade: '📚', class: '🎒', club: '🏰' }[state.scope])
       const mine = r.scopeId === data.mineScopeId
       list.append(el('div', `scope-row${mine ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
         `<span class="pos">${r.rank}</span><span class="em">${r.emblem}</span>
@@ -575,11 +586,20 @@
     // more: the headcount trade-off is real and accepted until a population fix is chosen (server
     // routes-pikme/leaderboard/placement.js keeps rankScopes for that), so the copy must NOT keep
     // promising fairness the scoring no longer delivers.
+    // grade/class are compared WITHIN one school, so the copy must not imply a national table. Saying
+    // "every class in the country" when the server ranks only my school would be the same class of lie the
+    // top-K note was.
+    const myScopeNote = SCHOOL_SCOPED_TABS.indexOf(state.scope) !== -1
+      ? `הדירוג הוא בין ה${scopeWord(state.scope)}ות בבית הספר שלך.`
+      : ''
     list.append(el('div', 'scope-note',
       `הניקוד = סכום ה${unit} של כל השחקנים ב${scopeWord(state.scope)} — הגבוה ביותר מנצח.
+       ${myScopeNote}
        (${data.totalRanked} שחקנים מדורגים)`))
   }
-  const scopeWord = (s) => ({ city: 'עיר', school: 'בית ספר', class: 'כיתה', club: 'מועדון', personal: 'הארץ' }[s] || s)
+  const scopeWord = (s) => ({ city: 'עיר', school: 'בית ספר', grade: 'שכבה', class: 'כיתה', club: 'מועדון', personal: 'הארץ' }[s] || s)
+  // Mirrors SCHOOL_SCOPED in pikme-server routes-pikme/leaderboard/groups.js.
+  const SCHOOL_SCOPED_TABS = ['grade', 'class']
 
   // ── the PERSONAL board: you against every player ────────────────────────────────────────────────
   // A different row shape from the four group boards, so it gets its own renderer rather than more

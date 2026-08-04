@@ -39,7 +39,13 @@ await send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
       if(url.includes('/me')) return J({ me:{userId:'u5',nickName:'אדם',trophies:2500,level:7}, club:null,
         metrics:[{key:'views',labelHe:'הכי הרבה צפיות'}], scopes:{}, maxMembers:30 });
       if(url.includes('/board')){
-        // REAL prod ids: 1953726605 = חיפה, 1602649942 = הרצליה, 340315 = עירוני ה'
+        // REAL prod ids: 1953726605 = חיפה, 1602649942 = הרצליה, 340315 = עירוני ה', 513093 = הנדיב
+        // class/grade keys KEEP the semel even though the board is school-scoped — shipped clients parse
+        // them positionally, so the server deliberately did not change the shape.
+        if(url.includes('scope=class')) return J({ metric:'views', scope:'class', k:null, totalRanked:93, mineScopeId:'513093|10|5',
+          rows:[{rank:1,scopeId:'513093|10|5',value:900,members:2},{rank:2,scopeId:'513093|10|3',value:400,members:1}] });
+        if(url.includes('scope=grade')) return J({ metric:'views', scope:'grade', k:null, totalRanked:93, mineScopeId:'513093|10',
+          rows:[{rank:1,scopeId:'513093|10',value:900,members:2},{rank:2,scopeId:'513093|9',value:400,members:1}] });
         if(url.includes('scope=school')) return J({ metric:'views', scope:'school', k:null, totalRanked:93, mineScopeId:'513093',
           rows:[{rank:1,scopeId:'340315',value:561215185,members:1},{rank:2,scopeId:'513093',value:18227020,members:1}] });
         return J({ metric:'views', scope:'city', k:null, totalRanked:93, mineScopeId:'1602649942',
@@ -63,6 +69,17 @@ console.log(`${DELAY?'SLOW directory':'normal'} → city rows:`, JSON.stringify(
 await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(b=>b.textContent==='בית ספר').click()`)
 await sleep(1500)
 console.log(`${DELAY?'SLOW directory':'normal'} → school rows:`, JSON.stringify((await read()).rows))
+// class + grade: school-scoped, so the row must name the CLASS, not repeat the school on every row.
+await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(b=>b.textContent==='כיתה').click()`)
+await sleep(1500)
+const cls=(await read()).rows
+console.log(`${DELAY?'SLOW':'normal'} → class rows:`, JSON.stringify(cls))
+if (!cls.includes("י׳5")) { console.log('FAIL — class label wrong, expected י׳5, got', JSON.stringify(cls)); ws.close(); chrome.kill(); process.exit(1) }
+await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(b=>b.textContent==='שכבה').click()`)
+await sleep(1500)
+const grd=(await read()).rows
+console.log(`${DELAY?'SLOW':'normal'} → grade rows:`, JSON.stringify(grd))
+if (!grd.includes("שכבת י׳")) { console.log('FAIL — grade label wrong, expected שכבת י׳, got', JSON.stringify(grd)); ws.close(); chrome.kill(); process.exit(1) }
 // The assertion, in both modes: not one row may be a bare number.
 const bad = [...names, ...(await read()).rows].filter((n) => /^\d+$/.test(n))
 if (bad.length) { console.log('FAIL — bare ids on screen:', bad.join(',')); ws.close(); chrome.kill(); process.exit(1) }
