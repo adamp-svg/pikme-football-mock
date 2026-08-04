@@ -663,7 +663,12 @@
     }
     const unit = METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
     const onPodium = renderPodium(rows, list, unit)
-    let prev = null
+    // Seed `prev` from the highest rank the podium actually drew — NOT `null`. `prev` used to start
+    // at null unconditionally, so once ranks 1-3 moved onto the podium the first surviving row's gap
+    // check always compared against null and no divider ever rendered, no matter how large the real
+    // jump was (measured: the 7-row personal fixture went from "gaps 1" to "gaps 0"). This restores
+    // the "you are far from the top" affordance for the exact case the podium introduced.
+    let prev = rows.reduce((mx, r) => (onPodium.has(podiumId(r)) && (mx == null || Number(r.rank) > mx) ? Number(r.rank) : mx), null)
     rows.forEach((r) => {
       if (onPodium.has(podiumId(r))) return   // already on the podium — never draw a row twice
       // One divider wherever the window skips ranks — the entire "you are far from the top"
