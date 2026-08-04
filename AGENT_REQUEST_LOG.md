@@ -51,6 +51,14 @@
   - **Had to update `_rank-full-board.mjs`'s hardcoded row counts** (window 7→4, full 40→37): the podium's whole point is its three don't repeat in the list, so the plain `.scope-row` count is now 3 fewer — an intended consequence of this feature, not a regression. Re-ran: 17/17 PASS.
   - Pre-existing, unrelated fail confirmed by stashing: `_rank-personal.mjs` 403s on `/dev/clubs/my-cards` (a card-injection passthrough call, unrelated to clubs.js) on both `main` and this branch.
   - Full report: `.superpowers/sdd/2026-08-04-football-stadium-and-drilldown/task-1-report.md`.
+  - **Review round-trip fix (`0be486d`):** the podium skip broke the `.scope-gap` divider — rows on
+    the podium `return`ed before `prev = r.rank` ran, so `prev` stayed `null` forever once ranks 1-3
+    moved onto the podium, and the "you're far from the top" divider never rendered no matter how big
+    the real jump was. Fixed by seeding `prev` from the highest rank the podium actually drew.
+    `renderPodium()`'s `Set`-only return is untouched (Tasks 2/4 depend on it). `_rank-podium.mjs`
+    grew 3 more scenarios (GAP/TIE_A/TIE_B) on one page load via a mutable stub; GAP's assertion is
+    confirmed FAIL before the fix, PASS after (stashed/popped `clubs.js` to prove it). Addendum in the
+    same report file.
 
 - **FOOTBALL NO LONGER SUPPRESSES ON `LEADERBOARD_EXCLUDED_PHONES` (`pikme-server 65cddac`, committed local, NOT pushed).** Request: *"i want my phone 0507896321 to be removed from the leaderbaord of the organic players only but not from the test leaderboard. also not from the football"* → follow-up choice: *drop the env list from football entirely*.
   - **THE KEY FACT, and it is the one to remember: hiding a test account has TWO mechanisms, and the durable one is NOT the env var.** `isTest` on `playercardstats`, mirrored from cards by the roster sync (ran 2026-08-04 07:35), is what drives the app board's two-group model. `LEADERBOARD_EXCLUDED_PHONES` is break-glass on top of it — **and it was the only thing suppressing on football.** So all three of Adam's requirements were ALREADY satisfied by yesterday's env removal; the code change is about the OTHER test accounts.
