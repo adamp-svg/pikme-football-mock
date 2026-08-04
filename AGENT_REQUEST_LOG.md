@@ -43,6 +43,15 @@
 
 ## 2026-08-04
 
+- **Task 1 of the stadium+drilldown plan (`.superpowers/sdd/2026-08-04-football-stadium-and-drilldown/`): a pedestal podium on the אני (personal) rank board.** Committed local (`5ce3c63`), NOT pushed.
+  - `renderPodium(rows, host, unit)` added to `public/clubs.js` just above `renderPersonal()`: takes the top 3 by dense rank (positional, never `rank===1|2|3`, so ties don't render a slot twice), draws them 2·1·3 (centre = #1, tallest, crowned) with the gold/silver/bronze medal triad, and returns a `Set` of the ids it drew (`String(userId ?? scopeId)`) so the caller skips them in the row list below. `renderPersonal()` now calls it and skips `onPodium.has(podiumId(r))` rows.
+  - CSS: `.scope-podium` block appended to `public/clubs.css` (dark-theme, olive ground — NOT the card app's cream palette).
+  - **Deliberately reusable**: works on both player rows (`nickName`) and group rows (`label`) — Tasks 2-4 (group tabs + drill-down) call the same function.
+  - New test `_rank-podium.mjs` (headless CDP against a stubbed clubs API): confirms 3 `.pod-place`s in 2·1·3 order, #1 centred, and the podium's ranks (1,2,3) never repeat in `.scope-row` below. **PASS.**
+  - **Had to update `_rank-full-board.mjs`'s hardcoded row counts** (window 7→4, full 40→37): the podium's whole point is its three don't repeat in the list, so the plain `.scope-row` count is now 3 fewer — an intended consequence of this feature, not a regression. Re-ran: 17/17 PASS.
+  - Pre-existing, unrelated fail confirmed by stashing: `_rank-personal.mjs` 403s on `/dev/clubs/my-cards` (a card-injection passthrough call, unrelated to clubs.js) on both `main` and this branch.
+  - Full report: `.superpowers/sdd/2026-08-04-football-stadium-and-drilldown/task-1-report.md`.
+
 - **FOOTBALL NO LONGER SUPPRESSES ON `LEADERBOARD_EXCLUDED_PHONES` (`pikme-server 65cddac`, committed local, NOT pushed).** Request: *"i want my phone 0507896321 to be removed from the leaderbaord of the organic players only but not from the test leaderboard. also not from the football"* → follow-up choice: *drop the env list from football entirely*.
   - **THE KEY FACT, and it is the one to remember: hiding a test account has TWO mechanisms, and the durable one is NOT the env var.** `isTest` on `playercardstats`, mirrored from cards by the roster sync (ran 2026-08-04 07:35), is what drives the app board's two-group model. `LEADERBOARD_EXCLUDED_PHONES` is break-glass on top of it — **and it was the only thing suppressing on football.** So all three of Adam's requirements were ALREADY satisfied by yesterday's env removal; the code change is about the OTHER test accounts.
   - **Verified live before changing anything** (his own app token, prod): organic view = 99 players, **he is ABSENT**, `me.rank: null`; `?includeTest=1` = 107 players, **he is rank 3** (top 3 = DS7 / King Pazi / אדם); football = `place 1 of 14`. ⚠️ The test view is **opt-in even for a test viewer** — `resolvePopulation` defaults them to the organic board on purpose, so reviewers see what players see. Without `?includeTest=1` you will think you are still hidden.
