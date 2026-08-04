@@ -41,6 +41,16 @@
 - Local test server is `PORT=3012 node server.js` (main dev server is :3010). Node does NOT hot-reload — **restart the server** after server/shared changes.
 - Before claiming done: `node --check` the files + run the test suite (`for f in test*.mjs; do node $f; done`); report real output, list known pre-existing fails separately.
 
+## 2026-08-04
+
+- **DIAGNOSED (no code change yet): the profile side pane's גביעים/דירוג read «#—».** Request: *"in the football game, in the user stats, in the right banner where the hero and membership i dont see the trophies and rank its just -"*. That block is `public/clubs.js:687-689` (`pc-ranks`, injected into `.pf-side` from the outside), printing `p.ranks.trophies.place ?? '—'` from `pikme-server /handle-clubs/player/:id`.
+  - **ROOT CAUSE — not a bug, a config consequence.** `nationalPlacement()` (`pikme-server/routes-pikme/clubs.js:907`) returns `place: null` when the player is **suppressed**, and the Render env var `LEADERBOARD_EXCLUDED_PHONES` on `srv-chgb1k67avjbbju8aoig` **contains Adam's own phone `+972507896321`** (also `+972503843964` King Pazi and `+972526414798` DS7 — the top 3 xp holders).
+  - **Measured, live prod** (`GET /handle-clubs/player/693f08f557647e4b026bc627` with a minted football-token): `ranks: { trophies: {place: null, of: 13}, ranked: {place: null, of: 0} }`. `of:13` = 16 xp>0 rows minus the 3 excluded — arithmetic confirms the exclusion path exactly.
+  - **Refuted along the way** (don't redo): (a) `FootballStats.findOne({userId})` missing rows — 94% of prod rows carry `userId`, and **all 16** with `xp>0` do; (b) Adam's row unreadable — reads fine (`xp 2475`, `rankPoints 35`, level 7, silver); (c) `banned` suppression — Adam is `banned:false`; (d) stale prod code — `pikme-server` has zero unpushed commits and prod serves the `ranks:{trophies,ranked}` contract.
+  - ⚠️ **The `דירוג` board is effectively EMPTY in prod: exactly ONE footballstats row has `rankPoints > 0`, and it is Adam's excluded one** — so `ranked.of` is 0 for everybody. Separate issue from the dash.
+  - ⚠️ Local `node` is **v26**, which breaks `jsonwebtoken` (`SlowBuffer`) — mint football-tokens by hand-rolling HS256 with `node:crypto`. Render env is readable read-only via `~/.render/cli.yaml` key + `GET /v1/services/<id>/env-vars`.
+  - Awaiting Adam's call on the fix (un-exclude his phone vs. self-view exemption vs. print an honest label instead of `—`). No files changed.
+
 ## 2026-08-03
 
 - **RANK: «כל הטבלה» — the full leaderboard on the אני board (`621a38b`, LIVE).** Request: *"also make the football leaderbaord similar to the cards one, so they can see the full leaderboard on press etc."* The personal board showed only top 3 + me±3. Now it offers «כל הטבלה · N שחקנים» → `?full=1` → every ranked player, with «קרוב אליי» back. Needs `pikme-server 21b072c` (the route ignored `personalBoard`'s existing top/around params). Files: `public/clubs.js`, `public/clubs.css`, `_rank-full-board.mjs` (9/9).
