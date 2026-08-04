@@ -516,6 +516,15 @@
   async function renderBoard() {
     const host = $('#scope-board')
     if (!host || !state.me) return
+    // ⚠️ WAIT FOR THE DIRECTORY, or the board prints RAW IDS instead of names — «1953726605» where the
+    // player expects «חיפה». The server ships ids only (it has no directory); the 428KB
+    // /data/schools-directory.json resolves them HERE. refresh() has always awaited this, but this
+    // function is also reached straight off `watch('rank', renderBoard)`, so opening דירוג before the
+    // JSON lands rendered ids — and NOTHING re-rendered when it arrived, so they stayed for the whole
+    // session. That is exactly the reported "i still dont see which schools is ranked up and which city
+    // is ranked up". Reproduced with a 4s-delayed directory in _rank-full-board.mjs; after the first load
+    // this await is a resolved promise and costs nothing.
+    await dirReady
     host.innerHTML = ''
 
     const metrics = el('div', 'scope-metrics')

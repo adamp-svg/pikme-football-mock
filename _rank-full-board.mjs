@@ -41,9 +41,12 @@ await send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
         // rule) - value + members, and no score/padded/k, which belonged to top-K placement.
         // NO BACKTICKS IN THIS COMMENT: it lives inside a JS template literal, so one ends the string.
         if(!url.includes('scope=personal')){
-          return J({ metric:'views', scope:'city', k:null, totalRanked:40, mineScopeId:'5000',
-            rows:[ {rank:1,scopeId:'5000',value:9000,members:12},
-                   {rank:2,scopeId:'9000',value:4000,members:3} ] });
+          // REAL prod ids: 1953726605 = חיפה, 1602649942 = הרצליה. Fake ids ('5000') are in no
+          // directory, so the row falls back to printing the id — and asserting THAT is asserting the
+          // symptom of a bug as if it were the feature. Adam saw exactly those numbers on his phone.
+          return J({ metric:'views', scope:'city', k:null, totalRanked:40, mineScopeId:'1602649942',
+            rows:[ {rank:1,scopeId:'1953726605',value:9000,members:12},
+                   {rank:2,scopeId:'1602649942',value:4000,members:3} ] });
         }
         const full=url.includes('full=1');
         // 40 ranked players; the WINDOW shows 7 of them, the FULL board all 40.
@@ -107,6 +110,7 @@ const g=await evl(`(()=>({
 }))()`)
 console.log('   ', JSON.stringify(g.rows))
 check('two cities are listed', g.rows.length===2, `${g.rows.length}`)
+check('rows name the CITY, not its id', g.rows[0]?.name==='חיפה' && g.rows[1]?.name==='הרצליה', g.rows.map(r=>r.name).join(','))
 check('ranked highest-total first', g.rows[0]?.sc.startsWith('9,000') || g.rows[0]?.sc.startsWith('9000'), g.rows[0]?.sc)
 check('the number is labelled with the metric unit, not ניקוד', !!g.rows[0] && g.rows[0].sc.includes('צפיות'), g.rows[0]?.sc)
 check('the headcount is shown', !!g.rows[0] && g.rows[0].sub.includes('12 שחקנים'), g.rows[0]?.sub)
