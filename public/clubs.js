@@ -78,7 +78,14 @@
   // = every ranked player, the way the cards app's board works (Adam, 2026-08-03: "so they can see the
   // full leaderboard on press"). Reset when the scope changes, so leaving and re-entering אני starts from
   // the window rather than from whatever the last visit left behind.
-  const state = { me: null, labels: {}, metric: 'trophies', scope: 'city', view: 'home', findTerm: '', findSeed: 0, full: false }
+  // `drill` is Task 4: tapping a city/school/class/club row opens THAT entity's players — the same
+  // personal-board body shape, scoped server-side by `?key=`. `{ kind, key, label }`: kind/key are what
+  // the request needs, label is what we print on the back button WITHOUT re-resolving anything (the
+  // server canonicalises the key, so reconstructing a name from it is not safe — see the back-button
+  // note in renderPersonal). Cleared whenever the tab or metric changes, or a stale key would ride
+  // along into a different scope and silently come back as an empty board (server: unknown/mismatched
+  // key -> `{ rows: [], totalRanked: 0 }`, never an error).
+  const state = { me: null, labels: {}, metric: 'trophies', scope: 'city', view: 'home', findTerm: '', findSeed: 0, full: false, drill: null }
 
   // Short unit words for the footer. Keyed by METRICS key, so it must track the server's table:
   // 'xp' is gone (it IS trophies) and 'ranked' is new (the rankPoints ladder — losable, humans-only,
@@ -533,19 +540,20 @@
     const metrics = el('div', 'scope-metrics')
     state.me.metrics.forEach((m) => {
       const p = el('button', 'metric-pill' + (m.key === state.metric ? ' on' : ''), m.labelHe)
-      p.onclick = () => { state.metric = m.key; renderBoard() }
+      p.onclick = () => { state.metric = m.key; state.drill = null; renderBoard() }
       metrics.append(p)
     })
     const tabs = el('div', 'scope-tabs')
     SCOPE_TABS.forEach(([key, label]) => {
       const t = el('button', 'scope-tab' + (key === state.scope ? ' on' : ''), label)
-      t.onclick = () => { state.scope = key; state.full = false; renderBoard() }
+      t.onclick = () => { state.scope = key; state.full = false; state.drill = null; renderBoard() }
       tabs.append(t)
     })
     const list = el('div', 'scope-list')
     host.append(metrics, tabs, list)
 
-    const data = await api(`/board?metric=${state.metric}&scope=${state.scope}${state.full ? '&full=1' : ''}`)
+    const drillQ = state.drill ? `&key=${encodeURIComponent(state.drill.key)}` : ''
+    const data = await api(`/board?metric=${state.metric}&scope=${state.scope}${state.full ? '&full=1' : ''}${drillQ}`)
     // The server echoes the CANONICAL scope, so branch on what came back, not on what we asked for
     // (?scope=me is accepted and answered as 'personal').
     if (data.scope === 'personal') return renderPersonal(data, list)
@@ -581,10 +589,19 @@
     shown.forEach((r) => {
       if (onPodium.has(podiumId(r))) return
       const mine = r.scopeId === data.mineScopeId
-      list.append(el('div', `scope-row${mine ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
+      const row = el('div', `scope-row${mine ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
         `<span class="pos">${r.rank}</span><span class="em">${r.emblem}</span>
          <div class="nm"><b>${esc(r.label)}</b><small>${r.members} שחקנים</small></div>
-         <div class="sc">${num(r.value)}<small>${unit}</small></div>`))
+         <div class="sc">${num(r.value)}<small>${unit}</small></div>`)
+      // Group rows open that entity's players. Cursor + role so it reads as interactive, and the label
+      // is carried through so the drilled view can name it without re-resolving the directory.
+      row.style.cursor = 'pointer'
+      row.setAttribute('role', 'button')
+      row.tabIndex = 0
+      const open = () => { state.drill = { kind: data.scope, key: String(r.scopeId), label: r.label || '' }; state.full = false; renderBoard() }
+      row.onclick = open
+      row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } }
+      list.append(row)
     })
     // ⚠️ THE RULE CHANGED 2026-08-03 (Adam: "ranked simialr to players"): a group's number is the plain
     // SUM of its members' metric and the HIGHEST wins — the same number and the same direction as the
@@ -664,6 +681,15 @@
   function renderPersonal(data, list) {
     const rows = data.rows || []
     const me = data.me || {}
+    // The back affordance goes ABOVE the empty check too — a stale/malformed key still needs a way
+    // out, and the server answers that case with an empty board rather than an error (see clubs.js
+    // header note + the Task 4 brief's server-contract section), so a bare "no players" note here
+    // would otherwise be a dead end.
+    if (data.drill) {
+      const back = el('button', 'scope-back', `‹ חזרה · ${esc(state.drill && state.drill.label ? state.drill.label : scopeWord(data.drill.kind))}`)
+      back.onclick = () => { state.drill = null; renderBoard() }
+      list.append(back)
+    }
     if (!rows.length) {
       list.append(el('div', 'scope-note', 'עדיין אין שחקנים מדורגים.'))
       return

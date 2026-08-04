@@ -528,6 +528,15 @@
   .club-2col .myscopes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
+/* ── drill-down back affordance (Task 4) — tapping a city/school/class/club row opens its players,
+   this is the only way back out. Dark theme, matching the pill language already on this screen
+   (.metric-pill / .scope-tab) — never the card app's cream. */
+.scope-back {
+  display: block; margin: 0 auto 8px; padding: 7px 14px; border: 0; border-radius: 999px;
+  background: #2f3a26; color: #cfe6c8; font: 800 13px Arial, sans-serif; cursor: pointer;
+}
+.scope-back:active { transform: translateY(1px); }
+
 /* ── podium (stadium) — the top 3 of whatever the active tab ranks ──────────────────────────────
    Dark-theme sibling of the card app's LeaderboardPodium: same medal triad and the same 2·1·3
    column order, on this screen's olive ground rather than the app's cream. */

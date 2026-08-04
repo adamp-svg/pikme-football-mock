@@ -138,6 +138,21 @@ const CLUB = {
 // break the "not enough players yet" empty state for the two school-scoped tabs.
 const EMPTY_GROUP = (scope) => ({ metric: 'trophies', scope, k: 3, totalRanked: 0, mineScopeId: null, rows: [] })
 
+// TASK 4 — drilling into a group row. The server's actual shipped contract (per the task-4 brief's
+// "server contract Task 3 actually shipped" section): a `?key=` request answers with the PERSONAL body
+// shape (scope:'personal', because the rows ARE PLAYERS) plus a `drill:{kind,key}` envelope. 4 rows so
+// the podium (top 3) and the list (the 4th) both get exercised in one fixture, the same reasoning as
+// the CITY/SCHOOL/CLUB fixtures above.
+const DRILL = {
+  metric: 'trophies', scope: 'personal', totalRanked: 4, me: { rank: null, value: 0 },
+  rows: [
+    { rank: 1, userId: 'd1', nickName: 'שחקן1', club: null, emblem: null, value: 500, isMe: false },
+    { rank: 2, userId: 'd2', nickName: 'שחקן2', club: null, emblem: null, value: 400, isMe: false },
+    { rank: 3, userId: 'd3', nickName: 'שחקן3', club: null, emblem: null, value: 300, isMe: false },
+    { rank: 4, userId: 'd4', nickName: 'שחקן4', club: null, emblem: null, value: 200, isMe: false },
+  ],
+}
+
 async function main() {
   const chrome = spawn(CHROME, [`--remote-debugging-port=${CDP}`, '--headless=new', '--no-first-run',
     `--user-data-dir=${OUT}/profile`, '--window-size=844,390', 'about:blank'], { stdio: 'ignore' })
@@ -175,10 +190,24 @@ async function main() {
         class: ${JSON.stringify(EMPTY_GROUP('class'))},
         club: ${JSON.stringify(CLUB)},
       };
+      window.__DRILL = ${JSON.stringify(DRILL)};
+      // Every /clubs/board URL this page ever asks for, in order — Task 4's own assertions read this
+      // directly (does a drill request carry &key=, does a tab change stop carrying it) rather than
+      // inferring it from the DOM, which is the only way to prove the REQUEST shape, not just the render.
+      window.__asked = [];
       const real = window.fetch;
       const J = (o) => Promise.resolve(new Response(JSON.stringify(o), { status:200, headers:{'Content-Type':'application/json'} }));
       window.fetch = (u,o) => { const s=String(u);
+        if (s.includes('/clubs/board')) window.__asked.push(s);
         if (s.includes('/clubs/me')) return J(ME);
+        // Task 4 — a drill-down request carries &key=. The server answers with the PERSONAL body shape
+        // (rows are players) plus a drill envelope naming what was asked for, no matter which group
+        // scope the key came from — that mirrors the real server, which canonicalises the key but does
+        // not care which tab it arrived from.
+        if (s.includes('/clubs/board') && /[?&]key=/.test(s)) {
+          const km = /scope=([a-z]+)/.exec(s); const kind = km ? km[1] : 'city';
+          return J(Object.assign({}, window.__DRILL, { drill: { kind, key: '99032825' } }));
+        }
         if (s.includes('/clubs/board') && s.includes('scope=personal')) return J(window.__PBOARD);
         if (s.includes('/clubs/board')) {
           const m = /scope=([a-z]+)/.exec(s); const sc = m ? m[1] : null;
@@ -337,6 +366,60 @@ async function main() {
   check('no podium when the group has zero rows', !g.hasPodium)
   check('the empty-state note still renders', /עדיין אין מספיק שחקנים/.test(g.noteText), g.noteText)
   await shoot('class-empty')
+
+  // ── TASK 4 — tapping a group row opens that entity's players ───────────────────────────────────
+  // Server contract (task-4-brief, authoritative section): a `?key=` request answers with the
+  // PERSONAL body shape (scope:'personal' — the rows ARE PLAYERS) plus `drill:{kind,key}`. So the
+  // existing `if (data.scope==='personal') return renderPersonal(...)` dispatch already routes this;
+  // what Task 4 adds is the click, the request, and the back affordance.
+  console.log('\n6) Task 4 — clicking a city row opens the drill-down')
+  g = await clickTab('עיר')   // land back on the city group board, 2 rows in the list below the podium
+  await evl(`window.__asked = []`)   // isolate: only the request the click below triggers
+  await evl(`document.querySelector('#scope-board .scope-row').click()`)
+  await sleep(1500)
+  let d = JSON.parse(await evl(`(() => {
+    const back = document.querySelector('.scope-back')
+    const pod = document.querySelector('.scope-podium')
+    const rows = [...document.querySelectorAll('#scope-board .scope-row')]
+    return JSON.stringify({
+      asked: window.__asked.filter(u => u.includes('key=')),
+      back: !!back,
+      backText: back ? back.textContent : '',
+      podium: !!pod,
+      podNames: pod ? [...pod.querySelectorAll('.pod-name')].map(n => n.textContent) : [],
+      rowCount: rows.length,
+      rowsHaveUid: rows.length > 0 && rows.every(r => !!r.dataset.uid),
+      rowsLookLikeGroups: rows.some(r => / שחקנים$/.test(((r.querySelector('.nm small') || {}).textContent || '').trim())),
+    })
+  })()`))
+  console.log('   ', d)
+  check('the request carried key=', d.asked.length > 0, JSON.stringify(d.asked))
+  check('a back affordance appears', d.back, d.backText)
+  check('the drilled view renders a podium', d.podium)
+  check('podium rows are players (nicknames, not a group label)', d.podNames.length === 3 && d.podNames.every(n => /^שחקן/.test(n)), d.podNames.join(','))
+  check('remaining rows carry data-uid (players), not scope ids', d.rowsHaveUid, d.rowCount)
+  check('remaining rows are NOT group rows ("N שחקנים" member-count text)', !d.rowsLookLikeGroups)
+
+  console.log('\n7) Task 4 — changing tab clears the drill (no stale key= on the next request)')
+  await evl(`window.__asked = []`)
+  await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(t=>t.textContent==='בית ספר')?.click()`)
+  await sleep(1500)
+  const afterTab = JSON.parse(await evl(`JSON.stringify(window.__asked)`))
+  console.log('   after tab change, asked:', afterTab)
+  check('a request followed the tab change', afterTab.length > 0, afterTab.length)
+  check('the tab-change request carries no key= (drill was cleared)', afterTab.every(u => !u.includes('key=')), JSON.stringify(afterTab))
+
+  console.log('\n8) Task 4 — changing metric also clears the drill')
+  g = await clickTab('עיר')
+  await evl(`document.querySelector('#scope-board .scope-row').click()`)
+  await sleep(1500)
+  await evl(`window.__asked = []`)
+  await evl(`document.querySelector('#scope-board .metric-pill').click()`)
+  await sleep(1500)
+  const afterMetric = JSON.parse(await evl(`JSON.stringify(window.__asked)`))
+  console.log('   after metric change, asked:', afterMetric)
+  check('a request followed the metric change', afterMetric.length > 0, afterMetric.length)
+  check('the metric-change request carries no key= (drill was cleared)', afterMetric.every(u => !u.includes('key=')), JSON.stringify(afterMetric))
 
   ws.close(); chrome.kill()
 
