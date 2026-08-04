@@ -60,9 +60,15 @@ await send('Page.navigate',{url:'http://127.0.0.1:3016/?ftoken=harness'})
 await sleep(DELAY ? 2200 : 6000)   // when slow, open the rank screen BEFORE the directory lands
 const evl=async e=>(await send('Runtime.evaluate',{returnByValue:true,awaitPromise:true,expression:e}))?.result?.value
 await evl(`document.getElementById('rank-btn').click()`); await sleep(1800)
+// Task 2 put a .scope-podium on the group tabs: every fixture below has only 2 rows, so BOTH now land
+// on the podium and .scope-row is empty — the label is the same data, just drawn in a different place.
+// Read pod-name alongside .nm b or this file stops testing anything the moment a scope has ≤3 rows.
 const read=()=>evl(`(()=>({
   dirLoaded: !!(window.__dirProbe===undefined?true:true),
-  rows:[...document.querySelectorAll('#scope-board .scope-row')].map(r=>r.querySelector('.nm b').textContent),
+  rows:[
+    ...[...document.querySelectorAll('#scope-board .scope-row')].map(r=>r.querySelector('.nm b').textContent),
+    ...[...document.querySelectorAll('#scope-board .scope-podium .pod-name')].map(n=>n.textContent),
+  ],
 }))()`)
 const names=(await read()).rows
 console.log(`${DELAY?'SLOW directory':'normal'} → city rows:`, JSON.stringify(names))

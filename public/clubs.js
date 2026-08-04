@@ -554,25 +554,32 @@
     // server canonicalises the request (?metric=xp is answered as 'trophies'), and the label must describe
     // the column the numbers actually came from. Falls back to local state for an older server.
     const unit = METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
-    data.rows.slice(0, 20).forEach((r) => {
+    const shown = data.rows.slice(0, 20)
+    // PASS 1 — resolve labels. The podium prints NAMES, so it must run after this or it shows «1953726605».
+    shown.forEach((r) => {
       if (!r.label) {
-        if (state.scope === 'city') r.label = cityName(r.scopeId)
-        else if (state.scope === 'school') r.label = schoolName(r.scopeId)
+        if (data.scope === 'city') r.label = cityName(r.scopeId)
+        else if (data.scope === 'school') r.label = schoolName(r.scopeId)
         // grade + class are ranked INSIDE the caller's own school now (server SCHOOL_SCOPED), so every row
         // on the board shares one school and naming it per row is pure noise. The heading carries it once.
         // ⚠️ The KEY still contains the semel — it is parsed positionally here and the server deliberately
         // kept it so shipped clients cannot break. Read it, just do not print it.
-        else if (state.scope === 'grade') {
+        else if (data.scope === 'grade') {
           const [, g] = String(r.scopeId).split('|')
           r.label = `שכבת ${GRADE_HE[g] || g}`
         }
-        else if (state.scope === 'class') {
+        else if (data.scope === 'class') {
           const [, g, c] = String(r.scopeId).split('|')
           r.label = `${GRADE_HE[g] || g}${c}`
         }
       }
       r.label = r.label || String(r.scopeId)
-      r.emblem = r.emblem || ({ city: '🏙️', school: '🏫', grade: '📚', class: '🎒', club: '🏰' }[state.scope])
+      r.emblem = r.emblem || ({ city: '🏙️', school: '🏫', grade: '📚', class: '🎒', club: '🏰' }[data.scope])
+    })
+    // PASS 2 — the podium, then the rows it did not take.
+    const onPodium = renderPodium(shown, list, unit)
+    shown.forEach((r) => {
+      if (onPodium.has(podiumId(r))) return
       const mine = r.scopeId === data.mineScopeId
       list.append(el('div', `scope-row${mine ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
         `<span class="pos">${r.rank}</span><span class="em">${r.emblem}</span>

@@ -95,6 +95,49 @@ const TIE_B = {
   ],
 }
 
+// TASK 2 — the podium on the five GROUP tabs (עיר / בית ספר / שכבה / כיתה / מועדון).
+// Group rows are { rank, scopeId, value, members, label?, emblem? } — no nickName, no userId. City and
+// school ship WITHOUT a label (the server never sends Hebrew names — see clubs.js's DIR comment), so a
+// correct podium here proves the resolve-before-draw ordering; club ships WITH a label already (a club
+// name is not something the client derives) so it proves the podium does not stomp a label that is
+// already there. scopeId values below are real ids from public/data/schools-directory.json so
+// cityName()/schoolName() actually resolve instead of falling back to the id.
+const CITY = {
+  metric: 'trophies', scope: 'city', k: 3, totalRanked: 5, mineScopeId: '2025178902',
+  rows: [
+    { rank: 1, scopeId: '2025178902', value: 91200, members: 12 },   // תל אביב-יפו
+    { rank: 2, scopeId: '1807972421', value: 88400, members: 9 },    // אום אל-פחם
+    { rank: 3, scopeId: '475307122', value: 80100, members: 7 },     // אופקים
+    { rank: 4, scopeId: '1444028396', value: 8900, members: 4 },     // אבן שמואל
+    { rank: 5, scopeId: '1247515152', value: 8790, members: 2 },     // אבנת
+  ],
+}
+const SCHOOL = {
+  metric: 'trophies', scope: 'school', k: 3, totalRanked: 5, mineScopeId: '414482',
+  rows: [
+    { rank: 1, scopeId: '414482', value: 41200, members: 30 },
+    { rank: 2, scopeId: '510784', value: 38400, members: 28 },
+    { rank: 3, scopeId: '511212', value: 30100, members: 25 },
+    { rank: 4, scopeId: '510255', value: 8900, members: 12 },
+    { rank: 5, scopeId: '510339', value: 8790, members: 9 },
+  ],
+}
+// Club rows arrive WITH a label already (a club has a user-given name, resolved server-side) — the
+// resolve loop's `if (!r.label)` guard must leave it alone.
+const CLUB = {
+  metric: 'trophies', scope: 'club', k: 3, totalRanked: 5, mineScopeId: 'c1',
+  rows: [
+    { rank: 1, scopeId: 'c1', value: 51200, members: 18, label: 'אריות תל אביב', emblem: '🦁' },
+    { rank: 2, scopeId: 'c2', value: 48400, members: 15, label: 'נשרים', emblem: '🦅' },
+    { rank: 3, scopeId: 'c3', value: 40100, members: 11, label: 'הזאבים' },
+    { rank: 4, scopeId: 'c4', value: 8900, members: 6, label: 'כרישים' },
+    { rank: 5, scopeId: 'c5', value: 8790, members: 3, label: 'נמרים' },
+  ],
+}
+// שכבה/כיתה stay at zero rows — same as the pre-existing default stub — to prove the split loop did not
+// break the "not enough players yet" empty state for the two school-scoped tabs.
+const EMPTY_GROUP = (scope) => ({ metric: 'trophies', scope, k: 3, totalRanked: 0, mineScopeId: null, rows: [] })
+
 async function main() {
   const chrome = spawn(CHROME, [`--remote-debugging-port=${CDP}`, '--headless=new', '--no-first-run',
     `--user-data-dir=${OUT}/profile`, '--window-size=844,390', 'about:blank'], { stdio: 'ignore' })
@@ -123,12 +166,25 @@ async function main() {
     source: `(() => {
       const ME=${JSON.stringify(ME)};
       window.__PBOARD = ${JSON.stringify(BASE)};   // mutable — each scenario overwrites this, then re-clicks the tab
+      // Task 2 — one fixture per GROUP scope, also mutable so the harness can swap city/school/club in
+      // and confirm שכבה/כיתה still 0-row-empty after the render split.
+      window.__GBOARD = {
+        city: ${JSON.stringify(CITY)},
+        school: ${JSON.stringify(SCHOOL)},
+        grade: ${JSON.stringify(EMPTY_GROUP('grade'))},
+        class: ${JSON.stringify(EMPTY_GROUP('class'))},
+        club: ${JSON.stringify(CLUB)},
+      };
       const real = window.fetch;
       const J = (o) => Promise.resolve(new Response(JSON.stringify(o), { status:200, headers:{'Content-Type':'application/json'} }));
       window.fetch = (u,o) => { const s=String(u);
         if (s.includes('/clubs/me')) return J(ME);
         if (s.includes('/clubs/board') && s.includes('scope=personal')) return J(window.__PBOARD);
-        if (s.includes('/clubs/board')) return J({ metric:'trophies', scope:'city', k:null, totalRanked:0, mineScopeId:null, rows:[] });
+        if (s.includes('/clubs/board')) {
+          const m = /scope=([a-z]+)/.exec(s); const sc = m ? m[1] : null;
+          const fixture = sc && window.__GBOARD[sc];
+          return J(fixture || { metric:'trophies', scope: sc || 'city', k:null, totalRanked:0, mineScopeId:null, rows:[] });
+        }
         if (s.includes('/clubs/find')) return J({ myTrophies: 8800, rows: [] });
         return real(u,o); };
       window.PIKME_FOOTBALL_TOKEN='harness';
@@ -203,11 +259,84 @@ async function main() {
   check('the 4th tied row still appears in the list (rank<=3 would delete it)', got.listUids.includes('q4') && got.listRanks.length === 1, JSON.stringify(got.listUids))
 
   // Screenshot the last-rendered scenario (TIE_B) for a visual sanity check too.
-  await evl(`document.querySelector('.scope-podium')?.scrollIntoView({block:'center'})`)
-  await sleep(400)
-  const shot = await send('Page.captureScreenshot', { format: 'png' })
-  if (shot?.data) writeFileSync(`${OUT}/rank-podium.png`, Buffer.from(shot.data, 'base64'))
-  console.log('\nshot ->', `${OUT}/rank-podium.png`)
+  const shoot = async (name) => {
+    // Scoped to #scope-board — same trap as READ_GROUP's note lookup above: an unscoped selector
+    // matches the OTHER, hidden-but-still-in-DOM .scope-note from the "no club yet" screen (clubs.js:172,
+    // never torn down, just `.hidden`-toggled) before it ever reaches this panel's own element, so the
+    // viewport silently never scrolls — caught because every screenshot came back byte-identical.
+    await evl(`document.querySelector('#scope-board .scope-podium, #scope-board .scope-note')?.scrollIntoView({block:'center'})`)
+    await sleep(400)
+    const s = await send('Page.captureScreenshot', { format: 'png' })
+    if (s?.data) writeFileSync(`${OUT}/tab-${name}.png`, Buffer.from(s.data, 'base64'))
+    console.log('shot ->', `${OUT}/tab-${name}.png`)
+  }
+  await shoot('personal-tieb')
+
+  // ── TASK 2 — the podium on the five GROUP tabs ──────────────────────────────────────────────────
+  // Group rows have no nickName/userId — the podium prints r.label — so this is the exact case the
+  // brief warns about: draw before the resolve loop runs and it shows «1953726605» instead of «חיפה».
+  const READ_GROUP = `(() => {
+    const pod = document.querySelector('.scope-podium')
+    const places = pod ? [...pod.querySelectorAll('.pod-place')] : []
+    // Scoped to #scope-board — .scope-note also appears in the unrelated "no club yet" screen
+    // (clubs.js:172), and an unscoped querySelector picked THAT one up first, which is what made
+    // the first draft of 5d/5e fail on a real bug in the test, not in clubs.js.
+    const note = document.querySelector('#scope-board .scope-note')
+    return JSON.stringify({
+      hasPodium: !!pod,
+      names: places.map(p => (p.querySelector('.pod-name')||{}).textContent || ''),
+      // a group podium must show resolved Hebrew names, never a raw numeric id
+      rawIds: places.some(p => /^\\d{6,}$/.test(((p.querySelector('.pod-name')||{}).textContent||'').trim())),
+      listCount: document.querySelectorAll('#scope-board .scope-row').length,
+      noteText: note ? note.textContent : '',
+    })
+  })()`
+  const clickTab = async (label) => {
+    await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(t=>t.textContent==='${label}')?.click()`)
+    await sleep(1500)
+    return JSON.parse(await evl(READ_GROUP))
+  }
+
+  console.log('\n5a) עיר tab — the brief\'s own city assertion (5 stubbed group rows, no server-sent label)')
+  let g = await clickTab('עיר')
+  console.log('   ', g)
+  if (!g.hasPodium) throw new Error('FAIL: no podium on the city tab')
+  if (g.rawIds) throw new Error('FAIL: podium printed a raw scopeId instead of a Hebrew name')
+  console.log('PASS city podium', g)
+  check('a .scope-podium rendered on the city tab', g.hasPodium)
+  check('podium never prints a raw scopeId — resolved Hebrew names only', !g.rawIds, g.names.join(','))
+  check('2 city rows left in the list (5 stubbed − 3 on the podium)', g.listCount === 2, g.listCount)
+  await shoot('city')
+
+  console.log('\n5b) בית ספר tab — same server-shape, resolved via schoolName() instead of cityName()')
+  g = await clickTab('בית ספר')
+  console.log('   ', g)
+  check('a .scope-podium rendered on the school tab', g.hasPodium)
+  check('school podium is resolved names, not raw ids', !g.rawIds, g.names.join(','))
+  check('2 school rows left in the list (5 stubbed − 3 on the podium)', g.listCount === 2, g.listCount)
+  await shoot('school')
+
+  console.log('\n5c) מועדון tab — club rows arrive WITH a label already; the resolve pass must not clobber it')
+  g = await clickTab('מועדון')
+  console.log('   ', g)
+  check('a .scope-podium rendered on the club tab', g.hasPodium)
+  check('club podium shows the real club names in 2·1·3 order', g.names.join(',') === 'נשרים,אריות תל אביב,הזאבים', g.names.join(','))
+  check('2 club rows left in the list (5 stubbed − 3 on the podium)', g.listCount === 2, g.listCount)
+  await shoot('club')
+
+  console.log('\n5d) שכבה tab — stubbed with ZERO rows: must stay the pre-existing empty note, no podium')
+  g = await clickTab('שכבה')
+  console.log('   ', g)
+  check('no podium when the group has zero rows', !g.hasPodium)
+  check('the empty-state note still renders', /עדיין אין מספיק שחקנים/.test(g.noteText), g.noteText)
+  await shoot('grade-empty')
+
+  console.log('\n5e) כיתה tab — same zero-row regression check')
+  g = await clickTab('כיתה')
+  console.log('   ', g)
+  check('no podium when the group has zero rows', !g.hasPodium)
+  check('the empty-state note still renders', /עדיין אין מספיק שחקנים/.test(g.noteText), g.noteText)
+  await shoot('class-empty')
 
   ws.close(); chrome.kill()
 

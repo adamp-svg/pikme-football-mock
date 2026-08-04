@@ -44,9 +44,17 @@ await send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
           // REAL prod ids: 1953726605 = חיפה, 1602649942 = הרצליה. Fake ids ('5000') are in no
           // directory, so the row falls back to printing the id — and asserting THAT is asserting the
           // symptom of a bug as if it were the feature. Adam saw exactly those numbers on his phone.
+          // FIVE rows, not two: Task 2 (the podium retrofitted onto the group tabs) moves ranks 1-3
+          // onto .scope-podium, so a 2-row fixture leaves ZERO .scope-row elements to assert against —
+          // that is not a bug, but it also stops this file testing the thing it was written to test
+          // (label/unit/headcount rendering on a LIST row). Two padding rows (4,5) keep that path alive;
+          // חיפה/הרצליה now get checked on the podium instead, same as _rank-podium.mjs does.
           return J({ metric:'views', scope:'city', k:null, totalRanked:40, mineScopeId:'1602649942',
             rows:[ {rank:1,scopeId:'1953726605',value:9000,members:12},
-                   {rank:2,scopeId:'1602649942',value:4000,members:3} ] });
+                   {rank:2,scopeId:'1602649942',value:4000,members:3},
+                   {rank:3,scopeId:'5300',value:2000,members:2},
+                   {rank:4,scopeId:'5301',value:1500,members:6},
+                   {rank:5,scopeId:'5302',value:1000,members:1} ] });
         }
         const full=url.includes('full=1');
         // 40 ranked players; the WINDOW shows 7 of them, the FULL board all 40.
@@ -102,7 +110,17 @@ check('and back to offering the full table', !!s.btn && s.btn.includes('כל ה�
 console.log('\n4) CITIES RANKED LIKE PLAYERS — total, highest first')
 await evl(`[...document.querySelectorAll('#scope-board .scope-tab')].find(b=>b.textContent==='עיר').click()`)
 await sleep(2000)
+// Task 2 put a .scope-podium on the group tabs too, so ranks 1-3 (חיפה, הרצליה, and the fake-id 5300
+// row) render there instead of as .scope-row — same "3 fewer" adjustment as tests 1-3 above already
+// made for the personal board. Two padding rows (rank 4, 5) keep a LIST row on screen so the
+// headcount/no-padding-text checks below still have something to look at; the podium (name/order/unit)
+// is the well-covered case in _rank-podium.mjs, so this file only needs a light identity check on it.
 const g=await evl(`(()=>({
+  pod:[...document.querySelectorAll('#scope-board .scope-podium .pod-place')].map(p=>({
+    name:(p.querySelector('.pod-name')||{}).textContent||null,
+    val:(p.querySelector('.pod-val')||{}).textContent||null,
+    unit:(p.querySelector('.pod-unit')||{}).textContent||null,
+  })),
   rows:[...document.querySelectorAll('#scope-board .scope-row')].map(r=>({
     pos:r.querySelector('.pos').textContent,
     name:r.querySelector('.nm b').textContent,
@@ -111,12 +129,13 @@ const g=await evl(`(()=>({
   })),
   note:[...document.querySelectorAll('#scope-board .scope-note')].map(n=>n.textContent.replace(/\s+/g,' ').trim()),
 }))()`)
-console.log('   ', JSON.stringify(g.rows))
-check('two cities are listed', g.rows.length===2, `${g.rows.length}`)
-check('rows name the CITY, not its id', g.rows[0]?.name==='חיפה' && g.rows[1]?.name==='הרצליה', g.rows.map(r=>r.name).join(','))
-check('ranked highest-total first', g.rows[0]?.sc.startsWith('9,000') || g.rows[0]?.sc.startsWith('9000'), g.rows[0]?.sc)
-check('the number is labelled with the metric unit, not ניקוד', !!g.rows[0] && g.rows[0].sc.includes('צפיות'), g.rows[0]?.sc)
-check('the headcount is shown', !!g.rows[0] && g.rows[0].sub.includes('12 שחקנים'), g.rows[0]?.sub)
+console.log('    podium', JSON.stringify(g.pod))
+console.log('    rows  ', JSON.stringify(g.rows))
+check('3 podium places, 2 remaining list rows (5 stubbed − 3 on the podium)', g.pod.length===3 && g.rows.length===2, `pod=${g.pod.length} rows=${g.rows.length}`)
+check('podium names the CITY, not its id — 2·1·3 order', g.pod.map(p=>p.name).join(',')==='הרצליה,חיפה,5300', g.pod.map(p=>p.name).join(','))
+check('ranked highest-total first (#1 centre slot)', g.pod[1]?.val==='9,000'||g.pod[1]?.val==='9000', g.pod[1]?.val)
+check('the podium value is labelled with the metric unit, not ניקוד', g.pod.every(p=>p.unit==='צפיות'), g.pod.map(p=>p.unit).join(','))
+check('the headcount is still shown on a surviving list row', !!g.rows[0] && g.rows[0].sub.includes('6 שחקנים'), g.rows[0]?.sub)
 check('no leftover «חסרים N» padding text', !g.rows.some(r=>r.sub.includes('חסרים')))
 check('the note says HIGHEST wins', g.note.some(n=>n.includes('הגבוה ביותר מנצח')), g.note[0])
 check('...and no longer promises a small town can win', !g.note.some(n=>n.includes('יישוב קטן')))
