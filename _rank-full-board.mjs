@@ -9,11 +9,27 @@
  *   2. the rank screen opens from #rank-btn — there is no [data-open-screen] for it.
  * Both cost a full debug cycle the first time.
  *
- *   node _rank-full-board.mjs        # needs a server on :3016
+ *   node _rank-full-board.mjs [port] [cdpPort]   # port default 3016; cdpPort default: an OS-assigned
+ *                                                 # free port (override with CDP_PORT= or this arg)
  */
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
-const CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', CDP=9443
+import { createServer } from 'node:net'
+// REVIEW FIX — PORT used to be absent entirely (Page.navigate hardcoded 127.0.0.1:3016, argv ignored),
+// unlike _rank-podium.mjs which already took the port as argv[1]; aligned here. CDP used to be a bare
+// `const CDP = 9443` — with 20+ concurrent agents in this repo, a fixed port is a live collision, not a
+// hypothetical one (measured on this same wave for _rank-podium.mjs's port 9433: a run attached to
+// ANOTHER agent's already-listening Chrome and reported a false FAIL). Default is now an OS-assigned
+// free port; CDP_PORT env or argv[2] still forces a specific one when reproducing a result matters.
+const CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+const PORT = process.argv[2] || '3016'
+const freePort = (fallback) => new Promise((resolve) => {
+  const srv = createServer()
+  srv.on('error', () => resolve(fallback))
+  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)) })
+})
+const CDP = Number(process.env.CDP_PORT || process.argv[3]) || await freePort(9443)
+console.log(`[rank-full-board] target server :${PORT} · chrome CDP :${CDP}`)
 const OUT='/private/tmp/claude-501/-Users-adamleeperelman-Documents-pikeme/24a0f464-af08-4018-9ddf-e3fad2a0324f/scratchpad/fullbtn'
 const chrome=spawn(CHROME,[`--remote-debugging-port=${CDP}`,'--headless=new','--no-first-run',`--user-data-dir=${OUT}`,'--window-size=844,390','about:blank'],{stdio:'ignore'})
 let t; for(let i=0;i<40&&!t;i++){await sleep(250);try{t=(await(await fetch(`http://127.0.0.1:${CDP}/json/list`)).json()).find(x=>x.type==='page')}catch{}}
@@ -67,7 +83,7 @@ await send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
     return realFetch(u,o);
   };
 })()`})
-await send('Page.navigate',{url:'http://127.0.0.1:3016/?ftoken=harness'}); await sleep(6000)
+await send('Page.navigate',{url:`http://127.0.0.1:${PORT}/?ftoken=harness`}); await sleep(6000)
 const evl=async e=>(await send('Runtime.evaluate',{returnByValue:true,awaitPromise:true,expression:e}))?.result?.value
 const results=[]; const check=(l,c,d)=>{results.push(!!c);console.log(`  ${c?'✓':'✗'} ${l}${d!==undefined?'  — '+d:''}`)}
 

@@ -564,3 +564,15 @@
 .pod-val { display: block; font: 900 15px "Arial Black", sans-serif; color: #1a1205; }
 .pod-place.first .pod-val { font-size: 17px; }
 .pod-unit { display: block; font: 700 9px Arial, sans-serif; color: rgba(26,18,5,.66); letter-spacing: .5px; }
+
+/* REVIEW FIX — the caller's own row must stay highlighted even when it reaches the podium.
+   `.scope-row.mine` (top of this file) marks "this is you" with a gold border on the olive ground; the
+   podium has no row to put a border on (it's a pedestal, not a list row), so the same gold reads on
+   the name and as a ring around the pedestal instead. Dark theme only — olive/gold, never the card
+   app's cream. */
+.pod-place.mine .pod-name { color: #ffd447; }
+.pod-place.mine .pod-ped { box-shadow: 0 0 0 2px #ffd447 inset; }
+.pod-place.mine .pod-disc { box-shadow: 0 0 0 2px #ffd447; }
+/* #1 already carries its own glow (`.pod-place.first .pod-disc` above) — combine rather than let the
+   later, equal-specificity `.mine` rule silently cancel it when the caller's row IS #1. */
+.pod-place.first.mine .pod-disc { box-shadow: 0 0 12px 1px rgba(245,196,0,.55), 0 0 0 2px #ffd447; }

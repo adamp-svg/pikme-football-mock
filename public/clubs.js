@@ -93,6 +93,13 @@
   // A missing key here renders the literal «undefined», so it must track the server's METRICS table.
   // `views` joined 2026-08-03 — the cards economy's totalPoints, which is what a city gets ranked by.
   const METRIC_UNIT = { trophies: 'גביעים', ranked: 'דירוג', goals: 'שערים', wins: 'נצחונות', cards: 'קלפים', views: 'צפיות' }
+  // The unit comes from the metric the SERVER echoed, not from local state: the two diverge whenever the
+  // server canonicalises the request (?metric=xp is answered as 'trophies'), and the label must describe
+  // the column the numbers actually came from. Falls back to local state for an older server. One
+  // function, used by both renderBoard() and renderPersonal() — it used to be the same expression typed
+  // twice, which is exactly the kind of duplication that drifts the moment one call site is edited and
+  // the other isn't.
+  const metricUnit = (data) => METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
   // 'personal' is the fifth scope: you against every player, the way the app's own leaderboard works.
   // The server accepts 'personal' or 'me' and always ECHOES 'personal' — never key anything off the
   // word that was sent.
@@ -558,10 +565,7 @@
     // (?scope=me is accepted and answered as 'personal').
     if (data.scope === 'personal') return renderPersonal(data, list)
     if (!data.rows.length) { list.append(el('div', 'scope-note', 'עדיין אין מספיק שחקנים כאן.')); return }
-    // The unit comes from the metric the SERVER echoed, not from local state: the two diverge whenever the
-    // server canonicalises the request (?metric=xp is answered as 'trophies'), and the label must describe
-    // the column the numbers actually came from. Falls back to local state for an older server.
-    const unit = METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
+    const unit = metricUnit(data)
     const shown = data.rows.slice(0, 20)
     // PASS 1 — resolve labels. The podium prints NAMES, so it must run after this or it shows «1953726605».
     shown.forEach((r) => {
@@ -595,7 +599,7 @@
     // PASS 2 — the podium, then the rows it did not take.
     const onPodium = renderPodium(shown, list, unit)
     shown.forEach((r) => {
-      if (onPodium.has(podiumId(r))) return
+      if (onPodium.has(r)) return
       const mine = r.scopeId === data.mineScopeId
       const row = el('div', `scope-row${mine ? ' mine' : ''}${r.rank === 1 ? ' top1' : ''}`,
         `<span class="pos">${r.rank}</span><span class="em">${r.emblem}</span>
@@ -644,11 +648,10 @@
   //
   // ⚠️ Picks the three BY POSITION after sorting on rank, never by testing `rank === 1|2|3`. Ranks are
   // dense and tie: several rows legitimately share rank 1, and a value test would render the same slot
-  // three times and leave two empty placeholders. Returns the ids it drew so the caller can exclude
-  // them from the list below BY IDENTITY — a `rank > 3` filter deletes a 4th row tied at 3.
+  // three times and leave two empty placeholders. Returns a Set of the row OBJECTS it drew, not ids, so
+  // the caller can exclude them from the list below by reference identity — a `rank > 3` filter deletes
+  // a 4th row tied at 3, and a stringified id collides for any row missing both userId and scopeId.
   const MEDAL = { 1: { disc: '#F5C400', face: '#F7E39B' }, 2: { disc: '#B9C2CC', face: '#DDE3E9' }, 3: { disc: '#CD7F32', face: '#EBC49B' } }
-
-  function podiumId(r) { return String(r.userId != null ? r.userId : r.scopeId) }
 
   function renderPodium(rows, host, unit) {
     const ranked = (rows || [])
@@ -656,27 +659,45 @@
       .slice()
       .sort((a, b) => Number(a.rank) - Number(b.rank))
       .slice(0, 3)
+    // The Set holds the row OBJECTS THEMSELVES, not a stringified id. A group row keyed by `scopeId`
+    // and a player row keyed by `userId` cannot collide, but an identity-less row (server identity join
+    // missed — pikme-server routes-pikme/clubs.js:1200 ships `{}` — or a personal row with neither key)
+    // used to fall back to the literal string "undefined" for EVERY such row. One of them landing in
+    // the top 3 then made the `.has(...)` guard below skip every OTHER identity-less row from the list
+    // as if it too were already drawn on the podium, and `prev` was never advanced for them either,
+    // producing a spurious `.scope-gap` divider. Reference identity in a Set can never collide, and
+    // `ranked` is a `.slice()` of the caller's own array — same object references, not copies — so
+    // `onPodium.has(r)` at every call site below is checking identity against the exact objects that
+    // were drawn here.
     if (!ranked.length) return new Set()
     const pod = el('div', 'scope-podium')
-    // 2 · 1 · 3 so #1 is centre and tallest. A missing place renders nothing rather than a placeholder.
+    // 2 · 1 · 3 so #1 is centre and tallest. The middle/right slots still get an (empty) `.pod-place`
+    // element even with no row to fill them, purely to hold the CSS grid's three columns in place —
+    // without it #1 would slide to one side instead of staying centred.
     const slots = [[ranked[1], 'second'], [ranked[0], 'first'], [ranked[2], 'third']]
     slots.forEach(([r, cls]) => {
       if (!r) { pod.append(el('div', 'pod-place ' + cls)); return }
       const place = Number(cls === 'first' ? 1 : cls === 'second' ? 2 : 3)
       const m = MEDAL[place]
       const name = r.nickName != null ? r.nickName : (r.label != null ? r.label : '—')
+      // Highlight the caller's own row IN PLACE, same idiom as `.scope-row.mine` below — a player who
+      // reached the national top 3 (or their own city/school/etc on a group board) must not be the one
+      // row on the whole screen that loses its "this is you" marker. Only the player-row case (`isMe`)
+      // is handled here: a group row's "mine" comes from the body's `mineScopeId`, which this function
+      // never receives.
+      const mine = r.isMe === true
       // The disc prints the row's OWN dense rank, not the slot number, or a tie invents places the board
       // does not have.
-      pod.append(el('div', 'pod-place ' + cls,
+      pod.append(el('div', 'pod-place ' + cls + (mine ? ' mine' : ''),
         `${cls === 'first' ? '<div class="pod-crown">👑</div>' : ''}
          <div class="pod-disc" style="background:${m.disc}">${Number(r.rank)}</div>
-         <div class="pod-name">${esc(String(name))}</div>
+         <div class="pod-name">${esc(String(name))}${mine ? ' · אני' : ''}</div>
          <div class="pod-ped" style="background:${m.face}">
            <span class="pod-val">${num(r.value)}</span><span class="pod-unit">${esc(unit || '')}</span>
          </div>`))
     })
     host.append(pod)
-    return new Set(ranked.map(podiumId))
+    return new Set(ranked)
   }
 
   // ── the PERSONAL board: you against every player ────────────────────────────────────────────────
@@ -706,16 +727,16 @@
       list.append(el('div', 'scope-note', 'עדיין אין שחקנים מדורגים.'))
       return
     }
-    const unit = METRIC_UNIT[data.metric] || METRIC_UNIT[state.metric] || ''
+    const unit = metricUnit(data)
     const onPodium = renderPodium(rows, list, unit)
     // Seed `prev` from the highest rank the podium actually drew — NOT `null`. `prev` used to start
     // at null unconditionally, so once ranks 1-3 moved onto the podium the first surviving row's gap
     // check always compared against null and no divider ever rendered, no matter how large the real
     // jump was (measured: the 7-row personal fixture went from "gaps 1" to "gaps 0"). This restores
     // the "you are far from the top" affordance for the exact case the podium introduced.
-    let prev = rows.reduce((mx, r) => (onPodium.has(podiumId(r)) && (mx == null || Number(r.rank) > mx) ? Number(r.rank) : mx), null)
+    let prev = rows.reduce((mx, r) => (onPodium.has(r) && (mx == null || Number(r.rank) > mx) ? Number(r.rank) : mx), null)
     rows.forEach((r) => {
-      if (onPodium.has(podiumId(r))) return   // already on the podium — never draw a row twice
+      if (onPodium.has(r)) return   // already on the podium — never draw a row twice
       // One divider wherever the window skips ranks — the entire "you are far from the top"
       // affordance, same as the app. No ellipsis row, no count of who was skipped.
       if (prev != null && r.rank - prev > 1) list.append(el('div', 'scope-gap'))
@@ -878,7 +899,12 @@
     document.getElementById('scope-wrap')?.classList.remove('hidden')
     render()
     watch('clubs', () => { state.view = 'home'; refresh() })
-    watch('rank', renderBoard)
+    // Clear a stale drill-down on every reopen — the tab handler (:549) and the metric handler (:543)
+    // already clear `state.drill` on their own triggers, but closing the rank screen mid-drill and
+    // reopening it bypassed both: `state.drill` survived, so דירוג came back inside the last drilled
+    // entity while the tab pill still showed the group tab. `state.full` gets the same reset on scope
+    // change for the identical reason; this is the reopen path both were missing.
+    watch('rank', () => { state.drill = null; renderBoard() })
     // client.js stamps the friend's id on the modal (one line there); we fill the rest.
     watch('friend-profile-modal', (n) => {
       n.querySelector('.fp-clubs')?.remove()

@@ -8,12 +8,28 @@
  * renderBoard directly through watch('rank', …) and did not.
  *
  * Run BOTH modes — the fast path alone passes even with the bug present:
- *   node _rank-labels.mjs          # directory arrives normally
- *   node _rank-labels.mjs slow     # directory held back 4s, rank screen opened first  ← the regression
+ *   node _rank-labels.mjs                  # directory arrives normally, server on :3016
+ *   node _rank-labels.mjs slow             # directory held back 4s, rank screen opened first  ← the regression
+ *   node _rank-labels.mjs slow 3017        # 3rd argv slot / PORT env overrides the target server port
+ *   CDP_PORT=9500 node _rank-labels.mjs    # force a specific Chrome CDP port (default: OS-assigned free one)
  */
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
-const CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', CDP=9444
+import { createServer } from 'node:net'
+const CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+// REVIEW FIX — CDP used to be a bare `const CDP = 9444`, a fixed port that any of the 20+ concurrent
+// agents in this repo could already be listening on (measured on this same wave for _rank-podium.mjs's
+// port 9433: a run attached to another agent's Chrome and reported a false FAIL). argv[2] is already
+// the 'slow'/normal mode switch, so PORT now comes from PORT= or argv[3], and CDP defaults to an
+// OS-assigned free port unless CDP_PORT= or argv[4] forces a specific one.
+const PORT = process.env.PORT || process.argv[3] || '3016'
+const freePort = (fallback) => new Promise((resolve) => {
+  const srv = createServer()
+  srv.on('error', () => resolve(fallback))
+  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)) })
+})
+const CDP = Number(process.env.CDP_PORT || process.argv[4]) || await freePort(9444)
+console.log(`[rank-labels] target server :${PORT} · chrome CDP :${CDP}`)
 const OUT='/private/tmp/claude-501/-Users-adamleeperelman-Documents-pikeme/24a0f464-af08-4018-9ddf-e3fad2a0324f/scratchpad/labels'
 const DELAY = process.argv[2] === 'slow' ? 4000 : 0
 const chrome=spawn(CHROME,[`--remote-debugging-port=${CDP}`,'--headless=new','--no-first-run',`--user-data-dir=${OUT}`,'--window-size=844,390','about:blank'],{stdio:'ignore'})
@@ -56,7 +72,7 @@ await send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
     return realFetch(u,o);
   };
 })()`})
-await send('Page.navigate',{url:'http://127.0.0.1:3016/?ftoken=harness'})
+await send('Page.navigate',{url:`http://127.0.0.1:${PORT}/?ftoken=harness`})
 await sleep(DELAY ? 2200 : 6000)   // when slow, open the rank screen BEFORE the directory lands
 const evl=async e=>(await send('Runtime.evaluate',{returnByValue:true,awaitPromise:true,expression:e}))?.result?.value
 await evl(`document.getElementById('rank-btn').click()`); await sleep(1800)

@@ -22,11 +22,13 @@
  *                   podium, and the 4th MUST still be in the list — a `rank<=3` filter deletes it too,
  *                   since its rank (1) also passes the test.
  *
- *   node _rank-podium.mjs [port]        # default 3016
+ *   node _rank-podium.mjs [port] [cdpPort]        # port default 3016; cdpPort default: an OS-assigned
+ *                                                  # free port (override with CDP_PORT= or this arg)
  */
 import { spawn } from 'node:child_process'
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { createServer } from 'node:net'
 
 const PORT = process.argv[2] || '3016'
 const OUT = '/private/tmp/claude-501/-Users-adamleeperelman-Documents-pikeme/2ba97360-cc2f-4b64-9852-05d9f15da5fd/scratchpad/rankpodium'
@@ -35,7 +37,18 @@ try { rmSync(OUT + '/profile', { recursive: true, force: true }) } catch {}
 setTimeout(() => { console.error('TIMEOUT'); process.exit(2) }, 180000).unref?.()
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-const CDP = 9433
+// REVIEW FIX — this used to be a bare `const CDP = 9433`. With 20+ concurrent agents in this repo that
+// is a live collision, not a hypothetical one: measured 2026-08-04, a run of this file attached to a
+// Chrome another agent already had listening on 9433 and reported a false FAIL (page errors) while
+// every real assertion passed. `CDP_PORT` env var / 3rd argv slot forces a specific port (for
+// reproducing a result); with neither given, ask the OS for an ephemeral one — nobody else can be
+// bound to a port the kernel just handed out, so the default case can no longer collide at all.
+const freePort = (fallback) => new Promise((resolve) => {
+  const srv = createServer()
+  srv.on('error', () => resolve(fallback))
+  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)) })
+})
+const CDP = Number(process.env.CDP_PORT || process.argv[3]) || await freePort(9433)
 
 const ME = {
   me: { id: 'u0', nickName: 'אדם' }, maxMembers: 30, k: 3,
@@ -92,6 +105,25 @@ const TIE_B = {
     { rank: 1, userId: 'q2', nickName: 'W2', club: null, emblem: null, value: 300, isMe: false },
     { rank: 1, userId: 'q3', nickName: 'W3', club: null, emblem: null, value: 300, isMe: false },
     { rank: 1, userId: 'q4', nickName: 'W4', club: null, emblem: null, value: 300, isMe: true },
+  ],
+}
+// 5. IDLESS — final-review finding: the server OMITS `userId` when its identity join misses
+// (pikme-server routes-pikme/clubs.js:1200: `u ? { userId: String(u._id) } : {}`), which used to make
+// `podiumId()` return the literal string "undefined" for the row. Ranks 1 and 5 both lack `userId` here
+// (and lack `nickName`, so the row falls back to the default 'שחקן' — the exact shape a missed identity
+// join produces), rank 1 lands ON the podium and rank 5 does NOT. Before the fix, rank 1's "undefined"
+// entered the podium Set and rank 5's OWN "undefined" collided with it, so rank 5 vanished from the list
+// and `prev` was never advanced for it either, drawing a spurious `.scope-gap` before rank 6.
+const IDLESS = {
+  metric: 'trophies', scope: 'personal', totalRanked: 6,
+  me: { rank: 3, value: 700 },
+  rows: [
+    { rank: 1, nickName: null, club: null, emblem: null, value: 900, isMe: false },
+    { rank: 2, userId: 'i2', nickName: 'B', club: null, emblem: null, value: 800, isMe: false },
+    { rank: 3, userId: 'i3', nickName: 'C', club: null, emblem: null, value: 700, isMe: true },
+    { rank: 4, userId: 'i4', nickName: 'D', club: null, emblem: null, value: 600, isMe: false },
+    { rank: 5, nickName: null, club: null, emblem: null, value: 500, isMe: false },
+    { rank: 6, userId: 'i6', nickName: 'F', club: null, emblem: null, value: 400, isMe: false },
   ],
 }
 
@@ -169,6 +201,7 @@ const DRILL = {
 }
 
 async function main() {
+  console.log(`[rank-podium] target server :${PORT} · chrome CDP :${CDP}`)
   const chrome = spawn(CHROME, [`--remote-debugging-port=${CDP}`, '--headless=new', '--no-first-run',
     `--user-data-dir=${OUT}/profile`, '--window-size=844,390', 'about:blank'], { stdio: 'ignore' })
   let target
@@ -256,7 +289,10 @@ async function main() {
       firstIsCentre: places[1] ? places[1].classList.contains('first') : false,
       listRanks: rows.map(x => x.querySelector('.pos').textContent),
       listUids: rows.map(x => x.dataset.uid ?? null),
+      listNames: rows.map(x => (x.querySelector('.nm b') || {}).textContent ?? null),
       gaps: document.querySelectorAll('.scope-gap').length,
+      minePlaces: places.map(p => p.classList.contains('mine')),
+      mineNames: places.map(p => p.querySelector('.pod-name')?.textContent ?? null),
     })
   })()`
 
@@ -301,6 +337,21 @@ async function main() {
   check('3 places, all filled (no empty placeholder)', got.places === 3 && got.names.every(n => n), got.names.join(','))
   check('3 DISTINCT names on the podium', new Set(got.names).size === 3, got.names.join(','))
   check('the 4th tied row still appears in the list (rank<=3 would delete it)', got.listUids.includes('q4') && got.listRanks.length === 1, JSON.stringify(got.listUids))
+
+  console.log('\n4b) IDLESS — two identity-less rows (no userId), one on the podium (rank 1) one off it (rank 5)')
+  got = await reload(IDLESS)
+  console.log('   ', got)
+  check('3 places on the podium', got.places === 3, got.places)
+  check('the list is ranks 4,5,6 — contiguous, nothing swallowed', got.listRanks.join(',') === '4,5,6', got.listRanks.join(','))
+  check('the identity-less rank-5 row is IN the list (not eaten by a shared "undefined" id)', got.listRanks.includes('5'), JSON.stringify(got.listRanks))
+  check('rank 5 renders the default nickname, not blank/undefined', got.listNames[got.listRanks.indexOf('5')] === 'שחקן', JSON.stringify(got.listNames))
+  check('no spurious .scope-gap (ranks 1..6 are contiguous once the podium is subtracted)', got.gaps === 0, got.gaps)
+  // REVIEW FIX (item 3) — rank 3 in this fixture is `isMe:true` AND lands on the podium (top 3). The
+  // caller must not be the one row on the whole screen with no "this is you" marker just because they
+  // reached the podium — renderPodium used to apply neither `.mine` nor the ' · אני' suffix at all.
+  check('the caller\'s own podium slot carries .pod-place.mine', got.minePlaces.some(Boolean), JSON.stringify(got.minePlaces))
+  check('exactly one podium slot is mine (not every slot, not none)', got.minePlaces.filter(Boolean).length === 1, JSON.stringify(got.minePlaces))
+  check('the mine slot\'s name carries the " · אני" suffix', got.mineNames.some(n => n && n.includes(' · אני')), JSON.stringify(got.mineNames))
 
   // Screenshot the last-rendered scenario (TIE_B) for a visual sanity check too.
   const shoot = async (name) => {
